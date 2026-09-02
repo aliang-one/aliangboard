@@ -71,10 +71,10 @@ function handleDiscard() {
         <button v-if="!readonly && !isEditing" @click="startEdit" class="flex items-center gap-xs px-sm py-xs text-body-sm text-primary font-medium hover:bg-primary-container/10 rounded-lg transition-colors">
           <span class="material-symbols-outlined text-base">edit</span> {{ $t('common.edit') }}
         </button>
-        <button @click="copy" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" :title="$t('common.copy')">
+        <button @click="copy" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('common.copy')">
           <span class="material-symbols-outlined text-lg">content_copy</span>
         </button>
-        <button @click="() => { const b=new Blob([editableContent],{type:'text/yaml'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='resource.yaml'; a.click(); URL.revokeObjectURL(u); }" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm" :title="$t('common.download')">
+        <button @click="() => { const b=new Blob([editableContent],{type:'text/yaml'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='resource.yaml'; a.click(); URL.revokeObjectURL(u); }" class="p-1 hover:bg-surface-container rounded text-on-surface-variant text-sm relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('common.download')">
           <span class="material-symbols-outlined text-lg">download</span>
         </button>
       </div>

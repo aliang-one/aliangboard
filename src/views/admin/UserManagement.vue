@@ -90,10 +90,10 @@ const headers = computed(() => tableColumns('userMgmt'))
       <template #status="{ row }"><span :class="row.disabled ? 'text-error' : 'text-status-running'" class="text-body-xs font-medium">{{ row.disabled ? $t('admin.users.disabled') : $t('admin.users.active') }}</span></template>
       <template #actions="{ row }">
         <div class="flex items-center justify-end gap-xs">
-          <button @click.stop="openAssign(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="$t('admin.users.assignClusters')"><span class="material-symbols-outlined text-base">share</span></button>
-          <button @click.stop="openReset(row)" class="p-1 rounded hover:bg-tertiary-container/10 text-on-surface-variant hover:text-tertiary-container" :title="$t('admin.users.resetPassword')"><span class="material-symbols-outlined text-base">key</span></button>
-          <button @click.stop="toggleDisable(row)" class="p-1 rounded hover:bg-surface-container text-on-surface-variant" :title="row.disabled ? $t('admin.users.enable') : $t('admin.users.disable')"><span class="material-symbols-outlined text-base">{{ row.disabled ? 'check_circle' : 'block' }}</span></button>
-          <button @click.stop="doDelete(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('common.delete')"><span class="material-symbols-outlined text-base">delete</span></button>
+          <button @click.stop="openAssign(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('admin.users.assignClusters')"><span class="material-symbols-outlined text-base">share</span></button>
+          <button @click.stop="openReset(row)" class="p-1 rounded hover:bg-tertiary-container/10 text-on-surface-variant hover:text-tertiary-container relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('admin.users.resetPassword')"><span class="material-symbols-outlined text-base">key</span></button>
+          <button @click.stop="toggleDisable(row)" class="p-1 rounded hover:bg-surface-container text-on-surface-variant relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="row.disabled ? $t('admin.users.enable') : $t('admin.users.disable')"><span class="material-symbols-outlined text-base">{{ row.disabled ? 'check_circle' : 'block' }}</span></button>
+          <button @click.stop="doDelete(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('common.delete')"><span class="material-symbols-outlined text-base">delete</span></button>
         </div>
       </template>
     </DataTable>

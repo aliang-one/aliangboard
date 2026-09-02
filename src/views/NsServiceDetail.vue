@@ -553,7 +553,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
                 <td v-if="hasNodePort" class="px-sm py-1.5 font-mono text-xs" :class="p.nodePort ? 'text-tertiary-container font-semibold' : 'text-on-surface-variant'">{{ p.nodePort || '—' }}</td>
                 <td class="px-sm py-1.5"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs font-mono text-on-surface-variant">{{ p.protocol }}</span></td>
                 <td v-if="canMutate && portRows.length" class="px-sm py-1.5 text-center">
-                  <button @click.stop="askDeletePort(i)" class="p-0.5 rounded text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-colors" :title="$t('ns.svcDetail.deletePortHint')"><span class="material-symbols-outlined text-base">delete</span></button>
+                  <button @click.stop="askDeletePort(i)" class="p-0.5 rounded text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.svcDetail.deletePortHint')"><span class="material-symbols-outlined text-base">delete</span></button>
                 </td>
               </tr>
             </tbody>

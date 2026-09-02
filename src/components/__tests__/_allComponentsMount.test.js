@@ -48,6 +48,10 @@ function stubProps(comp) {
 // 兜底 {} 会让 .value 读取抛错 → 给最小可用 fixture(空数据即可,验证首渲不崩)。
 const PROP_OVERRIDE = {
   'components/common/NodeActions.vue': { nodeName: 'node-1', action: 'drain' },
+  // flow 工作负载节点:data.workload 首渲即读(name/type/replicas/age/image),兜底 {} 不够
+  'components/common/flow/TopologyWorkloadNode.vue': {
+    data: { workload: { name: 'demo', type: 'Deployment', replicas: 1, age: '1d', image: 'nginx:latest' } },
+  },
   'components/common/WorkloadTopologyTab.vue': {
     topo: {
       states: ref({ servicesPending: false, ingressesPending: false }),
@@ -101,6 +105,11 @@ for (const [path, loader] of Object.entries(mods)) {
         global: {
           plugins: [i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
           stubs: { RouterLink: true, RouterView: true },
+          // flow 节点组件 inject 'topo-hover'/'topo-actions'(Tab 侧 provide);冒烟兜底空 actions(canMutate:false 隐藏加号)
+          provide: {
+            'topo-hover': ref(''),
+            'topo-actions': { canMutate: false, openIngressMap: () => {}, openExpose: () => {}, gotoService: () => {}, repairingSvc: '', identitySel: {}, repairServiceSelector: () => {} },
+          },
         },
       })
     } catch (e) {

@@ -2286,6 +2286,8 @@
       "driftPending": "滚动后将断:现有 Pod 仍匹配,新 Pod 将失配",
       "driftHeuristic": "判据:selector 值包含本负载名",
       "governing": "主",
+      "addIngressFor": "为该 Service 添加 Ingress",
+      "addExpose": "暴露为 Service",
       "noSelectorHint": "无 selector 的 Service（ExternalName/自管 Endpoints）不在此列",
       "schedule": "计划",
       "suspended": "已暂停",
@@ -2318,6 +2320,9 @@
       "noEvents": "暂无事件"
     },
     "modals": {
+      "restartTitle": "重启工作负载",
+      "restartConfirm": "确定要重启工作负载 {name} 吗？",
+      "restartHint": "等同 kubectl rollout restart：由控制器滚动替换 Pod，服务不中断。",
       "deleteTitle": "Delete Workload",
       "deleteConfirm": "Delete {name}?",
       "deletePodTitle": "删除 Pod",

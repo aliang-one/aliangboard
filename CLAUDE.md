@@ -16,6 +16,7 @@ K8s 多集群管理前端（Vue 3 + Vite + Pinia，纯 JS）+ 网关（`server/`
 | `dompurify` | 运行时（dependencies） | 消毒 marked 产出的 HTML（`conv.content` 为 LLM 生成、走 `v-html`，必须防 XSS）。 | 2026-08-10 workbench Cursor-style chat 设计 |
 | `echarts` | 运行时（dependencies） | 图表美化:折线/环形/表盘。`echarts/core` 按需引入(树摇,gzip 实测 ≈188KB,独立懒加载 chunk,未入主包),tooltip/渐变/过渡动画开箱即用。 | 2026-08-14 图表美化设计 `docs/superpowers/specs/2026-08-14-chart-beautification-design.md` |
 | `ssh2` | 运行时（dependencies） | SSH 客户端唯一可行纯 JS 实现(交互 shell 通道 + SFTP + password/keyboard-interactive/私钥认证)。系统 ssh 无法安全支持密码认证(sshpass 密码过 argv/环境变量)且容器须加装系统包。 | 2026-08-28 SSH 管理设计 `docs/superpowers/specs/2026-08-28-ssh-management-design.md` |
+| `@vue-flow/core` | 运行时（dependencies） | 拓扑页节点/连线画布:四列流水线迁 flow 画布,Ingress 规则→Service→Workload 只读连线+失配红虚线,为后续拖拽/布局/缩放留扩展空间。 | 2026-09-01 用户指定（拓扑连线化设计 `docs/superpowers/specs/2026-09-01-workload-topology-flow-design.md`） |
 
 > 设计文档：`~/.gstack/projects/aliang-aliangboard/liang-feat-data-model-design-20260806-001249.md`（含 GSTACK REVIEW REPORT）。
 

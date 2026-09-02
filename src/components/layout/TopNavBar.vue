@@ -149,6 +149,8 @@ function goClusters() {
 const clusterBtnRef = ref(null), clusterPanelRef = ref(null)
 const nsBtnRef = ref(null), nsPanelRef = ref(null)
 const clusterPanelStyle = ref(hiddenStyle()), nsPanelStyle = ref(hiddenStyle())
+// 手机档底部面板(spec §13.1):fixed 贴底全宽,Z.popover(110) 盖过遮罩 z-30
+const bottomSheetStyle = () => ({ position: 'fixed', left: '0px', right: '0px', bottom: '0px', zIndex: Z.popover })
 function hiddenStyle() { return { position: 'fixed', top: '0px', left: '0px', visibility: 'hidden', zIndex: Z.popover } }
 function placeDropdown(btn, panel, width) {
   if (!btn || !panel) return
@@ -162,8 +164,8 @@ function placeDropdown(btn, panel, width) {
 }
 async function placeAll() {
   await nextTick()
-  if (showClusterDropdown.value && clusterPanelRef.value) clusterPanelStyle.value = placeDropdown(clusterBtnRef.value, clusterPanelRef.value, 320)
-  if (showNsDropdown.value && nsPanelRef.value) nsPanelStyle.value = placeDropdown(nsBtnRef.value, nsPanelRef.value, 288)
+  if (showClusterDropdown.value && clusterPanelRef.value) clusterPanelStyle.value = belowSm.value ? bottomSheetStyle() : placeDropdown(clusterBtnRef.value, clusterPanelRef.value, 320)
+  if (showNsDropdown.value && nsPanelRef.value) nsPanelStyle.value = belowSm.value ? bottomSheetStyle() : placeDropdown(nsBtnRef.value, nsPanelRef.value, 288)
 }
 function onDocScroll() { placeAll() } // sticky 顶栏场景跟随即可,不必关闭
 function bindDropFollow() {
@@ -177,6 +179,9 @@ function unbindDropFollow() {
 watch([showClusterDropdown, showNsDropdown], v => {
   if (v.some(Boolean)) { placeAll(); bindDropFollow() } else { unbindDropFollow() }
 })
+// 抽屉集群切换通道(spec §13.1):SideNavBar drawer-mode 的 cluster-anchor 经 shell tick
+// 请求打开集群选择器(面板锚点 clusterBtnRef 手机档不存在,placeDropdown 手机分支本就绕过)
+watch(() => shell.clusterSelectTick, () => { if (belowSm.value) { showNsDropdown.value = false; showClusterDropdown.value = true } })
 onBeforeUnmount(unbindDropFollow)
 
 </script>
@@ -223,7 +228,7 @@ onBeforeUnmount(unbindDropFollow)
       </div>
 
       <!-- 集群切换 -->
-      <div class="relative shrink-0">
+      <div v-if="!belowSm" class="relative shrink-0">
         <button
           ref="clusterBtnRef"
           data-test="cluster-trigger"
@@ -245,8 +250,25 @@ onBeforeUnmount(unbindDropFollow)
         <!-- 下拉列表已迁至底部 Teleport(fixed 锚定,issue#4 同款) -->
       </div>
 
+      <!-- 手机单颗上下文胶囊(spec §13.1):ns 主/集群副,点击弹 ns 底部选择器;集群切换进抽屉 -->
+      <button v-if="belowSm" data-test="context-capsule" @click="showNsDropdown = !showNsDropdown"
+        class="flex items-center gap-xs min-w-0 flex-1 max-w-[240px] px-sm py-1.5 rounded-lg border transition-all"
+        :class="showNsDropdown
+          ? 'border-primary bg-primary/5 text-primary'
+          : (currentNs
+            ? 'border-primary/40 bg-primary/5 text-primary'
+            : 'border-outline-variant bg-surface-container-low text-on-surface-variant')"
+        :aria-label="$t('nav.switchNamespace')">
+        <span class="material-symbols-outlined text-lg shrink-0">folder_open</span>
+        <div class="flex flex-col items-start leading-tight min-w-0 flex-1">
+          <span class="w-full text-body-sm font-semibold truncate">{{ currentNs || $t('nav.notSelected') }}</span>
+          <span class="w-full text-[10px] text-on-surface-variant truncate">{{ currentClusterObj?.name || '—' }}</span>
+        </div>
+        <!-- 手机档不渲染 expand_more 尾图标(375px 主文本仅剩 ~10-25px,去 chevron 省 ~28px;Wave 4 终审 D) -->
+      </button>
+
       <!-- 当前命名空间 + 快速切换（顶栏显式上下文） -->
-      <div class="relative shrink-0">
+      <div v-if="!belowSm" class="relative shrink-0">
         <button
           ref="nsBtnRef"
           data-test="ns-trigger"
@@ -282,7 +304,11 @@ onBeforeUnmount(unbindDropFollow)
   </header>
   <!-- 集群/ns 下拉:Teleport body + fixed 锚定触发钮 rect(脱离 sticky header 裁切,issue#4 同款) -->
   <Teleport to="body">
-    <div v-if="showClusterDropdown" ref="clusterPanelRef" data-testid="cluster-dropdown-panel" class="bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown overflow-hidden" :style="clusterPanelStyle">
+    <div v-if="showClusterDropdown" ref="clusterPanelRef" data-testid="cluster-dropdown-panel"
+      :data-bottom-sheet="String(belowSm)"
+      class="bg-surface-container-lowest border border-outline-variant shadow-dropdown overflow-hidden"
+      :class="belowSm ? 'fixed bottom-0 left-0 right-0 rounded-t-2xl max-h-[70vh] overflow-y-auto max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]' : 'rounded-lg'"
+      :style="clusterPanelStyle">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-md py-sm border-b border-outline-variant">
         <p class="text-label-caps text-on-surface-variant">{{ $t('nav.switchCluster') }}</p>
@@ -318,11 +344,16 @@ onBeforeUnmount(unbindDropFollow)
         </div>
       </div>
     </div>
-    <div v-if="showNsDropdown" ref="nsPanelRef" data-testid="ns-dropdown-panel" class="bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown overflow-hidden" :style="nsPanelStyle">
+    <div v-if="showNsDropdown" ref="nsPanelRef" data-testid="ns-dropdown-panel"
+      :data-bottom-sheet="String(belowSm)"
+      class="bg-surface-container-lowest border border-outline-variant shadow-dropdown overflow-hidden"
+      :class="belowSm ? 'fixed bottom-0 left-0 right-0 rounded-t-2xl max-h-[70vh] overflow-y-auto max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]' : 'rounded-lg'"
+      :style="nsPanelStyle">
       <div class="p-sm border-b border-outline-variant">
             <div class="relative">
               <span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm pointer-events-none">search</span>
-              <input v-model="nsSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-md pl-8 pr-sm py-1.5 text-body-sm focus:ring-1 focus:ring-primary focus:border-primary" :placeholder="$t('nav.filterNamespaces')" />
+              <!-- autofocus:手机档 bottom sheet 弹出即聚焦搜索(brief 裁决:始终 autofocus 可接受,桌面档打开亦是期望行为) -->
+              <input v-model="nsSearch" autofocus class="w-full bg-surface-container-low border border-outline-variant rounded-md pl-8 pr-sm py-1.5 text-body-sm focus:ring-1 focus:ring-primary focus:border-primary" :placeholder="$t('nav.filterNamespaces')" />
             </div>
           </div>
           <div class="max-h-72 overflow-y-auto p-sm">
@@ -367,6 +398,9 @@ onBeforeUnmount(unbindDropFollow)
       </div>
     </div>
   </Teleport>
-  <!-- 点击外部关闭下拉（集群 / 命名空间） -->
-  <div v-if="showClusterDropdown || showNsDropdown" class="fixed inset-0 z-30" @click="closeClusterDropdown(); closeNsDropdown()"></div>
+  <!-- 点击外部关闭下拉（集群 / 命名空间）——手机档 bottom sheet 用独立全屏遮罩,
+       z 取 Z.popover-1(spec §13.2):盖过顶栏(50)/抽屉遮罩(54)/抽屉(55),面板(110)盖过遮罩 -->
+  <div v-if="belowSm && (showClusterDropdown || showNsDropdown)" class="fixed inset-0" data-test="sheet-overlay"
+    :style="{ zIndex: String(Z.popover - 1) }" @click="closeClusterDropdown(); closeNsDropdown()"></div>
+  <div v-else-if="showClusterDropdown || showNsDropdown" class="fixed inset-0 z-30" @click="closeClusterDropdown(); closeNsDropdown()"></div>
 </template>

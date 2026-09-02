@@ -42,6 +42,8 @@ import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { openLogTab } from '@/composables/useLogViewer'
 import { backfillVolumes } from '@/logic/volumeBackfill'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
+import { useIsPhone } from '@/composables/useBreakpoint'
+import { Z } from '@/styles/zScale'
 
 const route = useRoute()
 const router = useRouter()
@@ -50,6 +52,7 @@ const store = useClusterStore()
 const termStore = useTerminalStore()
 const fbStore = useFileBrowserStore()
 const { applyYaml } = useResourceApply()
+const { isPhone } = useIsPhone()
 store.setNamespace(route.params.namespace)
 
 // 关联资源走 Vue Query。Events 留本页(不在拓扑域);services/ingresses/pdbs/netpols
@@ -415,7 +418,9 @@ async function handleDelete() {
   await store.deleteWorkload(route.params.name, route.params.namespace)
   router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })
 }
-function handleRestart() { store.restartWorkload(route.params.name, route.params.namespace); refreshSoon() }
+const showRestartModal = ref(false)
+function askRestart() { showRestartModal.value = true }
+function handleRestart() { showRestartModal.value = false; store.restartWorkload(route.params.name, route.params.namespace); refreshSoon() }
 
 // 刷新：重新拉取工作负载/Pod/事件（部署中状态不会自动变，需手动或删除 Pod 触发）
 const refreshing = ref(false)
@@ -1239,16 +1244,16 @@ function podStatusBorder(s) {
           </div>
         </div>
       </div>
-      <div class="flex gap-xs shrink-0">
-        <button @click="refresh" :disabled="refreshing" :title="refreshing ? $t('workload.refreshing') : $t('workload.refreshTitle')" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40">
+      <div class="flex gap-xs shrink-0 max-sm:flex-wrap">
+        <button @click="refresh" :disabled="refreshing" :title="refreshing ? $t('workload.refreshing') : $t('workload.refreshTitle')" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40">
           <span class="material-symbols-outlined text-base" :class="refreshing ? 'animate-spin' : ''">refresh</span><span class="hidden lg:inline">{{ $t('workload.refresh') }}</span>
         </button>
-        <button v-if="isScalable" @click="openScale" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.scale') }}</button>
-        <button @click="handleRestart" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.restart') }}</button>
-        <button @click="openMetaEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.metadata') }}</button>
-        <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('common.edit') }}</button>
-        <button v-if="isRolloutType" @click="openTemplateEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.template') }}</button>
-        <button @click="showDeleteModal = true" :disabled="!canDelete" :title="!canDelete ? $t('workload.noDeletePerm') : ''" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.delete') }}</button>
+        <button v-if="isScalable" @click="openScale" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.scale') }}</button>
+        <button @click="askRestart" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.restart') }}</button>
+        <button @click="openMetaEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.metadata') }}</button>
+        <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('common.edit') }}</button>
+        <button v-if="isRolloutType" @click="openTemplateEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.template') }}</button>
+        <button @click="showDeleteModal = true" :disabled="!canDelete" :title="!canDelete ? $t('workload.noDeletePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.delete') }}</button>
       </div>
     </div>
 
@@ -1380,9 +1385,9 @@ function podStatusBorder(s) {
                   <span class="text-[9px] leading-none shrink-0">{{ $t('workload.revision.ready') }}<b class="ml-0.5 font-mono text-[10px] font-bold leading-none" :class="revReadyClass(rev)">{{ rev.readyReplicas ?? 0 }}</b></span>
                 </div>
                 <div class="flex items-center ml-auto shrink-0 -mr-0.5">
-                  <button @click.stop="viewRevYaml(rev)" class="p-1 rounded hover:bg-on-surface/10" :class="rev.current ? 'text-on-primary/90 hover:text-on-primary' : 'text-on-surface-variant hover:text-primary'" :title="$t('workload.revision.viewYaml')"><span class="material-symbols-outlined text-sm">code</span></button>
-                  <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="p-1 rounded hover:bg-primary/10 text-primary" :title="$t('workload.revision.rollbackTo')"><span class="material-symbols-outlined text-sm">undo</span></button>
-                  <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="$t('workload.revision.deleteRev')"><span class="material-symbols-outlined text-sm">delete</span></button>
+                  <button @click.stop="viewRevYaml(rev)" class="p-1 rounded hover:bg-on-surface/10 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :class="rev.current ? 'text-on-primary/90 hover:text-on-primary' : 'text-on-surface-variant hover:text-primary'" :title="$t('workload.revision.viewYaml')"><span class="material-symbols-outlined text-sm">code</span></button>
+                  <button v-if="!rev.current" @click.stop="confirmRollback(rev)" class="p-1 rounded hover:bg-primary/10 text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('workload.revision.rollbackTo')"><span class="material-symbols-outlined text-sm">undo</span></button>
+                  <button v-if="!rev.current" @click.stop="confirmDeleteRev(rev)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('workload.revision.deleteRev')"><span class="material-symbols-outlined text-sm">delete</span></button>
                 </div>
               </div>
             </button>
@@ -1411,7 +1416,7 @@ function podStatusBorder(s) {
                 @click="selectPod(p)" @delete="confirmDeletePod($event)"
               >
                 <template #actions>
-                  <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" :title="$t('workload.podList.openTerminal')">
+                  <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('workload.podList.openTerminal')">
                     <span class="material-symbols-outlined text-sm">terminal</span>
                   </button>
                 </template>
@@ -1658,7 +1663,7 @@ function podStatusBorder(s) {
       <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
         <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
           <span class="text-body-sm font-semibold">{{ $t('workload.network.relatedIngress') }}</span>
-          <button @click="openIngressMap" :disabled="!relatedServices.length" class="text-xs text-primary hover:underline disabled:opacity-40">{{ $t('workload.network.mapIngress') }}</button>
+          <button @click="openIngressMap()" :disabled="!relatedServices.length" class="text-xs text-primary hover:underline disabled:opacity-40">{{ $t('workload.network.mapIngress') }}</button>
         </div>
         <div v-if="relatedIngresses.length" class="divide-y divide-outline-variant/15">
           <template v-for="ing in relatedIngresses" :key="ing.name">
@@ -1716,7 +1721,7 @@ function podStatusBorder(s) {
           :selectable="batchMode" :selected="batchMode && selectedNames.has(p.name)"
           @click="onCardClick" @delete="confirmDeletePod($event)">
           <template #actions>
-            <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0" :title="$t('workload.podList.openTerminal')">
+            <button @click.stop="openExec(p)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant/50 hover:text-primary transition-colors shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('workload.podList.openTerminal')">
               <span class="material-symbols-outlined text-sm">terminal</span>
             </button>
           </template>
@@ -1798,6 +1803,16 @@ function podStatusBorder(s) {
     <template #actions>
       <button @click="showBatchModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('common.cancel') }}</button>
       <button @click="handleBatchDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('common.delete') }}</button>
+    </template>
+  </Modal>
+
+  <!-- 重启确认(终审 B:两档入口都经确认,与 PodDetail 止血条先例一致) -->
+  <Modal v-model="showRestartModal" :title="$t('workload.modals.restartTitle')" width="max-w-md">
+    <p class="text-body-md">{{ $t('workload.modals.restartConfirm', { name: route.params.name }) }}</p>
+    <p class="text-body-sm text-on-surface-variant mt-sm">{{ $t('workload.modals.restartHint') }}</p>
+    <template #actions>
+      <button @click="showRestartModal = false" class="px-md py-sm border border-outline-variant rounded-lg">{{ $t('common.cancel') }}</button>
+      <button @click="handleRestart" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('workload.restart') }}</button>
     </template>
   </Modal>
 
@@ -1894,7 +1909,7 @@ function podStatusBorder(s) {
                 </button>
               </div>
               <button type="button" data-testid="init-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
-                @click="openContainerEditor('init', idx)" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                @click="openContainerEditor('init', idx)" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
                 <span class="material-symbols-outlined text-base">open_in_full</span>
               </button>
             </div>
@@ -1926,7 +1941,7 @@ function podStatusBorder(s) {
                 </button>
               </div>
               <button type="button" data-testid="sidecar-expand-btn" :title="$t('deploy.editContainerExpand')" :aria-label="$t('deploy.editContainerExpand')"
-                @click="openContainerEditor('sidecar', idx)" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg">
+                @click="openContainerEditor('sidecar', idx)" class="p-1 text-on-surface-variant hover:bg-surface-container-high rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
                 <span class="material-symbols-outlined text-base">open_in_full</span>
               </button>
             </div>
@@ -1958,7 +1973,7 @@ function podStatusBorder(s) {
           <div v-for="(p, i) in editForm.ports" :key="i" class="flex items-center gap-xs">
             <input v-model.number="p.containerPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="8080" />
             <input v-model="p.protocol" class="w-24 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="TCP" />
-            <button @click="editForm.ports.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="editForm.ports.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
         </section>
 
@@ -1970,7 +1985,7 @@ function podStatusBorder(s) {
             <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs">
               <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="KEY" />
               <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="val" />
-              <button @click="editForm.env.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+              <button @click="editForm.env.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
           </div>
           <div class="flex flex-col gap-xs">
@@ -1978,7 +1993,7 @@ function podStatusBorder(s) {
             <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="flex items-center gap-xs">
               <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.envNamePlaceholder')" />
               <EnvSourceField kind="configmap" :namespace="route.params.namespace" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
-              <button @click="editForm.envCMKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+              <button @click="editForm.envCMKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
           </div>
           <div class="flex flex-col gap-xs">
@@ -1986,7 +2001,7 @@ function podStatusBorder(s) {
             <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="flex items-center gap-xs">
               <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.envNamePlaceholder')" />
               <EnvSourceField kind="secret" :namespace="route.params.namespace" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
-              <button @click="editForm.envSecretKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+              <button @click="editForm.envSecretKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
           </div>
           <div class="grid grid-cols-2 gap-xs">
@@ -2059,14 +2074,14 @@ function podStatusBorder(s) {
           <div v-for="(n, i) in editForm.nodeSelectors" :key="'ns'+i" class="flex items-center gap-xs">
             <input v-model="n.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="disktype" />
             <input v-model="n.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="ssd" />
-            <button @click="editForm.nodeSelectors.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="editForm.nodeSelectors.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
           <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.tolerations') }}</span><button @click="editForm.tolerations.push({ key: '', operator: 'Equal', value: '', effect: 'NoSchedule' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.add') }}</button></div>
           <div v-for="(t, i) in editForm.tolerations" :key="'tol'+i" class="grid grid-cols-4 gap-xs">
             <input v-model="t.key" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="key" />
             <select v-model="t.operator" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>Equal</option><option>Exists</option></select>
             <input v-model="t.value" :disabled="t.operator === 'Exists'" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="value" />
-            <div class="flex gap-xs"><select v-model="t.effect" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option></select><button @click="editForm.tolerations.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors"><span class="material-symbols-outlined text-base">close</span></button></div>
+            <div class="flex gap-xs"><select v-model="t.effect" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option></select><button @click="editForm.tolerations.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button></div>
           </div>
         </section>
 
@@ -2126,7 +2141,7 @@ function podStatusBorder(s) {
         <div v-for="(l, i) in metaForm.labels" :key="i" class="flex items-center gap-xs">
           <input v-model="l.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" />
           <input v-model="l.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="value" />
-          <button @click="metaForm.labels.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+          <button @click="metaForm.labels.splice(i, 1)" class="text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">close</span></button>
         </div>
         <p v-if="!metaForm.labels.length" class="text-xs text-on-surface-variant/50">{{ $t('workload.meta.noLabels') }}</p>
       </div>
@@ -2137,7 +2152,7 @@ function podStatusBorder(s) {
         <div v-for="(a, i) in metaForm.annotations" :key="i" class="flex items-start gap-xs">
           <input v-model="a.key" class="w-2/5 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="key" />
           <input v-model="a.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-xs font-mono" placeholder="value" />
-          <button @click="metaForm.annotations.splice(i, 1)" class="mt-1 text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+          <button @click="metaForm.annotations.splice(i, 1)" class="mt-1 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">close</span></button>
         </div>
         <p v-if="!metaForm.annotations.length" class="text-xs text-on-surface-variant/50">{{ $t('workload.meta.noAnnotations') }}</p>
       </div>
@@ -2170,7 +2185,7 @@ function podStatusBorder(s) {
         <input v-model.number="p.targetPort" type="number" class="w-28 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="target" />
         <!-- nodePort:NodePort/LoadBalancer 专属;留空=集群自动分配,「自动推荐」填集群级空闲端口 -->
         <input v-if="topo.isNodePortType()" v-model.number="p.nodePort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded px-md py-sm text-body-sm font-mono" placeholder="nodePort" />
-        <button @click="exposeForm.ports.splice(i, 1)" class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-sm">close</span></button>
+        <button @click="exposeForm.ports.splice(i, 1)" class="text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">close</span></button>
       </div>
       <div class="flex items-center gap-sm flex-wrap">
         <button @click="exposeForm.ports.push({ port: '', targetPort: '', protocol: 'TCP', nodePort: '' })" class="self-start text-xs text-primary">+ {{ $t('workload.expose.port') }}</button>
@@ -2284,4 +2299,16 @@ function podStatusBorder(s) {
       <button @click="confirmApplyYaml" :disabled="!diffStat.add && !diffStat.del" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ $t('workload.diff.apply') }}</button>
     </template>
   </Modal>
+
+  <!-- 手机底部止血条(Wave 3 Task 3):伸缩/重启一键可达;复用 openScale/askRestart——重启经确认弹窗(两档同改) -->
+  <div v-if="isPhone && workload" data-testid="workload-action-bar"
+    class="sticky bottom-0 flex gap-sm px-md pt-sm bg-surface-container-lowest border-t border-outline-variant"
+    :style="{ zIndex: Z.drawer - 1, paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }">
+    <button v-if="isScalable" @click="openScale" :disabled="!canMutate" class="flex-1 min-h-[44px] flex items-center justify-center gap-sm bg-primary text-on-primary rounded-lg font-semibold active:scale-95 transition-all disabled:opacity-40">
+      <span class="material-symbols-outlined text-base">open_in_full</span>{{ $t('workload.scale') }}
+    </button>
+    <button @click="askRestart" :disabled="!canMutate" class="flex-1 min-h-[44px] flex items-center justify-center gap-sm border border-outline-variant text-on-surface rounded-lg active:scale-95 transition-all disabled:opacity-40">
+      <span class="material-symbols-outlined text-base">restart_alt</span>{{ $t('workload.restart') }}
+    </button>
+  </div>
 </template>
