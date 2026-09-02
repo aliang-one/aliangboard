@@ -9,6 +9,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { notify } from '@/composables/useToast'
 import { sameHostIngresses, appendPathToIngress } from '@/composables/useIngressRules'
+import { pickIngressClassName } from '@/logic/ingressClass'
 import { identitySelector, servicesBrokenBy, podTemplateLabels } from '@/logic/workloadMeta'
 import { filterOwnIngressRules, classifyServiceDrift, endpointsForService, groupPodsByReplicaSet, latestOwnedRs, usedNodePortsFromServices, suggestNodePorts } from '@/logic/topology'
 
@@ -32,6 +33,9 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
     select: list => list.filter(r => r.namespace === ns()),
     options: { ...POLL, enabled: () => workload.value?.type === 'Deployment' },
   })
+  // IngressClass 单源(集群级;与 NsIngress/DeployApp 同 key → 命中 Vue Query 缓存,零额外请求)
+  const ingressClassesQuery = useResourceList({ key: ['cluster', cid, 'ingressclasses'], fetcher: () => store.fetchIngressClasses(), options: { staleTime: 60_000 } })
+  const ingressClassList = computed(() => ingressClassesQuery.data.value || [])
 
   const serviceList = computed(() => servicesQuery.data.value || [])
   const ingressList = computed(() => ingressesQuery.data.value || [])
@@ -199,7 +203,8 @@ export function useWorkloadTopology({ workload, namespace, pollInterval, managed
     // addIngress 失败返回 {ok:false}(store 已 toast 错误):据 r.ok 决定后续,失败保留弹窗不误报成功;
     // 若 addIngress 抛异常同样 catch 错误 notify(与原实现 saveExpose 同款兜底)
     try {
-      const r = await store.addIngress({ name: f.name || `${workload.value?.name || 'app'}-ingress`, namespace: ns(), className: '', tls: false, tlsSecret: '', rules: [{ host: rule.host, http: { paths: [{ path: rule.path, pathType: rule.pathType, backend: { serviceName: rule.serviceName, servicePort: Number(rule.servicePort) } }] } }] })
+      // 「集群默认」退役(2026-09-01):className 恒选确定类(isDefault 优先,否则字母序第一),无类回退 ''(原行为)
+      const r = await store.addIngress({ name: f.name || `${workload.value?.name || 'app'}-ingress`, namespace: ns(), className: pickIngressClassName(ingressClassList.value), tls: false, tlsSecret: '', rules: [{ host: rule.host, http: { paths: [{ path: rule.path, pathType: rule.pathType, backend: { serviceName: rule.serviceName, servicePort: Number(rule.servicePort) } }] } }] })
       if (r && r.ok === false) return
       notify('success', t('workload.notify.createdIngress', { host: rule.host || '*', path: rule.path, service: rule.serviceName, port: rule.servicePort }))
       showIngressMapModal.value = false
