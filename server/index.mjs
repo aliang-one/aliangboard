@@ -19,6 +19,7 @@ import { resolveApiKey, createApiKeyTools, safePodPath, podPathDenied } from './
 import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
+import { fetchRegistryTags } from './registry-tags.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
@@ -440,17 +441,7 @@ const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
 
 // 解析镜像引用 → { registry, repo }：registry 为含 . 或 : 或 localhost 的首段
 // 形如 registry.liang.home/library/app:v1 → { registry:'registry.liang.home', repo:'library/app' }
-function parseImageRef(image) {
-  let s = String(image || '').trim().split('@')[0] // 去 digest
-  const slash = s.indexOf('/')
-  const colon = s.lastIndexOf(':')
-  if (colon > slash) s = s.slice(0, colon) // 去 tag（仅当 : 在最后一个 / 之后）
-  const firstSlash = s.indexOf('/')
-  const head = firstSlash > -1 ? s.slice(0, firstSlash) : ''
-  const isRegistry = head && (head.includes('.') || head.includes(':') || head === 'localhost')
-  if (isRegistry) return { registry: head, repo: s.slice(firstSlash + 1) }
-  return { registry: '', repo: s } // 无 registry → 视为官方镜像（docker.io）
-}
+// parseImageRef 已迁 ./registry-tags.mjs normalizeImageRef（2026-09-03 token 换票修复随迁）
 
 function sessionFromRequest(req) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
@@ -1902,38 +1893,22 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     }
   }
 
-  // 镜像仓库可用版本：查询 registry v2 /v2/<repo>/tags/list
-  // 支持自签证书（跳过 TLS 校验）、明文 http 自动回退、可选 basic auth（私有仓库）
+  // 镜像仓库可用版本：查询 registry v2 /v2/<repo>/tags/list（实现在 ./registry-tags.mjs）
+  // 支持自签证书（跳过 TLS 校验）、明文 http 自动回退、可选账密（私有仓库）、
+  // Docker v2 token 换票流程（2026-09-03 修复：匿名公共镜像——含 Docker Hub——此前恒 401 误报「需要密码」）
   // 鉴权(2026-08-28 CSO 审计 #2):此前是全文件唯一漏挂 session 的端点——host 由 input.image 派生,
   // 未认证调用者可借网关探测内网(401/404/502/unreachable 可区分)。与相邻端点对齐补 session 门禁。
   if (req.method === 'POST' && url.pathname === '/api/registry/tags') {
     const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const input = await readBody(req)
-      const ref = parseImageRef(String(input.image || ''))
-      if (!ref.registry || !ref.repo) return sendJson(res, 400, { message: msg(req, 'api.registryUnparsable') })
-      const headers = {}
-      if (input.username || input.password) {
-        headers.authorization = 'Basic ' + Buffer.from(`${input.username || ''}:${input.password || ''}`).toString('base64')
-      }
       const agent = new UndiciAgent({ connect: { rejectUnauthorized: false } })
-      const path = `/v2/${ref.repo}/tags/list?n=100`
-      let r
-      try {
-        r = await kubeFetch(`https://${ref.registry}${path}`, { headers, dispatcher: agent })
-      } catch (e) {
-        // https 不可达（明文 registry / 端口未开 TLS）→ 回退 http
-        r = await kubeFetch(`http://${ref.registry}${path}`, { headers, dispatcher: agent })
-      }
-      if (r.status === 401) return sendJson(res, 401, { message: msg(req, 'api.registryNeedsAuth'), needsAuth: true })
-      if (r.status === 404) return sendJson(res, 404, { message: msg(req, 'api.registryRepoNotFound', { repo: ref.repo }) })
-      if (!r.ok) {
-        const t = await r.text().catch(() => '')
-        return sendJson(res, 502, { message: msg(req, 'api.registryReturned', { status: r.status, body: t.slice(0, 200) }) })
-      }
-      const data = await r.json()
-      const tags = Array.isArray(data.tags) ? data.tags.slice().sort().reverse() : []
-      return sendJson(res, 200, { registry: ref.registry, repo: ref.repo, tags })
+      const r = await fetchRegistryTags({ image: String(input.image || ''), username: input.username, password: input.password, fetchImpl: (t, o) => kubeFetch(t, { ...o, dispatcher: agent }) })
+      if (r.unparsable) return sendJson(res, 400, { message: msg(req, 'api.registryUnparsable') })
+      if (r.needsAuth) return sendJson(res, 401, { message: msg(req, 'api.registryNeedsAuth'), needsAuth: true })
+      if (r.notFound) return sendJson(res, 404, { message: msg(req, 'api.registryRepoNotFound', { repo: r.repo }) })
+      if (!r.ok) return sendJson(res, 502, { message: msg(req, 'api.registryReturned', { status: r.status, body: r.bodySnippet || '' }) })
+      return sendJson(res, 200, { registry: r.registry, repo: r.repo, tags: r.tags })
     } catch (error) {
       return sendJson(res, 502, { message: msg(req, 'api.registryUnreachable', { msg: error?.message || error }) })
     }
