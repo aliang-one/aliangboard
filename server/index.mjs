@@ -20,6 +20,7 @@ import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { fetchRegistryTags } from './registry-tags.mjs'
+import { rekeyWindowRecords, purgeOrphanWindowRecords } from './window-records.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
@@ -410,6 +411,10 @@ function loadPersistedSessions() {
     } catch { /* 单条损坏跳过，不影响其他 */ }
   }
   if (sessions.size) console.log(`[sqlite] 已恢复 ${sessions.size} 个集群会话`)
+  // 孤儿窗口记录超龄清理(2026-09-03):rekey 之前的存量孤儿(token 已轮换,永远查不到)按 30d
+  // 年龄兜底回收,防 terminals/file_browsers 无界增长。不按 token 判——session 行可能已被过期回收。
+  const purged = purgeOrphanWindowRecords(db, 30 * 24 * 60 * 60 * 1000)
+  if (purged.terminals || purged.file_browsers) console.log(`[sqlite] 已清理超龄窗口记录: terminals=${purged.terminals} file_browsers=${purged.file_browsers}`)
 }
 
 // CSO 2026-08-30 #9:进程级 TLS 开关已移除;K8S_INSECURE_SKIP_TLS_VERIFY 仅在 buildCallContext 内按会话生效
@@ -1780,6 +1785,22 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       return sendJson(res, 405, { message: 'Method not allowed' })
     } catch (error) { return sendJson(res, 500, { message: error?.message || msg(req, 'api.terminalOpFailed') }) }
   }
+  // POST /api/terminals/rekey — 归属迁移(2026-09-03):记录以 K8s session token 为归属键,
+  // token 因 TTL 过期/集群重连轮换后旧记录对新 token 永久失明(任务栏「记录消失」的根因)。
+  // 客户端重连同一集群后出示旧 token,把 terminals + file_browsers 名下记录迁到当前 token。
+  // 授权:出示旧 token ≈ 持有该会话凭据,不构成越权面。须在 /:id 前缀匹配之前注册。
+  if (url.pathname === '/api/terminals/rekey' && req.method === 'POST') {
+    const session = req.abSession // 路由鉴权门已预检并缓存
+    try {
+      const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+      const input = await readBody(req)
+      const moved = rekeyWindowRecords(db, input.from, token)
+      return sendJson(res, 200, { ok: true, moved })
+    } catch (error) {
+      return sendJson(res, 400, { message: error?.message || msg(req, 'api.terminalOpFailed') })
+    }
+  }
+
   if (url.pathname.startsWith('/api/terminals/')) {
     const session = req.abSession // 路由鉴权门已预检并缓存
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')

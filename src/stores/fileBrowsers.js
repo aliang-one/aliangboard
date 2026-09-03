@@ -15,13 +15,23 @@ export const useFileBrowserStore = defineStore('fileBrowsers', () => {
   async function persistUpdate(id, patch) { try { await fileBrowserApi.update(id, patch) } catch { /* noop */ } }
   async function persistDelete(id) { try { await fileBrowserApi.remove(id) } catch { /* noop */ } }
 
+  // 有界重试 5×3s(2026-09-03,与 terminals store 同款):网络差时页面加载失败不再静默空到下次刷新
+  let loadRetryTimer = null
+  let loadRetries = 0
   async function loadPersisted() {
+    clearTimeout(loadRetryTimer)
     try {
       const res = await fileBrowserApi.list()
       const loaded = (res?.browsers || []).map(b => ({ ...b, status: 'minimized', zIndex: 0 }))  // 刷新后全最小化
       browsers.value = loaded
+      loadRetries = 0
       // 注:旧代码这里把 nextZ 跳到 100+N,刷新后浮窗越到 modal 层之上,已改由 allocator 保证带内
-    } catch { /* 离线静默 */ }
+    } catch {
+      if (browsers.value.length === 0 && loadRetries < 5) {
+        loadRetries++
+        loadRetryTimer = setTimeout(loadPersisted, 3000)
+      }
+    }
   }
 
   // 打开(同 pod+container 去重聚焦)
