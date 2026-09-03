@@ -103,6 +103,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   async function run({ system, history = [], onStep, onDelta, onReasoning, refreshSystem, resume } = {}) {
     // 初始化:resume 从回传状态续跑;否则从 system + history 起
     let messages, queue = [], denied = [], steps = 0
+    let wrappedUp = false // 收尾轮每 run 至多一次(2026-09-03)
     let resumeToolCallId = null, resumeApproved = false
     if (resume) {
       messages = [...(resume.messages || [])]
@@ -164,8 +165,21 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
         onStep?.({ type: 'tool', name, args, result, ts: Date.now() })
       }
 
-      // 2) 队列空 → 下一轮 chat(受 maxSteps 约束)
-      if (steps >= maxSteps) return { content: '(达到最大步数,未给出终答)', steps, denied, truncated: true }
+      // 2) 队列空 → 下一轮 chat(受 maxSteps 约束;0/负数 = 不设限,仅上下文预算兜底)
+      if (maxSteps > 0 && steps >= maxSteps) {
+        // 收尾轮(2026-09-03):到上限不再硬断——注入系统收尾指令、不带工具,强制基于已有信息终答。
+        // truncated 仍 true:前端据此亮「已达步数上限」标;每 run 至多一次(极端二次到顶走旧兜底文案)。
+        if (!wrappedUp) {
+          wrappedUp = true
+          messages.push({ role: 'user', content: `(系统提示:已达到最大执行步数 ${maxSteps},请立即基于以上已获得的信息给出最终回答,不要再调用任何工具。)` })
+          steps++
+          const assistant = await chat(messages, [], (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
+          messages.push(assistant)
+          onStep?.({ type: 'assistant', message: assistant, ts: Date.now() })
+          return { content: assistant.content, steps, denied, truncated: true }
+        }
+        return { content: '(达到最大步数,未给出终答)', steps, denied, truncated: true }
+      }
       steps++
       let truncated = false
       if (messages.length > 1) {
