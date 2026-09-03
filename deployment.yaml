@@ -76,6 +76,10 @@ spec:
             #   value: "https://api.deepseek.com/v1"
             # - name: LLM_MODEL
             #   value: "deepseek-chat"
+            # 可选:工作台 AI 最大执行步数的「缺省值」(管理后台「AI 行为」面板可覆盖并存库;
+            # 0 = 不限制;未设时默认 16)。仅作缺省通道,改动即时生效无需重启(面板存库值优先)。
+            # - name: WB_MAX_STEPS
+            #   value: "16"
           resources:
             requests:
               cpu: 100m
