@@ -42,14 +42,25 @@ export const useTerminalStore = defineStore('terminals', () => {
   async function persistUpdate(id, patch) { try { await terminalApi.update(id, patch) } catch { /* noop */ } }
   async function persistDelete(id) { try { await terminalApi.remove(id) } catch { /* noop */ } }
 
-  // 启动时从服务端加载（刷新恢复）
+  // 启动时从服务端加载（刷新恢复）。网络差时页面加载常失败——旧实现静默放弃,任务栏空到
+  // 下次手动刷新(2026-09-03「终端记录消失」排查)。有界重试 5×3s;期间用户已开新终端则停。
+  let loadRetryTimer = null
+  let loadRetries = 0
+  const LOAD_RETRY_MAX = 5
   async function loadPersisted() {
+    clearTimeout(loadRetryTimer)
     try {
       const res = await terminalApi.list()
       const loaded = (res?.terminals || []).map(t => ({ ...t, status: 'minimized', zIndex: 0 })) // 刷新后全最小化
       terminals.value = loaded
+      loadRetries = 0
       // 注:旧代码这里把 nextZ 跳到 100+N,刷新后浮窗越到 modal 层之上,已改由 allocator 保证带内
-    } catch { /* 离线模式静默 */ }
+    } catch {
+      if (terminals.value.length === 0 && loadRetries < LOAD_RETRY_MAX) {
+        loadRetries++
+        loadRetryTimer = setTimeout(loadPersisted, 3000)
+      }
+    }
   }
 
   // 创建（从任意 Pod 打开终端）。若同一 Pod+container 已有终端 → 聚焦它

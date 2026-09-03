@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { api, authApi, saveSession, clearSession, getSessionToken } from '@/api/client'
+import { api, authApi, saveSession, clearSession, getSessionToken, getStashedSession, clearStashedSession, rekeyApi } from '@/api/client'
 import { usePreferencesStore } from '@/stores/preferences'
 
 const LAST_CLUSTER_KEY = 'aliangboard.lastCluster'
@@ -47,10 +47,22 @@ export const useAuthStore = defineStore('auth', () => {
   // Layer 2：连接集群 → 获得 K8s session token；记住用户选的集群（下次自动连）
   async function connectCluster(clusterId) {
     const res = await authApi.connectCluster(clusterId)
+    const prevCluster = localStorage.getItem(LAST_CLUSTER_KEY) // 须在覆写前捕获(跨集群判定用)
     k8sToken.value = res.token
     saveSession(res.token, true)
     localStorage.setItem(LAST_CLUSTER_KEY, clusterId) // 记住选择
+    rekeyWindowRecords(prevCluster, clusterId, res.token)
     return res
+  }
+
+  // 会话轮换后的窗口记录迁移(2026-09-03):仅同一集群的重连才迁(换集群时旧记录指向的
+  // ns/pod 在新集群不存在,迁过去是幽灵 chip)。fire-and-forget:迁移失败保留 stash,
+  // 下次重连再试;不阻塞连接主链路。
+  function rekeyWindowRecords(prevCluster, clusterId, newToken) {
+    const prev = getStashedSession()
+    if (!prev || prev === newToken) return
+    if (prevCluster && prevCluster !== clusterId) { clearStashedSession(); return }
+    rekeyApi.windowRecords(prev).then(() => clearStashedSession()).catch(() => { /* 保留 stash 重试 */ })
   }
 
   // 自动连接上次使用的集群（登录后调用）。成功返回 cluster 信息，失败返回 null。

@@ -4,6 +4,7 @@ import { i18n } from '@/i18n'
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const sessionKey = 'aliangboard.session'
+const prevSessionKey = 'aliangboard.prevSession'
 const platformKey = 'aliangboard.platform'
 
 // 跳登录页（已在 /login 则不重复跳，避免循环）
@@ -31,8 +32,20 @@ export function saveSession(token, remember = false) {
 }
 
 export function clearSession() {
+  // 暂存被清的 token(2026-09-03):任务栏终端/文件浏览记录以 K8s session token 为归属键,
+  // 重连同集群后用旧 token 把记录迁到新会话(POST /api/terminals/rekey),否则记录永久失明。
+  const prev = getSessionToken()
+  if (prev) { try { localStorage.setItem(prevSessionKey, prev) } catch { /* 存储不可用静默 */ } }
   sessionStorage.removeItem(sessionKey)
   localStorage.removeItem(sessionKey)
+}
+
+// 读取/清除暂存的旧会话 token(迁移失败时保留,下次重连可再试)
+export function getStashedSession() {
+  try { return localStorage.getItem(prevSessionKey) || '' } catch { return '' }
+}
+export function clearStashedSession() {
+  try { localStorage.removeItem(prevSessionKey) } catch { /* noop */ }
 }
 
 export function getSession() {
@@ -154,6 +167,11 @@ export const portForwardApi = {
 // 镜像仓库可用版本（registry v2 /tags/list）：改版本时下拉选择而非手填。
 export const registryApi = {
   tags: payload => k8sHttp.request('/api/registry/tags', { method: 'POST', body: JSON.stringify(payload) }),
+}
+
+// 会话轮换后的窗口记录迁移(2026-09-03):旧 token 名下 terminals/file_browsers 迁到当前会话
+export const rekeyApi = {
+  windowRecords: from => k8sHttp.request('/api/terminals/rekey', { method: 'POST', body: JSON.stringify({ from }) }),
 }
 
 // 终端会话管理（任务栏：CRUD + 持久化）
