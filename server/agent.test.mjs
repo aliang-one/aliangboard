@@ -459,3 +459,34 @@ test('maxSteps 0 = 不设限:超过旧默认 8 仍继续到终答', async () => 
   assert.ok(out.steps >= 13, `应跑满 12 轮工具 + 终答,实际 ${out.steps}`)
   assert.ok(!out.truncated)
 })
+
+// ── 2026-09-03 maxSteps 收尾轮修复波:F1/F2 ──
+test('F1: 触发过预算裁剪的正常终答不携带 truncated 旗标(语义=步数上限截断)', async () => {
+  // budgetChars 极小 → 上下文裁剪必然发生;但对话正常终答,out.truncated 必须为 false
+  const run = createAgent({
+    chat: mockChat([toolCall('1', 'list_resources', { kind: 'pods' }), final('done')]),
+    execTool: async () => 'x'.repeat(200),
+    budgetChars: 1,
+  }).run
+  const out = await run({})
+  assert.equal(out.content, 'done')
+  assert.equal(out.truncated, false, '预算裁剪不透传为步数上限旗标')
+})
+
+test('F2: 收尾轮 chat 前先按预算裁剪(到上限时刻消息最长,防超预算 400)', async () => {
+  const bigResult = 'r'.repeat(600) // 每次 600 字符 × 3 轮,远超 500 预算
+  let wrappedUpMessages = null
+  let round = 0
+  const chat = async (messages, tools) => {
+    round++
+    if (round <= 3) return toolCall(String(round), 'list_resources', {})
+    wrappedUpMessages = messages
+    return final('基于以上信息收尾')
+  }
+  const run = createAgent({ chat, execTool: async () => bigResult, budgetChars: 500, maxSteps: 3 }).run
+  const out = await run({})
+  assert.equal(out.truncated, true)
+  assert.equal(out.content, '基于以上信息收尾')
+  const size = JSON.stringify(wrappedUpMessages).length
+  assert.ok(size <= 500 + 1000, `收尾轮消息序列化长度 ${size} 应 ≤ budget+1000 余量(system/收尾 user 提示不裁)`)
+})

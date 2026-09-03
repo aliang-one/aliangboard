@@ -171,6 +171,9 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
         // truncated 仍 true:前端据此亮「已达步数上限」标;每 run 至多一次(极端二次到顶走旧兜底文案)。
         if (!wrappedUp) {
           wrappedUp = true
+          // 到上限时刻消息最长,必须先按预算裁剪再收尾 chat,否则可能超预算被 provider 400 整轮 failed
+          const t = trimMessages(messages, budgetChars)
+          messages = t.messages
           messages.push({ role: 'user', content: `(系统提示:已达到最大执行步数 ${maxSteps},请立即基于以上已获得的信息给出最终回答,不要再调用任何工具。)` })
           steps++
           const assistant = await chat(messages, [], (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
@@ -181,10 +184,11 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
         return { content: '(达到最大步数,未给出终答)', steps, denied, truncated: true }
       }
       steps++
-      let truncated = false
+      let truncated = false // 注意:此处 trimMessages 的裁剪旗标不透传到返回值——
+      // out.truncated 的语义是「步数上限截断/收尾轮」(唯一消费方 conv-events.mjs),预算裁剪不经此亮标
       if (messages.length > 1) {
         const t = trimMessages(messages, budgetChars)
-        messages = t.messages; truncated = t.truncated
+        messages = t.messages
       }
       // T5:每轮 chat 前重置 messages[0]——@-ref 漂移修复:让 LLM 每轮看到 ref 的最新状态(由 run/resumeConversation 注入的 refreshSystem 钩子)。
       if (refreshSystem && messages[0]?.role === 'system') {
@@ -194,7 +198,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       messages.push(assistant)
       onStep?.({ type: 'assistant', message: assistant, ts: Date.now() })
       const toolCalls = assistant.tool_calls || []
-      if (!toolCalls.length) return { content: assistant.content, steps, denied, truncated }   // 终答
+      if (!toolCalls.length) return { content: assistant.content, steps, denied, truncated: false }   // 终答(正常完成,不携带步数上限旗标)
       queue = [...toolCalls]
       resumeToolCallId = null // 新 turn,旧 resume 标记失效
     }
