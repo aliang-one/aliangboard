@@ -8,7 +8,7 @@ import { maybeSummarizeProject } from './workbench-summarize.mjs'
 import { contextWindowFor, trimBudgetChars } from './model-context.mjs'
 import { eventsForResult } from './conv-events.mjs'
 import { clampTraceStep } from './agent.mjs'
-import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
+import { getWorkbenchAiConfig, getMaxStepsConfig } from './workbench-ai-config.mjs'
 import { workbenchExcludeTools } from './tool-registry.mjs'
 import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 
@@ -32,9 +32,6 @@ export async function routeDynamicApproval(n, args, sshBridge, sshJobs) {
 export function createWorkbenchAgent(deps) {
   const { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose } = deps
 
-// SRE 深调查步数上限(dev29):agent.mjs 默认 8 对"调查→诊断→行动"太紧(实测定位
-// ImagePullBackOff 走了 26 步);工作台侧放宽到 16,env WB_MAX_STEPS 可调。
-const WB_MAX_STEPS = Math.max(1, Number(process.env.WB_MAX_STEPS) || 16)
 // trackPartial 检查点触发阈值:字数维度(防写放大)或时间维度(压中途刷新滞后)任一过线即落库
 const CK_CHARS = 200
 const CK_TIME_MS = 500
@@ -176,7 +173,7 @@ const CK_TIME_MS = 500
       const sshJobs = ctx.sshJobs || null
       const exposedCount = sshBridge ? sshBridge.listExposed().length : 0
       const { run } = createAgentRunner({
-        llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS,
+        llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: getMaxStepsConfig(db), // 每次 run 现读(同 disabledTools 即时生效语义);0=不限制
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
@@ -268,7 +265,7 @@ const CK_TIME_MS = 500
       const sshJobs = ctx.sshJobs || null
       const exposedCount = sshBridge ? sshBridge.listExposed().length : 0
       const { run } = createAgentRunner({
-        llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: WB_MAX_STEPS,
+        llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: getMaxStepsConfig(db), // 每次 run 现读(同 disabledTools 即时生效语义);0=不限制
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,

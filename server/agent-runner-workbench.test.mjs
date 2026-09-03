@@ -243,14 +243,16 @@ test('registry:wb_top 免审 + dispatch 透传 scope/namespace/pod', async () =>
 })
 
 // dev29: maxSteps 透传——工作台侧深调查放宽(API-key 路径不传仍用默认 8)
-test('createAgentRunner 透传 maxSteps:循环不终答按给定上限截断', async () => {
-  // chat 永远返回 tool_calls(不终答)→ 到 maxSteps 停
+// 2026-09-03 收尾轮:到上限不再硬断,追加一次无工具收尾 → content 为收尾答案
+test('createAgentRunner 透传 maxSteps:到上限触发收尾轮', async () => {
   const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, listResources: async () => ({ kind: 'pods', count: 0, items: [] }) }
-  const llmClient = { chat: async () => tc('c', 'wb_list_resources', { kind: 'pods' }) }
+  let chats = 0
+  const llmClient = { chat: async () => (++chats <= 3 ? tc('c' + chats, 'wb_list_resources', { kind: 'pods' }) : { role: 'assistant', content: '调查完成' }) }
   const { run } = createAgentRunner({ llmClient, workbench: wb, maxSteps: 3 })
   const out = await run({ history: [] })
   assert.equal(out.truncated, true)
-  assert.equal(out.steps, 3, '按透传的 maxSteps=3 截断(默认是 8)')
+  assert.equal(out.steps, 4, '3 轮工具 + 1 轮收尾')
+  assert.equal(out.content, '调查完成')
 })
 
 // Task 10 (SSH): 动态审批钩子 + 工具剔除
@@ -374,4 +376,15 @@ test('动态审批路由:wb_ssh_run→sshJobs.needsApproval;wb_ssh_job_write→s
   assert.equal(sshExecs.length, 1, '放宽后直执行')
   // 路由分流总账:任务工具全部进 jobs,同步工具进 ssh
   assert.deepEqual(calls, [['jobs', 'wb_ssh_run'], ['jobs', 'wb_ssh_job_write'], ['ssh', 'wb_ssh_exec']])
+})
+
+// 2026-09-03:maxSteps 0 = 不设限——旧 `maxSteps ? ...` 会把 0 当缺省丢回 8,必须 != null 透传
+test('createAgentRunner maxSteps=0:不设限,超过旧默认 8 仍继续', async () => {
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, listResources: async () => ({ kind: 'pods', count: 0, items: [] }) }
+  let execCount = 0
+  const llmClient = { chat: async () => { execCount++; return execCount >= 13 ? { role: 'assistant', content: 'done' } : tc('t' + execCount, 'wb_list_resources', { kind: 'pods' }) } }
+  const { run } = createAgentRunner({ llmClient, workbench: wb, maxSteps: 0 })
+  const out = await run({ history: [] })
+  assert.equal(out.content, 'done')
+  assert.ok(out.steps >= 13, `应跑满 12 轮工具 + 终答,实际 ${out.steps}`)
 })

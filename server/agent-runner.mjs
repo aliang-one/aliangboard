@@ -38,7 +38,7 @@ export function buildToolDefs(tier) {
 // 工厂:注入 llmClient + (apiKeyTools,keyRow,cluster) 和/或 workbench。返回 { run, toolDefs }。
 // workbench = { readLedger, readFile, writeFile }(端点注入的闭包,操作项目/台账 repo)。
 // audit = { db, owner, clusterId }(可选,workbench 路径传):wb_* 工具执行进 audit_log。
-// maxSteps(可选):透传 createAgent;缺省用 agent.mjs 的 MAX_STEPS=8(API-key 路径保持旧默认)。
+// maxSteps(可选):透传 createAgent;缺省用 agent.mjs 的 MAX_STEPS=8;0 = 不限制(须 != null 判定,0 是合法值)。
 // disabledTools(可选,2026-08-25):工作台工具禁用名单(即时生效,权限收紧语义)。
 // dynamicApproval(可选,2026-08-28 SSH):async (name, args) => bool——静态 requiresApproval 命中时
 //   再问钩子(true=需人审),SSH 按服务器策略(always/readonly/none)放宽/收紧;缺省保持旧行为(恒 true)。
@@ -80,6 +80,6 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     if (dynamicApproval) return !!(await dynamicApproval(n, args))
     return true
   }
-  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: needsApprovalFn, ...(maxSteps ? { maxSteps } : {}), ...(budgetChars ? { budgetChars } : {}) })
+  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: needsApprovalFn, ...(maxSteps != null ? { maxSteps } : {}), ...(budgetChars ? { budgetChars } : {}) })
   return { run: agent.run, toolDefs }
 }
