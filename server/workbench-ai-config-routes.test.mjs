@@ -129,10 +129,18 @@ test('POST /conversations:创建时烘焙 buildWorkbenchSystemPrompt(getWorkbenc
 
 // ===== 最大执行步数(2026-09-03):GET 回显已解析值;PUT 缺省不改/0=不限制/非法 400 =====
 test('admin GET:回显 maxSteps(缺省 16)', async () => {
-  const { routes, sent } = adminHarness()
-  await routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
-  assert.equal(sent[0].status, 200)
-  assert.equal(sent[0].json.maxSteps, 16)
+  // 路由内部 getMaxStepsConfig(db) 未传 env → 读真实 process.env.WB_MAX_STEPS;
+  // deployment.yaml 教用户设这个 env,设了的机器测试会红 → 本用例内临时摘除并恢复
+  const savedEnv = process.env.WB_MAX_STEPS
+  delete process.env.WB_MAX_STEPS
+  try {
+    const { routes, sent } = adminHarness()
+    await routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+    assert.equal(sent[0].status, 200)
+    assert.equal(sent[0].json.maxSteps, 16)
+  } finally {
+    if (savedEnv !== undefined) process.env.WB_MAX_STEPS = savedEnv
+  }
 })
 
 test('admin PUT:maxSteps 30 落库读回;0=不限制读回 0', async () => {

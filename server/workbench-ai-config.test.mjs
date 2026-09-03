@@ -1,4 +1,4 @@
-// 工作台 AI 定制配置(单一来源,2026-08-25 设计):platform_settings 两键 + 垃圾值兜底。
+// 工作台 AI 定制配置(单一来源,2026-08-25 设计):platform_settings 四键(additionalInstructions/disabledTools/projectMemory/maxSteps)+ 垃圾值兜底。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
@@ -52,7 +52,7 @@ test('projectMemory:默认 true;"false" 读回 false;垃圾值兜底 true', () =
 
 // ===== 最大执行步数(2026-09-03):0=不限制;缺键/垃圾 → env WB_MAX_STEPS → 16 =====
 test('getMaxStepsConfig:缺键走 env 通道,env 语义与原 WB_MAX_STEPS 逐字一致', () => {
-  assert.equal(getMaxStepsConfig(makeDb(), undefined), 16)
+  assert.equal(getMaxStepsConfig(makeDb(), ''), 16, "Number('')=0→16;显式空串,避免读真实 process.env.WB_MAX_STEPS")
   assert.equal(getMaxStepsConfig(makeDb(), '32'), 32)
   assert.equal(getMaxStepsConfig(makeDb(), 'abc'), 16)
   assert.equal(getMaxStepsConfig(makeDb(), '0'), 16, 'env 0 回落默认(原语义 0||16)')
