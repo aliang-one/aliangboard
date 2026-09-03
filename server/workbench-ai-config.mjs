@@ -1,5 +1,5 @@
 // 工作台 AI 定制配置(单一来源,2026-08-25 设计):admin 经 /api/admin/workbench-ai-config 写入
-// platform_settings 两键;提示词拼装(workbench-prompt)/工具过滤(agent-runner)/透明面板三处消费,
+// platform_settings 三键;提示词拼装(workbench-prompt)/工具过滤(agent-runner)/透明面板三处消费,
 // 不存在"面板显示的和实际发的不一致"。垃圾值兜底照 getPresenceConfig 的 clamp 模式。
 import { registry } from './tool-registry.mjs'
 
@@ -35,4 +35,27 @@ export function validateDisabledTools(input) {
 
 export function clampInstructions(input) {
   return String(input ?? '').slice(0, MAX_INSTRUCTIONS)
+}
+
+// ===== 最大执行步数(2026-09-03):admin「AI 行为」面板可调,agent 循环上限单源 =====
+// 语义:0 = 不限制(仅上下文预算 budgetChars 兜底);缺键/垃圾 → env WB_MAX_STEPS(部署侧
+// 预置通道,语义与原 workbench-agent.mjs 的 WB_MAX_STEPS 逐字一致)→ 16。
+export const MAX_STEPS_RANGE = { lo: 0, hi: 200 }
+
+export function getMaxStepsConfig(db, envRaw = process.env.WB_MAX_STEPS) {
+  let raw = null
+  try { raw = db.prepare('SELECT value FROM platform_settings WHERE key=?').get('workbench.maxSteps')?.value ?? null } catch { raw = null }
+  if (raw != null) {
+    const n = Number(raw)
+    if (Number.isInteger(n) && n >= MAX_STEPS_RANGE.lo && n <= MAX_STEPS_RANGE.hi) return n
+  }
+  return Math.max(1, Number(envRaw) || 16) // env 通道:与原 `Math.max(1, Number(...) || 16)` 逐字一致
+}
+
+// PUT 校验:null/undefined = 不修改(与 projectMemory 语义一致);否则必须 0..200 整数(0=不限制)
+export function validateMaxSteps(input) {
+  if (input == null) return { ok: true, value: null }
+  const n = Number(input)
+  if (!Number.isInteger(n) || n < MAX_STEPS_RANGE.lo || n > MAX_STEPS_RANGE.hi) return { ok: false }
+  return { ok: true, value: n }
 }

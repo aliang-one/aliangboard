@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions } from './workbench-ai-config.mjs'
+import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps } from './workbench-ai-config.mjs'
 
 function makeDb(settings = {}) {
   const db = new DatabaseSync(':memory:')
@@ -48,4 +48,33 @@ test('projectMemory:默认 true;"false" 读回 false;垃圾值兜底 true', () =
   assert.equal(getWorkbenchAiConfig(makeDb({ 'workbench.projectMemory': 'false' })).projectMemory, false)
   assert.equal(getWorkbenchAiConfig(makeDb({ 'workbench.projectMemory': 'true' })).projectMemory, true)
   assert.equal(getWorkbenchAiConfig(makeDb({ 'workbench.projectMemory': 'junk' })).projectMemory, true)
+})
+
+// ===== 最大执行步数(2026-09-03):0=不限制;缺键/垃圾 → env WB_MAX_STEPS → 16 =====
+test('getMaxStepsConfig:缺键走 env 通道,env 语义与原 WB_MAX_STEPS 逐字一致', () => {
+  assert.equal(getMaxStepsConfig(makeDb(), undefined), 16)
+  assert.equal(getMaxStepsConfig(makeDb(), '32'), 32)
+  assert.equal(getMaxStepsConfig(makeDb(), 'abc'), 16)
+  assert.equal(getMaxStepsConfig(makeDb(), '0'), 16, 'env 0 回落默认(原语义 0||16)')
+})
+
+test('getMaxStepsConfig:落库值优先于 env;0=不限制;垃圾/越界/非整数回 env 链', () => {
+  assert.equal(getMaxStepsConfig(makeDb({ 'workbench.maxSteps': '30' }), '16'), 30)
+  assert.equal(getMaxStepsConfig(makeDb({ 'workbench.maxSteps': '0' }), '16'), 0)
+  assert.equal(getMaxStepsConfig(makeDb({ 'workbench.maxSteps': 'abc' }), '16'), 16)
+  assert.equal(getMaxStepsConfig(makeDb({ 'workbench.maxSteps': '999' }), '16'), 16)
+  assert.equal(getMaxStepsConfig(makeDb({ 'workbench.maxSteps': '2.5' }), '16'), 16)
+})
+
+test('validateMaxSteps:null=不改;0..200 整数过;非整数/越界拒', () => {
+  assert.deepEqual(validateMaxSteps(null), { ok: true, value: null })
+  assert.deepEqual(validateMaxSteps(undefined), { ok: true, value: null })
+  assert.equal(validateMaxSteps(0).ok, true)
+  assert.equal(validateMaxSteps(0).value, 0)
+  assert.equal(validateMaxSteps('30').ok, true)
+  assert.equal(validateMaxSteps('30').value, 30)
+  assert.equal(validateMaxSteps(201).ok, false)
+  assert.equal(validateMaxSteps(-1).ok, false)
+  assert.equal(validateMaxSteps(2.5).ok, false)
+  assert.equal(validateMaxSteps('abc').ok, false)
 })
