@@ -215,7 +215,7 @@ function onRootClick(e) {
     <div class="flex items-center gap-xs px-md mb-xs">
       <span class="material-symbols-outlined text-sm" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? 'person' : 'smart_toy' }}</span>
       <span class="text-body-xs font-semibold" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? t('workbench.chat.roleYou') : t('workbench.chat.roleAgent') }}</span>
-      <span v-if="turn.truncated" class="text-body-xs text-status-warning">⚠ {{ t('workbench.chat.contentTruncated') }}</span>
+      <span v-if="turn.truncated && turn.content" class="text-body-xs text-status-warning">⚠ {{ t('workbench.chat.stepsLimitWrapped') }}</span>
       <!-- 消息操作(hover 显现;复制终态可用,重新生成仅最后一条 assistant) -->
       <span v-if="turn.role === 'assistant'" class="ml-auto flex items-center gap-xs">
         <span v-if="turn.steps" class="text-body-xs text-on-surface-variant">{{ t('workbench.chat.stepsTaken', { n: turn.steps }) }}</span>
@@ -257,9 +257,9 @@ function onRootClick(e) {
            (时刻+名称+预览+详情),chips 再放一份=同屏双显;无 assistant 文本的存量 trace 才走 chips -->
       <ToolTrace v-if="!interleaveUsable && turn.trace && turn.trace.length" :trace="turn.trace" />
 
-      <!-- 步数用尽醒目警告(2026-08-27 静默终止审计):done+truncated 此前只有角色行 ⚠ 小标,
-           用户等数分钟拿到一行灰字"(达到最大步数…)"观感即"异常结束无提示"——加可读警告块。 -->
-      <div v-if="turn.truncated" class="flex items-start gap-sm px-md py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
+      <!-- 步数用尽警告(2026-08-27 审计;2026-09-03 收尾轮拆分):无终答(旧硬断存量/兜底)
+           → 醒目警告块;有收尾答案 → 仅角色行小黄标(stepsLimitWrapped),答案为主体。 -->
+      <div v-if="turn.truncated && !turn.content" class="flex items-start gap-sm px-md py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
         <span class="material-symbols-outlined text-base text-status-warning mt-0.5">warning</span>
         <span class="text-body-sm text-status-warning leading-relaxed">{{ t('workbench.chat.maxStepsReached') }}</span>
       </div>

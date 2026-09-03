@@ -3654,6 +3654,7 @@
       },
       "reconnecting": "连接中断,正在自动重试…",
       "maxStepsReached": "已达到最大执行步数,Agent 未能给出最终答案。可点击「重新生成」,或换种说法让它继续。",
+      "stepsLimitWrapped": "已达步数上限,以上为基于部分信息的回答",
       "reopenApproval": "点击重新打开审批",
       "editTitle": "编辑并重发",
       "editBanner": "正在编辑此消息，发送后将删除其后 {n} 条对话",
