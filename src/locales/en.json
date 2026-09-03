@@ -3870,7 +3870,7 @@
     "checkYamlPerm": "Please check YAML and permissions",
     "deleteFailedWithLabel": "{label} delete failed: {msg}",
     "unsupportedLayerKind": "Modifying {kind} layer is not supported yet",
-    "revisionNotFound": "Revision rev-{rev} not found",
+    "revisionNotFound": "Revision rev-{rev} not found, available: {list}",
     "nodeFetchFailed": "Failed to fetch node list: cluster may be unreachable or RBAC lacks nodes read permission",
     "namespaceReadFailed": "Unable to read Namespace, please check Kubernetes RBAC permissions",
     "applyYamlFailed": "Failed to apply YAML",
