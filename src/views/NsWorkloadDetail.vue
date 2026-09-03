@@ -358,7 +358,7 @@ function confirmRollback(rev) { rollbackTarget.value = rev; showRollbackModal.va
 async function handleRollback() {
   if (rollbackTarget.value == null) return
   try {
-    await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value)
+    await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value?.rev)
     revisionsQuery.refetch()
     showRollbackModal.value = false
     rollbackTarget.value = null

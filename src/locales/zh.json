@@ -3870,7 +3870,7 @@
     "checkYamlPerm": "请检查 YAML 与权限",
     "deleteFailedWithLabel": "{label}删除失败：{msg}",
     "unsupportedLayerKind": "暂不支持修改 {kind} 的分层",
-    "revisionNotFound": "未找到版本 rev-{rev}",
+    "revisionNotFound": "未找到版本 rev-{rev}，可用：{list}",
     "nodeFetchFailed": "节点列表拉取失败：集群可能不可达或 RBAC 缺乏 nodes 读权限",
     "namespaceReadFailed": "无法读取 Namespace，请检查 Kubernetes RBAC 权限",
     "applyYamlFailed": "应用 YAML 失败",

@@ -323,14 +323,17 @@ export const useClusterStore = defineStore('cluster', () => {
     const wl = await getWorkloadForEdit(name, ns)
     if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
     const revs = await fetchWorkloadRevisions(wl.type, name, ns)
-    const target = (revs || []).find(r => r.rev === revNumber)
-    if (!target) throw new Error(i18n.global.t('store.revisionNotFound', { rev: revNumber }))
+    // revNumber 兼容数字或 revision 对象(2026-09-03 事故:调用方传整对象 → 严格等恒 miss,
+    // 报错文案把整个对象插值成 rev-{...})。统一 Number 化再比,顺带容 "19"/19 形状。
+    const rev = Number(revNumber && typeof revNumber === 'object' ? revNumber.rev : revNumber)
+    const target = (revs || []).find(r => Number(r.rev) === rev)
+    if (!target) throw new Error(i18n.global.t('store.revisionNotFound', { rev, list: (revs || []).map(r => r.rev).join(', ') }))
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
     if (plural) {
       // kubectl rollout undo --to-revision=N：把工作负载 template 还原为目标 ReplicaSet 的完整 template
       const body = target._template
-        ? { spec: { template: target._template }, metadata: { labels: { 'aliangboard.io/managed-by': 'aliangboard' }, annotations: { 'aliangboard.io/last-edited': new Date().toISOString(), 'aliangboard.io/last-action': `rollback-to-rev-${revNumber}` } } }
-        : { spec: { template: { spec: { containers: [{ name: wl.name, image: target.image }] } } }, metadata: { labels: { 'aliangboard.io/managed-by': 'aliangboard' }, annotations: { 'aliangboard.io/last-edited': new Date().toISOString(), 'aliangboard.io/last-action': `rollback-to-rev-${revNumber}` } } }
+        ? { spec: { template: target._template }, metadata: { labels: { 'aliangboard.io/managed-by': 'aliangboard' }, annotations: { 'aliangboard.io/last-edited': new Date().toISOString(), 'aliangboard.io/last-action': `rollback-to-rev-${rev}` } } }
+        : { spec: { template: { spec: { containers: [{ name: wl.name, image: target.image }] } } }, metadata: { labels: { 'aliangboard.io/managed-by': 'aliangboard' }, annotations: { 'aliangboard.io/last-edited': new Date().toISOString(), 'aliangboard.io/last-action': `rollback-to-rev-${rev}` } } }
       await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/merge-patch+json' },
