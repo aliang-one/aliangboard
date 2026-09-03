@@ -38,7 +38,7 @@ test('保存:payload 含指令与禁用名单;保存后重载预览', async () =
   await flushPromises()
   await w.find('[data-testid="save-btn"]').trigger('click')
   await flushPromises()
-  expect(adminApi.workbenchAiConfig.save).toHaveBeenCalledWith({ additionalInstructions: '生产谨慎', disabledTools: ['wb_exec'], projectMemory: true })
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenCalledWith({ additionalInstructions: '生产谨慎', disabledTools: ['wb_exec'], projectMemory: true, maxSteps: 16 })
   expect(adminApi.workbenchAiConfig.get).toHaveBeenCalledTimes(2) // 保存后 load() 刷新预览
 })
 
@@ -60,4 +60,37 @@ test('projectMemory 开关:默认开;切换保存后回读', async () => {
   const w2 = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
   await flushPromises()
   expect(w2.find('[data-testid="project-memory-switch"]').attributes('aria-checked')).toBe('false')
+})
+
+// ===== 最大执行步数(2026-09-03):回显 / 不限制开关联动禁用 / 保存 payload =====
+test('maxSteps 回显:服务端 30 → 输入框 30;0 → 不限制开关开+输入禁用', async () => {
+  adminApi.workbenchAiConfig.get.mockResolvedValue({ ...FIXTURE, maxSteps: 30 })
+  const w = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  expect(w.find('[data-testid="max-steps"]').element.value).toBe('30')
+  expect(w.find('[data-testid="max-steps-unlimited"]').attributes('aria-checked')).toBe('false')
+
+  adminApi.workbenchAiConfig.get.mockResolvedValue({ ...FIXTURE, maxSteps: 0 })
+  const w2 = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  expect(w2.find('[data-testid="max-steps-unlimited"]').attributes('aria-checked')).toBe('true')
+  expect(w2.find('[data-testid="max-steps"]').element.disabled).toBe(true)
+})
+
+test('maxSteps 保存:开不限制 → payload 0;改 40 → payload 40', async () => {
+  adminApi.workbenchAiConfig.get.mockResolvedValue({ ...FIXTURE, maxSteps: 16 })
+  adminApi.workbenchAiConfig.save.mockResolvedValue({ ok: true })
+  const w = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  await w.find('[data-testid="max-steps-unlimited"]').trigger('click')
+  await w.find('[data-testid="save-btn"]').trigger('click')
+  await flushPromises()
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenLastCalledWith(expect.objectContaining({ maxSteps: 0 }))
+
+  const w2 = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  await w2.find('[data-testid="max-steps"]').setValue(40)
+  await w2.find('[data-testid="save-btn"]').trigger('click')
+  await flushPromises()
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenLastCalledWith(expect.objectContaining({ maxSteps: 40 }))
 })

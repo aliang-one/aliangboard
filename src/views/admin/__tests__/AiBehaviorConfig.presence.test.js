@@ -30,15 +30,14 @@ const mountCfg = async () => {
 
 test('读配置回填两个输入', async () => {
   const w = await mountCfg()
-  const inputs = w.findAll('input[type="number"]')
-  expect(inputs.length).toBe(2)
-  expect(inputs[0].element.value).toBe('8')
-  expect(inputs[1].element.value).toBe('45')
+  // 2026-09-03 起面板新增 maxSteps 数字输入,索引选择器随 DOM 改版迁移为 data-testid 定位
+  expect(w.find('[data-testid="presence-max"]').element.value).toBe('8')
+  expect(w.find('[data-testid="presence-window"]').element.value).toBe('45')
 })
 
 test('修改后保存:带当前输入值调 save', async () => {
   const w = await mountCfg()
-  await w.findAll('input[type="number"]')[0].setValue('12')
+  await w.find('[data-testid="presence-max"]').setValue('12')
   await w.find('[data-testid="presence-save"]').trigger('click')
   await flushPromises()
   expect(adminApi.presenceConfig.save).toHaveBeenCalledWith({ maxItems: 12, windowMin: 45 })
@@ -47,7 +46,6 @@ test('修改后保存:带当前输入值调 save', async () => {
 test('读取失败 → 回默认 5/30 不炸', async () => {
   adminApi.presenceConfig.get.mockRejectedValueOnce(new Error('403'))
   const w = await mountCfg()
-  const inputs = w.findAll('input[type="number"]')
-  expect(inputs[0].element.value).toBe('5')
-  expect(inputs[1].element.value).toBe('30')
+  expect(w.find('[data-testid="presence-max"]').element.value).toBe('5')
+  expect(w.find('[data-testid="presence-window"]').element.value).toBe('30')
 })
