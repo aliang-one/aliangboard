@@ -1,5 +1,5 @@
 // 工作台 AI 定制配置(单一来源,2026-08-25 设计):admin 经 /api/admin/workbench-ai-config 写入
-// platform_settings 三键;提示词拼装(workbench-prompt)/工具过滤(agent-runner)/透明面板三处消费,
+// platform_settings 四键(additionalInstructions/disabledTools/projectMemory/maxSteps);提示词拼装(workbench-prompt)/工具过滤(agent-runner)/透明面板三处消费,
 // 不存在"面板显示的和实际发的不一致"。垃圾值兜底照 getPresenceConfig 的 clamp 模式。
 import { registry } from './tool-registry.mjs'
 

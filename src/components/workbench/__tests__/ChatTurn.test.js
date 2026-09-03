@@ -125,14 +125,6 @@ test('存量回退:trace 无 assistant 事件 → 时间线布局,终答走原�
   expect(w.text()).toContain('终答')
 })
 
-// 2026-08-27 静默终止审计:truncated(done+步数用尽)此前只有角色行 ⚠ 小标,用户等数分钟
-// 拿到一行灰字观感即"异常结束无提示"——锁定醒目警告块渲染。
-test('ChatTurn: truncated 渲染醒目步数用尽警告块', () => {
-  const w = mount(ChatTurn, { props: { turn: { role: 'assistant', status: 'done', content: '', truncated: true } }, global: { plugins: [i18n] } })
-  expect(w.text()).toContain('已达到最大执行步数')
-  expect(w.find('.text-status-warning').exists()).toBe(true)
-})
-
 // 2026-08-27 静默终止审计 + 2026-09-03 收尾轮拆分:truncated 无终答 → 醒目大警告块;
 // 有收尾答案 → 只亮角色行小黄标(答案本身是主体,大块警告反而喧宾夺主)。
 test('ChatTurn: truncated 无终答 → 渲染醒目步数用尽警告块', () => {

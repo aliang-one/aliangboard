@@ -3537,7 +3537,6 @@
       "pendingApproval": "Agent 想写文件，请在弹窗审批",
       "regenerate": "重新生成",
       "stepsTaken": "已用 {n} 步",
-      "contentTruncated": "已截断",
       "maxStepsWarning": "已达最大步数，本轮停止",
       "userMessage": "输入消息…",
       "send": "发送",

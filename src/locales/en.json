@@ -3537,7 +3537,6 @@
       "pendingApproval": "Agent wants to write a file — please approve in the dialog",
       "regenerate": "Regenerate",
       "stepsTaken": "{n} step(s) taken",
-      "contentTruncated": "Truncated",
       "maxStepsWarning": "Reached max steps; this turn stopped",
       "userMessage": "Type a message...",
       "send": "Send",

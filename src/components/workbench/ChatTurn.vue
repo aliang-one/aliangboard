@@ -257,8 +257,9 @@ function onRootClick(e) {
            (时刻+名称+预览+详情),chips 再放一份=同屏双显;无 assistant 文本的存量 trace 才走 chips -->
       <ToolTrace v-if="!interleaveUsable && turn.trace && turn.trace.length" :trace="turn.trace" />
 
-      <!-- 步数用尽警告(2026-08-27 审计;2026-09-03 收尾轮拆分):无终答(旧硬断存量/兜底)
-           → 醒目警告块;有收尾答案 → 仅角色行小黄标(stepsLimitWrapped),答案为主体。 -->
+      <!-- 步数用尽警告(2026-08-27 审计;2026-09-03 收尾轮拆分):防御性 UI——生产主路径是活体收尾轮
+           (恒有终答,仅角色行小黄标 stepsLimitWrapped);truncated 不持久化,刷新后小标消失属已裁决接受的
+           瞬态。此大警告块兜底 truncated=true 且无终答的极端形态(空 content 已由前端 done 兜底填「无回答」)。 -->
       <div v-if="turn.truncated && !turn.content" class="flex items-start gap-sm px-md py-sm bg-status-warning/5 border border-status-warning/30 rounded-xl">
         <span class="material-symbols-outlined text-base text-status-warning mt-0.5">warning</span>
         <span class="text-body-sm text-status-warning leading-relaxed">{{ t('workbench.chat.maxStepsReached') }}</span>
