@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeImageRef, normalizeEndpoint, fetchRegistryTags } from './registry-tags.mjs'
+import { normalizeImageRef, normalizeEndpoint, fetchRegistryTags, compareTagsDesc } from './registry-tags.mjs'
 
 // —— ref 解析 ——
 test('normalizeImageRef: 官方镜像无 registry', () => {
@@ -51,7 +51,7 @@ test('fetchRegistryTags: 匿名公共镜像 401 → token 换票重试成功（2
   }
   const r = await fetchRegistryTags({ image: 'nginx:1.25', fetchImpl })
   assert.equal(r.ok, true)
-  assert.deepEqual(r.tags, ['latest', '1.25', '1.24']) // 降序
+  assert.deepEqual(r.tags, ['1.25', '1.24', 'latest']) // 版本号数值降序，非版本号垫底
   assert.equal(r.registry, 'registry-1.docker.io')
   assert.equal(r.repo, 'library/nginx')
   // 三段链：裸列表(401) → 换票(无凭据) → 带 Bearer 重试
@@ -137,7 +137,36 @@ test('fetchRegistryTags: OCI 产物伪 tag（sha256-/.sig/.att/.sbom）被过滤
     '1.25', 'latest', 'alpine',
   ] } })
   const r = await fetchRegistryTags({ image: 'nginx:1.25', fetchImpl })
-  assert.deepEqual(r.tags, ['latest', 'alpine', '1.25'])
+  assert.deepEqual(r.tags, ['1.25', 'latest', 'alpine'])
+})
+
+// —— 版本号感知排序 ——
+test('compareTagsDesc: 数值比较 1.0.20 > 1.0.9（字典序反例钉住）', () => {
+  const tags = ['1.0.9', '1.0.20', '1.0.2', '0.9.10', '0.9.9']
+  assert.deepEqual(tags.slice().sort(compareTagsDesc), ['1.0.20', '1.0.9', '1.0.2', '0.9.10', '0.9.9'])
+})
+test('compareTagsDesc: 段数不齐按 0 补齐（1.1 > 1.0.20；v 前缀均认）', () => {
+  assert.deepEqual(['1.1', 'v1.0.20', '1.0.3'].sort(compareTagsDesc), ['1.1', 'v1.0.20', '1.0.3'])
+  assert.deepEqual(['1', '1.0.1'].sort(compareTagsDesc), ['1.0.1', '1'])
+})
+test('compareTagsDesc: 非版本号垫底且 latest 置首，其余字典序降序', () => {
+  assert.deepEqual(
+    ['main', 'sha-abc123', 'latest', '2.0.0', 'beta'].sort(compareTagsDesc),
+    ['2.0.0', 'latest', 'sha-abc123', 'main', 'beta'],
+  )
+})
+test('fetchRegistryTags: ghcr 场景端到端排序——1.0.20 在 1.0.19 前', async () => {
+  const fetchImpl = async (target, opts = {}) => {
+    const t = String(target)
+    if (t.startsWith('https://ghcr.io/token')) return stubRes(200, { json: { token: 't' } })
+    if (t.includes('tags/list')) {
+      if (opts.headers?.authorization) return stubRes(200, { json: { tags: ['1.0.19', '1.0.20', 'main', 'latest', 'sha-x'] } })
+      return stubRes(401, { headers: { 'www-authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:aliang-one/aliangboard:pull"' } })
+    }
+    return stubRes(404)
+  }
+  const r = await fetchRegistryTags({ image: 'ghcr.io/aliang-one/aliangboard:1.0.19', fetchImpl })
+  assert.deepEqual(r.tags.slice(0, 3), ['1.0.20', '1.0.19', 'latest'])
 })
 
 test('fetchRegistryTags: 换票 realm 非法 URL → 落回原 401 needsAuth 而非抛错', async () => {

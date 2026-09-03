@@ -112,6 +112,30 @@ export async function fetchRegistryTags({ image, username, password, fetchImpl }
   // 过滤 OCI 产物伪 tag（cosign 签名 .sig / 证明 .att / SBOM，及 buildkit 的 sha256-<digest> 裸摘要）：
   // 这些不是可部署版本，且降序排序时 'sha256-…' 恒压在数字版本前，把真版本挤出下拉首屏。
   const isArtifactTag = t => /^sha256-/.test(t) || /\.(sig|att|sbom)(\.json)?$/i.test(t)
-  const tags = Array.isArray(data.tags) ? data.tags.filter(t => !isArtifactTag(t)).sort().reverse() : []
+  const tags = Array.isArray(data.tags) ? data.tags.filter(t => !isArtifactTag(t)).sort(compareTagsDesc) : []
   return { ok: true, registry: host, repo, tags }
+}
+
+// tag 排序（新→旧）：版本号 tag 按数值逐段比较（1.0.20 > 1.0.9——纯字典序会排反），
+// 非版本号 tag（latest/main/sha-<短>）垫底，其中 latest 别名置首。前缀 v 均认。
+function versionTuple(tag) {
+  const m = /^v?(\d+(?:\.\d+)*)$/.exec(String(tag || '').trim())
+  return m ? m[1].split('.').map(Number) : null
+}
+
+export function compareTagsDesc(a, b) {
+  const [va, vb] = [versionTuple(a), versionTuple(b)]
+  if (va && vb) {
+    const len = Math.max(va.length, vb.length)
+    for (let i = 0; i < len; i++) {
+      const d = (va[i] || 0) - (vb[i] || 0)
+      if (d) return -d // 降序
+    }
+    return 0
+  }
+  if (va) return -1 // 版本号优先
+  if (vb) return 1
+  if (a === 'latest') return -1 // latest 别名是非版本号里最想点的
+  if (b === 'latest') return 1
+  return a > b ? -1 : a < b ? 1 : 0 // 其余字典序降序（与旧行为方向一致）
 }
