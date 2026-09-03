@@ -234,6 +234,11 @@ test('done:trace 无 assistant 文本块(回退布局)→ 不追加,content 由�
   expect(next.trace).toHaveLength(1)
 })
 
+test('status=done 携带 truncated → 落入 state(2026-09-03 收尾轮标识)', () => {
+  expect(applyStreamEvent(fresh(), { type: 'status', status: 'done', truncated: true }).truncated).toBe(true)
+  expect(applyStreamEvent(fresh(), { type: 'status', status: 'done' }).truncated).toBe(false)
+})
+
 test('done:content 为空(正常 SSE 路径,step.assistant 已清零)→ 不追加', () => {
   const state = { status: 'thinking', content: '', trace: [{ type: 'assistant', content: '中间轮', ts: 1 }] }
   const next = applyStreamEvent(state, { type: 'status', status: 'done' })

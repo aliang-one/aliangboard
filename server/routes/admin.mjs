@@ -9,7 +9,7 @@ import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 import { clampPresence, getPresenceConfig } from '../workbench-projects.mjs'
 import { msg } from '../messages.mjs'
 import { isPasswordOk } from '../password-policy.mjs'
-import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions } from '../workbench-ai-config.mjs'
+import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps, MAX_STEPS_RANGE } from '../workbench-ai-config.mjs'
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { registry } from '../tool-registry.mjs'
 import { isValidMinutes } from '../ssh/reap-policy.mjs'
@@ -201,6 +201,7 @@ export function createAdminRoutes(deps) {
         additionalInstructions: cfg.additionalInstructions,
         disabledTools: cfg.disabledTools,
         projectMemory: cfg.projectMemory, // 项目记忆开关(T2):回显让前端所见即所发
+        maxSteps: getMaxStepsConfig(db), // 最大执行步数(2026-09-03):回显已解析值(0=不限制),所见即所发
         toolCatalog: registry.workbenchTools(),
         effectivePreview: buildWorkbenchSystemPrompt(cfg),
       })
@@ -221,6 +222,10 @@ export function createAdminRoutes(deps) {
         setSetting('workbench.additionalInstructions', clampInstructions(input.additionalInstructions))
         // 项目记忆开关(T2):布尔可选;null/undefined = 不修改(留空不改,与 apiKey 语义一致)
         if (input.projectMemory != null) setSetting('workbench.projectMemory', input.projectMemory === false ? 'false' : 'true')
+        // 最大执行步数(2026-09-03):null/undefined = 不修改(与 projectMemory 语义一致);0 = 不限制
+        const ms = validateMaxSteps(input.maxSteps)
+        if (!ms.ok) { sendJson(res, 400, { message: msg(req, 'admin.aiMaxStepsInvalid', { lo: MAX_STEPS_RANGE.lo, hi: MAX_STEPS_RANGE.hi }) }); return true }
+        if (ms.value != null) setSetting('workbench.maxSteps', String(ms.value))
         sendJson(res, 200, { ok: true })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.saveFailed') }); return true }

@@ -68,7 +68,7 @@ export function applyStreamEvent(state, evt) {
     case 'status': {
       // 对话状态变更(running/paused/done/failed/cancelled);终态清 tool_start 残留(execTool 抛错直 failed 等)
       const clean = st => ({ ...st, trace: (st.trace || []).filter(x => x?.type !== 'tool_start') })
-      if (evt.status === 'done') return ensureFinalAnswerBlock(clean({ ...state, status: 'done' }))
+      if (evt.status === 'done') return ensureFinalAnswerBlock(clean({ ...state, status: 'done', truncated: !!(evt.truncated || state.truncated) }))
       if (evt.status === 'paused') return clean({ ...state, status: 'pending_approval' })
       // failed 的 error 可能是上游网关整页 HTML(nginx 502 等)——显示前净化
       if (evt.status === 'failed') return clean({ ...state, status: 'error', error: sanitizeChatError(evt.error) })

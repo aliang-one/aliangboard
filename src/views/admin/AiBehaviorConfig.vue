@@ -1,5 +1,5 @@
 <script setup>
-// AI 行为配置(admin,2026-08-25 设计):追加指令 + 工具开关(只收紧)+ 生效预览。
+// AI 行为配置(admin,2026-08-25 设计):追加指令 + 工具开关(只收紧)+ 生效预览 + 最大执行步数(2026-09-03)。
 // 预览来自服务端拼装(effectivePreview)——admin 改什么,新对话发出去的就是什么。
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -12,6 +12,9 @@ const saving = ref(false)
 const instructions = ref('')
 const disabled = ref([])          // string[](Set 语义,vue 响应式用数组+includes)
 const projectMemory = ref(true)   // 项目记忆注入(T4,2026-08-29):新对话自动携带项目历史决策摘要
+// 最大执行步数(2026-09-03):0=不限制;输入框在勾选不限制时禁用
+const maxSteps = ref(16)
+const maxStepsUnlimited = ref(false)
 const catalog = ref([])
 const preview = ref('')
 // 悬浮对话入口(2026-08-29 自 WorkbenchConfig 迁入):展示条数/隐去时间,保存约 10s 内全端生效。
@@ -29,6 +32,8 @@ async function load() {
     instructions.value = s.additionalInstructions || ''
     disabled.value = s.disabledTools || []
     projectMemory.value = s.projectMemory !== false   // 服务端缺省视为开
+    maxStepsUnlimited.value = s.maxSteps === 0
+    maxSteps.value = s.maxSteps > 0 ? s.maxSteps : 16
     catalog.value = s.toolCatalog || []
     preview.value = s.effectivePreview || ''
   } catch (e) {
@@ -63,7 +68,9 @@ function toggle(name) {
 async function save() {
   saving.value = true
   try {
-    await adminApi.workbenchAiConfig.save({ additionalInstructions: instructions.value.slice(0, 4000), disabledTools: disabled.value, projectMemory: projectMemory.value })
+    const n = Number(maxSteps.value)
+    const maxStepsPayload = maxStepsUnlimited.value ? 0 : (Number.isInteger(n) && n > 0 ? Math.min(n, 200) : 16)
+    await adminApi.workbenchAiConfig.save({ additionalInstructions: instructions.value.slice(0, 4000), disabledTools: disabled.value, projectMemory: projectMemory.value, maxSteps: maxStepsPayload })
     notify('success', t('common.saved'))
     await load() // 保存后刷新预览(服务端拼装,所见即所发)
   } catch (e) {
@@ -103,6 +110,25 @@ async function save() {
             <span class="text-body-sm font-medium">{{ $t('admin.aiBehavior.projectMemory') }}</span>
             <span class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.projectMemoryDesc') }}</span>
           </div>
+        </div>
+
+        <!-- 最大执行步数(2026-09-03):0/勾选=不限制,仅上下文预算兜底;保存即时生效 -->
+        <div class="flex flex-col gap-xs">
+          <div class="flex items-center gap-sm flex-wrap">
+            <button data-testid="max-steps-unlimited" @click="maxStepsUnlimited = !maxStepsUnlimited" role="switch" :aria-checked="String(maxStepsUnlimited)"
+              class="w-9 h-5 rounded-full relative transition-colors shrink-0"
+              :class="maxStepsUnlimited ? 'bg-primary' : 'bg-surface-container-highest'">
+              <span class="absolute top-0.5 w-4 h-4 rounded-full bg-on-primary transition-all"
+                :class="maxStepsUnlimited ? 'left-4.5' : 'left-0.5'"></span>
+            </button>
+            <span class="text-body-sm font-medium">{{ $t('admin.aiBehavior.maxStepsUnlimited') }}</span>
+            <label class="flex items-center gap-xs ml-auto">
+              <span class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.maxStepsLabel') }}</span>
+              <input v-model.number="maxSteps" type="number" min="1" max="200" :disabled="maxStepsUnlimited" data-testid="max-steps"
+                class="w-20 bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-sm disabled:opacity-40" />
+            </label>
+          </div>
+          <p class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.maxStepsHint') }}</p>
         </div>
       </div>
 

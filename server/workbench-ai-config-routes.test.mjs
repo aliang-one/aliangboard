@@ -126,3 +126,46 @@ test('POST /conversations:创建时烘焙 buildWorkbenchSystemPrompt(getWorkbenc
   assert.ok(system.includes('SMOKE_EXTRA_MARKER'), '追加指令烘焙进 system')
   assert.ok(!system.includes('**wb_exec**'), '禁用工具不出现于 system 工具清单')
 })
+
+// ===== 最大执行步数(2026-09-03):GET 回显已解析值;PUT 缺省不改/0=不限制/非法 400 =====
+test('admin GET:回显 maxSteps(缺省 16)', async () => {
+  // 路由内部 getMaxStepsConfig(db) 未传 env → 读真实 process.env.WB_MAX_STEPS;
+  // deployment.yaml 教用户设这个 env,设了的机器测试会红 → 本用例内临时摘除并恢复
+  const savedEnv = process.env.WB_MAX_STEPS
+  delete process.env.WB_MAX_STEPS
+  try {
+    const { routes, sent } = adminHarness()
+    await routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+    assert.equal(sent[0].status, 200)
+    assert.equal(sent[0].json.maxSteps, 16)
+  } finally {
+    if (savedEnv !== undefined) process.env.WB_MAX_STEPS = savedEnv
+  }
+})
+
+test('admin PUT:maxSteps 30 落库读回;0=不限制读回 0', async () => {
+  const a = adminHarness({ body: { maxSteps: 30 } })
+  await a.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(a.sent[0].status, 200)
+  await a.routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(a.sent[1].json.maxSteps, 30)
+
+  const b = adminHarness({ body: { maxSteps: 0 } })
+  await b.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(b.sent[0].status, 200)
+  await b.routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(b.sent[1].json.maxSteps, 0)
+})
+
+test('admin PUT:maxSteps 缺省不修改旧值;非法 → 400 双语文案(zh 无头默认)', async () => {
+  const a = adminHarness({ settings: { 'workbench.maxSteps': '30' }, body: { additionalInstructions: 'x' } })
+  await a.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(a.sent[0].status, 200)
+  await a.routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(a.sent[1].json.maxSteps, 30, '缺 maxSteps 键 → 不修改')
+
+  const b = adminHarness({ body: { maxSteps: 999 } })
+  await b.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(b.sent[0].status, 400)
+  assert.equal(b.sent[0].json.message, '最大执行步数必须是 0-200 的整数(0 = 不限制)')
+})

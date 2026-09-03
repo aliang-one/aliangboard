@@ -18,7 +18,7 @@ test('done → status:done + end,dispose', () => {
   const { events, dispose } = eventsForResult({ status: 'done', content: 'hello' })
   assert.equal(dispose, true)
   assert.equal(events.length, 2)
-  assert.deepEqual(events[0], { type: 'status', status: 'done' })
+  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: false })
   assert.deepEqual(events[1], { type: 'end' })
 })
 
@@ -27,7 +27,12 @@ test('无 status 字段默认走 done 路径(兜底)', () => {
   const { events, dispose } = eventsForResult({ content: 'ans' })
   assert.equal(dispose, true)
   assert.equal(events.length, 2)
-  assert.deepEqual(events[0], { type: 'status', status: 'done' })
+  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: false })
+})
+
+test('done + truncated → status 事件透传 truncated(2026-09-03 收尾轮标识)', () => {
+  const { events } = eventsForResult({ status: 'done', content: 'ans', truncated: true })
+  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: true })
 })
 
 test('null/undefined 入参 → 空事件 + 不 dispose(防御)', () => {
