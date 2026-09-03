@@ -3658,6 +3658,8 @@
       "editTitle": "编辑并重发",
       "editBanner": "正在编辑此消息，发送后将删除其后 {n} 条对话",
       "editCancel": "取消编辑",
+      "queueHint": "已排队，将在本轮回答结束后自动发送",
+      "queueRemove": "移除排队消息",
       "projectRecapTitle": "项目背景（之前对话的记忆）",
       "projectRecapSummary": "AI 每轮携带的项目决策摘要",
       "recapEdit": "编辑",

@@ -383,8 +383,14 @@ async function loadConversation(convId) {
       // 每 5s 重试(≤6 次),网关回来即重建历史;期间 send 有防线不会顶掉空态。
       scheduleLoadRevive(convId)
     } else if (convStatus.value === 'running') {
+      // 重挂载恢复(2026-09-03):运行中对话必须显式回到「运行中」UI 态——旧实现漏置 sending,
+      // 悬浮窗关开/页面刷新后停止键消失、发送键回归,发消息被服务端 400「运行中不能续接」打回,
+      // 观感即「运行中有时能发有时不能」。排队闸(见 send)也依赖此位。
+      sending.value = true
       startStreaming(convId)
     }
+    // 重挂载恢复的排队消息 × 已终态对话:没有 running→terminal 的跳变,须手动触发一次出队
+    if (['done', 'failed', 'cancelled'].includes(convStatus.value)) drainQueue()
   } finally {
     if (!unmounted) convLoading.value = false
   }
@@ -839,17 +845,59 @@ async function stopRun() {
     if (at && at.status === 'thinking') updateTurn(at._id, { status: 'error', error: t('workbench.chat.stopped') })
     convStatus.value = 'cancelled'
     sending.value = false
-    if (lastUser) { input.value = lastUser.content; nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' }) }
+    // 有排队消息时不回填:cancelled 终态会触发 drainQueue,回填文本会被出队内容覆盖,
+    // 且「停止旧回答→队列继续」语义下旧内容无回填意义。
+    if (lastUser && !queued.value.length) { input.value = lastUser.content; nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' }) }
   } else {
     // 已终态(等):拉一次对齐显示
     try { await pollOnce(conversationId.value) } catch { /* 忽略 */ }
   }
 }
 
+// ── 运行中追加(2026-09-03):本地排队,本轮终态后自动逐条发出 ──
+// 服务端 P0(D) 守卫拒绝运行中续接(detached run 无互斥,并发双 run 交错写 trace/消息),
+// 故排队在前端完成:运行中发送 → 入队上屏 chip(可删) → watch convStatus 终态 → 出队走正常 send()。
+// sessionStorage 按 conversationId 持久化:悬浮窗关闭重开/工作台切对话都会重挂载组件(key 绑定),
+// 内存队列会丢——恢复后若对话已终态,由 loadConversation 末尾触发 drain。
+const queued = ref([])
+const queueKey = id => `wb-chat-queue:${id}`
+function saveQueue() {
+  const id = props.activeConversationId || conversationId.value
+  if (!id) return
+  try { queued.value.length ? sessionStorage.setItem(queueKey(id), JSON.stringify(queued.value)) : sessionStorage.removeItem(queueKey(id)) } catch { /* 私密模式等 */ }
+}
+function loadQueue() {
+  const id = props.activeConversationId || conversationId.value
+  if (!id) { queued.value = []; return }
+  try { queued.value = JSON.parse(sessionStorage.getItem(queueKey(id)) || '[]') } catch { queued.value = [] }
+}
+function queueMessage(msg) {
+  queued.value.push({ id: ++turnSeq, content: msg, refs: refs.value.length ? refs.value.map(r => ({ ...r })) : [] })
+  refs.value = [] // chips 随首条排队消息带走(与 send 同语义)
+  saveQueue()
+}
+function removeQueued(id) { queued.value = queued.value.filter(q => q.id !== id); saveQueue() }
+function drainQueue() {
+  if (!queued.value.length || sending.value || editing.value || pendingApproval.value) return
+  const q = queued.value.shift()
+  saveQueue()
+  input.value = q.content
+  if (q.refs?.length) refs.value = q.refs
+  nextTick(() => send())
+}
+watch(convStatus, (s, o) => {
+  if (['done', 'failed', 'cancelled'].includes(s) && !['done', 'failed', 'cancelled'].includes(o || '')) drainQueue()
+})
+watch(() => props.activeConversationId, () => loadQueue())
+loadQueue()
+
 async function send() {
   const msg = input.value.trim()
   errorBanner.value = ''
-  if (!msg || sending.value) return
+  if (!msg) return
+  // 运行中不拒发——入队,本轮回答结束自动发出(2026-09-03:旧实现静默 return,Workspace 里
+  // 输入框全程可打字但回车石沉大海;悬浮窗重挂载后 sending=false 误放行,服务端 400 打回)
+  if (sending.value) { queueMessage(msg); resetInput(); return }
   // 编辑重发分支(spec §3.3):编辑态发送走 edit 端点(服务端截断锚之后重跑),本地就地截断+新轮
   if (editing.value && props.activeConversationId) {
     const ed = editing.value
@@ -1175,6 +1223,16 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
           <span v-if="r.namespace" class="text-body-xs text-on-surface-variant">{{ r.namespace }}</span>
           <button @click="removeRef(i)" class="ml-xs text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">close</span></button>
         </div>
+      </div>
+
+      <!-- 运行中追加队列(2026-09-03):本轮回答结束后自动逐条发出,可单独移除 -->
+      <div v-if="queued.length" data-testid="queue-panel" class="flex flex-col gap-xs mb-sm">
+        <div v-for="q in queued" :key="q.id" class="flex items-center gap-sm bg-primary/5 border border-primary/20 rounded-lg px-sm py-xs">
+          <span class="material-symbols-outlined text-sm text-primary shrink-0">hourglass_top</span>
+          <span class="text-body-xs text-on-surface-variant flex-1 min-w-0 truncate">{{ q.content }}</span>
+          <button @click="removeQueued(q.id)" :title="t('workbench.chat.queueRemove')" class="text-on-surface-variant hover:text-error shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">close</span></button>
+        </div>
+        <p class="text-body-xs text-on-surface-variant/60">{{ t('workbench.chat.queueHint') }}</p>
       </div>
 
       <!-- Input + search dropdown -->

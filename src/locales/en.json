@@ -3658,6 +3658,8 @@
       "editTitle": "Edit & resend",
       "editBanner": "Editing this message — sending will remove {n} messages after it",
       "editCancel": "Cancel edit",
+      "queueHint": "Queued — will be sent automatically after the current reply finishes",
+      "queueRemove": "Remove queued message",
       "projectRecapTitle": "Project context (memory from earlier chats)",
       "projectRecapSummary": "Project decision summary the AI carries each turn",
       "recapEdit": "Edit",
