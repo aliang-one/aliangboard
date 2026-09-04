@@ -1,13 +1,15 @@
 // NsIngress 创建弹窗「集群默认」选项回归(2026-09-04 集群默认不变式,spec §3.4):
 //   有默认类 → option 可选,value=显式默认类名;无默认 → disabled + hint;无类 → 维持空态 option。
 //   预填语义(pickIngressClassName watch)不受本选项影响。
-import { test, expect, vi } from 'vitest'
+import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 const state = vi.hoisted(() => ({ classes: [] }))
+// 提交桩:落库契约断言(选中「集群默认」→ addIngress 收到显式默认类名)
+const addIngress = vi.fn(async () => ({ ok: true }))
 vi.mock('@/api/client', () => ({ api: { k8s: vi.fn(async () => ({ items: [] })) } }))
 vi.mock('@/composables/useToast', () => ({ notify: vi.fn() }))
 vi.mock('@/stores/cluster', () => ({
@@ -15,12 +17,14 @@ vi.mock('@/stores/cluster', () => ({
     watchStateOf: () => 'off', currentCluster: 'demo', setNamespace: () => {},
     fetchIngresses: vi.fn(async () => []), fetchServices: vi.fn(async () => []), fetchSecrets: vi.fn(async () => []),
     fetchIngressClasses: vi.fn(async () => state.classes),
-    addIngress: vi.fn(async () => ({ ok: true })),
+    addIngress: (...a) => addIngress(...a),
   }),
 }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { namespace: 'demo' } }), useRouter: () => ({ push: () => {} }) }))
 
 import NsIngress from '../NsIngress.vue'
+
+beforeEach(() => { addIngress.mockClear() })
 
 function mountView() {
   setActivePinia(createPinia())
@@ -55,4 +59,22 @@ test('有默认 → 选中「集群默认」即表单 className=显式默认类�
   await flushPromises()
   await w.find('[data-testid="ingress-class-select"]').setValue('nginx')
   expect(w.vm.createForm.className).toBe('nginx')
+})
+
+test('有默认 → 选中「集群默认」后提交:addIngress 收到显式默认类名', async () => {
+  state.classes = [{ name: 'a' }, { name: 'nginx', isDefault: true }]
+  const { w } = mountView()
+  await flushPromises()
+  // 提交前提:name + 合法 rules(与 NsIngress.create-validation.test.js 的合法用例同款)
+  await w.setData({
+    showCreateModal: true,
+    createForm: { name: 'ing-1', className: '' },
+    hosts: [{ host: 'a.com', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: 'svc-a', servicePort: '8080' }] }],
+  })
+  await w.find('[data-testid="ingress-class-select"]').setValue('nginx')
+  await w.vm.handleCreate()
+  await flushPromises()
+  expect(addIngress).toHaveBeenCalledTimes(1)
+  expect(addIngress.mock.calls[0][0].className).toBe('nginx')
+  expect(w.vm.showCreateModal).toBe(false)
 })
