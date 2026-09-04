@@ -120,3 +120,9 @@ test('未知 sid 的存活信标:按 meta 重建记录(opener 错过创建也不
   const ghost = store.terminals.find(t => t.id === 'term-ghost')
   expect(ghost).toMatchObject({ namespace: 'ns2', podName: 'pod-b', container: 'c1', status: 'external' })
 })
+
+test('kind 分发(2026-09-04):ssh 弹窗的信标不得在 pod store 重建记录(此前靠 id 前缀/meta 形状巧合)', () => {
+  const store = useTerminalStore()
+  fire(POPUP_ALIVE_KEY, { kind: 'ssh', sid: 'ssh-x', meta: { serverId: 'sv9', name: 'gw-9' } })
+  expect(store.terminals).toHaveLength(0)
+})

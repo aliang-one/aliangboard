@@ -16,10 +16,19 @@ import './styles/main.css'
 import { initTheme } from './styles/theme'
 initTheme()   // 注入亮/暗双板 CSS 变量 + 恢复主题(localStorage 兜底)+ 挂定时边界 tick(7/19 点自动翻转)
 
-// 终端弹窗（新标签页）从 URL 接收 session token 并写入 sessionStorage（同源但 sessionStorage 不跨标签页）
-const popupToken = new URLSearchParams(window.location.search).get('token')
-if (popupToken) {
-  sessionStorage.setItem('aliangboard.session', popupToken)
+// 终端弹窗(/terminal-popup)的 K8s session token:opener 写入 localStorage 交接槽(读后即焚),
+// 弃用 URL ?token= 传参(token 会进浏览器历史,2026-09-04);sessionStorage 不跨标签页,故需交接。
+// 旧 URL 参数兼容保留一轮。仅弹窗路由消费,主应用不受交接槽残留影响。
+if (window.location.pathname.startsWith('/terminal-popup')) {
+  const popupParams = new URLSearchParams(window.location.search)
+  const legacyToken = popupParams.get('token')
+  let handoffToken = null
+  try { handoffToken = localStorage.getItem('aliangboard.termTokenHandoff') } catch { /* noop */ }
+  const popupToken = legacyToken || handoffToken
+  if (popupToken) {
+    sessionStorage.setItem('aliangboard.session', popupToken)
+    if (!legacyToken) { try { localStorage.removeItem('aliangboard.termTokenHandoff') } catch { /* noop */ } }
+  }
 }
 
 const app = createApp(App)

@@ -191,3 +191,10 @@ test('跨标签页 storage 同步:他页新增收编为最小化;他页关闭摘
   window.dispatchEvent(new StorageEvent('storage', { key: LS_KEY }))
   expect(store.windows.length).toBe(0)
 })
+
+test('kind 分发(2026-09-04):pod 弹窗的信标不得在 ssh store 重建窗口(此前靠 id 前缀/meta 形状巧合)', () => {
+  fresh()
+  const store = useSshTerminalStore()
+  firePopup(POPUP_ALIVE_KEY, { kind: 'pod', sid: 'term-x', meta: { namespace: 'ns', podName: 'pod-a', container: 'main', name: 'pod-a/main' } })
+  expect(store.windows).toHaveLength(0)
+})
