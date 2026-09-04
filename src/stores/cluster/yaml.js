@@ -457,12 +457,12 @@ spec:
     }
 
     if (type === 'runtimeclass') {
+      // 真实 API:RuntimeClass 无 spec 节,handler 是顶层字段(产出 spec.handler 会被 apiserver 拒收)
       return `apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
   name: ${yamlQ(name)}
-spec:
-  handler: ${resource.handler || 'runc'}`
+handler: ${resource.handler || 'runc'}`
     }
 
     if (type === 'endpoints') {

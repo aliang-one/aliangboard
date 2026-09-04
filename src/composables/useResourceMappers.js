@@ -260,11 +260,20 @@ export const mapIngressClass = item => ({
   controller: item.spec?.controller || '',
   isDefault: item.metadata?.annotations?.['ingressclass.kubernetes.io/is-default-class'] === 'true',
   age: ageOf(item.metadata?.creationTimestamp),
+  // 详情页 Overview 可见性字段(列表不消费,additive)
+  labels: item.metadata?.labels || {},
+  annotations: item.metadata?.annotations || {},
+  parameters: item.spec?.parameters || null,
 })
+// RuntimeClass 无 spec 节——handler/overhead/scheduling 都是顶层字段(与 PriorityClass 同类)
 export const mapRuntimeClass = item => ({
   name: item.metadata?.name,
-  handler: item.spec?.handler || '',
+  handler: item.handler || '',
   age: ageOf(item.metadata?.creationTimestamp),
+  labels: item.metadata?.labels || {},
+  annotations: item.metadata?.annotations || {},
+  overhead: item.overhead || null,
+  scheduling: item.scheduling || null,
 })
 export const mapPriorityClass = item => ({
   name: item.metadata?.name,

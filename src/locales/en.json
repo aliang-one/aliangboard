@@ -3223,7 +3223,13 @@
       "deleteTitle": "Delete IngressClass",
       "deleteConfirm": "Are you sure you want to delete IngressClass <span class=\"text-on-surface font-semibold font-mono\">{name}</span>?",
       "deleteWarning": "This IngressClass will be removed. Ingress resources referencing it will lose the corresponding controller. This action cannot be undone.",
-      "delete": "Delete"
+      "delete": "Delete",
+      "details": "IngressClass Details",
+      "parameters": "Parameters",
+      "labels": "Labels",
+      "annotations": "Annotations",
+      "notFound": "IngressClass Not Found",
+      "backToList": "Back to IngressClasses"
     },
     "priorityClasses": {
       "title": "PriorityClasses",
@@ -3282,7 +3288,14 @@
       "deleteTitle": "Delete RuntimeClass",
       "deleteConfirm": "Are you sure you want to delete RuntimeClass <span class=\"text-on-surface font-semibold font-mono\">{name}</span>?",
       "deleteWarning": "This RuntimeClass will be removed. Pods referencing it may fail to schedule. This action cannot be undone.",
-      "delete": "Delete"
+      "delete": "Delete",
+      "details": "RuntimeClass Details",
+      "overhead": "Overhead",
+      "scheduling": "Scheduling",
+      "labels": "Labels",
+      "annotations": "Annotations",
+      "notFound": "RuntimeClass Not Found",
+      "backToList": "Back to RuntimeClasses"
     },
     "resourceList": {
       "title": "Cluster Resources",
@@ -3984,6 +3997,8 @@
     "validatingWebhooks": "Validating Webhooks",
     "replicaSets": "ReplicaSets",
     "csiNodes": "CSINodes",
+    "ingressClassDetail": "IngressClass Detail",
+    "runtimeClassDetail": "RuntimeClass Detail",
     "priorityClassDetail": "PriorityClass Detail",
     "pvDetail": "PersistentVolume Detail",
     "storageClassDetail": "StorageClass Detail",

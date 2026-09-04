@@ -600,6 +600,7 @@ export const useClusterStore = defineStore('cluster', () => {
     fetchHPA, fetchResourceQuota, fetchLimitRange, fetchPDB,
     fetchNode,
     fetchPDBs, fetchLimitRanges, fetchResourceQuotas, fetchHPAs, fetchEndpoints, fetchReplicaSets, fetchWorkloads, fetchWorkloadRevisions, fetchPVCs, fetchRuntimeClasses, fetchIngressClasses, fetchPriorityClasses, fetchPriorityClass,
+    fetchRuntimeClass, fetchIngressClass,
     fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts,
     fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding,
     fetchCRDs, fetchCRD, fetchCRInstances,

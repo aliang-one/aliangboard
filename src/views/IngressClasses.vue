@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
-import { useResourceApply } from '@/composables/useResourceApply'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -13,7 +13,7 @@ import DeployIngressControllerDialog from '@/components/common/DeployIngressCont
 
 const { t } = useI18n()
 const store = useClusterStore()
-const { applyYaml } = useResourceApply()
+const router = useRouter()
 const { tableColumns } = useTableColumns()
 const headers = computed(() => tableColumns('ingressClasses'))
 
@@ -25,6 +25,11 @@ const ingressClassesQuery = useResourceList({
 })
 const ingressClasses = computed(() => ingressClassesQuery.data.value || [])
 const yamlOf = (c) => store.generateYAML('ingressclass', c)
+
+// 行点击 → 集群级详情页(无需 namespace 上下文);编辑统一在详情页 live YAML 上做
+function openDetail(row) {
+  router.push({ name: 'IngressClassDetail', params: { name: row.name } })
+}
 
 // 部署 Ingress 控制器(applied 后列表由弹窗内 invalidateQueries 自动刷新,共享 key)
 const showDeployCtrl = ref(false)
@@ -85,7 +90,7 @@ function handleDelete() {
       </div>
     </div>
 
-    <DataTable :headers="headers" :rows="ingressClasses" column-key="ingressClasses" expandable row-key="name">
+    <DataTable :headers="headers" :rows="ingressClasses" column-key="ingressClasses" expandable row-key="name" @row-click="openDetail">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
           <span class="material-symbols-outlined text-secondary text-lg">language</span>
@@ -99,12 +104,14 @@ function handleDelete() {
       </template>
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
-        <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.ingressClasses.deleteTip')">
+        <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.ingressClasses.deleteTip')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>
       <template #expanded="{ row }">
-        <YamlEditor :model-value="yamlOf(row)" :readonly="false" height="320px" @save="applyYaml" />
+        <!-- 只读快照(generateYAML 有损重建,仅 3 字段):保存会经 force apply 静默剪掉
+             真实控制器的 spec.parameters/labels——编辑请进详情页 live YAML(2026-09-04) -->
+        <YamlEditor :model-value="yamlOf(row)" :readonly="true" height="320px" />
       </template>
     </DataTable>
   </section>
