@@ -3857,6 +3857,7 @@
     "thisWorkload": "该工作负载",
     "onlyAvailableAfterConnect": "仅连接集群后可用",
     "workloadNotFound": "工作负载不存在",
+    "defaultSweepFailed": "摘除旧默认失败：{failed}，已中止，未改动目标类",
     "deepEditNotSupported": "暂不支持深度编辑 {type}，请使用 YAML 编辑",
     "editMetadataNotSupported": "暂不支持编辑 {type} 的元数据，请使用 YAML 编辑",
     "metadata": "元数据",
