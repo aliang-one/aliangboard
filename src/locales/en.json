@@ -61,7 +61,13 @@
     "addTitle": "Add {name}",
     "confirmDelete": "Are you sure you want to delete {type} {name}?",
     "notFound": "{name} Not Found",
-    "backTo": "Back to {name}"
+    "backTo": "Back to {name}",
+    "clusterDefaultOption": "Cluster default (follows {name})",
+    "clusterDefaultUnset": "Cluster default (not set)",
+    "noDefaultIngressClassHint": "No default IngressClass in this cluster — the first available class is preselected. Set one on the IngressClass page.",
+    "noDefaultStorageClassHint": "No default StorageClass in this cluster — select one explicitly.",
+    "setAsDefault": "Set as default",
+    "unsetDefault": "Unset default"
   },
   "api": {
     "requestFailed": "Request failed: HTTP {status}",

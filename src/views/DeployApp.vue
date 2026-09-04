@@ -10,6 +10,7 @@ import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, val
 import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { pickIngressClassName } from '@/logic/ingressClass'
+import { canUseClusterDefault, resolveClusterDefaultName } from '@/logic/classDefault'
 import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
@@ -1594,8 +1595,15 @@ async function handleDeploy() {
               <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.ingressClass') }}</label>
               <select v-model="form.ingressClassName" data-testid="ingress-class-select" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
                 <option v-if="!allIngressClasses.length" value="">{{ $t('deploy.ingressClassNoneAvailable') }}</option>
+                <!-- 集群默认(2026-09-04 复活,守卫:有默认才可选;落库=显式默认类名,spec §3.4) -->
+                <option v-if="allIngressClasses.length" data-testid="ingress-cluster-default-option"
+                  :value="resolveClusterDefaultName(allIngressClasses)"
+                  :disabled="!canUseClusterDefault(allIngressClasses)">
+                  {{ canUseClusterDefault(allIngressClasses) ? $t('common.clusterDefaultOption', { name: resolveClusterDefaultName(allIngressClasses) }) : $t('common.clusterDefaultUnset') }}
+                </option>
                 <option v-for="c in allIngressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? $t('deploy.ingressClassDefault') : '' }}</option>
               </select>
+              <p v-if="allIngressClasses.length && !canUseClusterDefault(allIngressClasses)" data-testid="ingress-cluster-default-hint" class="text-label-caps text-on-surface-variant mt-xs">{{ $t('common.noDefaultIngressClassHint') }}</p>
             </div>
 
             <!-- 多 Rule 编辑器(共享 IngressRulesEditor:path 级后端双下拉 + per-host TLS) -->
