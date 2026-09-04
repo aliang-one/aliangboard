@@ -7,10 +7,12 @@ const sessionKey = 'aliangboard.session'
 const prevSessionKey = 'aliangboard.prevSession'
 const platformKey = 'aliangboard.platform'
 
-// 跳登录页（已在 /login 则不重复跳，避免循环）
+// 跳登录页（已在 /login 则不重复跳，避免循环）。携带 ?redirect= 原路径+query(2026-09-04 事故⑥):
+// 被踢走的弹窗/页面登录后原路返回(SSH 弹窗同 sid 重建 WS);Login 侧经 safeRedirectPath 防开放重定向。
 function redirectToLogin() {
   if (typeof location !== 'undefined' && !location.pathname.startsWith('/login')) {
-    location.href = '/login'
+    const back = encodeURIComponent(location.pathname + location.search)
+    location.href = `/login?redirect=${back}`
   }
 }
 
@@ -448,6 +450,17 @@ export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdou
   const ws = new WebSocket(`${proto}://${host}/api/ssh/terminal?${params}`)
   ws.binaryType = 'arraybuffer'
   const utf8 = new TextDecoder()
+  // 握手段失败(从未 open,典型=平台登录过期被 401 拒)→ 廉价探针 /api/auth/me:
+  // 过期则 401 自动走既有 onUnauthorized → clearPlatformToken + redirectToLogin(带 redirect 回跳),
+  // 用户不再对着「会话已终止」红字无限点重连;非鉴权失败(如会话已被回收)探针 200,照常本地报错。
+  let opened = false
+  let probed = false
+  const probeAuthIfHandshakeFailed = () => {
+    if (opened || probed) return
+    probed = true
+    platformHttp.request('/api/auth/me').catch(() => {})
+  }
+  ws.onopen = () => { opened = true }
   ws.onmessage = ev => {
     const buf = new Uint8Array(ev.data)
     if (!buf.length) return
@@ -457,8 +470,8 @@ export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdou
     else if (type === 6) onReplay?.(payload)
     else if (type === 4) onError?.(utf8.decode(payload))
   }
-  ws.onerror = () => onError?.(i18n.global.t('ssh.sessionTerminated'))
-  ws.onclose = () => onClose?.()
+  ws.onerror = () => { probeAuthIfHandshakeFailed(); onError?.(i18n.global.t('ssh.sessionTerminated')) }
+  ws.onclose = () => { probeAuthIfHandshakeFailed(); onClose?.() }
   const encoder = new TextEncoder()
   function frame(type, data) {
     if (ws.readyState !== 1) return
