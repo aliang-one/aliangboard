@@ -7,6 +7,9 @@ import { createPinia, setActivePinia } from 'pinia'
 
 const applyYaml = vi.fn(async () => ({ resources: [], applied: [], failed: [], total: 0 }))
 const k8s = vi.fn(async () => ({}))
+// crud.js 中止路径 notify('error', error)(spec §4 失败明细须可见),桩住并断言
+const notify = vi.fn()
+vi.mock('@/composables/useToast', () => ({ notify }))
 vi.mock('@/api/client', () => ({
   api: { applyYaml, k8s },
   k8sStream: () => ({ abort() {} }),
@@ -73,6 +76,7 @@ beforeEach(() => {
   k8s.mockImplementation(async () => ({}))
   applyYaml.mockClear()
   invalidateQueries.mockClear()
+  notify.mockClear()
 })
 afterEach(() => {
   globalThis.localStorage = _ls
@@ -116,6 +120,7 @@ test('promoteIngressClassDefault: sweep 失败 → 中止,不写目标(防双默
   // 注意 mockImplementation 后仍可计数;先实现再 clear
   const r = await store.promoteIngressClassDefault('new')
   expect(r.ok).toBe(false)
+  expect(notify).toHaveBeenCalledWith('error', r.error) // 中止必须 toast 失败明细(spec §4)
   const targetPatch = k8s.mock.calls.filter(c => String(c[0]).endsWith('/new') && c[1]?.method === 'PATCH')
   expect(targetPatch).toHaveLength(0)
 })
@@ -154,6 +159,7 @@ test('promoteIngressClassDefault: 列表拉取失败 → 中止,零 PATCH(不写
   const r = await store.promoteIngressClassDefault('new')
   expect(r.ok).toBe(false)
   expect(r.error).toBeTruthy()
+  expect(notify).toHaveBeenCalledWith('error', r.error)
   const patches = k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')
   expect(patches).toHaveLength(0)
 })
@@ -162,6 +168,7 @@ test('updateStorageClass(isDefault:true): SC 列表拉取失败 → 中止,零 P
   fetcherState.fetchStorageClasses = async () => { throw new Error('boom') }
   const r = await store.updateStorageClass('sc-new', { isDefault: true })
   expect(r.ok).toBe(false)
+  expect(notify).toHaveBeenCalledWith('error', r.error)
   const patches = k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')
   expect(patches).toHaveLength(0)
 })
@@ -170,6 +177,7 @@ test('promoteStorageClassDefault: SC 列表拉取失败 → 中止,零 PATCH', a
   fetcherState.fetchStorageClasses = async () => { throw new Error('boom') }
   const r = await store.promoteStorageClassDefault('sc-new')
   expect(r.ok).toBe(false)
+  expect(notify).toHaveBeenCalledWith('error', r.error)
   const patches = k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')
   expect(patches).toHaveLength(0)
 })

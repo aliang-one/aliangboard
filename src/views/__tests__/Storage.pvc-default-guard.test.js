@@ -9,6 +9,9 @@ import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 const state = vi.hoisted(() => ({ scs: [] }))
 const addPVC = vi.fn(async () => ({ ok: true }))
+// I-2:SC 创建勾默认 → addStorageClass 恒 default:false,成功后 promoteStorageClassDefault(name)
+const addStorageClass = vi.fn(async () => ({ ok: true }))
+const promoteStorageClassDefault = vi.fn(async () => ({ ok: true }))
 vi.mock('@/api/client', () => ({ api: { k8s: vi.fn(async () => ({ items: [] })) } }))
 vi.mock('@/composables/useToast', () => ({ notify: vi.fn() }))
 vi.mock('@/stores/cluster', () => ({
@@ -18,7 +21,8 @@ vi.mock('@/stores/cluster', () => ({
     fetchPVCs: vi.fn(async () => []), fetchPVs: vi.fn(async () => []),
     fetchStorageClasses: vi.fn(async () => state.scs),
     addPVC: (...a) => addPVC(...a),
-    addPV: vi.fn(), addStorageClass: vi.fn(),
+    addPV: vi.fn(), addStorageClass: (...a) => addStorageClass(...a),
+    promoteStorageClassDefault: (...a) => promoteStorageClassDefault(...a),
     generateYAML: vi.fn(() => ''), deletePV: vi.fn(), deleteStorageClass: vi.fn(),
   }),
 }))
@@ -26,7 +30,7 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }), useRouter: () =
 
 import Storage from '../Storage.vue'
 
-beforeEach(() => { addPVC.mockClear() })
+beforeEach(() => { addPVC.mockClear(); addStorageClass.mockClear(); promoteStorageClassDefault.mockClear() })
 
 function mountView() {
   setActivePinia(createPinia())
@@ -72,4 +76,33 @@ test('有默认 → 选中「集群默认」提交:addPVC 收到 storageClass=�
   await flushPromises()
   expect(addPVC).toHaveBeenCalledTimes(1)
   expect(addPVC.mock.calls[0][0].storageClass).toBe('fast-sc')
+})
+
+test('SC 创建勾默认:addStorageClass 恒 default:false,成功后走 promoteStorageClassDefault', async () => {
+  state.scs = []
+  const { w } = mountView()
+  await flushPromises()
+  await w.setData({
+    showCreateSC: true,
+    createSCForm: { name: 'my-sc', provisioner: 'rancher.io/local-path', parameters: [], reclaimPolicy: 'Delete', volumeBindingMode: 'Immediate', allowVolumeExpansion: false, default: true },
+  })
+  await w.vm.handleCreateSC()
+  await flushPromises()
+  expect(addStorageClass).toHaveBeenCalledTimes(1)
+  expect(addStorageClass.mock.calls[0][0]).toMatchObject({ name: 'my-sc', default: false })
+  expect(promoteStorageClassDefault).toHaveBeenCalledWith('my-sc')
+})
+
+test('SC 创建未勾默认:成功后不调 promoteStorageClassDefault', async () => {
+  state.scs = []
+  const { w } = mountView()
+  await flushPromises()
+  await w.setData({
+    showCreateSC: true,
+    createSCForm: { name: 'plain-sc', provisioner: 'x', parameters: [], reclaimPolicy: 'Delete', volumeBindingMode: 'Immediate', allowVolumeExpansion: false, default: false },
+  })
+  await w.vm.handleCreateSC()
+  await flushPromises()
+  expect(addStorageClass).toHaveBeenCalledWith(expect.objectContaining({ name: 'plain-sc', default: false }))
+  expect(promoteStorageClassDefault).not.toHaveBeenCalled()
 })

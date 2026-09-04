@@ -117,22 +117,28 @@ function onScPresetChange(id) {
 }
 function addScParamRow() { createSCForm.value.parameters.push({ key: '', value: '' }) }
 function removeScParamRow(i) { createSCForm.value.parameters.splice(i, 1) }
-function handleCreateSC() {
+async function handleCreateSC() {
   const f = createSCForm.value
   if (!scCanCreate.value) return
   const parameters = f.parameters
     .map(r => (r.key || '').trim() ? `${r.key.trim()}=${r.value}` : '')
     .filter(Boolean)
     .join(',')
-  store.addStorageClass({
+  // 创建即设默认也须走 sweep(防双默认):先以非默认创建,成功后再 promote(sweep→置默认)
+  const r = await store.addStorageClass({
     name: f.name,
     provisioner: f.provisioner,
     parameters,
     reclaimPolicy: f.reclaimPolicy,
     volumeBindingMode: f.volumeBindingMode,
     allowVolumeExpansion: f.allowVolumeExpansion,
-    default: f.default,
+    default: false,
   })
+  if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
+  if (f.default) {
+    const p = await store.promoteStorageClassDefault(f.name)
+    if (p && p.ok === false) return // promote(sweep)失败:资源已创建但默认未成,保留弹窗(错误已 notify)
+  }
   showCreateSC.value = false
   resetCreateSC()
 }
@@ -417,7 +423,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </div>
       <template #actions>
         <button @click="showCreateSC = false; resetCreateSC()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('storage.cancel') }}</button>
-        <button @click="handleCreateSC" :disabled="!scCanCreate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
+        <button data-testid="sc-create-submit" @click="handleCreateSC" :disabled="!scCanCreate" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
       </template>
     </Modal>
   </section>

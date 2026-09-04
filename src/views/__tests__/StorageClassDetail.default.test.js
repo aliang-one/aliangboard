@@ -31,7 +31,8 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (k) => k }) }))
 
 import StorageClassDetail from '../StorageClassDetail.vue'
 
-const ModalStub = { name: 'Modal', template: '<div><slot/><slot name="actions"/></div>' }
+// modelValue 条件渲染:让「弹窗是否还开着」可从 DOM 断言(saveEdit 失败守卫测试依赖)
+const ModalStub = { name: 'Modal', props: ['modelValue'], template: '<div v-if="modelValue" data-testid="modal-open"><slot/><slot name="actions"/></div>' }
 
 function mountView() {
   return mount(StorageClassDetail, {
@@ -72,5 +73,35 @@ describe('StorageClassDetail 默认钮', () => {
     await flush()
     expect(updateSpy).toHaveBeenCalledWith('fast-sc', { isDefault: false })
     expect(promoteSpy).not.toHaveBeenCalled()
+  })
+
+  it('saveEdit: updateStorageClass 返回 {ok:false} → 编辑弹窗不关闭', async () => {
+    scFixture = makeSc(false)
+    updateSpy.mockResolvedValueOnce({ ok: false, error: 'sweep failed' })
+    const w = mountView()
+    await flush()
+    const editBtn = w.findAll('button').find(b => b.text().includes('common.edit'))
+    expect(editBtn).toBeTruthy()
+    await editBtn.trigger('click')
+    await flush()
+    expect(w.find('[data-testid="modal-open"]').exists()).toBe(true)
+    const saveBtn = w.findAll('button').find(b => b.text().includes('common.save'))
+    await saveBtn.trigger('click')
+    await flush()
+    expect(updateSpy).toHaveBeenCalled()
+    expect(w.find('[data-testid="modal-open"]').exists()).toBe(true) // 失败:保留弹窗
+  })
+
+  it('saveEdit: updateStorageClass 成功 → 编辑弹窗关闭', async () => {
+    scFixture = makeSc(false)
+    updateSpy.mockResolvedValueOnce(undefined)
+    const w = mountView()
+    await flush()
+    await w.findAll('button').find(b => b.text().includes('common.edit')).trigger('click')
+    await flush()
+    const saveBtn = w.findAll('button').find(b => b.text().includes('common.save'))
+    await saveBtn.trigger('click')
+    await flush()
+    expect(w.find('[data-testid="modal-open"]').exists()).toBe(false)
   })
 })

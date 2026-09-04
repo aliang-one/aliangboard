@@ -265,14 +265,18 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     await api.k8s(path, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch) })
   }
   // 列表拉取失败 = 无法判定现状默认,必须中止(spec §4 不变式):吞成空列表会漏 sweep → 双默认
-  const sweepFetchFailed = e => ({ ok: false, error: i18n.global.t('store.defaultSweepFetchFailed', { error: e?.message || i18n.global.t('store.permissionDeniedOrNotFound') }) })
+  const sweepFetchFailed = e => {
+    const error = i18n.global.t('store.defaultSweepFetchFailed', { error: e?.message || i18n.global.t('store.permissionDeniedOrNotFound') })
+    notify('error', error) // spec §4:中止必须 toast 明细,调用方无需重复提示
+    return { ok: false, error }
+  }
   async function sweepStorageClassDefaults(excludeName) {
     let items
     try { items = await fetchStorageClasses() } catch (e) { return sweepFetchFailed(e) }
     const others = (items || []).filter(c => c.default && c.name !== excludeName)
     for (const c of others) {
       const ann = Object.fromEntries(SC_DEFAULT_SWEEP_KEYS.map(k => [k, null]))
-      try { await patchSilent(scPath(c.name), { metadata: { annotations: ann } }) } catch { return { ok: false, error: i18n.global.t('store.defaultSweepFailed', { failed: c.name }) } }
+      try { await patchSilent(scPath(c.name), { metadata: { annotations: ann } }) } catch { const error = i18n.global.t('store.defaultSweepFailed', { failed: c.name }); notify('error', error); return { ok: false, error } }
     }
     return { ok: true }
   }
@@ -294,7 +298,7 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     const others = (items || []).filter(c => c.isDefault && c.name !== name)
     for (const c of others) {
       const patch = buildIngressClassPatch(c, { isDefault: null }) || { metadata: { annotations: { [IC_DEFAULT_KEY]: null } } }
-      try { await patchSilent(icPath(c.name), patch) } catch { return { ok: false, error: i18n.global.t('store.defaultSweepFailed', { failed: c.name }) } }
+      try { await patchSilent(icPath(c.name), patch) } catch { const error = i18n.global.t('store.defaultSweepFailed', { failed: c.name }); notify('error', error); return { ok: false, error } }
     }
     const r = await remotePatch(icPath(name), { metadata: { annotations: { [IC_DEFAULT_KEY]: 'true' } } }, `IngressClass/${name}`)
     invalidateResource('ingressclasses')

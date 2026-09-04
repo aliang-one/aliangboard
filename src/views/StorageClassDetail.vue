@@ -56,11 +56,12 @@ function removeLabelRow(i) { editForm.value.labels.splice(i, 1) }
 function addAnnRow() { editForm.value.annotations.push({ key: '', value: '' }) }
 function removeAnnRow(i) { editForm.value.annotations.splice(i, 1) }
 async function saveEdit() {
-  await store.updateStorageClass(route.params.name, {
+  const r = await store.updateStorageClass(route.params.name, {
     isDefault: editForm.value.isDefault,
     labels: rowsToMap(editForm.value.labels),
     annotations: rowsToMap(editForm.value.annotations),
   })
+  if (r && r.ok === false) return // sweep 中止等失败:保留弹窗(错误已由 store notify)
   showEditModal.value = false
 }
 async function promoteDefault() { await store.promoteStorageClassDefault(route.params.name) }

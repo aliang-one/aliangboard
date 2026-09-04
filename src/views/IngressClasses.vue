@@ -42,12 +42,17 @@ function resetCreate() {
 }
 async function handleCreate() {
   const f = createForm.value
+  // 创建即设默认也须走 sweep(防双默认):先以非默认创建,成功后再 promote(sweep→置默认)
   const r = await store.addIngressClass({
     name: f.name,
     controller: f.controller || 'k8s.io/ingress-nginx',
-    isDefault: !!f.isDefault,
+    isDefault: false,
   })
   if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
+  if (f.isDefault) {
+    const p = await store.promoteIngressClassDefault(f.name)
+    if (p && p.ok === false) return // promote(sweep)失败:资源已创建但默认未成,保留弹窗(错误已 notify)
+  }
   showCreateModal.value = false
   resetCreate()
 }
@@ -82,6 +87,7 @@ function handleDelete() {
           <span class="material-symbols-outlined">rocket_launch</span> {{ $t('ingressController.deployBtn') }}
         </button>
         <button
+          data-testid="ic-create-open"
           @click="showCreateModal = true"
           class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
         >
@@ -144,6 +150,7 @@ function handleDelete() {
     <template #actions>
       <button @click="showCreateModal = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('admin.ingressClasses.cancel') }}</button>
       <button
+        data-testid="ic-create-submit"
         @click="handleCreate"
         :disabled="!createForm.name"
         class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40"
