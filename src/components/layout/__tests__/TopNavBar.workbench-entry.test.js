@@ -1,6 +1,8 @@
 // src/components/layout/__tests__/TopNavBar.workbench-entry.test.js
 // 工作台入口品牌胶囊(方案 C3,docs/superpowers/specs/2026-08-28-workbench-entry-prominent-design.md):
-// 有文字标签(非 icon-only)、右区第一位(刷新之前)、点击直达 /workbench、/workbench* 前缀激活态。
+// 有文字标签(非 icon-only)、点击直达 /workbench、/workbench* 前缀激活态。
+// 2026-09-04 身份舱改造:工作台与用户中心合入分隔符右侧同一枚 rounded-full 容器
+// (刷新留在舱外左侧——「页面工具」与「工作区/账户」语义分区)。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
@@ -83,14 +85,24 @@ describe('TopNavBar 工作台品牌胶囊', () => {
     expect(pill.find('.material-symbols-outlined').text()).toBe('workspaces')
   })
 
-  it('位于刷新按钮之前(右区第一位)', () => {
+  it('位于刷新按钮之后,与用户中心同处一枚身份舱(分隔符右侧)', () => {
     const w = mountIt()
     const buttons = w.findAll('header button')
+    const pill = findPill(w)
     const pillIdx = buttons.findIndex(b => b.attributes('aria-label') === 'nav.workbench')
     const refreshIdx = buttons.findIndex(b => b.attributes('aria-label') === 'nav.refreshPage')
     expect(pillIdx).toBeGreaterThan(-1)
     expect(refreshIdx).toBeGreaterThan(-1)
-    expect(pillIdx).toBeLessThan(refreshIdx)
+    expect(pillIdx).toBeGreaterThan(refreshIdx)
+    // 同舱:胶囊容器 = 工作台段 | hairline | 用户中心段;刷新钮在舱外
+    const capsule = w.find('[data-test="identity-capsule"]')
+    expect(capsule.exists()).toBe(true)
+    expect(capsule.element.children[0].getAttribute('data-test')).toBe('wb-pill')
+    expect(capsule.element.children[1].getAttribute('data-test')).toBe('identity-hairline')
+    const userTrigger = w.find('[data-testid="user-menu-trigger"]')
+    expect(userTrigger.exists()).toBe(true)
+    expect(capsule.element.contains(userTrigger.element)).toBe(true)
+    expect(capsule.element.contains(buttons[refreshIdx].element)).toBe(false)
   })
 
   it('点击直达 /workbench', async () => {
@@ -99,19 +111,21 @@ describe('TopNavBar 工作台品牌胶囊', () => {
     expect(state.pushSpy).toHaveBeenCalledWith('/workbench')
   })
 
-  it('非工作台路由:描边浅底默认态,无激活填充', () => {
+  it('非工作台路由:身份舱中性底色,工作台段无激活填充', () => {
     state.path = '/cluster'
     const w = mountIt()
-    const pill = findPill(w)
-    expect(pill.classes()).toContain('border-primary/40')
-    expect(pill.classes()).not.toContain('bg-primary-container')
+    const capsule = w.find('[data-test="identity-capsule"]')
+    expect(capsule.classes()).toContain('border-outline-variant')
+    expect(capsule.classes()).toContain('bg-surface-container-low')
+    expect(findPill(w).classes()).not.toContain('bg-primary-container')
   })
 
-  it('工作台路由(含项目详情子路径):激活态填充', () => {
+  it('工作台路由(含项目详情子路径):整舱着色 + 工作台段填充', () => {
     state.path = '/workbench/p1'
     const w = mountIt()
-    const pill = findPill(w)
-    expect(pill.classes()).toContain('bg-primary-container')
-    expect(pill.classes()).toContain('border-primary')
+    const capsule = w.find('[data-test="identity-capsule"]')
+    expect(capsule.classes()).toContain('bg-primary-container/25')
+    expect(capsule.classes()).toContain('border-primary/30')
+    expect(findPill(w).classes()).toContain('bg-primary-container')
   })
 })

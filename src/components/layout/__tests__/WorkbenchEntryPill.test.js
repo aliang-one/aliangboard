@@ -33,15 +33,16 @@ const SUMMARY = (over = {}) => ({
 
 beforeEach(() => { mocks.summary.mockReset(); mocks.push.mockReset(); mocks.path = '/cluster' })
 
-test('C3 契约:aria-label/文字/图标/默认态描边类', async () => {
+test('C3 契约:aria-label/文字/图标;段式契约(2026-09-04 身份舱:描边上交容器,自身无 border)', async () => {
   mocks.summary.mockReturnValue(new Promise(() => {}))   // 挂起,聚焦静态契约
   const w = mountPill(); await flushPromises()
   const btn = w.find('button')
   expect(btn.attributes('aria-label')).toBe('工作台')
   expect(btn.text()).toContain('工作台')
   expect(btn.find('.material-symbols-outlined').text()).toBe('workspaces')
-  expect(btn.classes()).toContain('border-primary/40')
+  expect(btn.classes()).toContain('text-primary')
   expect(btn.classes()).not.toContain('bg-primary-container')
+  expect(btn.classes().some(c => c.startsWith('border'))).toBe(false)
 })
 
 test('激活态:/workbench/* 路由填充类', async () => {

@@ -1,8 +1,10 @@
 <!-- src/components/layout/WorkbenchEntryPill.vue -->
 <script setup>
-// 工作台入口胶囊(2026-08-30 信息丰富化):C3 品牌胶囊契约不变(样式/aria/点击),叠加
+// 工作台入口胶囊(2026-08-30 信息丰富化):C3 契约不变(aria/文字/点击),叠加
 // 状态角标 + 悬停概览面板。数据 = GET /api/workbench/summary 单一汇总端点,30s 轮询
 // (TopNavBar 全站常驻 ⇒ 全站唯一轮询器;标签页隐藏自动暂停,聚焦即刷新)。
+// 2026-09-04 身份舱段式化:自身描边/底色上交 TopNavBar 的 identity-capsule 容器,
+// 本组件只保留段内悬停(hover:bg-primary/10)与激活填充(bg-primary-container)。
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -108,11 +110,11 @@ function relTime(ts) {
       @click="router.push('/workbench')"
       :aria-label="$t('nav.workbench')"
       :title="isPhone ? $t('nav.workbench') : summaryText"
-      class="flex items-center gap-sm rounded-full px-md py-1.5 border transition-colors text-body-sm font-semibold shrink-0"
+      class="flex items-center gap-sm rounded-full px-md py-1.5 transition-colors text-body-sm font-semibold shrink-0"
       :class="[
         isWorkbenchActive
-          ? 'border-primary bg-primary-container text-on-primary-container'
-          : 'border-primary/40 bg-primary/5 text-primary hover:border-primary hover:bg-primary/10',
+          ? 'bg-primary-container text-on-primary-container'
+          : 'text-primary hover:bg-primary/10',
         isPhone ? 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:justify-center max-sm:px-0' : '',
       ]"
     >

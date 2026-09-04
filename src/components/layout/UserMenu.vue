@@ -67,9 +67,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootEl" class="relative shrink-0">
+    <!-- 身份舱右段(2026-09-04):全圆角 + 与工作台段同语言的 primary 淡染悬停 -->
     <button
       data-testid="user-menu-trigger"
-      class="flex items-center gap-sm cursor-pointer hover:bg-surface-container-low p-1 rounded-lg transition-colors"
+      class="flex items-center gap-sm cursor-pointer hover:bg-primary/10 p-1 rounded-full transition-colors"
       :aria-label="$t('nav.userCenter')"
       @click="toggle"
     >
