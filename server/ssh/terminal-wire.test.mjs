@@ -109,5 +109,38 @@ test('空帧忽略;replay 缺省仅在有内容时发', () => {
   attachSocketToSession(ws, session, { send: (w, t, p) => sends.push(t) })
   ws.emit('message', Buffer.from([]))
   assert.equal(sends.length, 0)
-  assert.equal(session.ring.lineCount(), 0)
+  assert.equal(session.ring.byteLength(), 0)
+})
+
+test('resize 仲裁:仅 primary(最新附着者)的 RESIZE 落 channel;STDIN 不受仲裁', () => {
+  // 多浏览器窗口尺寸不同时,共享 pty 若谁都能 resize 就是「最后说话的人赢」——TUI 被反复压扁
+  // (2026-09-04 症状2)。仲裁语义对齐 tmux latest:最新附着者定尺寸,其余只看。
+  const writes = [], windows = []
+  const session = fakeSession({ channel: { write: p => writes.push(p), setWindow: (r, c) => windows.push([r, c]) } })
+  const send = () => {}
+  const ws1 = fakeWs(), ws2 = fakeWs()
+  attachSocketToSession(ws1, session, { send })
+  attachSocketToSession(ws2, session, { send })
+  const resize = (ws, cols, rows) => ws.emit('message', Buffer.concat([Buffer.from([RESIZE]), Buffer.from(JSON.stringify({ cols, rows }))]))
+  resize(ws1, 200, 60)                        // ws1 已非 primary → 忽略
+  assert.deepEqual(windows, [])
+  resize(ws2, 120, 40)                        // primary 生效
+  assert.deepEqual(windows, [[40, 120]])
+  ws1.emit('message', Buffer.concat([Buffer.from([STDOUT]), Buffer.from('x')]))
+  assert.deepEqual(writes.map(b => b.toString('utf8')), ['x'])   // 输入不仲裁
+})
+
+test('resize 仲裁:primary 断开顺延给剩余附着者;全员离开后 resize 不落', () => {
+  const windows = []
+  const session = fakeSession({ channel: { write() {}, setWindow: (r, c) => windows.push([r, c]) } })
+  const send = () => {}
+  const ws1 = fakeWs(), ws2 = fakeWs()
+  attachSocketToSession(ws1, session, { send })
+  attachSocketToSession(ws2, session, { send })
+  ws2.emit('close')                           // primary 离开 → ws1 顺延
+  ws1.emit('message', Buffer.concat([Buffer.from([RESIZE]), Buffer.from(JSON.stringify({ cols: 150, rows: 50 }))]))
+  assert.deepEqual(windows, [[50, 150]])
+  ws1.emit('close')
+  ws1.emit('message', Buffer.concat([Buffer.from([RESIZE]), Buffer.from(JSON.stringify({ cols: 80, rows: 24 }))]))
+  assert.deepEqual(windows, [[50, 150]])      // 已无附着者:不再落
 })

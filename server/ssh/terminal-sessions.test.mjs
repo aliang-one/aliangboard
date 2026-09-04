@@ -2,11 +2,37 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createRingBuffer, createTerminalRegistry } from './terminal-sessions.mjs'
 
-test('环形缓冲:超 maxLines 丢最老行;snapshot 为字节拼接;中文 UTF-8 完整', () => {
-  const rb = createRingBuffer(3)
-  rb.push('a\n'); rb.push('bb\n'); rb.push('ccc\n'); rb.push('中文\n'); rb.push('e\n')
-  const snap = rb.snapshot().toString('utf8')
-  assert.deepEqual(snap.split('\n').filter(Boolean), ['ccc', '中文', 'e'])
+test('环形缓冲:按字节封顶,超限丢最老块;snapshot 为原始字节拼接', () => {
+  const rb = createRingBuffer(10)
+  rb.push('12345'); rb.push('67890')
+  assert.equal(rb.byteLength(), 10)
+  rb.push('abc')                                // 13 > 10 → 丢最老块 '12345'
+  assert.equal(rb.byteLength(), 8)
+  assert.equal(rb.snapshot().toString('utf8'), '67890abc')
+  rb.push('')                                   // 空块 no-op
+  assert.equal(rb.byteLength(), 8)
+})
+
+test('环形缓冲:单块超预算保尾截断(无换行大流/超长单行不打爆堆,2026-09-04 P1)', () => {
+  const rb = createRingBuffer(8)
+  rb.push('abcdefghij')                         // 10 > 8 → 保尾 8 字节
+  assert.equal(rb.byteLength(), 8)
+  assert.equal(rb.snapshot().toString('utf8'), 'cdefghij')
+})
+
+test('环形缓冲:原始字节保真——ANSI/CRLF/无换行流不被按行切分重排(回放不再失真)', () => {
+  const rb = createRingBuffer(1024)
+  rb.push('\x1b[2J\x1b[H画屏\r\n无换行')
+  rb.push('续流\x1b[1A')
+  assert.equal(rb.snapshot().toString('utf8'), '\x1b[2J\x1b[H画屏\r\n无换行续流\x1b[1A')
+})
+
+test('环形缓冲:跨块 UTF-8 多字节字符完整(Buffer 边界切在字符中间不丢字节)', () => {
+  const rb = createRingBuffer(1024)
+  const full = Buffer.from('中文abc', 'utf8')
+  rb.push(full.subarray(0, 4))                  // '中' + '文'首字节
+  rb.push(full.subarray(4))
+  assert.equal(rb.snapshot().toString('utf8'), '中文abc')
 })
 
 test('registry: ensure 复用同 sid(工厂只调一次);attach/detach 维护 browserCount', () => {

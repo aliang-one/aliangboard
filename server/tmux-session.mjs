@@ -63,7 +63,9 @@ export function tmuxNewSessionDetached({ tmuxBin = 'tmux', terminfoDir = '', con
 // 而注入的 terminfo 没有 s/screen 条目 → pane 里 shell 行编辑(上箭头等)错乱;
 // 定到 screen-256color(tar 已含该条目,pane 应用还能拿到 256 色)。只在 new-session(server 启动)时被读。
 export function tmuxConfContent() {
-  return 'set -g default-terminal "screen-256color"\n'
+  // window-size largest(≥3.1):多客户端窗口尺寸不齐时按最大者——小窗口出留白,
+  // 而不是把大窗口的 TUI 压扁(2026-09-04 症状2)
+  return 'set -g default-terminal "screen-256color"\nset -g window-size largest\n'
 }
 
 // conf 注入目标候选:system/injected 两路共用,不必与二进制同目录(只要 pod 里可读)。
@@ -89,10 +91,14 @@ export function planExec({ mode, tmuxPresent, tmuxBin = 'tmux', terminfoDir = ''
   }
 }
 
-// Pure: which session names are past the idle TTL. tracker: Map<name, { token, lastActiveAt, ... }>
+// Pure: which session names are past the idle TTL.
+// tracker: Map<name, { token, lastActiveAt, attached?, ... }>。attached>0 豁免(2026-09-04):
+// 旧口径只看键入续命,用户盯着静态屏/慢日志 30min 不敲键盘即被回收(「会话意外被关闭」主诉);
+// 附着的会话直接豁免,未附着的照旧按时钟回收(无输出续命,无永生泄漏)。
 export function pickStaleSids(now, tracker, ttlMs) {
   const out = []
   for (const [name, m] of tracker) {            // Map iterates as [key, value]
+    if ((m.attached || 0) > 0) continue
     if (now - m.lastActiveAt > ttlMs) out.push(name)
   }
   return out

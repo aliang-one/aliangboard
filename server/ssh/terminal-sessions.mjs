@@ -1,30 +1,40 @@
 // SSH 终端网关侧保活(spec §6):浏览器 WS 断开 ≠ 会话死亡;输出持续进环形缓冲;
 // 重连同 sid 先回放(snapshot)再接直播。无浏览器且空闲超阈才 reap(纯逻辑,时钟注入可测)。
-export function createRingBuffer(maxLines = 4000) {
-  const lines = []
-  let tail = ''                       // 半行残段(跨 chunk)
+
+// 环形缓冲(2026-09-04 重设计):原始字节块 + 字节上限。旧版按 utf8 行切分再重 join——
+// TUI/二进制流(ANSI 定位、\r 进度条、无换行大流、超长单行)回放失真,且 tail 与单行长度
+// 无界可打爆网关堆(审计 P1)。现按到达字节原样保存:超预算丢最老块、单块超预算保尾截断,
+// 回放保真 + 内存有界。
+export function createRingBuffer(maxBytes = 4 * 1024 * 1024) {
+  const chunks = []
+  let total = 0
   return {
     push(chunk) {
-      // ring 按 utf8 行切分:跨 chunk 的多字节字符由 tail 拼接兜底;但二进制流回放可能有损(按行重 join)。
-      // 仅影响 CH_REPLAY 快照;直播帧(CH_STDOUT)原样转发不受影响。
-      const text = (typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
-      const parts = (tail + text).split('\n')
-      tail = parts.pop()
-      for (const l of parts) { lines.push(l); if (lines.length > maxLines) lines.shift() }
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)   // string/Uint8Array → utf8
+      if (!buf.length) return
+      chunks.push(buf)
+      total += buf.length
+      while (total > maxBytes && chunks.length > 1) { total -= chunks[0].length; chunks.shift() }
+      if (total > maxBytes) {                       // 单块即超预算:保尾截断,释放对大 buf 的引用
+        const tail = Buffer.from(buf.subarray(buf.length - maxBytes))
+        chunks.length = 0
+        chunks.push(tail)
+        total = tail.length
+      }
     },
-    snapshot() { const out = tail ? [...lines, tail] : [...lines]; return Buffer.from(out.join('\n'), 'utf8') },
-    lineCount() { return lines.length },
+    snapshot() { return Buffer.concat(chunks) },
+    byteLength() { return total },
   }
 }
 
 import { shouldReapSession } from './reap-policy.mjs'
 
-export function createTerminalRegistry({ now = Date.now } = {}) {
+export function createTerminalRegistry({ now = Date.now, ringMaxBytes } = {}) {
   const map = new Map()   // sid → session { sid, serverId, userId, ring, browserCount, lastActiveAt, createdAt, lastOutputAt, extra }
   function ensure(sid, meta, factory) {
     let s = map.get(sid)
     if (s) return s
-    s = { sid, serverId: meta.serverId || '', userId: meta.userId || '', ring: createRingBuffer(), browserCount: 0, lastActiveAt: now(), createdAt: now(), lastOutputAt: 0, extra: {} }
+    s = { sid, serverId: meta.serverId || '', userId: meta.userId || '', ring: createRingBuffer(ringMaxBytes), browserCount: 0, lastActiveAt: now(), createdAt: now(), lastOutputAt: 0, extra: {} }
     s.extra = factory(s) || {}
     map.set(sid, s)
     return s

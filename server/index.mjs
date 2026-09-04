@@ -615,10 +615,12 @@ const tmuxProbeCache = new Map()
 const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
 const TMUX_SCROLLBACK_LINES = Number(process.env.TMUX_SCROLLBACK_LINES || 2000)
 
-// idle reaper tracker: tmuxSessionName -> { token, ns, pod, container, terminalId, lastActiveAt }
+// idle reaper tracker: tmuxSessionName -> { token, ns, pod, container, terminalId, lastActiveAt, attached }
 const idleTracker = new Map()
 
 // 空闲回收：超过 IDLE_TTL 未活动的 tmux 会话 best-effort 杀掉并删行。
+// 附着的会话豁免(2026-09-04):旧口径只看键入续命,盯静态屏/慢日志 30min 不敲键盘即被回收
+// (「会话意外被关闭」主诉);未附着照旧按时钟回收,无输出续命故无永生泄漏。
 // 已知限制：计时在 gateway 内存,重启后已空闲的会话需等下次 attach-再离开才计时,或等 pod 重启。
 const IDLE_TTL_MS = Number(process.env.IDLE_TTL_MS || 30 * 60 * 1000)
 const idleSweeper = setInterval(() => {
@@ -627,6 +629,7 @@ const idleSweeper = setInterval(() => {
     for (const name of pickStaleSids(now, idleTracker, IDLE_TTL_MS)) {
       const meta = idleTracker.get(name)
       if (!meta) continue                                   // already gone
+      if ((meta.attached || 0) > 0) continue                // 有人附着:豁免(pick 后再复核一次)
       if (Date.now() - meta.lastActiveAt <= IDLE_TTL_MS) continue   // re-attached since pick → leave it alone
       idleTracker.delete(name)
       const session = sessions.get(meta.token)
@@ -831,6 +834,7 @@ async function handleExec(ws, session, url, req) {
   const sessionName = tmuxSessionName(token, sid)
   let execCommand = command   // 默认:一次性 shell(降级 / 非 tmux 路径)
   let persistent = false
+  let attachedMeta = null     // 持久路径下本 exec 在 idleTracker 中的 meta(ws 关闭时递减 attached)
   if (planned.persistent) {
     try {
       // 会话已存在(重连)? has-session 退出码判断(execCapture 现返回 status)。
@@ -849,7 +853,12 @@ async function handleExec(ws, session, url, req) {
       } catch { /* 首次连接无历史 */ }
       execCommand = tmuxAttachOnlyCommand(label, sessionName, resolved.bin, resolved.terminfoDir)
       persistent = true
-      idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now() })
+      // 附着计数(2026-09-04):attached>0 的会话被空闲回收豁免;ws 关闭时递减。
+      // get-or-create:重连不重置计数,只续时间。
+      const idleMeta = idleTracker.get(sessionName)
+      if (idleMeta) { idleMeta.lastActiveAt = Date.now(); idleMeta.attached = (idleMeta.attached || 0) + 1 }
+      else idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now(), attached: 1 })
+      attachedMeta = idleMeta || idleTracker.get(sessionName)
     } catch {
       // tmux 起不来 → 降级一次性 exec(刷新不保留),shell 仍可用
       execCommand = command
@@ -899,7 +908,11 @@ async function handleExec(ws, session, url, req) {
       try { const { cols, rows } = JSON.parse(payload.toString('utf8')); stdout.columns = cols; stdout.rows = rows; stdout.emit('resize') } catch { /* 帧格式错误 */ }
     }
   })
-  ws.on('close', () => { try { stdin.end() } catch { /* noop */ }; try { conn?.close() } catch { /* noop */ } })
+  ws.on('close', () => {
+    if (attachedMeta) attachedMeta.attached = Math.max(0, (attachedMeta.attached || 1) - 1)   // 本 exec 的附着-1
+    try { stdin.end() } catch { /* noop */ }
+    try { conn?.close() } catch { /* noop */ }
+  })
   ws.on('error', () => { try { conn?.close() } catch { /* noop */ } })
 }
 
@@ -2069,7 +2082,9 @@ const httpServer = createServer((req, res) => {
 
 // ===== SSH 服务器终端(/api/ssh/terminal) =====
 // 会话注册表:浏览器断开 ≠ 会话死亡;重连同 sid 先回放(CH_REPLAY)再接直播。
-const sshTerminals = createTerminalRegistry()
+// 环形缓冲字节上限(2026-09-04 P1):防无换行大流/超长单行打爆堆;SSH_RING_MAX_BYTES 可调,下限 64KB。
+const SSH_RING_MAX_BYTES = Math.max(64 * 1024, Number(process.env.SSH_RING_MAX_BYTES) || 4 * 1024 * 1024)
+const sshTerminals = createTerminalRegistry({ ringMaxBytes: SSH_RING_MAX_BYTES })
 // SSH 异步任务 TTL 清理(规格 2026-08-30 §4):对内存 map 里活跃过的服务器逐台远端 find。
 // 网关重启后内存为空 → 该轮不扫;孤儿目录由下次该服务器 run() 的机会性清理兜底(launchScript 已含)。
 const jobBridgeForSweep = createSshJobBridge({ db, pool: sshPool, projectId: '__sweep__', getPolicy: getSshJobPolicy })
@@ -2182,6 +2197,9 @@ async function handleSshTerminal(ws, ps, url) {
       try { ws.close() } catch {}
       return
     }
+    // 回放前先把共享 pty 调到本客户端尺寸(2026-09-04 resize 仲裁):SIGWINCH 让 TUI 立即按
+    // 新尺寸重绘,旧尺寸的历史快照紧随其后,避免错位重排;本 ws 随即成为 primary(尺寸唯一话事人)
+    try { session.extra.channel?.setWindow?.(rows, cols) } catch { /* channel 未就绪 */ }
     // 回放 → 直播:snapshot 先发、再注册进 sockets——单线程内顺序成立,无竞态
     attachSocketToSession(ws, session, {
       send: wsSend,
