@@ -14,10 +14,28 @@ import { useShellStore } from '@/stores/shell'
 import { Z } from '@/styles/zScale'
 import { searchAll, collectResourceItems } from '@/logic/globalSearch'
 import { routeForResource } from '@/logic/resourceNavigation'
+import { useI18n } from 'vue-i18n'
 
 const router = useRouter()
 const route = useRoute()
 const store = useClusterStore()
+const { tm } = useI18n()
+// 页面搜索同义词表(nav.searchPageSynonyms,按语言取)——tm 返回对象/数组/AST 形态不定,防御式归一
+const asText = v => (typeof v === 'string' ? v : (v && typeof v === 'object' ? (v.content ?? '') : ''))
+const pageSynonyms = computed(() => {
+  const raw = tm('nav.searchPageSynonyms')
+  const map = {}
+  const feed = (k, v) => { const text = asText(v); if (text) map[String(k).replace(/^\//, '')] = text }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (Array.isArray(item)) { const k = item[0]; const v = item[1]; if (typeof k === 'string') feed(k, v) }
+      else if (item && typeof item === 'object') { for (const [k, v] of Object.entries(item)) feed(k, v) }
+    }
+  } else if (raw && typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw)) feed(k, v)
+  }
+  return map
+})
 const { bump: bumpRefresh } = usePageRefresh()
 // 身份舷板激活态:/workbench* 时整板着色(工作台段自带填充,板体描边/渐变换激活色)
 const wbActive = computed(() => route.path.startsWith('/workbench'))
@@ -43,6 +61,10 @@ function closeSearchModal() { searchModalOpen.value = false; searchQuery.value =
 // ⌘K/Ctrl+K 全局快捷键:桌面聚焦内联框,<lg 打开弹层(Headlamp/Lens 同款入口语义)
 function onGlobalKeydown(e) {
   if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'k') {
+    // 焦点在其它可编辑元素时不抢(YAML 编辑器/工作台输入框内 ⌘K 不应悄悄灌进顶栏)
+    const t = e.target
+    const editable = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+    if (editable && t !== searchInputRef.value) return
     e.preventDefault()
     if (belowLg.value) openSearchModal()
     else searchInputRef.value?.focus()
@@ -135,7 +157,7 @@ function buildItems() {
 const searchResults = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
-  const { pages, resources } = searchAll(q, buildItems())
+  const { pages, resources } = searchAll(q, buildItems(), { synonyms: pageSynonyms.value })
   return [...pages.map(p => ({ ...p, page: true })), ...resources]
 })
 function goResult(it) {
@@ -217,7 +239,7 @@ onBeforeUnmount(unbindDropFollow)
           :aria-label="$t('common.search')"
           type="text"
         />
-        <kbd data-test="search-kbd" class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] leading-none text-on-surface-variant border border-outline-variant rounded px-1.5 py-1 pointer-events-none">⌘K</kbd>
+        <kbd data-test="search-kbd" aria-hidden="true" class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] leading-none text-on-surface-variant border border-outline-variant rounded px-1.5 py-1 pointer-events-none">⌘K</kbd>
         <!-- 全局搜索结果(与 <lg 弹层共用 SearchResults) -->
         <SearchResults :results="searchResults" @select="goResult" />
       </div>

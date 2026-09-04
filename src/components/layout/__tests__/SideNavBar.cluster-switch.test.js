@@ -75,10 +75,29 @@ test('桌面:点集群头部弹 Teleport 锚定面板;z-30 遮罩点击关闭', 
   expect(brand.attributes('aria-expanded')).toBe('true')
   const overlay = w.find('[data-test="cluster-panel-overlay"]')
   expect(overlay.exists()).toBe(true)
+  // 遮罩必须盖过侧栏本体(aside z-40;旧 z-30 会让侧栏在面板开着时仍可点,
+  // 面板跨路由漂浮——审查抓回)
+  expect(overlay.element.style.zIndex).toBe(String(Z.popover - 1))
   await overlay.trigger('click')
   await flushPromises()
   expect(panelEl()).toBeFalsy()
   w.unmount()
+})
+
+test('桌面:路由变化自动关集群面板(不再跨页漂浮)', async () => {
+  mockViewport(false, false)
+  const w = mountNav()
+  await w.find('[data-test="cluster-brand"]').trigger('click')
+  await flushPromises()
+  expect(panelEl()).toBeTruthy()
+  routeRef.fullPath = '/nodes'
+  routeRef.path = '/nodes'
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(panelEl()).toBeFalsy()
+  w.unmount()
+  routeRef.fullPath = '/cluster'
+  routeRef.path = '/cluster'
 })
 
 test('桌面:点集群行 switchCluster(apiServer) 且面板关;管理全部 → /clusters', async () => {

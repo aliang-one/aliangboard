@@ -48,7 +48,7 @@ function dotColor(severity) {
       class="bg-surface-container-lowest border border-outline-variant shadow-dropdown overflow-hidden"
       :class="bottomSheet
         ? 'fixed bottom-0 left-0 right-0 rounded-t-2xl max-h-[70vh] overflow-y-auto max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]'
-        : 'rounded-lg'"
+        : 'rounded-lg w-80'"
       :style="style">
       <!-- 头部 -->
       <div class="flex items-center justify-between px-md py-sm border-b border-outline-variant">

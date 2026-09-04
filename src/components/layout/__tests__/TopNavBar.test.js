@@ -212,6 +212,17 @@ test('⌘K/Ctrl+K:桌面聚焦内联搜索框', async () => {
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
   await nextTick()
   expect(document.activeElement).toBe(w.find('input[type="text"]').element)
+  // 焦点守卫:焦点在其它可编辑元素(textarea)时 ⌘K 不抢焦点(否则 Modal/编辑器
+  // 打开时按键悄悄灌进看不见的顶栏输入框——审查抓回)。
+  // 事件必须从 textarea 派发(真实路径 target=可编辑元素,冒泡到 window)
+  const ta = document.createElement('textarea')
+  document.body.appendChild(ta)
+  ta.focus()
+  expect(document.activeElement).toBe(ta)
+  ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))
+  await nextTick()
+  expect(document.activeElement).toBe(ta)
+  ta.remove()
   w.unmount(); spy.mockRestore()
 })
 
@@ -242,6 +253,23 @@ test('搜索升级:页面词直达路由(输 monitor 回车 → /monitoring)', a
   await input.trigger('keydown', { key: 'Enter' })
   expect(pushMock).toHaveBeenCalledWith('/monitoring')
   w.unmount(); spy.mockRestore()
+})
+
+test('搜索升级:locale 同义词直达(中文「监控」→ /monitoring,同义词表来自 i18n)', async () => {
+  const spy = mockViewport(false)
+  const { i18n } = await import('@/i18n')
+  const prev = i18n.global.locale.value
+  i18n.global.locale.value = 'zh'
+  try {
+    const w = await mountTopNav()
+    const input = w.find('input[type="text"]')
+    await input.trigger('focus')
+    await input.setValue('监控')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(pushMock).toHaveBeenCalledWith('/monitoring')
+    w.unmount()
+  } finally { i18n.global.locale.value = prev }
+  spy.mockRestore()
 })
 
 test('搜索升级:扩容 kinds 可搜可跳(Role → NsRoleDetail)', async () => {
