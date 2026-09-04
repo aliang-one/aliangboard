@@ -188,7 +188,8 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
 
   // —— 弹窗生死对账(popupSync 信标/墓碑)——
   const pendingGone = new Map()  // sid → 收尾定时器(墓碑宽限期,给 F5 留复活窗口)
-  function onPopupSignal({ type, sid, meta }) {
+  function onPopupSignal({ type, kind, sid, meta }) {
+    if (kind !== 'ssh') return   // kind 分发(2026-09-04):本 store 只认 ssh 弹窗,不信 id 前缀巧合
     if (type === 'alive') {
       const timer = pendingGone.get(sid)
       if (timer) { clearTimeout(timer); pendingGone.delete(sid) }   // F5 复活 → 取消收尾

@@ -60,3 +60,28 @@ describe('loadPersisted merge(2026-09-04 竞态修复)', () => {
     expect(s.browsers[0].status).toBe('minimized')
   })
 })
+
+describe('跨标签页镜像对账(2026-09-04,与 terminals 同款)', () => {
+  // 本 describe 在外层 describe 之外,不继承其 beforeEach:须自带 pinia 重建 + 镜像清理
+  beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks(); localStorage.removeItem('aliangboard.fbWindows') })
+  it('他页新增收编为最小化;他页已关摘除;镜像只存身份字段', () => {
+    const s = useFileBrowserStore()
+    const b = s.openBrowser({ namespace: 'ns', podName: 'p1', container: 'c1' })
+    const mirror = JSON.parse(localStorage.getItem('aliangboard.fbWindows') || '[]')
+    expect(mirror).toEqual([{ id: b.id, namespace: 'ns', podName: 'p1', container: 'c1', name: b.name }])
+    localStorage.setItem('aliangboard.fbWindows', JSON.stringify([
+      { id: b.id, namespace: 'ns', podName: 'p1', container: 'c1', name: b.name },
+      { id: 'fb-other', namespace: 'ns', podName: 'p2', container: '', name: 'p2/main' },
+    ]))
+    window.dispatchEvent(new StorageEvent('storage', { key: 'aliangboard.fbWindows' }))
+    expect(s.browsers).toHaveLength(2)
+    expect(s.browsers.find(x => x.id === 'fb-other').status).toBe('minimized')
+    expect(s.browsers.find(x => x.id === b.id).status).toBe('open')
+    localStorage.setItem('aliangboard.fbWindows', JSON.stringify([
+      { id: 'fb-other', namespace: 'ns', podName: 'p2', container: '', name: 'p2/main' },
+    ]))
+    window.dispatchEvent(new StorageEvent('storage', { key: 'aliangboard.fbWindows' }))
+    expect(s.browsers.map(x => x.id)).toEqual(['fb-other'])
+    expect(fileBrowserApi.remove).toHaveBeenCalledWith(b.id)
+  })
+})

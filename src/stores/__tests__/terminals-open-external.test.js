@@ -31,3 +31,13 @@ test('openExternal:弹窗 URL 携带 sid=<terminal.id>,刷新/重开可 attach �
   expect(url).toContain('/terminal-popup?')
   expect(url).toContain(`sid=${term.id}`)
 })
+
+test('token 走存储交接槽(2026-09-04):URL 不再携带 token,交接槽写入供弹窗页读后即焚', () => {
+  const store = useTerminalStore()
+  const term = store.openTerminal({ namespace: 'ns1', podName: 'pod-a', container: 'main' })
+  localStorage.removeItem('aliangboard.termTokenHandoff')
+  store.openExternal(term.id)
+  const url = window.open.mock.calls[0][0]
+  expect(url).not.toContain('token=')
+  expect(localStorage.getItem('aliangboard.termTokenHandoff')).toBe('test-token')
+})

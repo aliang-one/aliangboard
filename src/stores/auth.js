@@ -61,7 +61,9 @@ export const useAuthStore = defineStore('auth', () => {
   function rekeyWindowRecords(prevCluster, clusterId, newToken) {
     const prev = getStashedSession()
     if (!prev || prev === newToken) return
-    if (prevCluster && prevCluster !== clusterId) { clearStashedSession(); return }
+    // 严格守卫(2026-09-04):仅「已知来源集群 = 目标集群」才迁。prevCluster 未知(LAST_CLUSTER_KEY
+    // 被清,如 tryAutoConnect 失败路径)按跨集群处理丢 stash——误迁会把 A 集群的记录变成 B 集群的幽灵 chip。
+    if (!prevCluster || prevCluster !== clusterId) { clearStashedSession(); return }
     rekeyApi.windowRecords(prev).then(() => clearStashedSession()).catch(() => { /* 保留 stash 重试 */ })
   }
 
