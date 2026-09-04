@@ -25,7 +25,11 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ params: { namespace: 'demo' } 
 
 import NsStorage from '../NsStorage.vue'
 
-beforeEach(() => { addPVC.mockClear() })
+beforeEach(() => {
+  state.scs = [] // fixture 复位:用例各自设 SC 清单,不复位则前例清单泄入后例
+  addPVC.mockClear()
+  addPVC.mockResolvedValue({ ok: true })
+})
 
 function mountView() {
   setActivePinia(createPinia())
@@ -70,6 +74,35 @@ test('有默认 → 选中「集群默认」提交:addPVC 收到显式默认名(
   await flushPromises()
   await w.setData({ showCreatePVC: true, createForm: { name: 'pvc-1', capacity: '10Gi', accessModes: 'RWO', storageClass: '' } })
   await w.vm.handleCreatePVC()
+  await flushPromises()
+  expect(addPVC).toHaveBeenCalledTimes(1)
+  expect(addPVC.mock.calls[0][0].storageClass).toBe('fast-sc')
+})
+
+// 创建按钮守卫(修复轮 2):无默认且未显式选择 → 按钮 disabled(旧版仅 !createForm.name,可点出永远 Pending 的 PVC)
+function findCreateBtn(w) {
+  return w.findAll('button').find(b => b.text() === i18n.global.t('common.create'))
+}
+
+test('无默认 SC 且未显式选择 → 创建按钮 disabled', async () => {
+  state.scs = [{ name: 'a', default: false }]
+  const { w } = mountView()
+  await flushPromises()
+  await w.setData({ showCreatePVC: true, createForm: { name: 'pvc-1', capacity: '10Gi', accessModes: 'RWO', storageClass: '' } })
+  const btn = findCreateBtn(w)
+  expect(btn).toBeTruthy()
+  expect(btn.attributes('disabled')).toBeDefined()
+})
+
+test('有默认 SC → 创建按钮可用(选中集群默认提交落库默认名)', async () => {
+  state.scs = [{ name: 'a', default: false }, { name: 'fast-sc', default: true }]
+  const { w } = mountView()
+  await flushPromises()
+  await w.setData({ showCreatePVC: true, createForm: { name: 'pvc-1', capacity: '10Gi', accessModes: 'RWO', storageClass: '' } })
+  const btn = findCreateBtn(w)
+  expect(btn).toBeTruthy()
+  expect(btn.attributes('disabled')).toBeUndefined()
+  await btn.trigger('click')
   await flushPromises()
   expect(addPVC).toHaveBeenCalledTimes(1)
   expect(addPVC.mock.calls[0][0].storageClass).toBe('fast-sc')

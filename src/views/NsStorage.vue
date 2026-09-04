@@ -272,7 +272,7 @@ function goSCDetail(row) {
     </div>
     <template #actions>
       <button @click="showCreatePVC = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
-      <button @click="handleCreatePVC" :disabled="!createForm.name" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
+      <button @click="handleCreatePVC" :disabled="!createForm.name || (!createForm.storageClass && !canUseClusterDefault(allSCs, 'default'))" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.create') }}</button>
     </template>
   </Modal>
 
