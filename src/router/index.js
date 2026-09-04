@@ -181,6 +181,18 @@ const routes = [
         meta: { titleKey: 'route.runtimeClasses', icon: 'memory', scope: 'global' }
       },
       {
+        path: 'ingressclasses/:name',
+        name: 'IngressClassDetail',
+        component: () => import('@/views/IngressClassDetail.vue'),
+        meta: { titleKey: 'route.ingressClassDetail', scope: 'global' }
+      },
+      {
+        path: 'runtimeclasses/:name',
+        name: 'RuntimeClassDetail',
+        component: () => import('@/views/RuntimeClassDetail.vue'),
+        meta: { titleKey: 'route.runtimeClassDetail', scope: 'global' }
+      },
+      {
         path: 'admin/apiservices',
         name: 'APIServices',
         component: () => import('@/views/ClusterResourceList.vue'),

@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
-import { useResourceApply } from '@/composables/useResourceApply'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -12,7 +12,7 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 
 const { t } = useI18n()
 const store = useClusterStore()
-const { applyYaml } = useResourceApply()
+const router = useRouter()
 const { tableColumns } = useTableColumns()
 const headers = computed(() => tableColumns('runtimeClasses'))
 
@@ -24,6 +24,11 @@ const runtimeClassesQuery = useResourceList({
 })
 const runtimeClasses = computed(() => runtimeClassesQuery.data.value || [])
 const yamlOf = (r) => store.generateYAML('runtimeclass', r)
+
+// 行点击 → 集群级详情页(与 IngressClassDetail 同批);编辑收敛到详情页 live YAML
+function openDetail(row) {
+  router.push({ name: 'RuntimeClassDetail', params: { name: row.name } })
+}
 
 // 创建
 const showCreateModal = ref(false)
@@ -73,7 +78,7 @@ function handleDelete() {
       </button>
     </div>
 
-    <DataTable :headers="headers" :rows="runtimeClasses" column-key="runtimeClasses" expandable row-key="name">
+    <DataTable :headers="headers" :rows="runtimeClasses" column-key="runtimeClasses" expandable row-key="name" @row-click="openDetail">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
           <span class="material-symbols-outlined text-tertiary-container text-lg">memory</span>
@@ -83,12 +88,13 @@ function handleDelete() {
       <template #handler="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.handler }}</span></template>
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
-        <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.runtimeClasses.deleteTip')">
+        <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.runtimeClasses.deleteTip')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>
       <template #expanded="{ row }">
-        <YamlEditor :model-value="yamlOf(row)" :readonly="false" height="300px" @save="applyYaml" />
+        <!-- 只读快照(generateYAML 最小重建):编辑请进详情页 live YAML(2026-09-04) -->
+        <YamlEditor :model-value="yamlOf(row)" :readonly="true" height="300px" />
       </template>
     </DataTable>
   </section>
