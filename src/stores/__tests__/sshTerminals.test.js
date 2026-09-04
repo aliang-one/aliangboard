@@ -198,3 +198,18 @@ test('kind 分发(2026-09-04):pod 弹窗的信标不得在 ssh store 重建窗�
   firePopup(POPUP_ALIVE_KEY, { kind: 'pod', sid: 'term-x', meta: { namespace: 'ns', podName: 'pod-a', container: 'main', name: 'pod-a/main' } })
   expect(store.windows).toHaveLength(0)
 })
+
+test('死 chip 标记(事故④):markDeadSids/markAliveSid/isDead——网关已回收的 sid 置灰,重现即摘标', () => {
+  fresh()
+  const store = useSshTerminalStore()
+  expect(store.isDead('ssh-a')).toBe(false)
+  store.markDeadSids(['ssh-a', 'ssh-b'])
+  expect(store.isDead('ssh-a')).toBe(true)
+  expect(store.isDead('ssh-b')).toBe(true)
+  store.markAliveSid('ssh-a')
+  expect(store.isDead('ssh-a')).toBe(false)
+  expect(store.isDead('ssh-b')).toBe(true)
+  store.markDeadSids(['ssh-c'])          // 整表替换:上一轮死集不残留
+  expect(store.isDead('ssh-b')).toBe(false)
+  expect(store.isDead('ssh-c')).toBe(true)
+})

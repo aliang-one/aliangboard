@@ -3932,6 +3932,7 @@
     "autoDetectHint": "Click connect to auto-detect available shells (sh / bash / ash …)",
     "statusConnecting": "Connecting…",
     "reconnectTitle": "Reconnect",
+    "sessionReapedTitle": "Session was reaped (idle limit); reconnecting starts a new session",
     "manualNeededHint": "No available shell auto-detected. Please manually select or enter a startup command:",
     "manualCmdPlaceholder": "Custom command (e.g. /bin/bash, python)",
     "connectWithCmd": "Connect",

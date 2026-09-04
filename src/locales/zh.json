@@ -3932,6 +3932,7 @@
     "autoDetectHint": "点击连接即自动检测可用 shell（sh / bash / ash …）",
     "statusConnecting": "连接中…",
     "reconnectTitle": "重新连接",
+    "sessionReapedTitle": "会话已被空闲回收，点击重连将开启新会话",
     "manualNeededHint": "未自动检测到可用 shell，请手动选择或输入启动命令：",
     "manualCmdPlaceholder": "自定义命令（如 /bin/bash、python）",
     "connectWithCmd": "用此连接",

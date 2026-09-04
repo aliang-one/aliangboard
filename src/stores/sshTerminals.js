@@ -240,5 +240,13 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     return [...map.values()].map(g => ({ serverId: g.serverId, name: g.name, count: g.windows.length, windows: g.windows }))
   })
 
-  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, focusExternal, closeWindow, minimizeWindow, restoreWindow, focusWindow, isRecentlyClosed }
+  // —— 死 chip 标记(2026-09-04 事故④)——
+  // 网关侧已回收的 sid(任务栏 30s reconcile 反向差集回填;内存态,刷新后由首轮对账重判)。
+  // chip 置灰提示「已回收,重连=新会话」,替代「点开才知道是空 shell」。
+  const deadSids = ref(new Set())
+  const markDeadSids = ids => { deadSids.value = new Set(ids) }
+  const markAliveSid = id => { if (deadSids.value.has(id)) { const s = new Set(deadSids.value); s.delete(id); deadSids.value = s } }
+  const isDead = id => deadSids.value.has(id)
+
+  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, focusExternal, closeWindow, minimizeWindow, restoreWindow, focusWindow, isRecentlyClosed, isDead, markDeadSids, markAliveSid }
 })
