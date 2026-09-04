@@ -138,3 +138,30 @@ test('V4: hover 显隐动作必须配 max-sm:opacity-100(手机常显)', () => {
   }
   assert.deepEqual(offenders, [])
 })
+
+// ── V5:幽灵透明度类守卫(2026-09-04 身份舷板 v4 评审)──
+// Tailwind 裸透明度修饰符只认 theme.opacity 刻度(5 的倍数):`bg-x/12` 这类不在刻度的值
+// 不生成任何 CSS——且若是渐变 from-* 端,--tw-gradient-from 缺失会让整条 background-image
+// 在计算值阶段失效(实证:身份舷板 idle 渐变全灭而类名断言测试全绿)。规则:剥掉 [...] 任意值
+// 片段后,颜色系工具类带裸 `/N` 且 N 不是 5 的倍数即红灯。
+const V5_ALLOWLIST = [
+  // 存量同族死类(bg-primary/8 同样不生成 CSS),待逐个改为刻度值后移出名单
+  'views/NsIngressDetail.vue',
+  'views/NsWorkloadDetail.vue',
+]
+test('V5: 颜色工具类裸透明度必须落在刻度上(N 为 5 的倍数),幽灵类零容忍', () => {
+  const offenders = []
+  for (const f of walk(SRC)) {
+    if (V5_ALLOWLIST.some(a => f.endsWith(a))) continue
+    const src = readFileSync(f, 'utf8')
+    for (const m of src.matchAll(/class="([^"]*)"/g)) {
+      // 先剥 [...] 任意值片段:shadow-[0_1px_3px_rgb(0_0_0/0.25)] 里的 /0.25 不是修饰符
+      const cls = m[1].replace(/\[[^\]]*\]/g, '')
+      for (const c of cls.split(/\s+/)) {
+        const hit = c.match(/^(?:(?:dark|light|hover|focus|group-hover|sm|max-sm|md|lg|xl|2xl)(?::|\/[\w-]+:))*(bg|text|border|from|via|to|ring|fill|stroke|divide|outline|decoration|caret|accent)-[a-z][\w-]*\/(\d+)$/)
+        if (hit && Number(hit[2]) % 5 !== 0) offenders.push(`${f}: ${c}`)
+      }
+    }
+  }
+  assert.deepEqual(offenders, [])
+})

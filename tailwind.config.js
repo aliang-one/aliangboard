@@ -70,6 +70,10 @@ export default {
         'slide-up': 'slide-up 0.3s ease-out',
         'dash-flow': 'dash-flow 5s linear infinite',
         'bar-stripes': 'bar-stripes 1.2s linear infinite',
+        // 身份舷板 v4(2026-09-04):呼吸灯珠 / 瓷砖高光扫过(一次性)/ 舷板入场滑入(一次性)
+        'breathe': 'breathe 2s ease-in-out infinite',
+        'sheen': 'sheen 1.1s ease-out 1 both',
+        'panel-in': 'panel-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 1',
       },
       keyframes: {
         'pulse-status': {
@@ -83,6 +87,22 @@ export default {
         'slide-up': {
           '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        // 灯珠呼吸:透明度+轻微缩放同步起伏(比纯 opacity 脉冲更「活着」)
+        'breathe': {
+          '0%, 100%': { opacity: '1', transform: 'scale(1)' },
+          '50%': { opacity: '0.45', transform: 'scale(0.72)' },
+        },
+        // 高光扫过:配 bg-[length:200%_100%]+bg-no-repeat 用。200%→-100% 恰好一次左→右扫过
+        // (offset=(W-2W)×p/100:200% 时图整体在框左外,-100% 时在框右外)——区间不对称的旧写法
+        // (-160%→260%)在 repeat 下会把白带「绕回」瓷砖常驻洗白(评审实测),区间与 no-repeat 缺一不可
+        'sheen': {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-100% 0' },
+        },
+        'panel-in': {
+          '0%': { opacity: '0', transform: 'translateX(14px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
         },
         'dash-flow': {
           to: { strokeDashoffset: '0' },
