@@ -3,44 +3,59 @@
 // 未读 = Headlamp 语义:红点 + 面板内未读加粗,行点击/全部已读显式确认(不自动已读)。
 // 跳转 = involvedObject 经 resourceNavigation.routeForResource,无路由兜底 NsEvents。
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@/i18n'
 
-const { pushMock, fetchEventsMock } = vi.hoisted(() => ({
-  pushMock: vi.fn(),
-  fetchEventsMock: vi.fn(async () => []),
-}))
+const { pushMock, fetchEventsMock, _routeObj, storeMock } = await vi.hoisted(async () => {
+  const { reactive } = await import('vue')
+  return {
+    pushMock: vi.fn(),
+    fetchEventsMock: vi.fn(async () => []),
+    _routeObj: { path: '/cluster', fullPath: '/cluster', params: {} },
+    storeMock: reactive({
+      currentCluster: 'prod',
+      fetchEvents: vi.fn(async () => []),
+      clusterList: [],
+      clusterHealth: { severity: 'ok', reasons: [] },
+      getCurrentCluster: () => ({ name: 'prod' }),
+      eventWatchLive: false,
+    }),
+  }
+})
+const routeRef = reactive(_routeObj)
 
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ path: '/cluster' }),
+  useRoute: () => routeRef,
   useRouter: () => ({ push: pushMock }),
 }))
 vi.mock('@/stores/cluster', () => ({
-  useClusterStore: () => ({
-    currentCluster: 'prod',
-    fetchEvents: fetchEventsMock,
-    clusterList: [],
-    clusterHealth: { severity: 'ok', reasons: [] },
-    getCurrentCluster: () => ({ name: 'prod' }),
-  }),
+  useClusterStore: () => storeMock,
 }))
 // 真实契约:useResourceList 返回的 data 是 ref(非响应性普通对象——getter 桩会让
-// computed 失去追踪,红点永不刷新)。工厂内建 ref 并导出,测试逐例注入。
+// computed 失去追踪,红点永不刷新)。工厂内建 ref 并导出,测试逐例注入;
+// 同时捕获 options,供轮询门控(eventWatchLive → 停自轮询)断言。
 vi.mock('@/composables/useK8sQuery', () => {
   const data = ref(null)
-  return { useResourceList: () => ({ data }), __eventsData: data }
+  const capturedOpts = {}
+  return {
+    useResourceList: (opts) => { capturedOpts.value = opts; return { data } },
+    __eventsData: data,
+    __queryOpts: capturedOpts,
+  }
 })
-
 import AlertBell from '@/components/layout/AlertBell.vue'
-import { __eventsData } from '@/composables/useK8sQuery'
+import { __eventsData, __queryOpts } from '@/composables/useK8sQuery'
+import { Z } from '@/styles/zScale'
 
-const W = (uid, reason, extra = {}) => ({ uid, type: 'warning', reason, message: 'msg', namespace: 'api', relatedKind: 'Job', relatedName: 'etl-nightly', relatedNamespace: 'api', age: '5m', count: 1, icon: 'error', color: 'text-error', _ts: 1, ...extra })
+// color 用 eventIconColor 的真实产出(裸 token,非 tailwind 类)——上一版夹具
+// 伪造成 'text-error' 恰好把「裸 token 直绑 class 是死代码」的真 bug 盖住了
+const W = (uid, reason, extra = {}) => ({ uid, type: 'warning', reason, message: 'msg', namespace: 'api', relatedKind: 'Job', relatedName: 'etl-nightly', relatedNamespace: 'api', age: '5m', count: 1, icon: 'error', color: 'error', _ts: 1, ...extra })
 
-beforeEach(() => { localStorage.clear(); pushMock.mockClear(); fetchEventsMock.mockClear(); __eventsData.value = [] })
-afterEach(() => { document.body.innerHTML = '' })
+beforeEach(() => { localStorage.clear(); pushMock.mockClear(); fetchEventsMock.mockClear(); __eventsData.value = []; storeMock.eventWatchLive = false; storeMock.fetchEvents = fetchEventsMock })
+afterEach(() => { document.body.innerHTML = ''; routeRef.path = '/cluster'; routeRef.fullPath = '/cluster' })
 
 function mountBell() {
   setActivePinia(createPinia())
@@ -160,5 +175,45 @@ test('面板遮罩点击关闭;重开保留未读状态语义', async () => {
   expect(panel()).toBeFalsy()
   // 未读未确认 → 红点仍在
   expect(w.find('[data-test="alert-dot"]').exists()).toBe(true)
+  w.unmount()
+})
+
+
+test('行图标按 eventIconColor 裸 token 映射成色类(token 直绑 class 是死代码)', async () => {
+  __eventsData.value = [W('u1', 'BackoffLimitExceeded'), W('u2', 'NodeNotReady', { relatedKind: 'Node', relatedName: 'worker-2', namespace: '', color: 'tertiary', icon: 'warning' })]
+  const w = mountBell()
+  await flushPromises()
+  await w.find('[data-test="alert-bell"]').trigger('click')
+  await flushPromises()
+  const rowIcons = panel().querySelectorAll('[data-test="alert-row"] .material-symbols-outlined')
+  expect([...rowIcons[0].classList]).toContain('text-error')          // error → text-error
+  expect([...rowIcons[1].classList]).toContain('text-tertiary')       // warning → text-tertiary
+  w.unmount()
+})
+
+test('轮询门控:eventWatchLive(watch 流活跃)→ 停自轮询;不活跃 → 60s', async () => {
+  __eventsData.value = []
+  const w = mountBell()
+  await flushPromises()
+  const interval = __queryOpts.value.options.refetchInterval
+  expect(interval.value).toBe(60000)
+  storeMock.eventWatchLive = true
+  await nextTickX2()
+  expect(interval.value).toBe(false)
+  w.unmount()
+  async function nextTickX2() { const { nextTick } = await import('vue'); await nextTick(); await nextTick() }
+})
+
+test('面板遮罩盖过侧栏(Z.popover-1);路由变化自动关面板', async () => {
+  __eventsData.value = [W('u1', 'BackoffLimitExceeded')]
+  const w = mountBell()
+  await flushPromises()
+  await w.find('[data-test="alert-bell"]').trigger('click')
+  await flushPromises()
+  expect(w.find('[data-test="alert-overlay"]').element.style.zIndex).toBe(String(Z.popover - 1))
+  routeRef.fullPath = '/nodes'
+  routeRef.path = '/nodes'
+  await flushPromises()
+  expect(panel()).toBeFalsy()
   w.unmount()
 })

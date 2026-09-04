@@ -45,6 +45,9 @@ function navTo(target) {
   router.push(target)
   if (belowSm.value) shell.closeDrawer()
 }
+// 路由变化即收集群面板:面板是 body 级 Teleport,跨路由不会自动卸载
+// (审查抓回:点侧栏导航项后面板在新页面漂浮)
+watch(() => route.fullPath, () => { showClusterPanel.value = false })
 useEscClose(computed(() => belowSm.value && shell.drawerOpen), () => shell.closeDrawer())
 
 const showNsDropdown = ref(false)
@@ -259,7 +262,7 @@ function nsStatusColor(status) {
         class="flex items-center gap-md w-full cursor-pointer rounded-lg"
         role="button" tabindex="0"
         :aria-label="$t('nav.switchCluster')" :aria-expanded="showClusterPanel ? 'true' : 'false'"
-        @click="onBrandClick" @keydown.enter.prevent="onBrandClick">
+        @click="onBrandClick" @keydown.enter.prevent="onBrandClick" @keydown.space.prevent="onBrandClick">
         <img src="/aliang-logo.svg" alt="AliangBoard" class="w-9 h-auto shrink-0" width="36" height="33" />
         <div class="min-w-0 cluster-header-txt">
           <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
@@ -498,7 +501,10 @@ function nsStatusColor(status) {
   />
   <div v-if="belowSm && showClusterPanel" data-test="cluster-sheet-overlay" class="fixed inset-0"
     :style="{ zIndex: String(Z.popover - 1) }" @click="showClusterPanel = false"></div>
-  <div v-else-if="showClusterPanel" data-test="cluster-panel-overlay" class="fixed inset-0 z-30" @click="showClusterPanel = false"></div>
+  <!-- 桌面档遮罩同为 Z.popover-1:必须盖过侧栏本体(z-40),否则面板开着时侧栏仍可点,
+       导航后面板跨页漂浮(审查抓回;旧顶栏 z-30 惯例在触发器进侧栏后不再成立) -->
+  <div v-else-if="showClusterPanel" data-test="cluster-panel-overlay" class="fixed inset-0"
+    :style="{ zIndex: String(Z.popover - 1) }" @click="showClusterPanel = false"></div>
   <!-- Click-outside overlay -->
   <div v-if="showNsDropdown" class="fixed inset-0 z-30" @click="closeDropdown"></div>
 </template>

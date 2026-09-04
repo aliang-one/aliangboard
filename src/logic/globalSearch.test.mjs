@@ -2,16 +2,22 @@
 // 2026-09-04 顶栏搜索升级:补 kinds + 页面导航匹配 + 页面优先排序,自 TopNavBar 内联实现抽出。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import enLocales from '../locales/en.json' with { type: 'json' }
+import zhLocales from '../locales/zh.json' with { type: 'json' }
 import { PAGE_ENTRIES, matchPages, searchResources, searchAll, collectResourceItems } from './globalSearch.js'
+
+// 中文关键词已迁往 locales(nav.searchPageSynonyms,i18n 残留中文门禁不允许 src 出现中文字面量);
+// 组件从 i18n 取当前语言同义词表传入。此处夹具即 zh.json 的对应段。
+const ZH_SYNONYMS = { ...zhLocales.nav.searchPageSynonyms }
 
 test('matchPages:英文 slug 子串匹配(monitor→/monitoring)', () => {
   const hits = matchPages('monitor')
   assert.ok(hits.some(p => p.path === '/monitoring'))
 })
-test('matchPages:中文关键词匹配(监控/部署/工作台)', () => {
-  assert.ok(matchPages('监控').some(p => p.path === '/monitoring'))
-  assert.ok(matchPages('部署').some(p => p.path === '/deploy'))
-  assert.ok(matchPages('工作台').some(p => p.path === '/workbench'))
+test('matchPages:中文同义词表传入后可命中(监控/部署/工作台)', () => {
+  assert.ok(matchPages('监控', ZH_SYNONYMS).some(p => p.path === '/monitoring'))
+  assert.ok(matchPages('部署', ZH_SYNONYMS).some(p => p.path === '/deploy'))
+  assert.ok(matchPages('工作台', ZH_SYNONYMS).some(p => p.path === '/workbench'))
 })
 test('matchPages:大小写不敏感;多命中并存(rbac 与 can-i)', () => {
   assert.ok(matchPages('RBAC').some(p => p.path === '/rbac'))
@@ -42,6 +48,13 @@ test('searchAll:页面结果排在资源前,总条数受 limit 钳制(默认 12)
   assert.equal(res.length, 11)               // 12 - 1 页
   assert.deepEqual(searchAll('monitor', resources, { limit: 5 }).resources.length, 4)
 })
+
+test('searchAll:页面至多占 4 席(短查询不给资源结果断粮)', () => {
+  const resources = Array.from({ length: 20 }, (_, i) => ({ kind: 'Pod', name: `e-pod-${i}`, namespace: 'web' }))
+  const { pages, resources: res } = searchAll('e', resources)
+  assert.ok(pages.length <= 4, `pages=${pages.length}`)
+  assert.ok(res.length >= 8, `resources=${res.length}`)
+})
 test('searchAll:空查询/纯空白 → 双空', () => {
   assert.deepEqual(searchAll('', [{ kind: 'Pod', name: 'x', namespace: '' }]).pages, [])
   assert.deepEqual(searchAll('  ', []).resources, [])
@@ -53,7 +66,6 @@ test('collectResourceItems:23 类来源聚合为 {kind,name,namespace},空/缺�
     workloads: [{ name: 'd1', namespace: 'web', type: 'Deployment' }, { name: 'u1', namespace: 'web' }],
     hpas: [{ name: 'h1', namespace: 'web' }],
     roles: [{ name: 'r1', namespace: 'web' }],
-    clusterroles: [{ name: 'cr1' }],
     serviceaccounts: [{ name: 'sa1', namespace: 'web' }],
     networkpolicies: [{ name: 'np1', namespace: 'web' }],
     resourcequotas: [{ name: 'rq1', namespace: 'web' }],
@@ -72,7 +84,6 @@ test('collectResourceItems:23 类来源聚合为 {kind,name,namespace},空/缺�
   assert.equal(kinds.Workload.name, 'u1')            // 无 type 退化 Workload
   assert.equal(kinds.HPA.name, 'h1')
   assert.equal(kinds.Role.name, 'r1')
-  assert.equal(kinds.ClusterRole.name, 'cr1')
   assert.equal(kinds.ServiceAccount.name, 'sa1')
   assert.equal(kinds.NetworkPolicy.name, 'np1')
   assert.equal(kinds.ResourceQuota.name, 'rq1')
@@ -103,10 +114,17 @@ test('collectResourceItems:roles 混合面按 scope 拆 kind(store.fetchRoles �
   assert.equal(kinds.ClusterRole.namespace, '')
 })
 
-test('PAGE_ENTRIES:关键词表双语音全覆盖(每条至少含中文与英文各一)', () => {
+test('PAGE_ENTRIES:纯 ASCII 关键词(i18n 残留中文门禁红线),且双语言同义词表全覆盖', () => {
   for (const p of PAGE_ENTRIES) {
-    assert.ok(p.keywords.length >= 2, p.path)
-    assert.ok(p.keywords.some(k => /[一-鿿]/.test(k)), `${p.path} 缺中文关键词`)
-    assert.ok(p.keywords.some(k => /^[a-z-]+$/i.test(k)), `${p.path} 缺英文关键词`)
+    assert.ok(p.keywords.length >= 1, p.path)
+    for (const k of p.keywords) assert.ok(!/[一-鿿]/.test(k), `${p.path} 关键词含中文:${k}`)
+  }
+  for (const [name, loc] of [['en', enLocales], ['zh', zhLocales]]) {
+    const syn = loc.nav.searchPageSynonyms
+    assert.ok(syn && typeof syn === 'object', `${name} 缺 nav.searchPageSynonyms`)
+    for (const p of PAGE_ENTRIES) {
+      const key = p.path.replace(/^\//, '').split('/').pop()
+      assert.ok(typeof syn[key] === 'string' && syn[key].length > 0, `${name}.${key} 缺同义词`)
+    }
   }
 })

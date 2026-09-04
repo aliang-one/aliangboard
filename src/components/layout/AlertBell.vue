@@ -1,17 +1,20 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { getSession } from '@/api/client'
 import { useDropdownPanel } from '@/composables/useDropdownPanel'
 import { useAlertReadState, unreadWarnings, eventKey } from '@/composables/useAlertReadState'
 import { routeForResource } from '@/logic/resourceNavigation'
+import { Z } from '@/styles/zScale'
 
-// 全局告警铃铛(2026-09-04 顶栏改版):吃既有全局 events 查询(键与监控/ns 事件页共享,
-// 打开监控页时由其自适应节奏接管),只取 warning 子集。未读语义承 Headlamp:
-// 红点 + 面板内未读加粗,行点击/全部已读显式确认(不自动已读,未确认即持续提醒)。
+// 全局告警铃铛(2026-09-04 顶栏改版):吃既有全局 events 查询(键与监控/ns 事件页共享)。
+// 自轮询只在 watch 流不活跃时兜底(watch live 期间 views 已切零轮询,观察者各自持
+// interval,若这里仍 60s 会把整表 events 拉成常驻全局轮询——审查抓回)。
+// 未读语义承 Headlamp:红点 + 面板内未读加粗,行点击/全部已读显式确认(不自动已读)。
 const router = useRouter()
+const route = useRoute()
 const store = useClusterStore()
 const cid = computed(() => (store.currentCluster || 'cluster'))
 // 无 K8s session(首装 admin 在平台管理页)不拉 events——拉了必 401(与顶栏 ns 选择器同门槛)
@@ -19,7 +22,7 @@ const enabled = computed(() => !!getSession())
 const eventsQ = useResourceList({
   key: ['cluster', cid, 'events'],
   fetcher: () => store.fetchEvents(),
-  options: { enabled, refetchInterval: 60000, refetchOnWindowFocus: false },
+  options: { enabled, refetchInterval: computed(() => (store.eventWatchLive ? false : 60000)), refetchOnWindowFocus: false },
 })
 
 const warningEvents = computed(() => (eventsQ.data.value || []).filter(e => e.type === 'warning'))
@@ -29,16 +32,22 @@ const unreadKeys = computed(() => new Set(unread.value.map(eventKey)))
 const isUnread = e => unreadKeys.value.has(eventKey(e))
 const panelRows = computed(() => warningEvents.value.slice(0, 30))
 
-// 弹层:Teleport body + fixed 锚定(issue#4 配方);遮罩 z-30 在面板(110)之下
+// eventIconColor 返回裸 token(primary/tertiary/error/surface),非 tailwind 类,需显式映射
+const COLOR_CLASS = { primary: 'text-primary', tertiary: 'text-tertiary', error: 'text-error', surface: 'text-on-surface-variant' }
+const colorClass = e => COLOR_CLASS[e.color] || 'text-on-surface-variant'
+
+// 弹层:Teleport body + fixed 锚定(issue#4 配方);遮罩 Z.popover-1 盖过侧栏(40)/顶栏(50)
 const open = ref(false)
 const bellRef = ref(null)
 const { panelRef, panelStyle } = useDropdownPanel(bellRef, open)
+// 路由变化即收面板(面板是 body 级 Teleport,跨路由不自动卸载)
+watch(() => route.fullPath, () => { open.value = false })
 
 function onRowClick(e) {
   markAllRead([e])
   open.value = false
-  const route = routeForResource(e.relatedKind, e.relatedName, e.relatedNamespace)
-  if (route) router.push(route)
+  const target = routeForResource(e.relatedKind, e.relatedName, e.relatedNamespace)
+  if (target) router.push(target)
   else if (e.namespace) router.push({ name: 'NsEvents', params: { namespace: e.namespace } })
   else router.push('/monitoring') // 无 ns 无详情路由(如未知 kind 的系统事件)
 }
@@ -51,6 +60,7 @@ function onMarkAllRead() { markAllRead(warningEvents.value) }
     data-test="alert-bell"
     class="relative p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors"
     :aria-label="$t('nav.alerts')" :title="$t('nav.alerts')"
+    aria-haspopup="true" :aria-expanded="open ? 'true' : 'false'"
     @click="open = !open"
   >
     <span class="material-symbols-outlined">notifications</span>
@@ -80,7 +90,7 @@ function onMarkAllRead() { markAllRead(warningEvents.value) }
           :class="isUnread(e) ? 'alert-row--unread bg-error/5' : ''"
           @click="onRowClick(e)"
         >
-          <span class="material-symbols-outlined text-lg shrink-0 mt-0.5" :class="e.color">{{ e.icon }}</span>
+          <span class="material-symbols-outlined text-lg shrink-0 mt-0.5" :class="colorClass(e)">{{ e.icon }}</span>
           <div class="min-w-0 flex-1">
             <p class="text-body-sm font-medium truncate">{{ e.reason }}</p>
             <p class="text-xs text-on-surface-variant truncate">{{ e.relatedKind }}/{{ e.relatedName }}<span v-if="e.namespace"> · {{ e.namespace }}</span></p>
@@ -91,6 +101,6 @@ function onMarkAllRead() { markAllRead(warningEvents.value) }
       </div>
     </div>
   </Teleport>
-  <!-- 点击外部关闭(遮罩 z-30 < 面板 110) -->
-  <div v-if="open" data-test="alert-overlay" class="fixed inset-0 z-30" @click="open = false"></div>
+  <!-- 点击外部关闭(遮罩 Z.popover-1:盖过侧栏 40/顶栏 50,被面板 110 盖) -->
+  <div v-if="open" data-test="alert-overlay" class="fixed inset-0" :style="{ zIndex: String(Z.popover - 1) }" @click="open = false"></div>
 </template>

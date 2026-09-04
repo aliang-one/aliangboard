@@ -95,5 +95,8 @@ test('bottomSheet=true:贴底全宽形态(data-bottom-sheet);桌面:非贴底', 
   const deskEl = document.querySelector('[data-testid="cluster-dropdown-panel"]')
   expect(deskEl.getAttribute('data-bottom-sheet')).toBe('false')
   expect(deskEl.style.position).toBe('fixed')
+  // 桌面锚定档必须自带宽上限(旧顶栏 placeDropdown 显式 320px;丢失会 shrink-to-fit,
+  // URL 形集群名把面板撑到视口宽,truncate 永不生效——审查抓回的回归)
+  expect(deskEl.className).toContain('w-80')
   desk.unmount()
 })
