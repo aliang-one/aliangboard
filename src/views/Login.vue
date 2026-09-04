@@ -1,11 +1,13 @@
 <script setup>
 // 平台登录页（Layer 1）：用户名/密码 → 平台 session → 跳转集群选择
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { safeRedirectPath } from '@/utils/safeRedirect'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const { t } = useI18n()
 
@@ -22,6 +24,11 @@ async function handleLogin() {
   loading.value = true
   try {
     await authStore.login(username, password)
+    // 登录回跳(2026-09-04 事故⑥):被 401 踢来时携带 ?redirect=(原路径+query),登录后原路
+    // 返回——SSH 弹窗回到 /ssh-terminal-popup 同 sid 重建 WS,而非被吞进 /cluster。
+    // 全量加载(非 router.push):弹窗页需完整启动流程(main.js 交接槽/路由守卫重跑)。
+    const target = safeRedirectPath(route.query.redirect)
+    if (target) { window.location.href = target; return }
     // 尝试自动连接上次使用的集群；成功直接进集群，失败才跳选择页
     const auto = await authStore.tryAutoConnect()
     if (auto) {

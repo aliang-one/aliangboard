@@ -13,7 +13,7 @@ vi.mock('@/api/client', () => ({ sshApi: { killSession: vi.fn(() => Promise.reso
 vi.mock('@/components/ssh/SshTerminal.vue', () => ({
   default: {
     name: 'SshTerminal',
-    props: { closable: Boolean },   // Boolean 声明:裸属性 closable 经布尔转型应为 true
+    props: { closable: Boolean, autoConnect: Boolean },
     template: '<div data-test="term-stub" @click="$emit(\'close\')" />',
     emits: ['close'],
   },
@@ -43,5 +43,21 @@ describe('SshTerminalWindow 关闭钮迁移', () => {
     expect(store.windows.length).toBe(0)
     await Promise.resolve()
     expect(sshApi.killSession).toHaveBeenCalledWith(w.id)
+  })
+})
+
+describe('SshTerminalWindow 挂载即连门控(2026-09-04 事故③)', () => {
+  it('open 挂载建连(true);minimized 挂载不建连(false)', () => {
+    setActivePinia(createPinia())
+    const store = useSshTerminalStore()
+    const open = store.openNew({ id: 'sv1', name: 'web' })
+    const wOpen = mount(SshTerminalWindow, { props: { window: open } })
+    expect(wOpen.findComponent({ name: 'SshTerminal' }).props('autoConnect')).toBe(true)
+    wOpen.unmount()
+    const min = store.openNew({ id: 'sv2', name: 'db' })
+    min.status = 'minimized'
+    const wMin = mount(SshTerminalWindow, { props: { window: min } })
+    expect(wMin.findComponent({ name: 'SshTerminal' }).props('autoConnect')).toBe(false)
+    wMin.unmount()
   })
 })
