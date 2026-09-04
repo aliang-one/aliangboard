@@ -3,7 +3,7 @@
 // 断开的 ws 不再收到广播。spawn 网关无法模拟真 shell,故对抽出的接线辅助做纯逻辑单测。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { attachSocketToSession, broadcastToSockets } from './terminal-wire.mjs'
+import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness } from './terminal-wire.mjs'
 import { createRingBuffer } from './terminal-sessions.mjs'
 
 const STDOUT = 1, RESIZE = 2, REPLAY = 6
@@ -143,4 +143,45 @@ test('resize 仲裁:primary 断开顺延给剩余附着者;全员离开后 resiz
   ws1.emit('close')
   ws1.emit('message', Buffer.concat([Buffer.from([RESIZE]), Buffer.from(JSON.stringify({ cols: 80, rows: 24 }))]))
   assert.deepEqual(windows, [[50, 150]])      // 已无附着者:不再落
+})
+
+// —— WS 存活探测(2026-09-04 事故①)——
+// ws 库不感知半开 TCP(合盖/休眠/代理断链不发 close):浏览器静默消失后 drop 不触发,
+// browserCount 卡 ≥1 → detached-idle 回收永不生效 → shell+ring+池句柄永久泄漏。
+test('WS 存活探测:ping 后两轮无 pong 即 onDead;pong 续活;stop 可停', () => {
+  const terminated = []
+  const clients = new Set()
+  // onDead(ws.terminate) 后 ws 库会因 'close' 把连接移出 clients——桩里用 delete 模拟
+  const liveness = attachWsLiveness({ clients }, {
+    intervalMs: 30000,
+    onDead: ws => { terminated.push(ws); clients.delete(ws) },
+  })
+
+  const mk = () => { const ws = fakeWs(); ws.ping = () => {}; return ws }
+  const good = mk(), bad = mk()
+  markAlive(good); markAlive(bad)
+  clients.add(good); clients.add(bad)
+
+  liveness.sweep(); good.emit('pong')    // 轮 1:全部 ping → good 按协议回 pong
+  liveness.sweep(); good.emit('pong')    // 轮 2:bad 两轮无 pong → terminate;good ping 后照常回 pong
+  assert.deepEqual(terminated, [bad])
+  assert.equal(clients.has(good), true)
+
+  liveness.sweep(); good.emit('pong')    // 轮 3-4:pong 必须紧跟每个 ping 轮,持续不误杀
+  liveness.sweep()
+  assert.deepEqual(terminated, [bad])
+  liveness.stop()
+})
+
+test('markAlive:打标是跟踪前提——未 markAlive 的连接没有 pong 监听,两轮后照收(接线必须打标)', () => {
+  const terminated = []
+  const clients = new Set()
+  const liveness = attachWsLiveness({ clients }, { intervalMs: 30000, onDead: ws => terminated.push(ws) })
+  const late = fakeWs(); late.ping = () => {}
+  clients.add(late)                      // 未 markAlive(isAlive undefined)
+  liveness.sweep()                       // 首轮:undefined !== false → 只 ping 不误杀
+  assert.deepEqual(terminated, [])
+  liveness.sweep()                       // 次轮:两轮无 pong → 收(协议层自动 pong 不经过我们的监听)
+  assert.deepEqual(terminated, [late])
+  liveness.stop()
 })

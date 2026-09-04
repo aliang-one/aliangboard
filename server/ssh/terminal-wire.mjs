@@ -50,3 +50,26 @@ export function attachSocketToSession(ws, session, { send, touch = () => {}, onD
   ws.on('close', drop)
   ws.on('error', drop)
 }
+
+// —— WS 存活探测(2026-09-04 事故①)——
+// ws 库不感知半开 TCP:合盖/休眠/代理断链不发 close → drop 不触发 → browserCount 卡 ≥1,
+// detached-idle 回收永不生效(shell+ring+池句柄永久泄漏)。标准方案:周期 ping,
+// 两轮无 pong 即 onDead(网关侧传 ws.terminate() → 触发 'close' → drop → 计数归零)。
+// 浏览器 WebSocket 在协议层自动回 pong,前端零改动。
+export function markAlive(ws) {
+  ws.isAlive = true
+  ws.on('pong', () => { ws.isAlive = true })
+}
+
+export function attachWsLiveness(wsServer, { intervalMs = 30000, onDead = ws => ws.terminate() } = {}) {
+  const sweep = () => {
+    for (const ws of wsServer.clients) {
+      if (ws.isAlive === false) { try { onDead(ws) } catch { /* noop */ } continue }
+      ws.isAlive = false
+      try { ws.ping() } catch { /* noop */ }
+    }
+  }
+  const timer = setInterval(sweep, intervalMs)
+  timer.unref?.()
+  return { sweep, stop: () => clearInterval(timer) }
+}
