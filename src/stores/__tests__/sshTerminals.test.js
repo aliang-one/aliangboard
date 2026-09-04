@@ -213,3 +213,21 @@ test('死 chip 标记(事故④):markDeadSids/markAliveSid/isDead——网关已
   expect(store.isDead('ssh-b')).toBe(false)
   expect(store.isDead('ssh-c')).toBe(true)
 })
+
+test('镜像 merge-on-write(事故⑤):冻结标签页醒来后 persist 不抹掉他页新增;本页显式移除的不复活', () => {
+  fresh()
+  const store = useSshTerminalStore()
+  const w1 = store.openNew({ id: 'sv1', name: 'web' })
+  // 他页新增 W2 并落盘;本页被冻结收不到 storage 事件
+  localStorage.setItem(LS_KEY, JSON.stringify([
+    { id: w1.id, serverId: 'sv1', name: 'web' },
+    { id: 'ssh-w2', serverId: 'sv2', name: 'db' },
+  ]))
+  expect(store.windows.length).toBe(1)                     // 本页确实不知情
+  const w3 = store.openNew({ id: 'sv3', name: 'cache' })   // 醒来后新增 → persist
+  const ids = JSON.parse(localStorage.getItem(LS_KEY)).map(r => r.id).sort()
+  expect(ids).toEqual([w1.id, 'ssh-w2', w3.id].sort())     // 他页的 W2 不被抹掉
+  store.closeWindow(w1.id)                                 // 本页显式关闭 → 磁盘基线也不得复活
+  const ids2 = JSON.parse(localStorage.getItem(LS_KEY)).map(r => r.id).sort()
+  expect(ids2).toEqual(['ssh-w2', w3.id].sort())
+})

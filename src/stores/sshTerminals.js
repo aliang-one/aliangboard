@@ -85,9 +85,20 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
 
   // 元数据(不含 status/zIndex——刷新后恒最小化)同步落盘:每个变更入口显式调用
   // (watch 默认异步 flush,时序不可控;显式调用让「关窗后立刻刷新」也不丢)
+  // 本页显式移除过的 id(closeWindow/墓碑收尾登记):merge-on-write 时防止磁盘基线复活
+  const locallyRemoved = new Set()
+
   function persist() {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify(windows.value.map(({ id, serverId, name }) => ({ id, serverId, name }))))
+      // merge-on-write(2026-09-04 事故⑤):被冻结/休眠的标签页醒来后,内存表可能缺他页
+      // 新增的窗口,整表覆写会把他页窗口从全端抹掉(「chip 无端消失」的级联机制)。
+      // 写前以磁盘为基线按 id 并集,本页视图只负责新增/更新;本页显式移除的 id 不复活。
+      let base = []
+      try { base = JSON.parse(localStorage.getItem(LS_KEY) || '[]') } catch { base = [] }
+      if (!Array.isArray(base)) base = []
+      const byId = new Map(base.map(r => [r.id, r]))
+      for (const w of windows.value) byId.set(w.id, { id: w.id, serverId: w.serverId, name: w.name })
+      localStorage.setItem(LS_KEY, JSON.stringify([...byId.values()].filter(r => !locallyRemoved.has(r.id))))
     } catch { /* 隐私模式等存储不可用:降级为会话内有效 */ }
   }
 
@@ -126,6 +137,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
 
   // 显式关闭 = 本地记录 + 网关会话一起收;recentlyClosed 供任务栏 reconcile 降噪
   const closeWindow = id => {
+    locallyRemoved.add(id)
     windows.value = windows.value.filter(w => w.id !== id)
     persist()
     markRecentlyClosed(id)
@@ -216,6 +228,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
       const before = windows.value.length
       windows.value = windows.value.filter(x => x.id !== sid)
       if (windows.value.length !== before) {
+        locallyRemoved.add(sid)
         persist()
         markRecentlyClosed(sid)
       }
