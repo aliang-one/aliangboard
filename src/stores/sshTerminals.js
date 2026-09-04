@@ -11,23 +11,27 @@ import { onPopupSync, GONE_GRACE_MS } from '@/utils/popupSync'
 // - 刷新恢复:窗口元数据持久化 localStorage,启动时全部恢复为最小化(与 pod 终端
 //   loadPersisted 同款体验);点任务栏恢复 → 同 sid 重连 → 网关保活窗口内回放续跑。
 // - 弹窗生死对账:弹窗页以 popupSync 信标/墓碑广播(见 popupSync.js),不再纯靠 opener
-//   内存引用;显式关闭连网关会话一起收(默认 detachedIdle 10min 才 reap,不主动收会被
-//   任务栏对账标成「未跟踪」警示——「明明关了还提示开着」)。
+//   内存引用。杀会话收敛为「显式关闭按钮」专属(2026-09-04 关闭语义收敛):浮窗×/任务栏×/
+//   会话菜单×/全部关闭/弹窗页「关闭窗口」钮;其余生命周期(F5/墓碑收尾/最小化/标签页丢弃)
+//   一律不杀——未附着会话由网关 detachedIdle(默认 10min)兜底回收,多开场景不再被别处的
+//   刷新/关窗误杀。
 const LS_KEY = 'aliangboard.ssh.windows'
 
-// 最近显式关闭的会话(任务栏 reconcile 降噪):关闭 → killSession 与网关 /api/ssh/sessions
-// 快照之间存在竞态/失败窗口,这期间不该把自家刚关的会话标成红色「未跟踪」警示。
-const RECENT_KILL_MS = 120000
+// 最近本地关闭的会话(任务栏 reconcile 降噪):两类来源——①显式关闭按钮(会话已被 kill,
+// 掩护 kill 与网关 /api/ssh/sessions 快照之间的竞态/失败窗口);②墓碑收尾(会话按新语义
+// 继续活着到网关 reap,窗口须盖过 detachedIdle 默认 10min + 60s sweep,否则「明明关了
+// 还标红」)。管理员调大 detachedIdleMin 时,超窗后仍会如实标红(会话确实还活着)。
+const RECENT_CLOSED_MS = 12 * 60 * 1000
 const recentlyClosed = new Map()   // sid → closedAt
 function markRecentlyClosed(sid) {
   const nowTs = Date.now()
   recentlyClosed.set(sid, nowTs)
-  for (const [k, at] of recentlyClosed) if (nowTs - at > RECENT_KILL_MS) recentlyClosed.delete(k)
+  for (const [k, at] of recentlyClosed) if (nowTs - at > RECENT_CLOSED_MS) recentlyClosed.delete(k)
 }
 function isRecentlyClosed(sid) {
   const at = recentlyClosed.get(sid)
   if (!at) return false
-  if (Date.now() - at > RECENT_KILL_MS) { recentlyClosed.delete(sid); return false }
+  if (Date.now() - at > RECENT_CLOSED_MS) { recentlyClosed.delete(sid); return false }
   return true
 }
 // best-effort:网关会话随手收(404=清道夫已收走,照样静默;离线/403 同样不炸)
@@ -198,7 +202,9 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
       if (w && w.status === 'minimized') { w.status = 'external'; persist() }   // 刷新恢复压成的最小化复位
       return
     }
-    // 墓碑:弹窗标签页没了 → 即刻最小化(chip 变灰),宽限期后移除 + 网关会话一并收
+    // 墓碑:弹窗标签页没了 → 即刻最小化(chip 变灰),宽限期后仅摘本地记录。
+    // 不杀会话(2026-09-04 收敛):pagehide ≠ 关闭意图(F5/标签页丢弃也发墓碑),杀会话是
+    // 弹窗页「关闭窗口」按钮专属;会话未附着后由网关 detachedIdle 兜底回收。
     popupWins.delete(sid)
     const w = windows.value.find(x => x.id === sid)
     if (w && w.status === 'external') w.status = 'minimized'
@@ -211,7 +217,6 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
       if (windows.value.length !== before) {
         persist()
         markRecentlyClosed(sid)
-        killSessionBestEffort(sid)
       }
     }, GONE_GRACE_MS))
   }

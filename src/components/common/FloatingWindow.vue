@@ -15,6 +15,8 @@ const props = defineProps({
   maximizeTitle: { type: String, default: '' },
   minimizeTitle: { type: String, default: '' },
   closeTitle: { type: String, default: '' },
+  // false = 隐藏壳层关闭钮(SSH 浮窗:关闭钮已迁入终端头部,壳层不再承担关闭)
+  closable: { type: Boolean, default: true },
 })
 const emit = defineEmits(['focus', 'minimize', 'close'])
 
@@ -68,7 +70,7 @@ const winStyle = computed(() => isMax.value
       <button data-test="btn-minimize" @click="emit('minimize')" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="minimizeTitle">
         <span class="material-symbols-outlined text-base">remove</span>
       </button>
-      <button data-test="btn-close" @click="emit('close')" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="closeTitle">
+      <button v-if="closable" data-test="btn-close" @click="emit('close')" class="p-0.5 rounded hover:bg-error/15 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="closeTitle">
         <span class="material-symbols-outlined text-base">close</span>
       </button>
     </div>

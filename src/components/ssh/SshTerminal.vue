@@ -18,7 +18,11 @@ const props = defineProps({
   serverName: { type: String, default: '' },
   sid: { type: String, required: true },           // 恒定 sid:网关按 sid 保活/回放
   autoConnect: { type: Boolean, default: false },   // 浮窗模式:挂载即连
+  // true = 头部显示关闭钮(浮窗模式;弹窗页有自己的顶栏「关闭窗口」,默认关)
+  closable: { type: Boolean, default: false },
 })
+// 关闭由父级处置(浮窗:sshStore.closeWindow = 杀会话 + 摘记录;组件保持哑,不直接碰 store)
+defineEmits(['close'])
 
 const root = ref(null)
 // idle 未连接 | connecting 连接中 | open 会话进行中 | closed 会话结束 | error 出错
@@ -129,6 +133,9 @@ defineExpose({ refit, replayed })
         <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
         <button data-test="btnReconnect" @click="connect" :title="t('ssh.reconnect')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
           <span class="material-symbols-outlined text-lg">refresh</span>
+        </button>
+        <button v-if="closable" data-test="btnCloseTerminal" @click="$emit('close')" :title="t('terminal.closeWindow')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg">
+          <span class="material-symbols-outlined text-lg">close</span>
         </button>
       </div>
     </div>
