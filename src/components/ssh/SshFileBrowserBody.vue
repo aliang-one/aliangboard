@@ -32,6 +32,19 @@ const pct = computed(() => {
   if (!p || !p.total) return null
   return Math.floor((p.received / p.total) * 100)
 })
+// 两阶段进度(2026-09-04 上传事故):XHR 上传 100% 只代表「浏览器→网关」段,网关→目标服务器的
+// 中继还在进行,此刻目标目录里还没有文件。响应未回前上传封顶 99% 并提示写入中;resolve 后才亮
+// ✓ 完成态。下载的 received 是已穿过网关的真实端到端字节,不封顶。
+const displayPct = computed(() => {
+  const p = progress.value
+  if (!p || pct.value === null) return pct.value
+  if (p.kind === 'upload' && !p.done) return Math.min(pct.value, 99)
+  return pct.value
+})
+const relayPhase = computed(() => {
+  const p = progress.value
+  return !!p && p.kind === 'upload' && !p.done && (pct.value ?? 0) >= 100
+})
 const isBadName = n => n.includes('/') || n.includes('\\') || n === '..' || n === '.' || n.includes('..')
 
 async function load(p) {
@@ -53,10 +66,25 @@ function crumbTo(p) { if (!transferBusy.value) load(p) }
 
 const transferBusy = computed(() => !!progress.value && !progress.value.done)
 
+// 完成态收起:✓ + 100% 展示片刻后自动清条(旧实现 done 后恒挂满条,与「卡在 100% 还在传」同形,易误读)。
+const DONE_DISMISS_MS = 4000
+let doneTimer = null
+function finishProgress() {
+  if (!progress.value) return
+  progress.value.done = true
+  clearTimeout(doneTimer)
+  doneTimer = setTimeout(() => {
+    doneTimer = null
+    if (!progress.value?.done) return   // 防线②:4s 窗口内 progress 已被新传输/错误路径换掉时不得误清
+    progress.value = null
+  }, DONE_DISMISS_MS)
+}
+
 async function onDownload(entry) {
   if (transferBusy.value) return
   const fp = path.value === '/' ? '/' + entry.name : path.value + '/' + entry.name
   transferAbort = new AbortController()
+  clearTimeout(doneTimer)   // 防线①:done 态 4s 窗口内再传输,撤掉旧收起定时器
   progress.value = { kind: 'download', name: entry.name, received: 0, total: 0 }
   try {
     const blob = await sshFileApi.downloadStream(
@@ -67,7 +95,7 @@ async function onDownload(entry) {
     const a = document.createElement('a')
     a.href = url; a.download = entry.name; a.click()
     setTimeout(() => URL.revokeObjectURL(url), 10000)
-    progress.value.done = true   // 完成保留终值,用户可关闭条目;下次传输自动替换
+    finishProgress()
   } catch (e) {
     progress.value = null
     if (e?.aborted) return
@@ -85,13 +113,14 @@ async function onUpload(e) {
   if (f.size > MAX_UPLOAD) { error.value = t('ssh.uploadLimit'); return }
   if (transferBusy.value) return
   transferAbort = new AbortController()
+  clearTimeout(doneTimer)   // 防线①:同下载,撤掉上一笔 done 的收起定时器
   progress.value = { kind: 'upload', name: f.name, received: 0, total: f.size }
   try {
     await sshFileApi.uploadStream(
       { serverId: props.serverId, path: path.value, name: f.name }, f,
       { onProgress: ({ received, total }) => { Object.assign(progress.value, { received, total }) }, signal: transferAbort.signal },
     )
-    progress.value.done = true
+    finishProgress()
     notify('success', t('ssh.uploaded', { name: f.name }))
     refresh()   // 完成后刷新当前目录
   } catch (err) {
@@ -100,10 +129,10 @@ async function onUpload(e) {
     error.value = err?.message || t('ssh.uploadFailed')
   }
 }
-function cancelTransfer() { transferAbort?.abort(); progress.value = null }
+function cancelTransfer() { clearTimeout(doneTimer); doneTimer = null; transferAbort?.abort(); progress.value = null }
 
 onMounted(() => load('/'))
-onBeforeUnmount(() => transferAbort?.abort())   // 关窗中止在途传输
+onBeforeUnmount(() => { clearTimeout(doneTimer); transferAbort?.abort() })   // 关窗中止在途传输
 </script>
 
 <template>
@@ -148,14 +177,15 @@ onBeforeUnmount(() => transferAbort?.abort())   // 关窗中止在途传输
       </template>
     </div>
 
-    <!-- 进度条(上传/下载共用;total 未知时只显已收字节) -->
+    <!-- 进度条(上传/下载共用;total 未知时只显已收字节;两阶段:上传未确认前封顶 99%,done 亮 ✓) -->
     <div v-if="progress" data-test="progress" class="flex items-center gap-sm pt-sm border-t border-outline-variant/40 shrink-0">
-      <span class="material-symbols-outlined text-sm text-primary">{{ progress.kind === 'upload' ? 'upload' : 'download' }}</span>
+      <span :data-test="progress.done ? 'doneFlag' : 'progressIcon'" class="material-symbols-outlined text-sm text-primary">{{ progress.done ? 'check_circle' : (progress.kind === 'upload' ? 'upload' : 'download') }}</span>
       <span class="font-mono text-xs text-on-surface-variant truncate max-w-[240px]">{{ progress.name }}</span>
       <div class="flex-1 h-1.5 rounded-full bg-surface-container overflow-hidden">
-        <div class="h-full bg-primary transition-all" :style="{ width: (pct ?? 100) + '%' }" />
+        <div class="h-full bg-primary transition-all" :style="{ width: (displayPct ?? 100) + '%' }" />
       </div>
-      <span class="text-xs text-on-surface-variant shrink-0">{{ pct !== null ? pct + '%' : Math.round(progress.received / 1024) + ' KB' }}</span>
+      <span class="text-xs text-on-surface-variant shrink-0">{{ displayPct !== null ? displayPct + '%' : Math.round(progress.received / 1024) + ' KB' }}</span>
+      <span v-if="relayPhase" data-test="relayHint" class="text-xs text-on-surface-variant shrink-0">{{ t('ssh.uploadWriting') }}</span>
       <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('common.cancel')" @click="cancelTransfer">
         <span class="material-symbols-outlined text-base">close</span>
       </button>
