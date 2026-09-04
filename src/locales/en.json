@@ -4408,6 +4408,7 @@
     "emptyDir": "Empty directory",
     "badName": "Invalid file name \"{name}\" (no / \\ .. or bare .)",
     "uploaded": "Uploaded {name}",
+    "uploadWriting": "Writing to server…",
     "uploadFailed": "Upload failed",
     "hostKeyChangedConfirm": "The host key of server \"{name}\" does not match the recorded fingerprint. If you are sure the server was reinstalled or rekeyed, you can clear the old fingerprint and re-trust it; otherwise decline to protect against man-in-the-middle attacks. Clear and retry?",
     "statusCol": "Status",
