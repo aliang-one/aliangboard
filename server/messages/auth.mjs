@@ -14,4 +14,7 @@ export const TABLE = {
   'auth.changePasswordFailed': { zh: '修改密码失败', en: 'Failed to change password' },
   'auth.sessionNotFound': { zh: '会话不存在或已失效', en: 'Session not found or expired' },
   'auth.sessionCurrentNoRevoke': { zh: '不能吊销当前会话', en: 'Cannot revoke the current session' },
+  'auth.passwordNeedMixed': { zh: '密码需同时包含大小写字母', en: 'Password must contain both upper and lower case letters' },
+  'auth.passwordNeedDigit': { zh: '密码需包含数字', en: 'Password must contain a digit' },
+  'auth.passwordNeedSymbol': { zh: '密码需包含符号', en: 'Password must contain a symbol' },
 }

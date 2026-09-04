@@ -285,3 +285,35 @@ test('登录:cap 强制抛异常不阻断登录(降级不踢)', async () => {
   await routes.routes.handle({ method: 'POST', headers: { 'user-agent': 'vitest' }, url: '/api/auth/login' }, {}, new URL('/api/auth/login', 'http://x'))
   assert.equal(sent[0].status, 200, '登录应成功')
 })
+
+// === Wave1 Task 1:密码策略可配置(自改接线 + GET policy 端点) ===
+import { TABLE as MSG } from './messages/auth.mjs'
+
+test('改密:策略档 requireDigit 开启 → 缺数字 400 passwordNeedDigit;满足则通过', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db, { getSetting: () => JSON.stringify({ minLength: 8, requireMixed: true, requireDigit: true, requireSymbol: false }) })
+  routes._body = { currentPassword: 'right-password', newPassword: 'NoDigitsHere' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+  assert.equal(sent[0].status, 400)
+  assert.equal(sent[0].payload.message, MSG['auth.passwordNeedDigit'].zh) // NoDigitsHere 大小写齐全 → digit 规则命中
+  // 满足全部规则 → 200
+  routes._body = { currentPassword: 'right-password', newPassword: 'Good1!Pass' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+  assert.equal(sent[1].status, 200)
+})
+
+test('GET /api/auth/password-policy:回当前生效策略', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db, { getSetting: () => JSON.stringify({ minLength: 12 }) })
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/password-policy' }, {}, new URL('/api/auth/password-policy', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload.policy, { minLength: 12, requireMixed: false, requireDigit: false, requireSymbol: false })
+})
+
+test('GET /api/auth/password-policy:无策略配置 → 默认档', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/password-policy' }, {}, new URL('/api/auth/password-policy', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload.policy, { minLength: 8, requireMixed: false, requireDigit: false, requireSymbol: false })
+})

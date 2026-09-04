@@ -3,7 +3,7 @@
 // 用户可见消息走 ../messages.mjs 双语表(msg(req,'auth.xxx'));zh 默认与原文逐字一致。
 import { msg } from '../messages.mjs'
 import { APP_VERSION } from '../version.mjs'
-import { isPasswordOk } from '../password-policy.mjs'
+import { resolvePasswordPolicy, firstFailedRule } from '../password-policy.mjs'
 import { unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +17,7 @@ export function createAuthRoutes(deps) {
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,
     enforceSessionCap, maxPlatformSessionsPerUser,
+    getSetting,
     removeSessionRecord,
     hashPassword, extractPlatformToken,
   } = deps
@@ -114,6 +115,13 @@ export function createAuthRoutes(deps) {
       return true
     }
 
+    // GET /api/auth/password-policy — 当前生效密码策略(前端改密表单做同规则预检,Wave1 §3.7)
+    if (url.pathname === '/api/auth/password-policy' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      sendJson(res, 200, { policy: resolvePasswordPolicy(getSetting) })
+      return true
+    }
+
     // POST /api/auth/change-password — 自助改密(2026-08-29 设计:验旧密 → 新密 ≥8 → 吊销其他会话)
     if (url.pathname === '/api/auth/change-password' && req.method === 'POST') {
       const ps = requirePlatform(req, res); if (!ps) return true
@@ -125,7 +133,14 @@ export function createAuthRoutes(deps) {
           auditChange('denied', 'bad-current-password')
           sendJson(res, 401, { message: msg(req, 'auth.currentPasswordWrong') }); return true
         }
-        if (!isPasswordOk(newPassword)) { sendJson(res, 400, { message: msg(req, 'auth.passwordTooShort') }); return true }
+        const policy = resolvePasswordPolicy(getSetting)
+        const rule = firstFailedRule(newPassword, policy)
+        if (rule) {
+          const key = rule === 'minLength' ? 'auth.passwordTooShort'
+            : rule === 'mixed' ? 'auth.passwordNeedMixed'
+            : rule === 'digit' ? 'auth.passwordNeedDigit' : 'auth.passwordNeedSymbol'
+          sendJson(res, 400, { message: msg(req, key) }); return true
+        }
         db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(String(newPassword)), ps.userId)
         const currentToken = extractPlatformToken(req)
         let revoked = 0

@@ -1466,6 +1466,7 @@ async function handle(req, res) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit, enforceSessionCap, maxPlatformSessionsPerUser,
+    getSetting,
     removeSessionRecord,
     hashPassword, extractPlatformToken,
   })

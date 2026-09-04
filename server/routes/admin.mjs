@@ -8,7 +8,7 @@ import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize
 import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 import { clampPresence, getPresenceConfig } from '../workbench-projects.mjs'
 import { msg } from '../messages.mjs'
-import { isPasswordOk } from '../password-policy.mjs'
+import { resolvePasswordPolicy, firstFailedRule, normalizePolicy } from '../password-policy.mjs'
 import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps, MAX_STEPS_RANGE } from '../workbench-ai-config.mjs'
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { registry } from '../tool-registry.mjs'
@@ -549,6 +549,23 @@ export function createAdminRoutes(deps) {
       sendJson(res, 200, verifyChain(db))
       return true
     }
+    if (url.pathname === '/api/admin/password-policy' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      sendJson(res, 200, { policy: resolvePasswordPolicy(getSetting) })
+      return true
+    }
+    if (url.pathname === '/api/admin/password-policy' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const input = await readBody(req)
+      if (input.minLength != null && (!Number.isFinite(Number(input.minLength)) || Number(input.minLength) < 8)) {
+        sendJson(res, 400, { message: msg(req, 'admin.passwordPolicyInvalid') }); return true
+      }
+      const policy = normalizePolicy(input)
+      setSetting('auth.passwordPolicy', JSON.stringify(policy))
+      writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'admin_password_policy', result: 'ok', requestSummary: `minLength=${policy.minLength}`, source: 'platform' })
+      sendJson(res, 200, { policy })
+      return true
+    }
 
     // ====== 用户管理 ======
     if (url.pathname === '/api/admin/users' && req.method === 'GET') {
@@ -563,7 +580,15 @@ export function createAdminRoutes(deps) {
       try {
         const { username, password, role, displayName } = await readBody(req)
         if (!username || !password) { sendJson(res, 400, { message: msg(req, 'admin.userCredentialsRequired') }); return true }
-        if (!isPasswordOk(password)) { sendJson(res, 400, { message: msg(req, 'admin.passwordTooShort') }); return true }
+        {
+          const rule = firstFailedRule(password, resolvePasswordPolicy(getSetting))
+          if (rule) {
+            const key = rule === 'minLength' ? 'admin.passwordTooShort'
+              : rule === 'mixed' ? 'auth.passwordNeedMixed'
+              : rule === 'digit' ? 'auth.passwordNeedDigit' : 'auth.passwordNeedSymbol'
+            sendJson(res, 400, { message: msg(req, key) }); return true
+          }
+        }
         if (role && !['admin', 'user'].includes(role)) { sendJson(res, 400, { message: msg(req, 'admin.roleInvalid') }); return true }
         const existing = db.prepare('SELECT 1 FROM platform_users WHERE username=?').get(username)
         if (existing) { sendJson(res, 409, { message: msg(req, 'admin.usernameExists') }); return true }
@@ -618,7 +643,15 @@ export function createAdminRoutes(deps) {
       const userId = url.pathname.split('/')[4]
       const { newPassword } = await readBody(req)
       if (!newPassword) { sendJson(res, 400, { message: msg(req, 'admin.newPasswordRequired') }); return true }
-      if (!isPasswordOk(newPassword)) { sendJson(res, 400, { message: msg(req, 'admin.passwordTooShort') }); return true }
+      {
+        const rule = firstFailedRule(newPassword, resolvePasswordPolicy(getSetting))
+        if (rule) {
+          const key = rule === 'minLength' ? 'admin.passwordTooShort'
+            : rule === 'mixed' ? 'auth.passwordNeedMixed'
+            : rule === 'digit' ? 'auth.passwordNeedDigit' : 'auth.passwordNeedSymbol'
+          sendJson(res, 400, { message: msg(req, key) }); return true
+        }
+      }
       db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(newPassword), userId)
       // CSO #3:重置密码踢掉该用户全部存量会话(防旧 token 继续用旧密码体系外的凭据)
       revokeUserSessions({ db, platformSessions, sessions }, userId)
