@@ -6,8 +6,9 @@ import { i18n } from '@/i18n'
 const addPVC = vi.fn(async () => ({ ok: true }))
 
 // 隔离 Vue Query 与 store:VolumeMountCard/CreatePvcDialog 都在 setup 调 useResourceList + useClusterStore。
+// SC fixture 带显式默认类:创建按钮守卫(无显式选择且无默认 → disabled)在此套件语义下须放行,聚焦 name/ok 流程。
 vi.mock('@/composables/useK8sQuery', () => ({
-  useResourceList: () => ({ data: { value: [] } }),
+  useResourceList: () => ({ data: { value: [{ name: 'fast-sc', default: true }] } }),
 }))
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({

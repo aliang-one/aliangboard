@@ -132,3 +132,35 @@ test('刚被本地显式关闭的会话不算「未跟踪」(关闭与网关 rea
   await flushPromises()
   expect(bar.find('[data-test="orphan-chip"]').exists()).toBe(false)
 })
+
+test('死 chip 标记(事故④):本地窗口连续两轮不在网关列表 → 提示「已回收」;重现即恢复', async () => {
+  vi.useFakeTimers()
+  const mock = vi.spyOn(sshApi, 'listSessions').mockResolvedValue({ sessions: [] })
+  const bar = mountBar()                     // 先 mount(fresh pinia),再取 store 开窗
+  const ssh = useSshTerminalStore()
+  const w = ssh.openNew({ id: 'sv1', name: 'web-1' })
+  try {
+    mock.mockResolvedValue({ sessions: [{ sid: w.id, serverId: 'sv1', userId: 'me', browserCount: 1, idleMs: 0 }] })
+    await vi.advanceTimersByTimeAsync(30000)
+    await flushPromises()
+    let chip = findSshChip(bar)[0]
+    expect(chip.attributes('title')).not.toContain('空闲回收')   // 网关还活着:正常
+
+    mock.mockResolvedValue({ sessions: [] })
+    await vi.advanceTimersByTimeAsync(30000)                    // 第 1 轮缺失:宽限(建连窗口期)
+    await flushPromises()
+    chip = findSshChip(bar)[0]
+    expect(chip.attributes('title')).not.toContain('空闲回收')
+
+    await vi.advanceTimersByTimeAsync(30000)                    // 第 2 轮缺失:判死
+    await flushPromises()
+    chip = findSshChip(bar)[0]
+    expect(chip.attributes('title')).toContain('空闲回收')
+
+    mock.mockResolvedValue({ sessions: [{ sid: w.id, serverId: 'sv1', userId: 'me', browserCount: 1, idleMs: 0 }] })
+    await vi.advanceTimersByTimeAsync(30000)                    // 重现:恢复常态
+    await flushPromises()
+    chip = findSshChip(bar)[0]
+    expect(chip.attributes('title')).not.toContain('空闲回收')
+  } finally { vi.useRealTimers(); vi.restoreAllMocks() }
+})

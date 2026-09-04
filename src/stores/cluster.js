@@ -95,6 +95,7 @@ export const useClusterStore = defineStore('cluster', () => {
     addIngressClass, updateIngressClass, deleteIngressClass, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     addPriorityClass, updatePriorityClass, deletePriorityClass, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     updateIngressRules, addPV, updatePV, deletePV, addStorageClass, updateStorageClass, deleteStorageClass,
+    promoteIngressClassDefault, demoteIngressClassDefault, promoteStorageClassDefault,
     deleteWorkload, getWorkloadForEdit, updateWorkload } = createCrudDomain({ aliangTag, currentCluster, namespaceList, fetchWorkload, generateYAML, generateExtraYAML })
 
   // === Watch 域(Plan 5 第二波,./cluster/watch.js):多路复用 watch + 状态机 ===
@@ -559,6 +560,7 @@ export const useClusterStore = defineStore('cluster', () => {
     // CRUD: Endpoints
     // CRUD: IngressClass / RuntimeClass（集群级）
     addIngressClass, updateIngressClass, deleteIngressClass, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
+    promoteIngressClassDefault, demoteIngressClassDefault, promoteStorageClassDefault,
     // CRUD: Workloads
     deleteWorkload, updateWorkload, applyWorkloadTemplate, updateWorkloadMeta, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,
     // CRUD: Pods

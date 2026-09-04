@@ -37,3 +37,13 @@ test('SshTerminalWindow 接线:壳层关 close 钮、终端开 close 钮并接 c
   expect(win).not.toContain('ssh://')                    // 标题不再重复 ssh://名(终端头部已有)
   expect(win).toContain('data-test="btnOpenExternal"')   // 新标签页入口保留
 })
+
+test('事故③:恢复的 minimized 窗口不在挂载时建连;恢复(open)时按需 connectIfIdle', () => {
+  const win = readFileSync(resolve('src/components/ssh/SshTerminalWindow.vue'), 'utf8')
+  expect(win).toContain('const connectAtMount = props.window.status === \'open\'')
+  expect(win).toContain(':auto-connect="connectAtMount"')
+  expect(win).toContain('termRef.value?.connectIfIdle?.()')
+  const term = readFileSync(resolve('src/components/ssh/SshTerminal.vue'), 'utf8')
+  expect(term).toContain('function connectIfIdle()')
+  expect(term).toContain('defineExpose({ refit, replayed, connectIfIdle, connect })')
+})

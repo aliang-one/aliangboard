@@ -58,7 +58,7 @@ import { createSshJobBridge } from './ssh/job-bridge.mjs'
 import { resolveJobPolicy } from './ssh/job-policy.mjs'
 import { createTerminalRegistry } from './ssh/terminal-sessions.mjs'
 import { resolvePolicy } from './ssh/reap-policy.mjs'
-import { attachSocketToSession, broadcastToSockets } from './ssh/terminal-wire.mjs'
+import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness } from './ssh/terminal-wire.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -811,6 +811,7 @@ function wsSend(ws, type, payload) {
 
 // 建立 Pod exec 终端会话
 async function handleExec(ws, session, url, req) {
+  markAlive(ws)   // WS 存活探测打标(半开 TCP 不发 close,靠 ping/pong 发现死连接)
   const namespace = url.searchParams.get('namespace')
   const pod = url.searchParams.get('pod')
   if (!namespace || !pod) { wsSend(ws, CH_ERROR, msg(req, 'api.missingNsPodParams')); return ws.close() }
@@ -2155,6 +2156,7 @@ const sessionSweeper = setInterval(() => {
 sessionSweeper.unref?.()
 
 async function handleSshTerminal(ws, ps, url) {
+  markAlive(ws)   // WS 存活探测打标(半开 TCP 不发 close,靠 ping/pong 发现死连接)
   const serverId = url.searchParams.get('serverId')
   // sid 必传(2026-08-29 审计):此前缺失时 crypto.randomUUID() 补位 → 客户端永远无从知道
   // sid,会话成任务栏/对账盲区(「不可见活会话」的出生通道)。契约硬化:缺即拒。
@@ -2243,6 +2245,8 @@ async function handleSshTerminal(ws, ps, url) {
 
 // WebSocket 升级：/api/ssh/terminal(平台 token) + /api/exec(集群 session)
 const wsServer = new WebSocketServer({ noServer: true })
+// WS 存活探测(2026-09-04 事故①):30s ping,两轮无 pong 即 terminate(触发 close → drop → browserCount 归零)
+attachWsLiveness(wsServer, { intervalMs: Math.max(5000, Number(process.env.WS_HEARTBEAT_MS) || 30000) })
 httpServer.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
   if (url.pathname === '/api/ssh/terminal') {

@@ -545,7 +545,7 @@ router.beforeEach(async (to) => {
   const store = useClusterStore()
   const authStore = useAuthStore()
   authStore.init()
-  if (['TerminalPopup', 'LogPopup'].includes(to.name)) return
+  if (['TerminalPopup', 'LogPopup', 'SshTerminalPopup'].includes(to.name)) return
 
   const isPublic = to.name === 'Login' || to.name === 'SelectCluster'
 

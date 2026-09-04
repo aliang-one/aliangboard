@@ -13,7 +13,13 @@ const props = defineProps({ window: { type: Object, required: true } })
 const sshStore = useSshTerminalStore()
 const termRef = ref(null)
 
-// minimized → open:xterm 重新 fit(display:none→block 时 ResizeObserver 可能漏触发)
+// 挂载即连仅限「本页主动开窗」(status==='open')(2026-09-04 事故③):刷新恢复/重登录
+// 载入的 minimized 窗口不建连——否则整页一刷新就对全部窗口各开一条 WS,其中已被网关
+// 回收的 sid 会被静默同 sid 新建 shell(历史无感归零),且一次吃掉 N 条连接预算。
+// 用户点任务栏恢复(minimized→open)时由下方 watcher 按需建连(connectIfIdle)。
+const connectAtMount = props.window.status === 'open'
+
+// minimized → open:xterm 重新 fit(display:none→block 时 ResizeObserver 可能漏触发)+ 按需建连
 let refitTimer = null
 watch(() => props.window.status, (s) => {
   if (s === 'open') {
@@ -21,6 +27,7 @@ watch(() => props.window.status, (s) => {
     nextTick(() => {
       refitTimer = setTimeout(() => {
         try { termRef.value?.refit() } catch { /* noop */ }
+        try { termRef.value?.connectIfIdle?.() } catch { /* noop */ }
         refitTimer = null
       }, 50)
     })
@@ -42,6 +49,6 @@ watch(() => props.window.status, (s) => {
         <span class="material-symbols-outlined text-base">open_in_new</span>
       </button>
     </template>
-    <SshTerminal ref="termRef" :server-id="window.serverId" :server-name="window.name" :sid="window.id" :auto-connect="true" closable @close="sshStore.closeWindow(window.id)" />
+    <SshTerminal ref="termRef" :server-id="window.serverId" :server-name="window.name" :sid="window.id" :auto-connect="connectAtMount" closable @close="sshStore.closeWindow(window.id)" />
   </FloatingWindow>
 </template>

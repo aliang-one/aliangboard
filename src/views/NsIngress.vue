@@ -17,6 +17,7 @@ import { dialectGroups, dialectHint, detectDialect, buildIngressAnnotations, val
 import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { hostsToK8sSpec, ingressHostsErrors } from '@/composables/useIngressRules'
 import { pickIngressClassName } from '@/logic/ingressClass'
+import { canUseClusterDefault, resolveClusterDefaultName } from '@/logic/classDefault'
 import { notify } from '@/composables/useToast'
 import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
 
@@ -284,8 +285,15 @@ async function handleDelete() {
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.ingress.classLabel') }}</label>
           <select v-model="createForm.className" data-testid="ingress-class-select" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
             <option v-if="!allIngressClasses.length" value="">{{ t('ns.ingress.classNoneAvailable') }}</option>
+            <!-- 集群默认(2026-09-04 复活,守卫:有默认才可选;落库=显式默认类名,spec §3.4) -->
+            <option v-if="allIngressClasses.length" data-testid="ingress-cluster-default-option"
+              :value="resolveClusterDefaultName(allIngressClasses)"
+              :disabled="!canUseClusterDefault(allIngressClasses)">
+              {{ canUseClusterDefault(allIngressClasses) ? t('common.clusterDefaultOption', { name: resolveClusterDefaultName(allIngressClasses) }) : t('common.clusterDefaultUnset') }}
+            </option>
             <option v-for="c in allIngressClasses" :key="c.name" :value="c.name">{{ c.name }}{{ c.isDefault ? t('ns.ingress.defaultClass') : '' }}</option>
           </select>
+          <p v-if="allIngressClasses.length && !canUseClusterDefault(allIngressClasses)" data-testid="ingress-cluster-default-hint" class="text-label-caps text-on-surface-variant mt-xs">{{ t('common.noDefaultIngressClassHint') }}</p>
         </div>
       </div>
       <!-- 多 host 多 path 规则（共享编辑器:per-host TLS + 行级校验内置;validation 供创建按钮禁用） -->

@@ -40,6 +40,7 @@ function onSshItemClick(w) {
 const sshChips = computed(() => sshStore.groups.map(g => ({
   kind: 'ssh', id: g.serverId, name: g.name, count: g.count,
   status: g.windows.some(w => w.status === 'open') ? 'open' : 'minimized', windows: g.windows,
+  dead: g.windows.length > 0 && g.windows.every(w => sshStore.isDead(w.id)),   // 事故④:全部窗口已被网关回收
 })))
 const menuOpenFor = ref('')   // 打开会话菜单的 serverId(同时最多一个)
 const menuLeft = ref(0)       // 菜单锚点(chip 左缘,任务栏根部渲染用)
@@ -62,15 +63,30 @@ const onSshNew = chip => { sshStore.openNew({ id: chip.id, name: chip.name }); m
 // 任务栏是 localStorage 视图,网关侧可能存在本地不知情的存活会话(弹窗标签页自建 sid /
 // 清过存储 / 换浏览器 / 其他管理员的会话)。30s 轻轮询对账:未跟踪会话显示为警示 chip
 // (置首,点击确认后手杀);非 admin(403)或网络失败静默降级为纯本地视图。
+// 反向差集(2026-09-04 事故④):本地有而网关无 → 死 chip 置灰提示「已回收,重连=新会话」,
+// 替代「点开才知道是空 shell」。判死需连续两轮缺失(新建窗口的 WS 未在网关 ensure 前首轮
+// 缺失属建连窗口期);最近本地关闭的跳过;listSessions 失败走 catch 不动判定态(网络抖动不误标)。
 const orphans = ref([])
 let reconcileTimer = null
+let missingOnce = new Set()   // sid:首轮缺失的宽限集合
 async function reconcile() {
   try {
     const { sessions } = await sshApi.listSessions()
+    const alive = new Set(sessions.map(s => s.sid))
     const known = new Set(sshStore.windows.map(w => w.id))
     // recentlyClosed:自家刚显式关闭、网关尚未 reap(默认 detachedIdle 10min)的会话,
     // 不标红警示——「明明关了还提示开着」的鬼影来源之一
     orphans.value = sessions.filter(s => !known.has(s.sid) && !sshStore.isRecentlyClosed(s.sid))
+    const stillMissing = new Set()
+    const dead = []
+    for (const w of sshStore.windows) {
+      if (alive.has(w.id)) { missingOnce.delete(w.id); sshStore.markAliveSid(w.id); continue }
+      if (sshStore.isRecentlyClosed(w.id)) continue
+      if (missingOnce.has(w.id)) dead.push(w.id)
+      stillMissing.add(w.id)
+    }
+    missingOnce = stillMissing
+    sshStore.markDeadSids(dead)
   } catch { orphans.value = [] }
 }
 async function killOrphan(chip) {
@@ -195,12 +211,12 @@ function closeAll() {
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
         </button>
-        <!-- SSH 服务器分组 chip(secondary 色系,与 pod/files 三色分明) -->
+        <!-- SSH 服务器分组 chip(secondary 色系,与 pod/files 三色分明);dead=网关已回收全部窗口(事故④):置灰+警示 -->
         <button v-else-if="chip.kind === 'ssh'" :data-test="'ssh-chip-' + chip.id" @click="onSshChipClick(chip, $event)"
           class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
-          :class="chip.status === 'open' ? 'bg-secondary-container/25 text-secondary border border-secondary/40' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
-          :title="`${chip.name} · SSH（${chip.count === 1 ? t('terminal.statusFloating') : t('terminal.sshSessions', { n: chip.count })}）`">
-          <span class="material-symbols-outlined text-sm">dns</span>
+          :class="[chip.status === 'open' ? 'bg-secondary-container/25 text-secondary border border-secondary/40' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent', chip.dead ? 'border border-dashed border-error/50 opacity-80' : '']"
+          :title="`${chip.name} · SSH（${chip.count === 1 ? t('terminal.statusFloating') : t('terminal.sshSessions', { n: chip.count })}）${chip.dead ? ' · ' + t('terminal.sessionReapedTitle') : ''}`">
+          <span class="material-symbols-outlined text-sm" :class="chip.dead ? 'text-error' : ''">{{ chip.dead ? 'link_off' : 'dns' }}</span>
           <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
           <span v-if="chip.count > 1" class="text-[10px] font-mono px-1 rounded bg-secondary/20">×{{ chip.count }}</span>
           <span v-if="!iconMode || chip.count > 1" @click.stop="onSshNew(chip)" class="ml-0.5 px-1 rounded hover:bg-secondary/30 text-secondary leading-4" :title="t('terminal.sshNewTerminal')">+</span>

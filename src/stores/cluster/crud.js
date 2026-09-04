@@ -8,10 +8,11 @@ import { i18n } from '@/i18n'
 import { notify } from '@/composables/useToast'
 import { buildIngressRulesPatch } from '@/composables/useIngressRules'
 import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePatch'
+import { buildIngressClassPatch } from '@/composables/useClassPatch'
 import { queryClient } from '@/queryClient'
 import { encodeSecretData } from '@/composables/useResourceMappers'
 import { invalidateResource } from './invalidate'
-import { fetchConfigMap, fetchSecret, fetchService, fetchIngress, fetchIngressClass, fetchNetworkPolicy, fetchPDB, fetchLimitRange, fetchResourceQuota, fetchHPA, fetchPV, fetchPVC, fetchStorageClass, fetchRoleBinding, fetchRuntimeClass, fetchPriorityClass, fetchClusterRoleBinding, fetchServiceAccount } from '@/composables/useFetchers'
+import { fetchConfigMap, fetchSecret, fetchService, fetchIngress, fetchIngressClass, fetchNetworkPolicy, fetchPDB, fetchLimitRange, fetchResourceQuota, fetchHPA, fetchPV, fetchPVC, fetchStorageClass, fetchRoleBinding, fetchRuntimeClass, fetchPriorityClass, fetchClusterRoleBinding, fetchServiceAccount, fetchIngressClasses, fetchStorageClasses } from '@/composables/useFetchers'
 
 // HPA 定点 patch(strategic-merge):仅更新可编辑字段(minReplicas/maxReplicas/metrics),
 // 保留 spec.behavior / scaleTargetRef 等其余字段 —— 避免全量 SSA prune。
@@ -254,13 +255,66 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
   async function addStorageClass(sc) {
     return remoteCreate(generateYAML('storageclass', sc), `StorageClass/${sc.name}`, () => invalidateResource('storageclasses'))
   }
+  // === 集群默认不变式(spec §3.3)：sweep 先摘旧默认,失败中止防双默认 ===
+  const IC_DEFAULT_KEY = 'ingressclass.kubernetes.io/is-default-class'
+  const SC_DEFAULT_SWEEP_KEYS = ['storageclass.kubernetes.io/is-default-class', 'storageclass.beta.kubernetes.io/is-default-class']
+  const icPath = name => `/apis/networking.k8s.io/v1/ingressclasses/${encodeURIComponent(name)}`
+  const scPath = name => `/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`
+  // 静默定点 PATCH:sweep 批量摘注解用,不带 per-call toast,由调用方聚合提示
+  async function patchSilent(path, patch) {
+    await api.k8s(path, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch) })
+  }
+  // 列表拉取失败 = 无法判定现状默认,必须中止(spec §4 不变式):吞成空列表会漏 sweep → 双默认
+  const sweepFetchFailed = e => {
+    const error = i18n.global.t('store.defaultSweepFetchFailed', { error: e?.message || i18n.global.t('store.permissionDeniedOrNotFound') })
+    notify('error', error) // spec §4:中止必须 toast 明细,调用方无需重复提示
+    return { ok: false, error }
+  }
+  async function sweepStorageClassDefaults(excludeName) {
+    let items
+    try { items = await fetchStorageClasses() } catch (e) { return sweepFetchFailed(e) }
+    const others = (items || []).filter(c => c.default && c.name !== excludeName)
+    for (const c of others) {
+      const ann = Object.fromEntries(SC_DEFAULT_SWEEP_KEYS.map(k => [k, null]))
+      try { await patchSilent(scPath(c.name), { metadata: { annotations: ann } }) } catch { const error = i18n.global.t('store.defaultSweepFailed', { failed: c.name }); notify('error', error); return { ok: false, error } }
+    }
+    return { ok: true }
+  }
   async function updateStorageClass(name, updates) {
+    if (updates?.isDefault === true) {
+      const sweep = await sweepStorageClassDefaults(name)
+      if (!sweep.ok) return sweep
+    }
     const cur = await fetchStorageClass(name).catch(() => null)
     if (!cur) { invalidateResource('storageclasses'); return }
     const patch = buildStorageClassPatch(cur, updates)
     if (!patch) return
     await remotePatch(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, patch, 'StorageClass')
     invalidateResource('storageclasses')
+  }
+  async function promoteIngressClassDefault(name) {
+    let items
+    try { items = await fetchIngressClasses() } catch (e) { return sweepFetchFailed(e) }
+    const others = (items || []).filter(c => c.isDefault && c.name !== name)
+    for (const c of others) {
+      const patch = buildIngressClassPatch(c, { isDefault: null }) || { metadata: { annotations: { [IC_DEFAULT_KEY]: null } } }
+      try { await patchSilent(icPath(c.name), patch) } catch { const error = i18n.global.t('store.defaultSweepFailed', { failed: c.name }); notify('error', error); return { ok: false, error } }
+    }
+    const r = await remotePatch(icPath(name), { metadata: { annotations: { [IC_DEFAULT_KEY]: 'true' } } }, `IngressClass/${name}`)
+    invalidateResource('ingressclasses')
+    return r
+  }
+  async function demoteIngressClassDefault(name) {
+    const r = await remotePatch(icPath(name), { metadata: { annotations: { [IC_DEFAULT_KEY]: null } } }, `IngressClass/${name}`)
+    invalidateResource('ingressclasses')
+    return r
+  }
+  async function promoteStorageClassDefault(name) {
+    const sweep = await sweepStorageClassDefaults(name)
+    if (!sweep.ok) return sweep
+    const r = await remotePatch(scPath(name), { metadata: { annotations: { [SC_DEFAULT_SWEEP_KEYS[0]]: 'true' } } }, `StorageClass/${name}`)
+    invalidateResource('storageclasses')
+    return r
   }
   async function deleteStorageClass(name) {
     try {
@@ -363,6 +417,7 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     addIngressClass, updateIngressClass, deleteIngressClass, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     addPriorityClass, updatePriorityClass, deletePriorityClass, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     updateIngressRules, addPV, updatePV, deletePV, addStorageClass, updateStorageClass, deleteStorageClass,
+    promoteIngressClassDefault, demoteIngressClassDefault, promoteStorageClassDefault,
     deleteWorkload, getWorkloadForEdit, updateWorkload,
   }
 }

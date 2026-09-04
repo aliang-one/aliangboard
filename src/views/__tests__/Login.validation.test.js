@@ -14,7 +14,7 @@ vi.mock('@/stores/auth', () => ({
     tryAutoConnect: vi.fn(async () => null),
   }),
 }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }), useRoute: () => ({ query: {} }) }))
 
 import Login from '../Login.vue'
 

@@ -10,8 +10,11 @@ const h = vi.hoisted(() => ({
   push: vi.fn(),
   fetchIngressClass: vi.fn(),
   deleteIngressClass: vi.fn(),
+  fetchIngresses: vi.fn(),
+  promoteIngressClassDefault: vi.fn(),
+  demoteIngressClassDefault: vi.fn(),
   applyYaml: vi.fn(async () => ({ ok: true })),
-  captured: { opts: null, data: null, loading: { value: false } }, // vi.hoisted 先于 import 执行,不能用 ref()
+  captured: { opts: null, data: null, related: null, loading: { value: false } }, // vi.hoisted 先于 import 执行,不能用 ref()
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { name: 'nginx' } }),
@@ -22,6 +25,9 @@ vi.mock('@/stores/cluster', () => ({
     currentCluster: 'c',
     fetchIngressClass: h.fetchIngressClass,
     deleteIngressClass: h.deleteIngressClass,
+    fetchIngresses: h.fetchIngresses,
+    promoteIngressClassDefault: h.promoteIngressClassDefault,
+    demoteIngressClassDefault: h.demoteIngressClassDefault,
   }),
 }))
 vi.mock('@/composables/useK8sQuery', () => ({
@@ -29,6 +35,7 @@ vi.mock('@/composables/useK8sQuery', () => ({
     h.captured.opts = opts
     return { data: h.captured.data, isLoading: h.captured.loading }
   },
+  useResourceList: () => ({ data: h.captured.related }),
 }))
 vi.mock('@/composables/useLiveYaml', () => ({
   useLiveYaml: () => ({ yaml: ref('apiVersion: networking.k8s.io/v1\nkind: IngressClass'), yamlLoading: ref(false), error: ref(''), reload: vi.fn() }),
@@ -49,6 +56,10 @@ const FIXTURE = {
   parameters: { apiGroup: 'k8s.example.com', kind: 'NginxConfiguration', name: 'nginx-config' },
 }
 
+const RELATED = [
+  { name: 'app1', namespace: 'web', className: 'nginx', hosts: 'a.com,b.com', tls: true, tlsSecret: 's', rules: [{ http: { paths: [{ backend: { service: { name: 'svc1', port: { number: 8080 } } } }] } }], defaultBackend: null, age: '1d' },
+]
+
 // Modal 用 Teleport,stub 成内联渲染 default+actions 槽
 const ModalStub = { name: 'Modal', template: '<div><slot/><slot name="actions"/></div>' }
 
@@ -60,7 +71,8 @@ function mountView() {
 
 describe('IngressClassDetail', () => {
   beforeEach(() => { // 用例共享 hoisted spy:清理防调用计数跨用例泄漏
-    for (const spy of [h.push, h.fetchIngressClass, h.deleteIngressClass, h.applyYaml]) spy.mockClear()
+    for (const spy of [h.push, h.fetchIngressClass, h.deleteIngressClass, h.fetchIngresses, h.promoteIngressClassDefault, h.demoteIngressClassDefault, h.applyYaml]) spy.mockClear()
+    h.captured.related = ref([RELATED[0]])
   })
   it('数据接线:useResourceDetail key 指向 ingressclasses 单资源,fetcher 走 store.fetchIngressClass', async () => {
     h.fetchIngressClass.mockResolvedValue(FIXTURE)
@@ -108,6 +120,47 @@ describe('IngressClassDetail', () => {
     await w.find('[data-testid="detail-delete-confirm"]').trigger('click')
     expect(h.deleteIngressClass).toHaveBeenCalledWith('nginx')
     expect(h.push).toHaveBeenCalledWith('/ingressclasses')
+  })
+
+  it('header:非默认显示「设为默认」,点击调 promoteIngressClassDefault', async () => {
+    h.promoteIngressClassDefault.mockResolvedValue({ ok: true })
+    h.captured.data = ref({ ...FIXTURE, isDefault: false })
+    const w = mountView()
+    await w.vm.$nextTick()
+    await w.find('[data-testid="promote-default-btn"]').trigger('click')
+    expect(h.promoteIngressClassDefault).toHaveBeenCalledWith('nginx')
+  })
+
+  it('header:已是默认显示「取消默认」,点击调 demote', async () => {
+    h.demoteIngressClassDefault.mockResolvedValue({ ok: true })
+    h.captured.data = ref(FIXTURE)
+    const w = mountView()
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="demote-default-btn"]').exists()).toBe(true)
+    await w.find('[data-testid="demote-default-btn"]').trigger('click')
+    expect(h.demoteIngressClassDefault).toHaveBeenCalledWith('nginx')
+  })
+
+  it('关联 Ingress 面板:计数/hosts/443/svc:port/点击跳转', async () => {
+    h.captured.data = ref(FIXTURE)
+    const w = mountView()
+    await w.vm.$nextTick()
+    const card = w.find('[data-testid="related-ingresses"]')
+    expect(card.text()).toContain('a.com')
+    expect(card.text()).toContain('svc1:8080')
+    const row = card.find('button')
+    await row.trigger('click')
+    expect(h.push).toHaveBeenCalledWith({ name: 'NsIngressDetail', params: { namespace: 'web', name: 'app1' } })
+  })
+
+  it('关联 Ingress 空态:无引用时渲染空态文案', async () => {
+    h.captured.data = ref(FIXTURE)
+    h.captured.related = ref([])
+    const w = mountView()
+    await w.vm.$nextTick()
+    const card = w.find('[data-testid="related-ingresses"]')
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain(i18n.global.t('admin.ingressClasses.relatedEmpty'))
   })
 
   it('not-found:对象为空时呈现回列表出口', async () => {

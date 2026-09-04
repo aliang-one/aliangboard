@@ -109,7 +109,12 @@ onUnmounted(teardown)
 
 // 从最小化恢复时重新 fit xterm(display:none→block 后尺寸可能未更新)
 function refit() { try { fit?.fit() } catch { /* noop */ } }
-defineExpose({ refit, replayed })
+// 恢复窗口时的按需建连(2026-09-04 事故③):仅在未连接时才发起——已连接(open)不重连,
+// 断开/出错时允许用 connect() 手动重试
+function connectIfIdle() {
+  if (status.value === 'idle' || status.value === 'closed' || status.value === 'error') connect()
+}
+defineExpose({ refit, replayed, connectIfIdle, connect })
 </script>
 
 <template>
