@@ -18,6 +18,52 @@ export function fmtMB(bytes) {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : mb >= 10 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`
 }
 
+// —— 上传预检(2026-09-04:/etc 不可写、磁盘不足等要在开传前秒拒,别让人推完几个 G 才见错)——
+// 以 $1(目标完整路径)为参:目录不存在→NODIR;目标或其所在目录不可写→NOWRITE;否则输出目标目录 df 剩余 KB。
+// df -k -P:POSIX 列序对三族 df 统一(macOS/BSD 默认 9 列含 inode 列,-P 压回 6 列;GNU 单行不 wrap;
+// busybox 仍会 wrap,但 wrap 行 [blocks,used,avail,use%,mount] 从右数第 3 列 $(NF-2) 仍= Available,
+// 常规 6 列行 NF-2 同样= Available——从右数是 wrap/常规两态通吃的口径)。
+export const UPLOAD_PROBE_SCRIPT = [
+  'd=$(dirname "$1")',
+  'if [ ! -d "$d" ]; then echo NODIR; exit 0; fi',
+  'if [ -e "$1" ]; then',
+  '  if [ ! -w "$1" ]; then echo NOWRITE; exit 0; fi',
+  'else',
+  '  if [ ! -w "$d" ]; then echo NOWRITE; exit 0; fi',
+  'fi',
+  'df -k -P "$d" 2>/dev/null | tail -1 | awk \'{print $(NF-2)}\'',
+].join('\n')
+
+// SSH 通道下发形态:脚本没有 argv 可用,base64 + `sh -s` 免嵌套引号(模块加载时算一次)
+export const UPLOAD_PROBE_SCRIPT_B64 = Buffer.from(UPLOAD_PROBE_SCRIPT).toString('base64')
+
+// 解析探针 stdout:NODIR/NOWRITE 标记优先——必须整行精确匹配(防 df 行里恰好含标记子串,如挂载点叫 NODIR);
+// 末行 ≥3 列按倒数第 3 列(Available,与脚本的 NF-2 口径一致,兼容 df wrap)取,否则整行按数字;
+// 取不到 → ok + availKB:null(预检 best-effort,探不出来不拦上传)。
+export function parseUploadProbe(raw) {
+  const lines = String(raw || '').split('\n').map(s => s.trim()).filter(Boolean)
+  const up = lines.map(l => l.toUpperCase())
+  if (up.some(l => l === 'NODIR')) return { verdict: 'nodir', availKB: null }
+  if (up.some(l => l === 'NOWRITE')) return { verdict: 'nowrite', availKB: null }
+  const last = lines[lines.length - 1]
+  if (last === undefined) return { verdict: 'ok', availKB: null }
+  const fields = last.split(/\s+/)
+  const n = Number(fields.length >= 3 ? fields[fields.length - 3] : last)
+  return { verdict: 'ok', availKB: Number.isFinite(n) && n >= 0 ? n : null }
+}
+
+// 判定:目录不存在/不可写 → 400;磁盘剩余(KB)*1024 < contentLength → 413 带 fmtMB 参数;
+// 放行返回 null。contentLength < 0(缺头)不查空间(411 由 streamUpload 管)。
+export function evaluateUploadProbe(raw, contentLength) {
+  const p = parseUploadProbe(raw)
+  if (p.verdict === 'nodir') return { status: 400, key: 'api.uploadTargetNotFound', params: {} }
+  if (p.verdict === 'nowrite') return { status: 400, key: 'api.uploadTargetNotWritable', params: {} }
+  if (p.availKB !== null && contentLength >= 0 && p.availKB * 1024 < contentLength) {
+    return { status: 413, key: 'api.uploadInsufficientSpace', params: { need: fmtMB(contentLength), avail: fmtMB(p.availKB * 1024) } }
+  }
+  return null
+}
+
 // base64 行解码 Writable:任意 chunk 切分下按行(\n 分隔,\r 等杂散字节剔除)解码;尾段无换行也解码。
 export function createBase64LineDecoder(onChunk) {
   let buf = ''
@@ -97,6 +143,13 @@ export function streamUpload({ contentLength, limitBytes, openConn, req }) {
     if (!(contentLength >= 0)) return reject(Object.assign(new Error('缺少 content-length'), { status: 411 }))
     if (contentLength > limitBytes) {
       return reject(Object.assign(new Error(`文件过大(${fmtMB(contentLength)} > 限额 ${fmtMB(limitBytes)});管理员可在 设置→文件传输 调整`), { status: 413 }))
+    }
+    // 预检窗口遗留(2026-09-04 审查):调用方在 streamUpload 之前可能有 I/O await(上传预检/池冷连),
+    // 客户端若在该窗口断开,'aborted' 在无人监听时已发出且永不重放——在已 destroyed 的 req 上挂监听器
+    // + pipe 会双双失灵,openConn 启动后 promise 永不结算(exec WebSocket / SFTP 句柄连带泄漏)。
+    // 入口即拒,canceled=true 让路由走既有的 499 分支。
+    if (req.destroyed) {
+      return reject(Object.assign(new Error('客户端中断上传'), { status: 499, canceled: true }))
     }
     const errChunks = []
     const stderrSink = new Writable({ write(c, _e, cb) { errChunks.push(c); cb() } })

@@ -24,7 +24,7 @@ import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken } fro
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
-import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from './podfile-stream.mjs'
+import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB, UPLOAD_PROBE_SCRIPT, evaluateUploadProbe } from './podfile-stream.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
 import { scrubSecrets } from './secret-scrub.mjs'
@@ -1684,6 +1684,19 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
         const container = q.get('container') || '', path = q.get('path') || ''
         if (!namespace || !pod || !path) return sendJson(res, 400, { message: msg(req, 'api.missingNsPodPath') })
         const contentLength = parseInt(req.headers['content-length'] || '', 10)
+        // 预检(2026-09-04):目录不存在/不可写/磁盘不足在开传前秒拒,别让人推完几个 G 才见错。
+        // best-effort:探针异常/超时不拦上传(输出为空→放行),真实错误交给流式上传本身;411 与限额超限仍由 streamUpload 先判。
+        if (contentLength >= 0 && contentLength <= getPodfileLimitBytes()) {
+          try {
+            const probe = await execCapture(session, namespace, pod, container,
+              ['sh', '-c', UPLOAD_PROBE_SCRIPT, 'podfile-probe', path], false, { timeoutMs: 8000 })
+            const reject = evaluateUploadProbe(probe.stdout, contentLength)
+            if (reject) {
+              res.setHeader('connection', 'close')   // 提前拒:连响应带断连,浏览器立刻中止,别把剩余字节推进已拒的连接
+              return sendJson(res, reject.status, { message: msg(req, reject.key, reject.params) })
+            }
+          } catch { /* 探针失败不拦 */ }
+        }
         const { KubeConfig, Exec } = await k8sClient()
         const exec = new Exec(buildKubeConfig(KubeConfig, session))
         try {
@@ -1700,7 +1713,11 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
           return sendJson(res, 200, { ...r, path })
         } catch (error) {
           console.error('[podfile/upload]', error?.status || '', error?.message || error)
-          if (error.canceled) return sendJson(res, 499, { message: msg(req, 'api.uploadCanceled') })
+          if (error.canceled) {   // 客户端已断开:req/res 已毁,写响应无意义且可能抛
+            if (!res.destroyed) sendJson(res, 499, { message: msg(req, 'api.uploadCanceled') })
+            return
+          }
+          res.setHeader('connection', 'close')   // 流式上传失败:连响应带断连,浏览器立刻中止剩余字节
           return sendJson(res, error.status || 502, { message: error?.message || msg(req, 'api.uploadFailed') })
         }
       }
