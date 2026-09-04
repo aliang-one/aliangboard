@@ -56,13 +56,16 @@ function removeLabelRow(i) { editForm.value.labels.splice(i, 1) }
 function addAnnRow() { editForm.value.annotations.push({ key: '', value: '' }) }
 function removeAnnRow(i) { editForm.value.annotations.splice(i, 1) }
 async function saveEdit() {
-  await store.updateStorageClass(route.params.name, {
+  const r = await store.updateStorageClass(route.params.name, {
     isDefault: editForm.value.isDefault,
     labels: rowsToMap(editForm.value.labels),
     annotations: rowsToMap(editForm.value.annotations),
   })
+  if (r && r.ok === false) return // sweep 中止等失败:保留弹窗(错误已由 store notify)
   showEditModal.value = false
 }
+async function promoteDefault() { await store.promoteStorageClassDefault(route.params.name) }
+async function demoteDefault() { await store.updateStorageClass(route.params.name, { isDefault: false }) }
 async function handleDelete() {
   await store.deleteStorageClass(route.params.name)
   router.push('/storage')
@@ -92,6 +95,12 @@ async function handleDelete() {
         </div>
       </div>
       <div class="flex items-center gap-xs">
+        <button data-testid="promote-default-btn" v-if="!sc.default" @click="promoteDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold border border-primary/40 text-primary rounded-lg hover:bg-primary-container/10 transition-colors">
+          <span class="material-symbols-outlined text-sm">star</span> {{ t('common.setAsDefault') }}
+        </button>
+        <button data-testid="demote-default-btn" v-else @click="demoteDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-sm">star</span> {{ t('common.unsetDefault') }}
+        </button>
         <button @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined text-sm">edit</span> {{ t('common.edit') }}
         </button>

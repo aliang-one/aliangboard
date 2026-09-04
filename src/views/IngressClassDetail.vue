@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
-import { useResourceDetail } from '@/composables/useK8sQuery'
+import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import { useLiveYaml } from '@/composables/useLiveYaml'
 import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -31,6 +31,27 @@ const { yaml } = useLiveYaml({
   pathFn: () => `/apis/networking.k8s.io/v1/ingressclasses/${encodeURIComponent(route.params.name)}`,
 })
 const activeTab = ref('overview')
+
+// 集群级 Ingress 列表 → 过滤 className 引用本类的关联 Ingress(Network.vue 同款 key/轮询)
+const ingressesQ = useResourceList({
+  key: ['cluster', cid, 'ingresses'],
+  fetcher: () => store.fetchIngresses(),
+  options: { refetchInterval: 30000 },
+})
+const related = computed(() => (ingressesQ.data.value || []).filter(i => i.className === ic.value?.name))
+// 后端摘要:defaultBackend 映射形 {serviceName,servicePort};rules 内是原生 K8s 形 service:{name,port:{number|name}}
+function backendSummary(ing) {
+  if (ing.defaultBackend?.serviceName) return `${ing.defaultBackend.serviceName}:${ing.defaultBackend.servicePort}`
+  for (const r of ing.rules || []) {
+    const s = r?.http?.paths?.[0]?.backend?.service
+    if (s?.name) { const p = s.port?.number ?? s.port?.name ?? ''; return p ? `${s.name}:${p}` : s.name }
+  }
+  return ''
+}
+async function toggleDefault() {
+  if (ic.value.isDefault) await store.demoteIngressClassDefault(ic.value.name)
+  else await store.promoteIngressClassDefault(ic.value.name)
+}
 
 const labelRows = computed(() => Object.entries(ic.value?.labels || {}))
 const annRows = computed(() => Object.entries(ic.value?.annotations || {}))
@@ -65,6 +86,12 @@ async function handleDelete() {
         </div>
       </div>
       <div class="flex items-center gap-xs">
+        <button data-testid="promote-default-btn" v-if="!ic.isDefault" @click="toggleDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold border border-primary/40 text-primary rounded-lg hover:bg-primary-container/10 transition-colors">
+          <span class="material-symbols-outlined text-sm">star</span> {{ t('common.setAsDefault') }}
+        </button>
+        <button data-testid="demote-default-btn" v-else @click="toggleDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-sm">star</span> {{ t('common.unsetDefault') }}
+        </button>
         <button data-testid="detail-delete-btn" @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">{{ t('common.delete') }}</button>
       </div>
     </div>
@@ -77,8 +104,9 @@ async function handleDelete() {
       </button>
     </div>
 
-    <div v-if="activeTab === 'overview'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card max-w-3xl">
+    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
+      <div class="lg:col-span-8">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
         <h3 class="text-headline-sm mb-lg">{{ t('admin.ingressClasses.details') }}</h3>
         <div class="grid grid-cols-2 gap-md">
           <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">{{ t('admin.ingressClasses.thController') }}</p><p class="font-mono text-code-sm text-on-surface">{{ ic.controller }}</p></div>
@@ -104,6 +132,24 @@ async function handleDelete() {
           <div class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm">
             <div v-for="[k, v] in annRows" :key="k" class="flex"><span class="text-primary">{{ k }}:</span><span class="ml-sm text-on-surface break-all">{{ v }}</span></div>
           </div>
+        </div>
+      </div>
+      </div>
+      <div class="lg:col-span-4" data-testid="related-ingresses">
+        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+          <h3 class="text-headline-sm mb-md">{{ t('admin.ingressClasses.relatedIngresses') }} ({{ related.length }})</h3>
+          <div v-if="related.length" class="flex flex-col gap-sm">
+            <button v-for="ing in related" :key="ing.namespace + '/' + ing.name" @click="router.push({ name: 'NsIngressDetail', params: { namespace: ing.namespace, name: ing.name } })"
+              class="flex flex-col items-start gap-xs px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors text-left">
+              <span class="font-mono text-code-sm text-primary truncate max-w-full">{{ ing.namespace }}/{{ ing.name }}</span>
+              <span class="text-body-sm text-on-surface-variant truncate max-w-full">{{ ing.hosts || '—' }}</span>
+              <span class="flex items-center gap-xs text-label-caps text-on-surface-variant">
+                <span v-if="ing.tls" class="flex items-center gap-xs text-secondary"><span class="material-symbols-outlined text-sm">lock</span>443</span>
+                <span v-if="backendSummary(ing)" class="font-mono">{{ backendSummary(ing) }}</span>
+              </span>
+            </button>
+          </div>
+          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">{{ t('admin.ingressClasses.relatedEmpty') }}</p>
         </div>
       </div>
     </div>
