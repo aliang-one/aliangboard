@@ -146,3 +146,30 @@ test('updateStorageClass(isDefault:true): sweep 其余 SC 默认(双 beta 键 nu
   expect(body.metadata.annotations['storageclass.kubernetes.io/is-default-class']).toBeNull()
   expect(body.metadata.annotations['storageclass.beta.kubernetes.io/is-default-class']).toBeNull()
 })
+
+// --- 列表拉取失败 = 无法判定现状默认,必须中止(spec §4):吞成空列表会漏 sweep → 双默认 ---
+
+test('promoteIngressClassDefault: 列表拉取失败 → 中止,零 PATCH(不写目标)', async () => {
+  fetcherState.fetchIngressClasses = async () => { throw new Error('boom') }
+  const r = await store.promoteIngressClassDefault('new')
+  expect(r.ok).toBe(false)
+  expect(r.error).toBeTruthy()
+  const patches = k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')
+  expect(patches).toHaveLength(0)
+})
+
+test('updateStorageClass(isDefault:true): SC 列表拉取失败 → 中止,零 PATCH', async () => {
+  fetcherState.fetchStorageClasses = async () => { throw new Error('boom') }
+  const r = await store.updateStorageClass('sc-new', { isDefault: true })
+  expect(r.ok).toBe(false)
+  const patches = k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')
+  expect(patches).toHaveLength(0)
+})
+
+test('promoteStorageClassDefault: SC 列表拉取失败 → 中止,零 PATCH', async () => {
+  fetcherState.fetchStorageClasses = async () => { throw new Error('boom') }
+  const r = await store.promoteStorageClassDefault('sc-new')
+  expect(r.ok).toBe(false)
+  const patches = k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')
+  expect(patches).toHaveLength(0)
+})

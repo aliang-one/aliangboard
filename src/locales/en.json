@@ -3858,6 +3858,7 @@
     "onlyAvailableAfterConnect": "Only available after connecting to cluster",
     "workloadNotFound": "Workload not found",
     "defaultSweepFailed": "Failed to unset previous default: {failed} — target unchanged",
+    "defaultSweepFetchFailed": "Could not list current defaults ({error}) — aborted, target unchanged",
     "deepEditNotSupported": "Deep editing {type} is not supported, please use YAML editor",
     "editMetadataNotSupported": "Editing metadata for {type} is not supported, please use YAML editor",
     "metadata": "metadata",

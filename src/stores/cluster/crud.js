@@ -264,8 +264,11 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
   async function patchSilent(path, patch) {
     await api.k8s(path, { method: 'PATCH', headers: { 'content-type': 'application/merge-patch+json' }, body: JSON.stringify(patch) })
   }
+  // 列表拉取失败 = 无法判定现状默认,必须中止(spec §4 不变式):吞成空列表会漏 sweep → 双默认
+  const sweepFetchFailed = e => ({ ok: false, error: i18n.global.t('store.defaultSweepFetchFailed', { error: e?.message || i18n.global.t('store.permissionDeniedOrNotFound') }) })
   async function sweepStorageClassDefaults(excludeName) {
-    const items = await fetchStorageClasses().catch(() => [])
+    let items
+    try { items = await fetchStorageClasses() } catch (e) { return sweepFetchFailed(e) }
     const others = (items || []).filter(c => c.default && c.name !== excludeName)
     for (const c of others) {
       const ann = Object.fromEntries(SC_DEFAULT_SWEEP_KEYS.map(k => [k, null]))
@@ -286,7 +289,8 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     invalidateResource('storageclasses')
   }
   async function promoteIngressClassDefault(name) {
-    const items = await fetchIngressClasses().catch(() => [])
+    let items
+    try { items = await fetchIngressClasses() } catch (e) { return sweepFetchFailed(e) }
     const others = (items || []).filter(c => c.isDefault && c.name !== name)
     for (const c of others) {
       const patch = buildIngressClassPatch(c, { isDefault: null }) || { metadata: { annotations: { [IC_DEFAULT_KEY]: null } } }
