@@ -184,6 +184,8 @@ try { db.exec('ALTER TABLE platform_sessions ADD COLUMN lastSeenAt INTEGER') } c
 try { db.exec('ALTER TABLE platform_sessions ADD COLUMN ip TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE platform_sessions ADD COLUMN userAgent TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE platform_users ADD COLUMN prefs TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_users ADD COLUMN avatar BLOB') } catch { /* 列已存在 */ }        // Wave1 §3.5:头像存 SQLite blob(单库不变式)
+try { db.exec('ALTER TABLE platform_users ADD COLUMN avatarMime TEXT') } catch { /* 列已存在 */ }
 // API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
 createApiKeysSchema(db)
 // SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)

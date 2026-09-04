@@ -168,3 +168,34 @@ test('setKeySaBinding:改绑 ns/name/managed;已吊销 → false', () => {
   revokeKey(db, k.id)
   assert.equal(setKeySaBinding(db, k.id, { namespace: 'ns', name: 'x', managed: false }), false)
 })
+
+// --- Wave1(2026-09-04):ownerUserId / expiresAt / lastUsedAt / lastUsedIp ---
+test('ownerUserId/expiresAt:mintKey 落库并回显;listKeys 按 ownerUserId 过滤', () => {
+  const db = new DatabaseSync(':memory:'); createApiKeysSchema(db)
+  const a = mintKey(db, { owner: 'alice', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa', ownerUserId: 'u1', expiresAt: 9999999999999 })
+  assert.equal(a.ownerUserId, 'u1'); assert.equal(a.expiresAt, 9999999999999)
+  mintKey(db, { owner: 'svc', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa2' })   // 服务 key:两字段缺省 null
+  const mine = listKeys(db, { ownerUserId: 'u1' })
+  assert.equal(mine.length, 1); assert.equal(mine[0].ownerUserId, 'u1')
+  const all = listKeys(db)
+  assert.equal(all.length, 2); assert.equal(all.find(k => !k.ownerUserId).ownerUserId, null)
+})
+
+test('isActive:expiresAt 过期即失效,revoked 仍优先', () => {
+  assert.equal(isActive({ revokedAt: null, expiresAt: Date.now() - 1000 }), false)
+  assert.equal(isActive({ revokedAt: null, expiresAt: Date.now() + 60000 }), true)
+  assert.equal(isActive({ revokedAt: null, expiresAt: null }), true)
+  assert.equal(isActive({ revokedAt: 123, expiresAt: null }), false)
+  assert.equal(isActive(null), false)
+})
+
+test('旧库迁移:无新列的存量表 ALTER 补列不抛', () => {
+  const db = new DatabaseSync(':memory:')
+  db.exec(`CREATE TABLE api_keys (id TEXT PRIMARY KEY, keyHash TEXT NOT NULL UNIQUE, prefix TEXT, owner TEXT NOT NULL,
+    clusterId TEXT NOT NULL, boundSA_namespace TEXT NOT NULL, boundSA_name TEXT NOT NULL, tier TEXT NOT NULL DEFAULT 'read',
+    createdAt INTEGER NOT NULL, revokedAt INTEGER)`)
+  createApiKeysSchema(db)   // 二次执行 = 存量库升级路径
+  db.prepare(`INSERT INTO api_keys (id,keyHash,prefix,owner,clusterId,boundSA_namespace,boundSA_name,createdAt) VALUES ('k','h','p','o','c','n','s',1)`).run()
+  const row = db.prepare('SELECT ownerUserId, expiresAt, lastUsedAt, lastUsedIp FROM api_keys WHERE id=?').get('k')
+  assert.equal(row.ownerUserId, null)
+})
