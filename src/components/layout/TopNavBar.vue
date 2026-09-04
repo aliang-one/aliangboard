@@ -1,15 +1,19 @@
 <script setup>
-import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import UserMenu from './UserMenu.vue'
 import WorkbenchEntryPill from './WorkbenchEntryPill.vue'
+import AlertBell from './AlertBell.vue'
+import SearchResults from './SearchResults.vue'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { api, clearSession, getSession } from '@/api/client'
 import { useBreakpoint, MQ_BELOW_LG, MQ_BELOW_SM } from '@/composables/useBreakpoint'
 import { useShellStore } from '@/stores/shell'
 import { Z } from '@/styles/zScale'
+import { searchAll, collectResourceItems } from '@/logic/globalSearch'
+import { routeForResource } from '@/logic/resourceNavigation'
 
 const router = useRouter()
 const route = useRoute()
@@ -29,19 +33,37 @@ const { matches: belowSm } = useBreakpoint(MQ_BELOW_SM)
 const shell = useShellStore()
 const searchModalOpen = ref(false)
 const searchModalInput = ref(null)
+const searchInputRef = ref(null)
 const searchEnabled = computed(() => searchOpen.value || searchModalOpen.value) // 弹层打开也启用惰性查询(与内联 focus 同语义)
 function openSearchModal() {
   searchModalOpen.value = true
   nextTick(() => searchModalInput.value?.focus())
 }
 function closeSearchModal() { searchModalOpen.value = false; searchQuery.value = '' }
-const podsQ = useResourceList({ key: ['cluster', cid, 'pods'], fetcher: () => store.fetchPods(), options: { refetchInterval: false, enabled: searchEnabled } })
-const workloadsQ = useResourceList({ key: ['cluster', cid, 'workloads'], fetcher: () => store.fetchWorkloads(), options: { refetchInterval: false, enabled: searchEnabled } })
-const servicesQ = useResourceList({ key: ['cluster', cid, 'services'], fetcher: () => store.fetchServices(), options: { refetchInterval: false, enabled: searchEnabled } })
-const ingressesQ = useResourceList({ key: ['cluster', cid, 'ingresses'], fetcher: () => store.fetchIngresses(), options: { refetchInterval: false, enabled: searchEnabled } })
-const configmapsQ = useResourceList({ key: ['cluster', cid, 'configmaps'], fetcher: () => store.fetchConfigMaps(), options: { refetchInterval: false, enabled: searchEnabled } })
-const secretsQ = useResourceList({ key: ['cluster', cid, 'secrets'], fetcher: () => store.fetchSecrets(), options: { refetchInterval: false, enabled: searchEnabled } })
-const pvcsQ = useResourceList({ key: ['cluster', cid, 'pvcs'], fetcher: () => store.fetchPVCs(), options: { refetchInterval: false, enabled: searchEnabled } })
+// ⌘K/Ctrl+K 全局快捷键:桌面聚焦内联框,<lg 打开弹层(Headlamp/Lens 同款入口语义)
+function onGlobalKeydown(e) {
+  if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'k') {
+    e.preventDefault()
+    if (belowLg.value) openSearchModal()
+    else searchInputRef.value?.focus()
+  }
+}
+onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
+// 搜索惰性查询(2026-09-04 扩容 7→20 类):仅搜索打开时 enabled
+const LAZY_KINDS = [
+  ['pods', 'fetchPods'], ['workloads', 'fetchWorkloads'], ['services', 'fetchServices'],
+  ['ingresses', 'fetchIngresses'], ['configmaps', 'fetchConfigMaps'], ['secrets', 'fetchSecrets'],
+  ['pvcs', 'fetchPVCs'], ['hpas', 'fetchHPAs'], ['roles', 'fetchRoles'], ['rolebindings', 'fetchRoleBindings'],
+  ['clusterrolebindings', 'fetchClusterRoleBindings'], ['serviceaccounts', 'fetchServiceAccounts'],
+  ['networkpolicies', 'fetchNetworkPolicies'], ['resourcequotas', 'fetchResourceQuotas'],
+  ['limitranges', 'fetchLimitRanges'], ['pdbs', 'fetchPDBs'], ['storageclasses', 'fetchStorageClasses'],
+  ['pvs', 'fetchPVs'], ['crds', 'fetchCRDs'], ['events', 'fetchEvents'],
+]
+const lazyQ = Object.fromEntries(LAZY_KINDS.map(([kind, fn]) => [
+  kind,
+  useResourceList({ key: ['cluster', cid, kind], fetcher: () => store[fn](), options: { refetchInterval: false, enabled: searchEnabled } }),
+]))
 // namespaces 常驻 Query（选择器需要，非搜索惰性）— 替代 hydrateCriticalResources 的 namespaces 拉取
 // 无 K8s session（首装 admin 在平台管理页）时不轮询——拉了必 401，纯属噪音
 const nsEnabled = computed(() => !!getSession())
@@ -61,7 +83,6 @@ function refreshPage() {
 }
 
 const searchQuery = ref('')
-const showClusterDropdown = ref(false)
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
 
@@ -83,75 +104,63 @@ function closeNsDropdown() {
   nsSearch.value = ''
 }
 
-// === 全局搜索：聚合已同步资源，按名称跨命名空间匹配，点击跳转详情 ===
-// 7 类资源读 Vue Query 缓存（搜索框打开时才补取）；nodes/namespaces 读 store（hydrateCritical 已预载）。
-const WL_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob']
-const ICON_FOR = { Pod: 'deployed_code', Deployment: 'work', StatefulSet: 'work', DaemonSet: 'work', Job: 'work', CronJob: 'work', Service: 'share', Ingress: 'alt_route', ConfigMap: 'description', Secret: 'lock', PVC: 'storage', Node: 'dns', Namespace: 'folder' }
-function buildSearchIndex() {
-  const items = []
-  const push = (kind, name, namespace) => name && items.push({ kind, name, namespace })
-  for (const p of (podsQ.data.value || [])) push('Pod', p.name, p.namespace)
-  for (const w of (workloadsQ.data.value || [])) push(w.type || 'Workload', w.name, w.namespace)
-  for (const s of (servicesQ.data.value || [])) push('Service', s.name, s.namespace)
-  for (const ing of (ingressesQ.data.value || [])) push('Ingress', ing.name, ing.namespace)
-  for (const cm of (configmapsQ.data.value || [])) push('ConfigMap', cm.name, cm.namespace)
-  for (const sec of (secretsQ.data.value || [])) push('Secret', sec.name, sec.namespace)
-  for (const pvc of (pvcsQ.data.value || [])) push('PVC', pvc.name, pvc.namespace)
-  for (const n of (store.nodeList || [])) push('Node', n.name, '')
-  for (const ns of (allNamespaces.value || [])) push('Namespace', ns.name, '')
-  return items
+// === 全局搜索(2026-09-04 升级):页面导航 + 20 类资源,聚合/排序/跳转映射抽至 logic 单源 ===
+// 资源读 Vue Query 缓存(搜索打开才补取);nodes/namespaces 读 store 预载。
+function buildItems() {
+  return collectResourceItems({
+    pods: lazyQ.pods.data.value,
+    workloads: lazyQ.workloads.data.value,
+    services: lazyQ.services.data.value,
+    ingresses: lazyQ.ingresses.data.value,
+    configmaps: lazyQ.configmaps.data.value,
+    secrets: lazyQ.secrets.data.value,
+    pvcs: lazyQ.pvcs.data.value,
+    hpas: lazyQ.hpas.data.value,
+    roles: lazyQ.roles.data.value,
+    rolebindings: lazyQ.rolebindings.data.value,
+    clusterrolebindings: lazyQ.clusterrolebindings.data.value,
+    serviceaccounts: lazyQ.serviceaccounts.data.value,
+    networkpolicies: lazyQ.networkpolicies.data.value,
+    resourcequotas: lazyQ.resourcequotas.data.value,
+    limitranges: lazyQ.limitranges.data.value,
+    pdbs: lazyQ.pdbs.data.value,
+    storageclasses: lazyQ.storageclasses.data.value,
+    pvs: lazyQ.pvs.data.value,
+    crds: lazyQ.crds.data.value,
+    events: lazyQ.events.data.value,
+    nodes: store.nodeList,
+    namespaces: allNamespaces.value,
+  })
 }
 const searchResults = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
-  return buildSearchIndex().filter(it => it.name.toLowerCase().includes(q)).slice(0, 12)
+  const { pages, resources } = searchAll(q, buildItems())
+  return [...pages.map(p => ({ ...p, page: true })), ...resources]
 })
 function goResult(it) {
   if (!it) return
   closeSearchModal()
   searchQuery.value = ''
-  if (it.kind === 'Pod') router.push({ name: 'NsPodDetail', params: { namespace: it.namespace, name: it.name } })
-  else if (WL_KINDS.includes(it.kind)) router.push({ name: 'NsWorkloadDetail', params: { namespace: it.namespace, type: it.kind.toLowerCase(), name: it.name } })
-  else if (it.kind === 'Service') router.push({ name: 'NsServiceDetail', params: { namespace: it.namespace, name: it.name } })
-  else if (it.kind === 'Ingress') router.push({ name: 'NsIngressDetail', params: { namespace: it.namespace, name: it.name } })
-  else if (it.kind === 'ConfigMap') router.push({ name: 'NsConfigMapDetail', params: { namespace: it.namespace, name: it.name } })
-  else if (it.kind === 'Secret') router.push({ name: 'NsSecretDetail', params: { namespace: it.namespace, name: it.name } })
-  else if (it.kind === 'PVC') router.push({ name: 'NsPVCDetail', params: { namespace: it.namespace, name: it.name } })
-  else if (it.kind === 'Node') router.push(`/nodes/${it.name}`)
-  else if (it.kind === 'Namespace') router.push({ name: 'NamespaceDetail', params: { name: it.name } })
+  if (it.page) { router.push(it.path); return }
+  if (it.kind === 'Event') { // 事件无详情路由:有 ns 跳事件列表,否则落监控中心
+    if (it.namespace) router.push({ name: 'NsEvents', params: { namespace: it.namespace } })
+    else router.push('/monitoring')
+    return
+  }
+  const route = routeForResource(it.kind, it.name, it.namespace)
+  if (route) router.push(route)
 }
 function onSearchKeydown(e) {
   if (e.key === 'Enter' && searchResults.value.length) { e.preventDefault(); goResult(searchResults.value[0]) }
   else if (e.key === 'Escape') { searchQuery.value = ''; if (searchModalOpen.value) closeSearchModal() }
 }
 
-// 集群健康 → 圆点颜色（来自 store.clusterHealth，控制面优先分级）
-function clusterStatusColor(severity) {
-  if (severity === 'ok') return 'bg-primary'
-  if (severity === 'warn') return 'bg-tertiary-container'
-  if (severity === 'crit') return 'bg-error'
-  return 'bg-on-surface-variant'
-}
-async function selectCluster(apiServer) {
-  showClusterDropdown.value = false
-  const c = store.clusterList.find(x => x.apiServer === apiServer)
-  if (c && c.apiServer !== store.cluster?.apiServer) await store.switchCluster(apiServer)
-}
-
-function closeClusterDropdown() {
-  showClusterDropdown.value = false
-}
-
-function goClusters() {
-  showClusterDropdown.value = false
-  router.push('/clusters')
-}
-
 // 下拉传送定位(issue #4 PortSelect 同款):面板 Teleport body + fixed 锚触发钮 rect,
 // 脱离 sticky header 的 overflow 裁切;scroll capture 跟随,resize 关闭。
-const clusterBtnRef = ref(null), clusterPanelRef = ref(null)
+// 2026-09-04:仅剩手机档 ns bottom sheet 在用(桌面集群/ns chip 已剃,集群面板迁侧栏)
 const nsBtnRef = ref(null), nsPanelRef = ref(null)
-const clusterPanelStyle = ref(hiddenStyle()), nsPanelStyle = ref(hiddenStyle())
+const nsPanelStyle = ref(hiddenStyle())
 // 手机档底部面板(spec §13.1):fixed 贴底全宽,Z.popover(110) 盖过遮罩 z-30
 const bottomSheetStyle = () => ({ position: 'fixed', left: '0px', right: '0px', bottom: '0px', zIndex: Z.popover })
 function hiddenStyle() { return { position: 'fixed', top: '0px', left: '0px', visibility: 'hidden', zIndex: Z.popover } }
@@ -167,7 +176,6 @@ function placeDropdown(btn, panel, width) {
 }
 async function placeAll() {
   await nextTick()
-  if (showClusterDropdown.value && clusterPanelRef.value) clusterPanelStyle.value = belowSm.value ? bottomSheetStyle() : placeDropdown(clusterBtnRef.value, clusterPanelRef.value, 320)
   if (showNsDropdown.value && nsPanelRef.value) nsPanelStyle.value = belowSm.value ? bottomSheetStyle() : placeDropdown(nsBtnRef.value, nsPanelRef.value, 288)
 }
 function onDocScroll() { placeAll() } // sticky 顶栏场景跟随即可,不必关闭
@@ -179,12 +187,9 @@ function unbindDropFollow() {
   window.removeEventListener('scroll', onDocScroll, { capture: true })
   window.removeEventListener('resize', onDocScroll)
 }
-watch([showClusterDropdown, showNsDropdown], v => {
-  if (v.some(Boolean)) { placeAll(); bindDropFollow() } else { unbindDropFollow() }
+watch(showNsDropdown, v => {
+  if (v) { placeAll(); bindDropFollow() } else { unbindDropFollow() }
 })
-// 抽屉集群切换通道(spec §13.1):SideNavBar drawer-mode 的 cluster-anchor 经 shell tick
-// 请求打开集群选择器(面板锚点 clusterBtnRef 手机档不存在,placeDropdown 手机分支本就绕过)
-watch(() => shell.clusterSelectTick, () => { if (belowSm.value) { showNsDropdown.value = false; showClusterDropdown.value = true } })
 onBeforeUnmount(unbindDropFollow)
 
 </script>
@@ -202,6 +207,7 @@ onBeforeUnmount(unbindDropFollow)
       <div class="relative max-w-xs xl:max-w-md w-full min-w-0">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none z-10">search</span>
         <input
+          ref="searchInputRef"
           v-model="searchQuery"
           @keydown="onSearchKeydown"
           @focus="searchOpen = true"
@@ -211,14 +217,9 @@ onBeforeUnmount(unbindDropFollow)
           :aria-label="$t('common.search')"
           type="text"
         />
-        <!-- 全局搜索结果 -->
-        <div v-if="searchResults.length" class="absolute top-full left-0 mt-1 w-full bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown z-50 overflow-y-auto max-h-96">
-          <button v-for="(it, i) in searchResults" :key="i" @click="goResult(it)" class="flex items-center gap-sm w-full px-md py-sm hover:bg-surface-container-low text-left transition-colors border-b border-outline-variant/30 last:border-0">
-            <span class="material-symbols-outlined text-on-surface-variant text-lg shrink-0">{{ ICON_FOR[it.kind] || 'circle' }}</span>
-            <span class="font-mono text-code-sm text-on-surface truncate">{{ it.name }}</span>
-            <span class="ml-auto text-xs text-on-surface-variant shrink-0">{{ it.kind }}<span v-if="it.namespace"> · {{ it.namespace }}</span></span>
-          </button>
-        </div>
+        <kbd data-test="search-kbd" class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] leading-none text-on-surface-variant border border-outline-variant rounded px-1.5 py-1 pointer-events-none">⌘K</kbd>
+        <!-- 全局搜索结果(与 <lg 弹层共用 SearchResults) -->
+        <SearchResults :results="searchResults" @select="goResult" />
       </div>
       </template>
 
@@ -230,28 +231,8 @@ onBeforeUnmount(unbindDropFollow)
         </button>
       </div>
 
-      <!-- 集群切换 -->
-      <div v-if="!belowSm" class="relative shrink-0">
-        <button
-          ref="clusterBtnRef"
-          data-test="cluster-trigger"
-          @click="showClusterDropdown = !showClusterDropdown"
-          class="flex items-center gap-sm px-md py-1.5 rounded-lg border transition-all"
-          :class="showClusterDropdown
-            ? 'border-primary bg-primary/5 text-primary'
-            : 'border-outline-variant bg-surface-container-low text-on-surface hover:border-primary/50'"
-        >
-          <span class="material-symbols-outlined text-lg">hub</span>
-          <div class="flex flex-col items-start leading-tight min-w-0 max-w-[80px] lg:max-w-[110px] xl:max-w-[180px]">
-            <span class="text-xs text-on-surface-variant opacity-70 hidden xl:block">CLUSTER</span>
-            <!-- w-full:items-start 列向子项按 fit-content 定宽,nowrap 长名(URL 形集群名)会穿透 UI;宽度钉到父内容宽椭圆才生效(overflow-guard V1) -->
-            <span class="w-full text-body-sm font-semibold truncate" :title="currentClusterObj?.name">{{ currentClusterObj?.name || '—' }}</span>
-          </div>
-          <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showClusterDropdown ? 'rotate-180' : ''">expand_more</span>
-        </button>
-
-        <!-- 下拉列表已迁至底部 Teleport(fixed 锚定,issue#4 同款) -->
-      </div>
+      <!-- 2026-09-04 顶栏去重:集群/ns 切换 chip 已剃除——上下文归侧栏
+           (集群=可点头部 ClusterSwitchPanel,ns=浅坞选择器),顶栏回归全局工具职责 -->
 
       <!-- 手机单颗上下文胶囊(spec §13.1):ns 主/集群副,点击弹 ns 底部选择器;集群切换进抽屉 -->
       <button v-if="belowSm" data-test="context-capsule" @click="showNsDropdown = !showNsDropdown"
@@ -269,33 +250,13 @@ onBeforeUnmount(unbindDropFollow)
         </div>
         <!-- 手机档不渲染 expand_more 尾图标(375px 主文本仅剩 ~10-25px,去 chevron 省 ~28px;Wave 4 终审 D) -->
       </button>
-
-      <!-- 当前命名空间 + 快速切换（顶栏显式上下文） -->
-      <div v-if="!belowSm" class="relative shrink-0">
-        <button
-          ref="nsBtnRef"
-          data-test="ns-trigger"
-          @click="showNsDropdown = !showNsDropdown"
-          class="flex items-center gap-sm px-md py-1.5 rounded-lg border transition-all"
-          :class="showNsDropdown
-            ? 'border-primary bg-primary/5 text-primary'
-            : (currentNs
-              ? 'border-primary/40 bg-primary/5 text-primary'
-              : 'border-outline-variant bg-surface-container-low text-on-surface-variant hover:border-primary/50')"
-        >
-          <span class="material-symbols-outlined text-lg">folder_open</span>
-          <div class="flex flex-col items-start leading-tight min-w-0 max-w-[80px] lg:max-w-[110px] xl:max-w-[160px]">
-            <span class="text-xs text-on-surface-variant opacity-70 hidden xl:block">NAMESPACE</span>
-            <span class="w-full text-body-sm font-semibold truncate" :title="currentNs">{{ currentNs || $t('nav.notSelected') }}</span>
-          </div>
-          <span class="material-symbols-outlined text-lg shrink-0 transition-transform" :class="showNsDropdown ? 'rotate-180' : ''">expand_more</span>
-        </button>
-
-        <!-- ns 下拉列表已迁至底部 Teleport(fixed 锚定,issue#4 同款) -->
-      </div>
     </div>
     <div class="flex items-center gap-md self-stretch">
-      <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
+      <!-- 告警铃铛(2026-09-04):全局态势感知,warnings 未读红点;手机档压舱算术后保留 -->
+      <AlertBell />
+      <!-- 刷新:手机档让位铃铛(375px:汉堡40+搜索40+胶囊+铃铛40+舷板~100,不藏刷新胶囊 <80px);
+           数据新鲜度手机由自适应轮询承担,刷新(重挂当前视图)为桌面高频行为 -->
+      <button v-if="!belowSm" data-test="refresh-btn" @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
         <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
       </button>
       <!-- 语义分区线:左侧=页面工具(刷新),右侧=身份舷板(工作区+账户) -->
@@ -331,48 +292,8 @@ onBeforeUnmount(unbindDropFollow)
       </div>
     </div>
   </header>
-  <!-- 集群/ns 下拉:Teleport body + fixed 锚定触发钮 rect(脱离 sticky header 裁切,issue#4 同款) -->
+  <!-- 手机 ns bottom sheet(桌面切换面板已离场):Teleport body + fixed 贴底(issue#4 同款) -->
   <Teleport to="body">
-    <div v-if="showClusterDropdown" ref="clusterPanelRef" data-testid="cluster-dropdown-panel"
-      :data-bottom-sheet="String(belowSm)"
-      class="bg-surface-container-lowest border border-outline-variant shadow-dropdown overflow-hidden"
-      :class="belowSm ? 'fixed bottom-0 left-0 right-0 rounded-t-2xl max-h-[70vh] overflow-y-auto max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]' : 'rounded-lg'"
-      :style="clusterPanelStyle">
-      <!-- 头部 -->
-      <div class="flex items-center justify-between px-md py-sm border-b border-outline-variant">
-        <p class="text-label-caps text-on-surface-variant">{{ $t('nav.switchCluster') }}</p>
-        <button
-          @click.stop="goClusters"
-          class="flex items-center gap-1 text-body-sm text-primary hover:opacity-80 transition-opacity"
-        >
-          <span class="material-symbols-outlined text-base">view_module</span>
-          {{ $t('nav.manageAll') }}
-        </button>
-      </div>
-
-      <!-- 集群列表 -->
-      <div class="max-h-80 overflow-y-auto p-sm">
-        <div
-          v-for="c in store.clusterList"
-          :key="c.name"
-          @click="selectCluster(c.apiServer)"
-          class="flex items-center justify-between px-md py-sm rounded-lg cursor-pointer transition-all hover:bg-surface-container"
-          :class="c.name === store.currentCluster ? 'bg-primary-container/20' : ''"
-        >
-          <div class="flex items-center gap-sm min-w-0">
-            <span class="w-2 h-2 rounded-full shrink-0" :class="clusterStatusColor(c.name === store.currentCluster ? store.clusterHealth.severity : 'none')" :title="c.name === store.currentCluster ? (store.clusterHealth.reasons.map(r => $t(r)).join('；') || $t('clusterHealth.healthy')) : c.status"></span>
-            <div class="min-w-0">
-              <p class="text-body-md font-medium truncate" :class="c.name === store.currentCluster ? 'text-primary' : 'text-on-surface'">{{ c.name }}</p>
-              <p class="text-xs text-on-surface-variant truncate">{{ c.version }} · {{ c.distribution }}</p>
-            </div>
-          </div>
-          <div class="flex items-center gap-xs shrink-0">
-            <span v-if="c.name === store.currentCluster" class="text-xs font-bold text-primary px-sm py-0.5 rounded-full bg-primary-container/30">CURRENT</span>
-            <span class="material-symbols-outlined text-base text-on-surface-variant opacity-40">chevron_right</span>
-          </div>
-        </div>
-      </div>
-    </div>
     <div v-if="showNsDropdown" ref="nsPanelRef" data-testid="ns-dropdown-panel"
       :data-bottom-sheet="String(belowSm)"
       class="bg-surface-container-lowest border border-outline-variant shadow-dropdown overflow-hidden"
@@ -416,20 +337,13 @@ onBeforeUnmount(unbindDropFollow)
             :aria-label="$t('common.search')"
             type="text"
           />
-          <div v-if="searchResults.length" class="absolute top-full left-0 mt-1 w-full bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown overflow-y-auto max-h-96">
-            <button v-for="(it, i) in searchResults" :key="i" @click="goResult(it)" class="flex items-center gap-sm w-full px-md py-sm hover:bg-surface-container-low text-left transition-colors border-b border-outline-variant/30 last:border-0">
-              <span class="material-symbols-outlined text-on-surface-variant text-lg shrink-0">{{ ICON_FOR[it.kind] || 'circle' }}</span>
-              <span class="font-mono text-code-sm text-on-surface truncate">{{ it.name }}</span>
-              <span class="ml-auto text-xs text-on-surface-variant shrink-0">{{ it.kind }}<span v-if="it.namespace"> · {{ it.namespace }}</span></span>
-            </button>
-          </div>
+          <SearchResults :results="searchResults" @select="goResult" />
         </div>
       </div>
     </div>
   </Teleport>
-  <!-- 点击外部关闭下拉（集群 / 命名空间）——手机档 bottom sheet 用独立全屏遮罩,
-       z 取 Z.popover-1(spec §13.2):盖过顶栏(50)/抽屉遮罩(54)/抽屉(55),面板(110)盖过遮罩 -->
-  <div v-if="belowSm && (showClusterDropdown || showNsDropdown)" class="fixed inset-0" data-test="sheet-overlay"
-    :style="{ zIndex: String(Z.popover - 1) }" @click="closeClusterDropdown(); closeNsDropdown()"></div>
-  <div v-else-if="showClusterDropdown || showNsDropdown" class="fixed inset-0 z-30" @click="closeClusterDropdown(); closeNsDropdown()"></div>
+  <!-- 点击外部关闭 ns sheet(手机档专用独立全屏遮罩,z 取 Z.popover-1,spec §13.2:
+       盖过顶栏(50)/抽屉遮罩(54)/抽屉(55),面板(110)盖过遮罩;桌面已无顶栏面板) -->
+  <div v-if="showNsDropdown && belowSm" class="fixed inset-0" data-test="sheet-overlay"
+    :style="{ zIndex: String(Z.popover - 1) }" @click="closeNsDropdown()"></div>
 </template>

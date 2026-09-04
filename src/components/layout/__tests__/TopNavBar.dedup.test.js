@@ -74,4 +74,11 @@ describe('TopNavBar 去重:仅留刷新', () => {
     const w = mountIt()
     expect(w.find('button[aria-label="nav.refreshPage"]').exists()).toBe(true)
   })
+
+  // 2026-09-04 契约反转:告警铃铛放行——未读红点+告警过滤+深链是新增价值,
+  // 不是当年被移除的「活动记录导航链接」复刻(侧栏仍无此能力)
+  it('告警铃铛在场(未读态+告警过滤≠导航链接复刻)', () => {
+    const w = mountIt()
+    expect(w.find('[data-test="alert-bell"]').exists()).toBe(true)
+  })
 })

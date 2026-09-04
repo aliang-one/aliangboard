@@ -10,6 +10,7 @@ import { useShellStore } from '@/stores/shell'
 import { useEscClose } from '@/composables/useEscClose'
 import { Z } from '@/styles/zScale'
 import { getSession } from '@/api/client'
+import ClusterSwitchPanel from './ClusterSwitchPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,6 +49,25 @@ useEscClose(computed(() => belowSm.value && shell.drawerOpen), () => shell.close
 
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
+
+// === 集群切换(2026-09-04 自 TopNavBar 迁入,顶栏去重):集群头部为全断点唯一锚点 ===
+// 桌面/rail:头部直弹锚定面板;抽屉档:经 shell 通道(契约不变,消费方自顶栏迁来)→ bottom sheet
+const showClusterPanel = ref(false)
+const clusterBrandRef = ref(null)
+function onBrandClick() {
+  if (belowSm.value) { shell.requestClusterSelect(); return }
+  showClusterPanel.value = !showClusterPanel.value
+}
+async function selectCluster(apiServer) {
+  showClusterPanel.value = false
+  const c = (store.clusterList || []).find(x => x.apiServer === apiServer)
+  if (c && c.apiServer !== store.cluster?.apiServer) await store.switchCluster(apiServer)
+}
+function goClusters() {
+  showClusterPanel.value = false
+  navTo('/clusters')
+}
+watch(() => shell.clusterSelectTick, () => { if (belowSm.value) { showNsDropdown.value = false; showClusterPanel.value = true } })
 
 // 集群级导航——分三组，全部收进可折叠的「集群管理」专门板块。
 // 集群级导航——分三组，收进可折叠的「集群管理」板块（仅集群态渲染；命名空间态整组隐藏）。
@@ -233,12 +253,13 @@ function nsStatusColor(status) {
     <!-- Cluster Header:两态容器——集群态大头部 / ns 态收缩锚点条(整行可点返回) -->
     <div data-test="cluster-header" class="cluster-header shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
       :class="isClusterMode ? 'h-[68px]' : 'h-[44px]'">
-      <!-- 集群态大头部:纯展示——唯 drawer-mode(<640)可点,发集群选择通道(集群态手机切集群
-           不再只剩三跳;桌面/iPad 展示语义不变,Wave 4 终审 B) -->
-      <div v-if="isClusterMode" data-test="cluster-brand" class="flex items-center gap-md w-full"
-        :class="belowSm ? 'cursor-pointer' : ''" :role="belowSm ? 'button' : undefined"
-        :aria-label="belowSm ? $t('nav.switchCluster') : undefined"
-        @click="belowSm && shell.requestClusterSelect()">
+      <!-- 集群态大头部(2026-09-04 顶栏去重升级):全断点可点——桌面/rail 弹锚定面板,
+           抽屉档发集群选择通道(Wave 4 终审 B 的「桌面纯展示」契约随顶栏剃除而废止) -->
+      <div v-if="isClusterMode" ref="clusterBrandRef" data-test="cluster-brand"
+        class="flex items-center gap-md w-full cursor-pointer rounded-lg"
+        role="button" tabindex="0"
+        :aria-label="$t('nav.switchCluster')" :aria-expanded="showClusterPanel ? 'true' : 'false'"
+        @click="onBrandClick" @keydown.enter.prevent="onBrandClick">
         <img src="/aliang-logo.svg" alt="AliangBoard" class="w-9 h-auto shrink-0" width="36" height="33" />
         <div class="min-w-0 cluster-header-txt">
           <h2 class="text-body-md font-bold text-primary leading-tight truncate">{{ store.cluster.name || 'Cluster' }}</h2>
@@ -462,6 +483,22 @@ function nsStatusColor(status) {
       </div>
     </div>
   </aside>
+  <!-- 集群选择面板(自 TopNavBar 迁入):桌面锚定头部 Teleport,抽屉档贴底 sheet;
+       遮罩二态——抽屉档独立全屏 Z.popover-1(盖抽屉 55,被面板 110 盖),桌面共享 z-30 -->
+  <ClusterSwitchPanel
+    :open="showClusterPanel"
+    :trigger-ref="clusterBrandRef"
+    :bottom-sheet="belowSm"
+    :clusters="store.clusterList || []"
+    :current-name="store.currentCluster || ''"
+    :health-severity="store.clusterHealth?.severity || 'none'"
+    :health-reasons="store.clusterHealth?.reasons || []"
+    @select="selectCluster"
+    @manage="goClusters"
+  />
+  <div v-if="belowSm && showClusterPanel" data-test="cluster-sheet-overlay" class="fixed inset-0"
+    :style="{ zIndex: String(Z.popover - 1) }" @click="showClusterPanel = false"></div>
+  <div v-else-if="showClusterPanel" data-test="cluster-panel-overlay" class="fixed inset-0 z-30" @click="showClusterPanel = false"></div>
   <!-- Click-outside overlay -->
   <div v-if="showNsDropdown" class="fixed inset-0 z-30" @click="closeDropdown"></div>
 </template>

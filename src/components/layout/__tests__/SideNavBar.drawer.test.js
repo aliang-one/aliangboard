@@ -239,9 +239,10 @@ test('手机抽屉:cluster-anchor 点击发集群选择通道(不再导航)', as
   routeRef.meta.scope = 'global'
 })
 
-// 终审 B:集群态大头部(cluster-brand)drawer-mode 也可点发集群选择通道——
-// 集群态手机切集群不再只剩三跳;桌面/iPad(非 belowSm)纯展示
-test('手机档:集群态 cluster-brand 头部可点发集群选择通道;桌面档无 cursor/role', async () => {
+// 终审 B(2026-09-04 修订):集群态大头部(cluster-brand)drawer-mode 可点发集群选择通道——
+// 顶栏切换器剃除后,桌面/iPad(非 belowSm)头部也从纯展示升级为可点(弹锚定面板,
+// 见 SideNavBar.cluster-switch.test.js);本用例只锁 drawer 档的通道语义
+test('手机档:集群态 cluster-brand 头部可点发集群选择通道', async () => {
   mockViewport(true, true)
   // 集群态(meta.scope=global):头部走 cluster-brand 分支
   const wrapper = mountNav()
@@ -255,16 +256,4 @@ test('手机档:集群态 cluster-brand 头部可点发集群选择通道;桌面
   expect(shell.clusterSelectTick).toBe(before + 1)
   expect(pushMock).not.toHaveBeenCalled()
   wrapper.unmount()
-
-  // 桌面档:纯展示(无 role/cursor/通道)
-  mockViewport(false, false)
-  const w2 = mountNav()
-  const brand2 = w2.find('[data-test="cluster-brand"]')
-  expect(brand2.exists()).toBe(true)
-  expect(brand2.attributes('role')).toBeUndefined()
-  expect(brand2.classes()).not.toContain('cursor-pointer')
-  const before2 = useShellStore().clusterSelectTick
-  await brand2.trigger('click')
-  expect(useShellStore().clusterSelectTick).toBe(before2)
-  w2.unmount()
 })
