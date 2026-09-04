@@ -43,6 +43,7 @@ import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { touchSession } from './session-touch.mjs'
+import { touchKeyUsage } from './key-usage-touch.mjs'
 import { reapExpiredSessions, enforceSessionCap, removeSessionRecord } from './platform-session-reaper.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { authClassFor, createAuthGate } from './route-auth-map.mjs'
@@ -372,6 +373,7 @@ const authGate = createAuthGate({
     apikey: (req, res) => {
       const keyRow = resolveApiKey(db, req)
       if (!keyRow) { sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: msg(req, 'api.invalidApiKey') }); return false }
+      touchKeyUsage(db, keyRow, { ip: req.socket?.remoteAddress || null })
       req.abKeyRow = keyRow
       return true
     },

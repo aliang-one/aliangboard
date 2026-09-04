@@ -23,12 +23,23 @@ const SCALE_KINDS = ['deployments', 'statefulsets']
 const RESTART_KINDS = ['deployments', 'statefulsets', 'daemonsets']
 const enc = encodeURIComponent
 
-// 解析 API key(Authorization: Bearer)。有效→row;无效/已吊销/空→null。
+// 解析 API key(Authorization: Bearer)。有效→row;无效/已吊销/过期→null。
+// Wave1(2026-09-04)双类 key 实时收权(spec 公理 4):ownerUserId 非空的用户 key 逐请求复读 owner 状态——
+// 被删/禁用即刻失效;非 admin owner 还须已分配 key 所绑集群(user_clusters 粗门禁交集)。服务 key(NULL)零影响。
 export function resolveApiKey(db, req) {
   const token = req.headers?.authorization?.replace(/^Bearer\s+/i, '')
   if (!token) return null
   const row = lookupKey(db, token)
-  return isActive(row) ? row : null
+  if (!isActive(row)) return null
+  if (row.ownerUserId) {
+    const u = db.prepare('SELECT disabled, role FROM platform_users WHERE id=?').get(row.ownerUserId)
+    if (!u || u.disabled) return null
+    if (u.role !== 'admin') {
+      const assigned = db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(row.ownerUserId, row.clusterId)
+      if (!assigned) return null
+    }
+  }
+  return row
 }
 
 // 发现 apiserver issuer(= token audience,prefund 验证),按 apiServer 缓存。

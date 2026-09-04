@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { _setAllowedHostsForTest } from './call-context.mjs'
-import { createApiKeysSchema, mintKey } from './auth-keys.mjs'
+import { createApiKeysSchema, mintKey, generateKeyPlaintext, hashKey } from './auth-keys.mjs'
 import { createAuditSchema, verifyChain } from './audit.mjs'
 import { _clearSaTokenCacheForTest } from './sa-binding.mjs'
 import { resolveApiKey, createApiKeyTools, _clearIssuerCacheForTest, assertPathInNs } from './api-key-tools.mjs'
@@ -888,4 +888,29 @@ test('apply_yaml(CSO adjacent) 对照: namespaced kind + 允许 ns → 正常放
   const tools = createApiKeyTools({ db, requestFn: mockRequestFn(), applyYamlFn: async (ctx, y) => { called = y; return { applied: [], failed: [], total: 0 } } })
   await tools.callTool(k, cluster, 'apply_yaml', { yaml: 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm\n  namespace: ns' })
   assert.ok(called.includes('ConfigMap'), 'namespaced kind 应照常放行')
+})
+
+test('resolveApiKey 双类收权:owner 删/禁 → null;未分配集群 → null;admin owner 与服务 key 跳过分配检查', () => {
+  const db = new DatabaseSync(':memory:')
+  db.exec(`CREATE TABLE platform_users (id TEXT PRIMARY KEY, role TEXT DEFAULT 'user', disabled INTEGER DEFAULT 0)`)
+  db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT)`)
+  db.exec(`CREATE TABLE api_keys (id TEXT PRIMARY KEY, keyHash TEXT UNIQUE, prefix TEXT, owner TEXT, ownerUserId TEXT, clusterId TEXT, createdAt INTEGER, revokedAt INTEGER)`)
+  db.prepare(`INSERT INTO platform_users VALUES ('u1','user',0)`).run()
+  db.prepare(`INSERT INTO platform_users VALUES ('u2','user',1)`).run()
+  db.prepare(`INSERT INTO platform_users VALUES ('a1','admin',0)`).run()
+  db.prepare(`INSERT INTO user_clusters VALUES ('u1','c1')`).run()
+  const mint = (ownerUserId, clusterId) => {
+    const plain = generateKeyPlaintext()
+    db.prepare(`INSERT INTO api_keys VALUES (?,?,?,?,?,?,1,NULL)`)
+      .run(plain.slice(0, 8), hashKey(plain), plain.slice(0, 8), 'x', ownerUserId, clusterId)
+    return plain
+  }
+  const plainOk = mint('u1', 'c1'); const plainDisabled = mint('u2', 'c1')
+  const plainUnassigned = mint('u1', 'c9'); const plainAdmin = mint('a1', 'c9'); const plainSvc = mint(null, 'c9')
+  const req = p => ({ headers: { authorization: `Bearer ${p}` } })
+  assert.ok(resolveApiKey(db, req(plainOk)))                       // 已分配 → row
+  assert.equal(resolveApiKey(db, req(plainDisabled)), null)        // owner 禁用 → 即刻死
+  assert.equal(resolveApiKey(db, req(plainUnassigned)), null)      // owner 未分配 c9 → 即刻死
+  assert.ok(resolveApiKey(db, req(plainAdmin)))                    // admin owner 不看分配表
+  assert.ok(resolveApiKey(db, req(plainSvc)))                      // 服务 key(ownerUserId NULL)零影响
 })

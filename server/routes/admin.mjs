@@ -607,9 +607,11 @@ export function createAdminRoutes(deps) {
       const adminCount = db.prepare("SELECT COUNT(*) c FROM platform_users WHERE role='admin' AND disabled=0").get().c
       if (target.role === 'admin' && adminCount <= 1) { sendJson(res, 400, { message: msg(req, 'admin.lastAdminProtected') }); return true }
       revokeUserSessions({ db, platformSessions, sessions }, id)
+      // Wave1 §3.3:删户级联吊销其名下全部用户 key(禁用不落级联——resolveApiKey 运行时已判死,保留可回逆)
+      const revokedKeys = db.prepare('UPDATE api_keys SET revokedAt=? WHERE ownerUserId=? AND revokedAt IS NULL').run(Date.now(), id).changes
       db.prepare('DELETE FROM platform_users WHERE id=?').run(id)
       db.prepare('DELETE FROM user_clusters WHERE userId=?').run(id)
-      writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_user_delete', result: 'ok', requestSummary: `id=${id}`, source: 'platform' })
+      writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_user_delete', result: 'ok', requestSummary: `id=${id} revokedKeys=${revokedKeys}`, source: 'platform' })
       sendJson(res, 200, { ok: true })
       return true
     }
