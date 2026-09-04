@@ -218,7 +218,8 @@ export const sshApi = {
   saveLedger: (scope, notes) => platformHttp.request('/api/ssh/ledger', { method: 'PUT', body: JSON.stringify({ scope, notes }) }),
   // 网关存活终端会话(2026-08-29 泄漏审计):观测 + 手杀,任务栏对账用
   listSessions: () => platformHttp.request('/api/ssh/sessions'),
-  killSession: sid => platformHttp.request(`/api/ssh/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' }),
+  // keepalive:弹窗页「关闭窗口」钮点击后随即 window.close(),让 kill 请求在标签页卸载后仍送达网关
+  killSession: sid => platformHttp.request(`/api/ssh/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE', keepalive: true }),
 }
 
 // SSH 服务器文件浏览(Task 13 REST;形状与 podFileApi 对齐,走 platformHttp)。

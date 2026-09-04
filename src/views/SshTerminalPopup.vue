@@ -3,11 +3,14 @@
 // URL: /ssh-terminal-popup?serverId=xxx&sid=xxx&name=xxx
 // 平台 token 走 localStorage(同源新标签页自动可用),SshTerminal→sshTerminalStream 自取。
 // 同 sid + 网关保活 → 打开即回放续跑(比 pod 的 per-connection exec 更顺)。
+// 关闭语义(2026-09-04 收敛):「关闭窗口」按钮是该标签页唯一杀会话入口——点击 = 杀网关
+// 会话 + 关标签页;F5/标签页丢弃(pagehide)只发墓碑摘本地记录,绝不杀会话(多开保护)。
 import { computed, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import SshTerminal from '@/components/ssh/SshTerminal.vue'
 import { startPopupHeartbeat } from '@/utils/popupSync'
+import { sshApi } from '@/api/client'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -24,6 +27,13 @@ document.title = t('ssh.popupTitle', { name: name.value })
 // 替代纯内存轮询——opener 刷新后不再失明(详见 utils/popupSync.js 头注)
 const stopHeartbeat = sidMissing.value ? null : startPopupHeartbeat('ssh', sid.value, { serverId: serverId.value, name: name.value })
 onUnmounted(() => { if (stopHeartbeat) stopHeartbeat() })
+
+// 显式关闭:杀会话(keepalive 使请求在标签页卸载后仍送达;404=清道夫已收走照样静默)
+// 后立即关标签页。window.close 须在用户手势的同步调用栈里,故 kill 不 await。
+function closeWindow() {
+  if (!sidMissing.value) { try { sshApi.killSession(sid.value).catch(() => {}) } catch { /* noop */ } }
+  window.close()
+}
 </script>
 
 <template>
@@ -31,7 +41,7 @@ onUnmounted(() => { if (stopHeartbeat) stopHeartbeat() })
     <div class="flex items-center gap-sm px-md shrink-0 bg-surface-container-high border-b border-outline-variant" style="height: 36px">
       <span class="material-symbols-outlined text-base text-secondary">dns</span>
       <span class="text-body-sm font-medium text-on-surface truncate flex-1 font-mono">ssh://{{ name }}</span>
-      <button @click="window.close()" class="flex items-center gap-xs px-sm py-0.5 rounded-md bg-error/10 text-error hover:bg-error/20 text-body-xs font-medium transition-colors shrink-0">
+      <button data-test="btnClosePopup" @click="closeWindow" class="flex items-center gap-xs px-sm py-0.5 rounded-md bg-error/10 text-error hover:bg-error/20 text-body-xs font-medium transition-colors shrink-0">
         <span class="material-symbols-outlined text-sm">close</span>{{ t('terminal.closeWindow') }}
       </button>
     </div>

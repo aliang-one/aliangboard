@@ -2,12 +2,13 @@
 // ①openOrFocus:无窗开新(状态 open),有窗聚焦——服务器行按钮语义,不误触多开
 // ②openNew:总是新窗新 sid——任务栏分组「+」语义,同服务器可多开
 // ③窗口元数据持久化 localStorage aliangboard.ssh.windows;重建 store(模拟刷新)恢复为最小化
-// ④closeWindow 移除并同步持久化 + 网关会话一并回收(best-effort killSession,默认 detachedIdle
-//   10min 才 reap,不主动收会被任务栏对账标成「未跟踪」警示——「明明关了还提示开着」)
+// ④closeWindow 移除并同步持久化 + 网关会话一并回收(best-effort killSession)。杀会话收敛为
+//   「显式关闭按钮」专属(浮窗×/任务栏×/会话菜单×/全部关闭);其余生命周期(F5/墓碑收尾/最小化)
+//   一律不杀——未附着会话由网关 detachedIdle 10min 兜底回收,多开场景不再被别处关闭误杀。
 // ⑤groups computed:同 serverId 聚合(任务栏分组 chip 数据源)
 // ⑥genSid 三级降级(非安全上下文无 randomUUID 仍可用,2026-08-28 真机事故)
 // ⑦openExternal 确定性窗口名(= sid);重入/focusExternal 无 win 引用时按名重开(聚焦真实标签页),
-//   绝不在本页复活浮窗;弹窗墓碑→最小化+宽限后移除回收;存活信标→复位/重建
+//   绝不在本页复活浮窗;弹窗墓碑→最小化+宽限后仅移除本地记录(不杀会话);存活信标→复位/重建
 import { test, expect, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useSshTerminalStore } from '../sshTerminals'
@@ -138,7 +139,7 @@ test('focusExternal 无 win 引用(opener 刷新过):按名重开 → true + 复
   } finally { window.open = _open }
 })
 
-test('弹窗墓碑:立即最小化,宽限期后移除 + 网关会话回收;存活信标(F5)取消收尾', async () => {
+test('弹窗墓碑:立即最小化,宽限期后仅移除本地记录(不杀网关会话);存活信标(F5)取消收尾', async () => {
   fresh()
   vi.useFakeTimers()
   const kill = vi.spyOn(sshApi, 'killSession').mockResolvedValue({ ok: true })
@@ -152,12 +153,13 @@ test('弹窗墓碑:立即最小化,宽限期后移除 + 网关会话回收;存�
     await vi.advanceTimersByTimeAsync(GONE_GRACE_MS + 10)
     expect(store.windows.length).toBe(1)   // 信标复活 → 不收尾(F5 刷新场景)
     expect(w.status).toBe('external')
-    // 真关闭:墓碑后无信标 → 宽限到 → 移除 + kill + recentlyClosed
+    // 标签页没了:墓碑后无信标 → 宽限到 → 仅摘本地记录;杀会话是弹窗「关闭窗口」按钮专属
+    // (2026-09-04 关闭语义收敛:pagehide ≠ 关闭意图,F5/标签页丢弃绝不误杀多开中的会话)
     firePopup(POPUP_CLOSED_KEY, { kind: 'ssh', sid: w.id })
     await vi.advanceTimersByTimeAsync(GONE_GRACE_MS + 10)
     expect(store.windows.length).toBe(0)
-    expect(kill).toHaveBeenCalledWith(w.id)
-    expect(store.isRecentlyClosed(w.id)).toBe(true)
+    expect(kill).not.toHaveBeenCalled()
+    expect(store.isRecentlyClosed(w.id)).toBe(true)   // 仍降噪:会话活着到 reap 前,任务栏不标红
   } finally { vi.restoreAllMocks(); vi.useRealTimers() }
 })
 
