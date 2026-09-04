@@ -16,6 +16,7 @@ import { usePvcUsage } from '@/composables/usePvcUsage'
 import { formatBytes } from '@/utils/bytes'
 import { useI18n } from 'vue-i18n'
 import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
+import { canUseClusterDefault, resolveClusterDefaultName } from '@/logic/classDefault'
 
 const route = useRoute()
 const router = useRouter()
@@ -85,7 +86,7 @@ async function handleCreatePVC() {
     status: 'Pending',
     capacity: f.capacity,
     accessModes: f.accessModes,
-    storageClass: f.storageClass || allSCs.value.find(s => s.default)?.name || 'standard',
+    storageClass: f.storageClass || resolveClusterDefaultName(allSCs.value, 'default'),
     volume: '',
     age: 'Just now',
   })
@@ -261,9 +262,12 @@ function goSCDetail(row) {
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.storage.storageClass') }}</label>
         <select v-model="createForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-          <option value="">{{ t('ns.storage.defaultOption') }}</option>
+          <option data-testid="pvc-cluster-default-option" value="" :disabled="!canUseClusterDefault(allSCs, 'default')">
+            {{ canUseClusterDefault(allSCs, 'default') ? t('common.clusterDefaultOption', { name: resolveClusterDefaultName(allSCs, 'default') }) : t('common.clusterDefaultUnset') }}
+          </option>
           <option v-for="sc in allSCs" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ' (default)' : '' }}</option>
         </select>
+        <p v-if="!canUseClusterDefault(allSCs, 'default')" data-testid="pvc-cluster-default-hint" class="text-label-caps text-on-surface-variant mt-xs">{{ t('common.noDefaultStorageClassHint') }}</p>
       </div>
     </div>
     <template #actions>

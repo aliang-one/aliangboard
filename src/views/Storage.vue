@@ -12,6 +12,7 @@ import CodeViewer from '@/components/common/CodeViewer.vue'
 import { STORAGE_CLASS_PRESETS, STORAGE_CLASS_PRESET_FAMILIES, presetToFormState, hasPlaceholderParam } from '@/data/storageClassPresets'
 import { usePagination } from '@/composables/usePagination'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { canUseClusterDefault, resolveClusterDefaultName } from '@/logic/classDefault'
 
 const { t } = useI18n()
 
@@ -58,7 +59,7 @@ async function handleCreatePVC() {
     status: 'Pending',
     capacity: f.capacity,
     accessModes: f.accessModes,
-    storageClass: f.storageClass || allStorageClasses.value.find(s => s.default)?.name || 'standard',
+    storageClass: f.storageClass || resolveClusterDefaultName(allStorageClasses.value, 'default'),
     volume: '',
     age: 'Just now',
   })
@@ -276,14 +277,17 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.storageClassLabel') }}</label>
           <select v-model="createForm.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-            <option value="">{{ t('storage.defaultOption') }}</option>
+            <option data-testid="pvc-cluster-default-option" value="" :disabled="!canUseClusterDefault(allStorageClasses, 'default')">
+              {{ canUseClusterDefault(allStorageClasses, 'default') ? t('common.clusterDefaultOption', { name: resolveClusterDefaultName(allStorageClasses, 'default') }) : t('common.clusterDefaultUnset') }}
+            </option>
             <option v-for="sc in allStorageClasses" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ` (${t('storage.default')})` : '' }}</option>
           </select>
+          <p v-if="!canUseClusterDefault(allStorageClasses, 'default')" data-testid="pvc-cluster-default-hint" class="text-label-caps text-on-surface-variant mt-xs">{{ t('common.noDefaultStorageClassHint') }}</p>
         </div>
       </div>
       <template #actions>
         <button @click="showCreatePVC = false; resetCreate()" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('storage.cancel') }}</button>
-        <button @click="handleCreatePVC" :disabled="!createForm.name || !createForm.namespace" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
+        <button @click="handleCreatePVC" :disabled="!createForm.name || !createForm.namespace || (!createForm.storageClass && !canUseClusterDefault(allStorageClasses, 'default'))" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('storage.create') }}</button>
       </template>
     </Modal>
 
