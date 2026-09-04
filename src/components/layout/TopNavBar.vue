@@ -15,7 +15,7 @@ const router = useRouter()
 const route = useRoute()
 const store = useClusterStore()
 const { bump: bumpRefresh } = usePageRefresh()
-// 身份舱激活态:/workbench* 时整舱着色(工作台段自带填充,舱体只描边+淡染)
+// 身份舷板激活态:/workbench* 时整板着色(工作台段自带填充,板体描边/渐变换激活色)
 const wbActive = computed(() => route.path.startsWith('/workbench'))
 
 // === 全局搜索：惰性 Query 消费者 ===
@@ -294,25 +294,34 @@ onBeforeUnmount(unbindDropFollow)
         <!-- ns 下拉列表已迁至底部 Teleport(fixed 锚定,issue#4 同款) -->
       </div>
     </div>
-    <div class="flex items-center gap-md">
+    <div class="flex items-center gap-md self-stretch">
       <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
         <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
       </button>
-      <!-- 语义分区线:左侧=页面工具(刷新),右侧=身份舱(工作区+账户) -->
+      <!-- 语义分区线:左侧=页面工具(刷新),右侧=身份舷板(工作区+账户) -->
       <div class="h-8 w-px bg-outline-variant mx-2 max-lg:hidden"></div>
-      <!-- 身份舱(2026-09-04):工作台段 + hairline + 用户中心段合为一枚 rounded-full 容器,
-           右上角收成一个视觉结。段式分工:描边/底色在本容器,激活填充在工作台段,
-           悬停浮起用 hover:shadow-card。shrink-0 使溢出压力全部由左侧搜索收缩链吸收(issue #3 契约) -->
+      <!-- 身份舷板(2026-09-04 v3 流体版):占满顶栏右端的全高面板——self-stretch 撑满 h-16,
+           -mr-lg 抵消头部右内边距贴边(右缘平直,像从屏幕边「长」出来)。不规则但流动:
+           非对称大圆角 左上 36 / 左下 12(侧倾弧形,呼应全站 M3 曲线语言,弃直角斜切),
+           外描边内 3px 处一道同心回声细线(双钩边层次),中缝 hairline 两端渐隐。
+           激活态:描边转 primary/40、填充转 primary-container 渐变、回声线转 primary/50。
+           shrink-0 使溢出压力全部由左侧搜索收缩链吸收(issue #3 契约) -->
       <div
         data-test="identity-capsule"
-        class="flex items-center p-[3px] rounded-full border transition-all shrink-0 hover:shadow-card"
+        class="relative self-stretch -mr-lg shrink-0 rounded-tl-[36px] rounded-bl-[12px] border transition-all hover:shadow-card"
         :class="wbActive
-          ? 'border-primary/30 bg-primary-container/25'
-          : 'border-outline-variant bg-surface-container-low'"
+          ? 'border-primary/40 bg-gradient-to-r from-primary-container/35 to-primary-container/10'
+          : 'border-outline-variant bg-gradient-to-r from-surface-container-low to-surface-container-lowest/60'"
       >
-        <WorkbenchEntryPill />
-        <div data-test="identity-hairline" aria-hidden="true" class="w-px self-stretch my-1 bg-outline-variant"></div>
-        <UserMenu />
+        <!-- 同心回声细线:radius 随 inset 收减(36-3 / 12-3),与外弧平行 -->
+        <div data-test="identity-echo" aria-hidden="true"
+          class="absolute inset-[3px] rounded-tl-[33px] rounded-bl-[9px] border pointer-events-none transition-colors"
+          :class="wbActive ? 'border-primary/50' : 'border-outline-variant/40'"></div>
+        <div data-test="identity-content" class="relative h-full flex items-center pl-md pr-1">
+          <WorkbenchEntryPill />
+          <div data-test="identity-hairline" aria-hidden="true" class="w-px self-stretch my-4 bg-gradient-to-b from-transparent via-outline-variant to-transparent"></div>
+          <UserMenu />
+        </div>
       </div>
     </div>
   </header>
