@@ -63,6 +63,8 @@ async function saveEdit() {
   })
   showEditModal.value = false
 }
+async function promoteDefault() { await store.promoteStorageClassDefault(route.params.name) }
+async function demoteDefault() { await store.updateStorageClass(route.params.name, { isDefault: false }) }
 async function handleDelete() {
   await store.deleteStorageClass(route.params.name)
   router.push('/storage')
@@ -92,6 +94,12 @@ async function handleDelete() {
         </div>
       </div>
       <div class="flex items-center gap-xs">
+        <button data-testid="promote-default-btn" v-if="!sc.default" @click="promoteDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold border border-primary/40 text-primary rounded-lg hover:bg-primary-container/10 transition-colors">
+          <span class="material-symbols-outlined text-sm">star</span> {{ t('common.setAsDefault') }}
+        </button>
+        <button data-testid="demote-default-btn" v-else @click="demoteDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-sm">star</span> {{ t('common.unsetDefault') }}
+        </button>
         <button @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined text-sm">edit</span> {{ t('common.edit') }}
         </button>
