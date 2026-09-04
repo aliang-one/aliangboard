@@ -39,6 +39,7 @@ test('点击触发钮:开菜单(资料卡+两个菜单项),不触发 logout/push
   const auth = useAuthStore()
   const logoutSpy = vi.spyOn(auth, 'logout')
   const w = mountMenu()
+  expect(w.find('[data-testid="user-menu-trigger"]').classes()).toContain('rounded-full') // 身份舱右段:全圆角段式
   await w.find('[data-testid="user-menu-trigger"]').trigger('click')
   expect(w.find('[data-testid="user-menu-dropdown"]').exists()).toBe(true)
   expect(document.body.textContent).toContain('alice')

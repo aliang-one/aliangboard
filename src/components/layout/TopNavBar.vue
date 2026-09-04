@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import UserMenu from './UserMenu.vue'
 import WorkbenchEntryPill from './WorkbenchEntryPill.vue'
@@ -12,8 +12,11 @@ import { useShellStore } from '@/stores/shell'
 import { Z } from '@/styles/zScale'
 
 const router = useRouter()
+const route = useRoute()
 const store = useClusterStore()
 const { bump: bumpRefresh } = usePageRefresh()
+// 身份舱激活态:/workbench* 时整舱着色(工作台段自带填充,舱体只描边+淡染)
+const wbActive = computed(() => route.path.startsWith('/workbench'))
 
 // === 全局搜索：惰性 Query 消费者 ===
 // TopNavBar 常驻挂载，7 个资源查询仅在搜索框打开时 enabled（避免无谓请求）。
@@ -292,14 +295,25 @@ onBeforeUnmount(unbindDropFollow)
       </div>
     </div>
     <div class="flex items-center gap-md">
-      <!-- 工作台入口:品牌胶囊 + 状态角标 + 悬停概览(2026-08-30 信息丰富化,规格 docs/superpowers/specs/2026-08-30-workbench-entry-pill-summary-design.md)
-           ——导航级入口排工具按钮前;shrink-0 使溢出压力全部由左侧搜索收缩链吸收(issue #3 契约) -->
-      <WorkbenchEntryPill />
       <button @click="refreshPage" :disabled="refreshing" :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')" class="p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50">
         <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
       </button>
+      <!-- 语义分区线:左侧=页面工具(刷新),右侧=身份舱(工作区+账户) -->
       <div class="h-8 w-px bg-outline-variant mx-2 max-lg:hidden"></div>
-      <UserMenu />
+      <!-- 身份舱(2026-09-04):工作台段 + hairline + 用户中心段合为一枚 rounded-full 容器,
+           右上角收成一个视觉结。段式分工:描边/底色在本容器,激活填充在工作台段,
+           悬停浮起用 hover:shadow-card。shrink-0 使溢出压力全部由左侧搜索收缩链吸收(issue #3 契约) -->
+      <div
+        data-test="identity-capsule"
+        class="flex items-center p-[3px] rounded-full border transition-all shrink-0 hover:shadow-card"
+        :class="wbActive
+          ? 'border-primary/30 bg-primary-container/25'
+          : 'border-outline-variant bg-surface-container-low'"
+      >
+        <WorkbenchEntryPill />
+        <div data-test="identity-hairline" aria-hidden="true" class="w-px self-stretch my-1 bg-outline-variant"></div>
+        <UserMenu />
+      </div>
     </div>
   </header>
   <!-- 集群/ns 下拉:Teleport body + fixed 锚定触发钮 rect(脱离 sticky header 裁切,issue#4 同款) -->
