@@ -63,3 +63,31 @@ test('期间用户已开新终端(本地非空)→ 已排程的那次重试仍�
   expect(termListMock.mock.calls.length).toBe(calls) // 不再续排,本地状态未被覆盖
   expect(store.terminals).toHaveLength(1)
 })
+
+test('loadPersisted 成功回包与本地 merge:在途 list 旧快照不抹掉用户已开的终端,服务端新记录补入', async () => {
+  // 2026-09-04 竞态修复:旧实现 terminals.value = loaded 整表覆盖——启动窗口期(慢网 list 在途)
+  // 用户开的终端被旧快照从 UI 抹掉(浮窗随之卸载断 WS),下次刷新又复活成幽灵 chip。
+  let resolveList
+  termListMock.mockReturnValueOnce(new Promise(r => { resolveList = r }))
+  const store = useTerminalStore()
+  const p = store.loadPersisted()
+  store.openTerminal({ namespace: 'ns', podName: 'pod-b', container: 'main' })   // 本地 T1(list 仍在途)
+  resolveList({ terminals: [{ id: 't0', name: 'pod-a/main', namespace: 'ns', podName: 'pod-a', container: 'main', command: 'sh' }] })
+  await p
+  expect(store.terminals).toHaveLength(2)
+  const local = store.terminals.find(t => t.id !== 't0')
+  expect(local.status).toBe('open')                                     // 本地新建连状态带 zIndex 原样保留
+  expect(store.terminals.find(t => t.id === 't0').status).toBe('minimized')   // 服务端记录补入
+})
+
+test('本页已显式关闭的记录不被迟到的 list 回包复活', async () => {
+  let resolveList
+  termListMock.mockReturnValueOnce(new Promise(r => { resolveList = r }))
+  const store = useTerminalStore()
+  const p = store.loadPersisted()
+  const t = store.openTerminal({ namespace: 'ns', podName: 'pod-a', container: 'main' })
+  store.closeTerminal(t.id)
+  resolveList({ terminals: [{ id: t.id, name: 'x', namespace: 'ns', podName: 'pod-a', container: 'main', command: 'sh' }] })
+  await p
+  expect(store.terminals).toHaveLength(0)
+})

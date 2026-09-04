@@ -47,12 +47,18 @@ export const useTerminalStore = defineStore('terminals', () => {
   let loadRetryTimer = null
   let loadRetries = 0
   const LOAD_RETRY_MAX = 5
+  // 本页显式关闭过的 id:防在途 list 的旧快照把已关记录复活(closeTerminal/墓碑收尾登记)
+  const locallyDeleted = new Set()
   async function loadPersisted() {
     clearTimeout(loadRetryTimer)
     try {
       const res = await terminalApi.list()
       const loaded = (res?.terminals || []).map(t => ({ ...t, status: 'minimized', zIndex: 0 })) // 刷新后全最小化
-      terminals.value = loaded
+      // merge 而非整表覆盖(2026-09-04 竞态修复):在途 list 的旧快照不得抹掉启动窗口期
+      // 用户已开的终端(旧实现连 UI 带浮窗一起抹掉、下次刷新又复活成幽灵 chip);
+      // 服务端有而本页没有的记录补入;本页已显式关闭的 id 不复活。
+      const known = new Set(terminals.value.map(t => t.id))
+      terminals.value = [...terminals.value, ...loaded.filter(l => !known.has(l.id) && !locallyDeleted.has(l.id))]
       loadRetries = 0
       // 注:旧代码这里把 nextZ 跳到 100+N,刷新后浮窗越到 modal 层之上,已改由 allocator 保证带内
     } catch {
@@ -96,6 +102,7 @@ export const useTerminalStore = defineStore('terminals', () => {
 
   // 关闭
   function closeTerminal(id) {
+    locallyDeleted.add(id)
     const idx = terminals.value.findIndex(t => t.id === id)
     if (idx !== -1) {
       terminals.value.splice(idx, 1)
@@ -193,6 +200,7 @@ export const useTerminalStore = defineStore('terminals', () => {
     if (prev) clearTimeout(prev)
     pendingGone.set(sid, setTimeout(() => {
       pendingGone.delete(sid)
+      locallyDeleted.add(sid)
       const idx = terminals.value.findIndex(x => x.id === sid)
       if (idx !== -1) { terminals.value.splice(idx, 1); persistDelete(sid) }
     }, GONE_GRACE_MS))

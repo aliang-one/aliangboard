@@ -42,3 +42,21 @@ describe('useFileBrowserStore', () => {
     expect(s.browsers[0].status).toBe('minimized')
   })
 })
+
+describe('loadPersisted merge(2026-09-04 竞态修复)', () => {
+  it('慢回包不抹掉本地窗口;服务端新记录补入;本页已关闭的不复活', async () => {
+    let resolveList
+    fileBrowserApi.list.mockReturnValueOnce(new Promise(r => { resolveList = r }))
+    const s = useFileBrowserStore()
+    const p = s.loadPersisted()
+    const b = s.openBrowser({ namespace: 'ns', podName: 'p1', container: 'c1' })
+    s.closeBrowser(b.id)                              // list 在途期间显式关闭
+    resolveList({ browsers: [
+      { id: b.id, name: 'p1/c1', namespace: 'ns', podName: 'p1', container: 'c1', status: 'open', createdAt: 1 },
+      { id: 'x', name: 'p2/c', namespace: 'ns', podName: 'p2', container: 'c', status: 'open', createdAt: 2 },
+    ] })
+    await p
+    expect(s.browsers.map(x => x.id)).toEqual(['x'])  // 已关的不复活,服务端新记录补入
+    expect(s.browsers[0].status).toBe('minimized')
+  })
+})

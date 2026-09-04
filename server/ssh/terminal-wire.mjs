@@ -1,7 +1,9 @@
 // 终端 WS 接线辅助(自 index.mjs 抽出,使广播语义可脱离真 shell 单测):
 //  - attachSocketToSession: 回放快照 → 注册进 session.extra.sockets → 上行分帧(STDIN 写 channel / RESIZE setWindow+touch)
 //  - broadcastToSockets: channel data/close 事件广播到该会话当前附加的所有浏览器 socket
-// 约定:session.extra.sockets 为 Set<ws>;session.ring 为环形缓冲(snapshot() → Buffer)。
+// 约定:session.extra.sockets 为 Set<ws>;session.ring 为环形缓冲(snapshot() → Buffer);
+//       session.extra.primary 为尺寸仲裁者(2026-09-04):多浏览器窗口尺寸不齐时,共享 pty
+//       只听最新附着者的(语义对齐 tmux latest)——否则「最后 resize 的人赢」,TUI 被反复压扁。
 
 // channel 侧事件广播:任何附加中的浏览器都收到同一份直播帧(Critical #1——
 // 不能把回调闭包死绑在首个 ws 上,否则重连者只有回放没有直播)。
@@ -15,6 +17,7 @@ export function attachSocketToSession(ws, session, { send, touch = () => {}, onD
   const snap = session.ring.snapshot()
   if (snap.length) send(ws, types.replay, snap)
   ;(session.extra.sockets ||= new Set()).add(ws)
+  session.extra.primary = ws   // 最新附着者成为尺寸仲裁者;离开时顺延给剩余附着者
 
   // 上行帧:首字节 = 流标识,payload 为其余字节
   ws.on('message', data => {
@@ -25,6 +28,7 @@ export function attachSocketToSession(ws, session, { send, touch = () => {}, onD
       touch()
       try { session.extra.channel?.write?.(payload) } catch {}
     } else if (type === types.resize) {
+      if (session.extra.primary !== ws) return   // 非 primary 的 resize 忽略:pty 只听一人的
       touch()   // 调整窗口也是活跃行为:不续期会被 idle sweep 误回收
       try {
         const { cols: c, rows: r } = JSON.parse(payload.toString('utf8'))
@@ -40,6 +44,7 @@ export function attachSocketToSession(ws, session, { send, touch = () => {}, onD
     if (dropped) return
     dropped = true
     session.extra.sockets?.delete(ws)
+    if (session.extra.primary === ws) session.extra.primary = [...(session.extra.sockets || [])][0] || null
     onDetach()
   }
   ws.on('close', drop)

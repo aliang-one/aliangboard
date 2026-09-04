@@ -253,3 +253,19 @@ test('isKnownShell: 只认可白名单内的 shell 名', () => {
   assert.equal(isKnownShell('/bin/bash'), false)
   assert.equal(isKnownShell('bash -l'), false)
 })
+
+test('tmuxConfContent: window-size largest——多客户端不同窗口尺寸不互相压扁(2026-09-04 症状2)', () => {
+  const c = tmuxConfContent()
+  assert.match(c, /set -g default-terminal "screen-256color"/)
+  assert.match(c, /set -g window-size largest/)
+})
+
+test('pickStaleSids: attached>0 豁免——正在看的终端不被「30min 无键入」误杀', () => {
+  const now = 10_000
+  const tracker = new Map([
+    ['ab1-busy', { token: 't1', lastActiveAt: 1_000, attached: 1 }],   // 超时但有人附着
+    ['ab1-idle', { token: 't2', lastActiveAt: 1_000, attached: 0 }],   // 超时且无人
+    ['ab1-noflag', { token: 't3', lastActiveAt: 1_000 }],              // 旧 meta 无字段:视为无人
+  ])
+  assert.deepEqual(pickStaleSids(now, tracker, 5_000), ['ab1-idle', 'ab1-noflag'])
+})
