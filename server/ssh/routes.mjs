@@ -7,7 +7,8 @@ import {
 } from './store.mjs'
 import { msg } from '../messages.mjs'
 import { withSftp, sftpReaddir, sftpStatSize, sftpStreamSession } from './sftp.mjs'
-import { streamUpload, streamDownload } from '../podfile-stream.mjs'
+import { streamUpload, streamDownload, UPLOAD_PROBE_SCRIPT_B64, evaluateUploadProbe } from '../podfile-stream.mjs'
+import { sshExecCommand, shellQuote } from './exec.mjs'
 import { renderServerLedger } from './ledger.mjs'
 
 export function createSshRoutes(deps) {
@@ -47,6 +48,19 @@ export function createSshRoutes(deps) {
           conn = await sshPool.acquire(serverId, ps.username)
           const target = (path.endsWith('/') ? path : path + '/') + name
           const contentLength = parseInt(req.headers['content-length'] || '', 10)
+          // 预检(2026-09-04):与 podfile 同一探针/判定——目录不存在/不可写/磁盘不足在开传前秒拒。
+          // 脚本经 base64 + sh -s 下发(免嵌套引号),target 单引号转义;探针失败/超时 → null → 跳过预检不拦。
+          if (contentLength >= 0 && contentLength <= getSshfileLimitBytes()) {
+            const probe = await sshExecCommand(conn.client,
+              `echo ${UPLOAD_PROBE_SCRIPT_B64} | base64 -d | sh -s -- ${shellQuote(target)}`, { timeoutMs: 8000 })
+            const reject = probe ? evaluateUploadProbe(probe.stdout, contentLength) : null
+            if (reject) {
+              audit('write', 'ssh_sftp', 'denied', { owner: ps.username, summary: `server=${serverId} upload target=${target} reason=${reject.key}` })
+              res.setHeader('connection', 'close')   // 提前拒:连响应带断连,浏览器立刻中止
+              sendJson(res, reject.status, { message: msg(req, reject.key, reject.params) })
+              return true
+            }
+          }
           const out = await streamUpload({
             contentLength, limitBytes: getSshfileLimitBytes(), req,
             openConn: (input) => sftpStreamSession(conn.client, s => {
@@ -61,7 +75,11 @@ export function createSshRoutes(deps) {
         } catch (e) {
           if (e?.message === 'SSH_CRED_DECRYPT_FAILED') { sendJson(res, 409, { message: msg(req, 'ssh.credKeyMissing') }); return true }
           console.error('[sshfile/upload]', e?.status || '', e?.message || e)
-          if (e.canceled) return sendJson(res, 499, { message: msg(req, 'api.uploadCanceled') })
+          if (e.canceled) {   // 客户端已断开:req/res 已毁,写响应无意义且可能抛
+            if (!res.destroyed) sendJson(res, 499, { message: msg(req, 'api.uploadCanceled') })
+            return true
+          }
+          res.setHeader('connection', 'close')   // 流式上传失败:连响应带断连,浏览器立刻中止剩余字节
           sendJson(res, e?.status || 502, { message: e?.message || msg(req, 'ssh.testGeneric', { message: 'sftp failed' }) })
           return true
         } finally { try { conn?.release() } catch { /* noop */ } }

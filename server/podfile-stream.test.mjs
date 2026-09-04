@@ -7,6 +7,7 @@ import { Readable, Writable } from 'node:stream'
 import {
   createBase64LineDecoder, streamDownload, streamUpload,
   limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB, fmtMB,
+  UPLOAD_PROBE_SCRIPT, parseUploadProbe, evaluateUploadProbe,
 } from './podfile-stream.mjs'
 
 function fakeConn() {
@@ -140,6 +141,16 @@ test('streamUpload: conn 提前 close 且 req 未 end、无 stderr → 502,不�
   await assert.rejects(p, e => e.status === 502 && /上传中断/.test(e.message))
 })
 
+test('streamUpload: req 已 destroyed(预检窗口内客户端断开,aborted 事件已丢失)→ 入口即 499 canceled,不启 exec', { timeout: 3000 }, async () => {
+  const req = new Readable({ read() {} })
+  req.destroy()   // 复刻:探针 await 期间客户端断开,'aborted' 在无人监听时已发出
+  let opened = false
+  const p = streamUpload({ contentLength: 100, limitBytes: 1000, req,
+    openConn: () => { opened = true; return Promise.resolve(fakeConn()) } })
+  await assert.rejects(p, e => e.canceled === true && e.status === 499)
+  assert.equal(opened, false)   // 不许在断开的 req 上启动 exec/SFTP(否则 cat/SFTP 句柄永久泄漏)
+})
+
 test('limitMbFromValue/fmtMB: 边界', () => {
   assert.equal(PODFILE_LIMIT_DEFAULT_MB, 1024)
   assert.equal(limitMbFromValue('2048'), 2048)
@@ -147,4 +158,49 @@ test('limitMbFromValue/fmtMB: 边界', () => {
   assert.equal(limitMbFromValue(999999), null)
   assert.equal(limitMbFromValue(null), null)
   assert.equal(fmtMB(1024 * 1024 * 1024), '1.0 GB')
+})
+
+// —— 上传预检(2026-09-04:/etc 不可写要秒拒并说人话,磁盘不足开传前拦)——
+
+test('parseUploadProbe: NODIR/NOWRITE 标记优先,df 行取 availKB', () => {
+  assert.deepEqual(parseUploadProbe('NODIR\n'), { verdict: 'nodir', availKB: null })
+  assert.deepEqual(parseUploadProbe('NOWRITE\n'), { verdict: 'nowrite', availKB: null })
+  assert.deepEqual(parseUploadProbe('123456\n'), { verdict: 'ok', availKB: 123456 })
+  assert.deepEqual(parseUploadProbe('nowrite'), { verdict: 'nowrite', availKB: null })   // 大小写宽松
+  // df 长设备名 wrap 两态:常规 6 列(倒数第 3=40)与 wrap 后 5 列首列是 blocks(倒数第 3=avail)——
+  // 实测 busybox 连 -P 都对 76 字符 NFS 名照样 wrap,列口径必须从右往左数
+  assert.deepEqual(parseUploadProbe('dev 100 50 40 80% /mnt\n'), { verdict: 'ok', availKB: 40 })
+  assert.deepEqual(parseUploadProbe('6338710528 2840001536 3240014848  47% /app/data\n'), { verdict: 'ok', availKB: 3240014848 })
+})
+
+test('parseUploadProbe: 无 df 输出/噪声 → ok+null(预检 best-effort 不拦)', () => {
+  assert.deepEqual(parseUploadProbe(''), { verdict: 'ok', availKB: null })
+  assert.deepEqual(parseUploadProbe('df: /xyz: No such file or directory\n'), { verdict: 'ok', availKB: null })
+  // 标记必须整行精确匹配:df/挂载行里含 NODIR 子串不得误判(挂载点恰好叫 /mnt/NODIR/data)
+  assert.deepEqual(parseUploadProbe('dev 100 50 40 80% /mnt/NODIR/data\n'), { verdict: 'ok', availKB: 40 })
+  assert.deepEqual(parseUploadProbe('NOWRITER\n'), { verdict: 'ok', availKB: null })
+  assert.deepEqual(parseUploadProbe('null\n'), { verdict: 'ok', availKB: null })   // 字面 null 非数字
+})
+
+test('evaluateUploadProbe: nodir→400 notfound;nowrite→400 notwritable;不足→413 带 fmtMB 参数', () => {
+  assert.deepEqual(evaluateUploadProbe('NODIR', 100), { status: 400, key: 'api.uploadTargetNotFound', params: {} })
+  assert.deepEqual(evaluateUploadProbe('NOWRITE', 100), { status: 400, key: 'api.uploadTargetNotWritable', params: {} })
+  const r = evaluateUploadProbe('1024', 5 * 1024 * 1024)   // 仅剩 1MB < 需 5MB
+  assert.equal(r.status, 413)
+  assert.equal(r.key, 'api.uploadInsufficientSpace')
+  assert.deepEqual(r.params, { need: '5.0 MB', avail: '1.0 MB' })
+})
+
+test('evaluateUploadProbe: 通过/空间刚好够/df 缺失/负 contentLength → null(放行)', () => {
+  assert.equal(evaluateUploadProbe('1048576', 1024), null)          // 1GB 剩余 > 1KB
+  assert.equal(evaluateUploadProbe('10', 10 * 1024), null)          // 刚好够(边界取等放行)
+  assert.equal(evaluateUploadProbe('', 5 * 1024 * 1024), null)      // 无 df → 跳空间检查
+  assert.equal(evaluateUploadProbe('1024', -1), null)               // contentLength 非法(411 由 streamUpload 管)
+})
+
+test('UPLOAD_PROBE_SCRIPT: 形态钉桩(真实 shell 语义在集成手测,此处钉不可变契约)', () => {
+  assert.ok(UPLOAD_PROBE_SCRIPT.includes('dirname'))
+  assert.ok(UPLOAD_PROBE_SCRIPT.includes('NODIR') && UPLOAD_PROBE_SCRIPT.includes('NOWRITE'))
+  assert.ok(UPLOAD_PROBE_SCRIPT.includes('df -k'))
+  assert.ok(UPLOAD_PROBE_SCRIPT.includes('$1'))
 })
