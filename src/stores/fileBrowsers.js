@@ -18,12 +18,17 @@ export const useFileBrowserStore = defineStore('fileBrowsers', () => {
   // 有界重试 5×3s(2026-09-03,与 terminals store 同款):网络差时页面加载失败不再静默空到下次刷新
   let loadRetryTimer = null
   let loadRetries = 0
+  // 本页显式关闭过的 id:防在途 list 的旧快照把已关记录复活(与 terminals store 同款,2026-09-04)
+  const locallyDeleted = new Set()
   async function loadPersisted() {
     clearTimeout(loadRetryTimer)
     try {
       const res = await fileBrowserApi.list()
       const loaded = (res?.browsers || []).map(b => ({ ...b, status: 'minimized', zIndex: 0 }))  // 刷新后全最小化
-      browsers.value = loaded
+      // merge 而非整表覆盖(2026-09-04 竞态修复,与 terminals store 同款):慢回包不抹掉
+      // 启动窗口期已开的窗口;服务端新记录补入;本页已显式关闭的 id 不复活。
+      const known = new Set(browsers.value.map(b => b.id))
+      browsers.value = [...browsers.value, ...loaded.filter(l => !known.has(l.id) && !locallyDeleted.has(l.id))]
       loadRetries = 0
       // 注:旧代码这里把 nextZ 跳到 100+N,刷新后浮窗越到 modal 层之上,已改由 allocator 保证带内
     } catch {
@@ -56,6 +61,7 @@ export const useFileBrowserStore = defineStore('fileBrowsers', () => {
   }
 
   function closeBrowser(id) {
+    locallyDeleted.add(id)
     const idx = browsers.value.findIndex(b => b.id === id)
     if (idx !== -1) { browsers.value.splice(idx, 1); persistDelete(id) }
   }
