@@ -3231,6 +3231,8 @@
       "deleteWarning": "This IngressClass will be removed. Ingress resources referencing it will lose the corresponding controller. This action cannot be undone.",
       "delete": "Delete",
       "details": "IngressClass Details",
+      "relatedIngresses": "Referenced Ingresses",
+      "relatedEmpty": "No Ingress references this class",
       "parameters": "Parameters",
       "labels": "Labels",
       "annotations": "Annotations",

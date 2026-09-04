@@ -3231,6 +3231,8 @@
       "deleteWarning": "该 IngressClass 将被移除，引用它的 Ingress 将失去对应控制器。此操作不可撤销。",
       "delete": "删除",
       "details": "IngressClass 详情",
+      "relatedIngresses": "关联 Ingress",
+      "relatedEmpty": "无 Ingress 引用此类",
       "parameters": "参数",
       "labels": "标签",
       "annotations": "注解",
