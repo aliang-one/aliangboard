@@ -20,7 +20,7 @@ import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { fetchRegistryTags } from './registry-tags.mjs'
-import { rekeyWindowRecords, purgeOrphanWindowRecords } from './window-records.mjs'
+import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken } from './window-records.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
@@ -639,7 +639,9 @@ const idleSweeper = setInterval(() => {
           await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.token), name, bin))
         } catch { /* pod 不在 / token 已过期 —— 忽略 */ }
       }
-      try { db.prepare('DELETE FROM terminals WHERE id = ? AND sessionToken = ?').run(meta.terminalId, meta.token) } catch { /* noop */ }
+      // 只按 id 删(2026-09-04 S9):id 是主键唯一定位;带 sessionToken 条件在记录 rekey 后
+      // 永远 miss → 已迁移记录脱离空闲回收(meta.token 仍须保留旧值:tmux socket 按 label(token) 命名)
+      try { db.prepare('DELETE FROM terminals WHERE id = ?').run(meta.terminalId) } catch { /* noop */ }
     }
   })().catch(() => {})
 }, 60 * 1000)
@@ -1801,13 +1803,18 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   // POST /api/terminals/rekey — 归属迁移(2026-09-03):记录以 K8s session token 为归属键,
   // token 因 TTL 过期/集群重连轮换后旧记录对新 token 永久失明(任务栏「记录消失」的根因)。
   // 客户端重连同一集群后出示旧 token,把 terminals + file_browsers 名下记录迁到当前 token。
-  // 授权:出示旧 token ≈ 持有该会话凭据,不构成越权面。须在 /:id 前缀匹配之前注册。
+  // 授权(2026-09-04 加固):出示的旧 token 必须是网关见过的会话行——from 是 body 参数,
+  // 不校验则任意有效会话可凭一段猜来的 token 吸收他人记录。须在 /:id 前缀匹配之前注册。
   if (url.pathname === '/api/terminals/rekey' && req.method === 'POST') {
     const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
       const input = await readBody(req)
+      if (!isKnownSessionToken(db, input.from)) {
+        return sendJson(res, 403, { message: msg(req, 'api.rekeySourceUnknown') })
+      }
       const moved = rekeyWindowRecords(db, input.from, token)
+      writeAudit(db, { owner: 'k8s-session', verb: 'update', tool: 'terminal_rekey', result: 'ok', requestSummary: `terminals=${moved.terminals} file_browsers=${moved.file_browsers}`, source: 'session' })
       return sendJson(res, 200, { ok: true, moved })
     } catch (error) {
       return sendJson(res, 400, { message: error?.message || msg(req, 'api.terminalOpFailed') })
@@ -2122,6 +2129,10 @@ const sessionSweeper = setInterval(() => {
     db.prepare('DELETE FROM platform_sessions WHERE createdAt < ?').run(cutoff)
     for (const [t, s] of sessions) if (s.createdAt < cutoff) sessions.delete(t)
     for (const [t, s] of platformSessions) if (s.createdAt < cutoff) platformSessions.delete(t)
+    // 30d 孤儿窗口记录清理(2026-09-04 M2):此前只在启动时跑一次,长驻进程期间「防无界增长」
+    // 不生效;并入周期调度(启动清扫仍在 loadPersistedSessions)
+    const purged = purgeOrphanWindowRecords(db, 30 * 24 * 60 * 60 * 1000)
+    if (purged.terminals || purged.file_browsers) console.log(`[sqlite] 周期清理超龄窗口记录: terminals=${purged.terminals} file_browsers=${purged.file_browsers}`)
   } catch { /* noop */ }
 }, 10 * 60 * 1000)
 sessionSweeper.unref?.()

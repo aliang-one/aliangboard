@@ -55,6 +55,7 @@ export const TABLE = {
   'api.downloadFailed': { zh: '下载失败', en: 'Download failed' },
   'api.podfileOpFailed': { zh: 'Pod 文件操作失败', en: 'Pod file operation failed' },
   'api.terminalOpFailed': { zh: '终端会话操作失败', en: 'Terminal session operation failed' },
+  'api.rekeySourceUnknown': { zh: '旧会话不存在或已过期清理，无法迁移', en: 'Previous session unknown or expired; cannot migrate' },
   'api.noUpdateFields': { zh: '无更新字段', en: 'No fields to update' },
   'api.fileBrowserOpFailed': { zh: '文件窗口操作失败', en: 'File browser window operation failed' },
   'api.missingNsPodImage': { zh: '缺少 namespace / pod / image', en: 'Missing namespace / pod / image' },

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { rekeyWindowRecords, purgeOrphanWindowRecords } from './window-records.mjs'
+import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken } from './window-records.mjs'
 
 function freshDb() {
   const db = new DatabaseSync(':memory:')
@@ -67,4 +67,16 @@ test('purge: 无超龄记录时零删除', () => {
   insTerm(db, 't1', 'tok', Date.now())
   const purged = purgeOrphanWindowRecords(db, 30 * 24 * 60 * 60 * 1000)
   assert.deepEqual(purged, { terminals: 0, file_browsers: 0 })
+})
+
+test('isKnownSessionToken: sessions 表里存在的 token 才算 known(空值/未知/查库异常均拒)', () => {
+  const db = freshDb()
+  db.exec(`CREATE TABLE sessions (token TEXT PRIMARY KEY, apiServer TEXT NOT NULL, createdAt INTEGER NOT NULL)`)
+  db.prepare(`INSERT INTO sessions (token, apiServer, createdAt) VALUES ('tok-1', 'https://a', 1)`).run()
+  assert.equal(isKnownSessionToken(db, 'tok-1'), true)
+  assert.equal(isKnownSessionToken(db, 'tok-unknown'), false)
+  assert.equal(isKnownSessionToken(db, ''), false)
+  assert.equal(isKnownSessionToken(db, null), false)
+  const badDb = { prepare: () => { throw new Error('boom') } }
+  assert.equal(isKnownSessionToken(badDb, 'tok-1'), false)
 })
