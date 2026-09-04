@@ -42,6 +42,7 @@ import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { createMyKeyRoutes } from './routes/my-keys.mjs'
 import { touchSession } from './session-touch.mjs'
 import { touchKeyUsage } from './key-usage-touch.mjs'
 import { reapExpiredSessions, enforceSessionCap, removeSessionRecord } from './platform-session-reaper.mjs'
@@ -1526,6 +1527,15 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   killSshSession: sid => sshTerminals.close(sid, s => { try { s.extra?.channel?.close?.() } catch { /* noop */ }; try { s.extra?.release?.() } catch { /* noop */ } }),
 })
   if (await sshRoutes.handle(req, res, url)) return
+  const myKeyRoutes = createMyKeyRoutes({
+    db, sendJson, readBody, requirePlatform, randomUUID, writeAudit, getSetting,
+    getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
+    provisionCluster: async (row, spec) => {
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
+      return provisionSa({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
+  })
+  if (await myKeyRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
   if (await versionRoutes.handle(req, res, url)) return

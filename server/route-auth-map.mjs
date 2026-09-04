@@ -32,6 +32,9 @@ export const ROUTE_AUTH = [
   { method: 'GET',  pattern: '/api/auth/password-policy', auth: 'platform' }, // 自助改密表单的生效策略
   { method: 'GET',  pattern: '/api/ssh/terminal',        auth: 'platform' }, // WS 升级(ssh 终端):upgrade 时自校验平台 session,门登记为地板
   { method: 'GET',  pattern: '/api/my-clusters',        auth: 'platform' },
+  { method: 'GET',  pattern: '/api/my/keys',            auth: 'platform' }, // 自助访问令牌列表(仅本人)
+  { method: 'POST', pattern: '/api/my/keys',            auth: 'platform' }, // 自助签发(托管 SA,tier≤operator)
+  { prefix: '/api/my/keys/',                            auth: 'platform' }, // DELETE /:id(归属过滤)
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },
   { method: 'GET',  pattern: '/api/version',            auth: 'platform' },
   { method: 'POST', pattern: '/api/version/check',      auth: 'platform' },
