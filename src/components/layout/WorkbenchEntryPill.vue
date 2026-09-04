@@ -3,8 +3,11 @@
 // 工作台入口胶囊(2026-08-30 信息丰富化):C3 契约不变(aria/文字/点击),叠加
 // 状态角标 + 悬停概览面板。数据 = GET /api/workbench/summary 单一汇总端点,30s 轮询
 // (TopNavBar 全站常驻 ⇒ 全站唯一轮询器;标签页隐藏自动暂停,聚焦即刷新)。
-// 2026-09-04 身份舱段式化:自身描边/底色上交 TopNavBar 的 identity-capsule 容器,
-// 本组件只保留段内悬停(hover:bg-primary/10)与激活填充(bg-primary-container)。
+// 2026-09-04 身份舱段式化:自身描边/底色上交 TopNavBar 的 identity-capsule 容器。
+// 2026-09-04 v4 精修:裸图标升级 primary→tertiary 渐变品牌瓷砖(激活放大+高光扫过),
+// 段悬停改舷形渐变填充(hoverfill 层 transform scale-x 扫入,轮廓镜像舷板外弧),
+// 统计条灯珠化(绿呼吸/红脉冲,有数据才动;待批在场时呼吸让位)。
+// 激活填充(bg-primary-container)保留。
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -110,36 +113,60 @@ function relTime(ts) {
       @click="router.push('/workbench')"
       :aria-label="$t('nav.workbench')"
       :title="isPhone ? $t('nav.workbench') : summaryText"
-      class="flex items-center gap-sm rounded-full px-md py-1.5 transition-colors text-body-sm font-semibold shrink-0"
+      class="group relative flex items-center gap-sm overflow-hidden rounded-tl-[30px] rounded-bl-[12px] max-sm:rounded-[14px] px-md py-2 transition-all duration-300 text-body-sm font-semibold shrink-0 active:scale-[0.98] active:duration-150 motion-reduce:transition-none"
       :class="[
         isWorkbenchActive
           ? 'bg-primary-container text-on-primary-container'
-          : 'text-primary hover:bg-primary/10',
+          : 'text-primary',
         isPhone ? 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:justify-center max-sm:px-0' : '',
       ]"
     >
-      <span class="relative inline-flex">
-        <span class="material-symbols-outlined text-lg">workspaces</span>
+      <!-- 舷形悬停填充(v4):镜像舷板外弧的渐变晕开(左叶亮起),scale-x 从左缘扫入(transform
+           过渡有方向感;不用 opacity 显隐——避开 overflow-guard V4 的动作语义;触屏 :hover
+           tap 后粘滞,装饰层整层 max-sm:hidden 才是真「触屏恒隐藏」);pointer-events-none 不挡点击 -->
+      <span data-test="pill-hoverfill" aria-hidden="true"
+        class="pointer-events-none absolute inset-0 origin-left scale-x-0 rounded-tl-[30px] rounded-bl-[12px] bg-gradient-to-r from-primary/10 via-primary/5 to-transparent transition-transform duration-300 group-hover:scale-x-100 max-sm:hidden motion-reduce:transition-none"></span>
+      <!-- 品牌瓷砖(v4):primary→tertiary 渐变圆角砖包图标(on-primary 亮暗自翻转保对比度),
+           自带底部投影+顶部内高光;激活放大,悬停微倾(手机档取消——粘滞 hover 恒倾);
+           进入 /workbench 时高光扫过一次 -->
+      <span class="relative inline-flex shrink-0">
+        <span data-test="pill-tile"
+          class="relative inline-flex h-[26px] w-[26px] items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-primary to-tertiary shadow-[0_1px_3px_rgb(0_0_0/0.25),inset_0_1px_0_rgb(255_255_255/0.35)] transition-transform duration-300 max-sm:transition-none motion-reduce:transition-none"
+          :class="isWorkbenchActive ? 'scale-105' : 'group-hover:-rotate-6 max-sm:group-hover:rotate-0'">
+          <span class="material-symbols-outlined text-base text-on-primary">workspaces</span>
+          <!-- 一次性高光扫过:200% 宽背景必配 bg-no-repeat(repeat 会把白带绕回瓷砖常驻洗白);
+               motion-reduce 用 hidden 不用 animate-none(摘动画后 background-position 回落 0%
+               恰是右半白罩帧;装饰层 aria-hidden,直接藏掉最干净) -->
+          <span v-if="isWorkbenchActive" data-test="pill-sheen" aria-hidden="true"
+            class="absolute inset-0 rounded-lg bg-no-repeat bg-gradient-to-r from-transparent via-white/45 to-transparent bg-[length:200%_100%] animate-sheen motion-reduce:hidden"></span>
+        </span>
         <!-- 手机档待审批红点(数字角标让位空间;桌面数字角标保留) -->
         <span v-if="isPhone && pendingCount > 0" data-test="pill-pending-dot"
           class="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-error"></span>
       </span>
       <template v-if="!isPhone">{{ $t('nav.workbench') }}</template>
-      <!-- 迷你统计条(≥xl;2026-08-30 用户反馈:内容再丰富些):三段常驻(0 也显示),
-           数字按状态着色(项目中性/运行绿/待审批红);SSH 不上条(悬停面板看)。
+      <!-- 迷你统计条(≥xl;2026-08-30 用户反馈:内容再丰富些):三段「灯珠+数字」常驻(0 也显示),
+           灯珠按状态着色点亮(项目中性/运行绿/待审批红),有数据才动(绿呼吸/红脉冲,归零全静止,
+           顶栏无常驻空转动画,motion-reduce 兜底);SSH 不上条(悬停面板看)。
            窄屏(<xl)整条隐藏,由下方单枚状态徽章接管 -->
       <span data-test="pill-stats" aria-hidden="true"
-        class="hidden xl:inline-flex items-center gap-1 ml-1 text-body-xs font-normal">
-        <span class="w-px h-3.5 bg-current opacity-25"></span>
-        <span class="inline-flex items-center text-on-surface-variant">
+        class="hidden xl:inline-flex items-center gap-1.5 ml-1 text-body-xs font-normal">
+        <span class="inline-flex items-center gap-1 text-on-surface-variant">
+          <span data-test="pill-dot-projects" class="w-1.5 h-1.5 rounded-full bg-outline-variant/60"></span>
           <span class="font-bold text-on-surface">{{ totals.projects ?? 0 }}</span>{{ t('workbench.pill.kProjects') }}
         </span>
-        <span class="opacity-40">·</span>
-        <span class="inline-flex items-center text-on-surface-variant">
+        <span class="inline-flex items-center gap-1 text-on-surface-variant">
+          <span data-test="pill-dot-running" class="inline-block w-1.5 h-1.5 rounded-full transition-colors motion-reduce:animate-none"
+            :class="runningCount > 0 ? (pendingCount > 0 ? 'bg-status-running' : 'bg-status-running animate-breathe') : 'bg-outline-variant/60'"></span>
           <span class="font-bold" :class="runningCount > 0 ? 'text-status-running' : ''">{{ runningCount }}</span>{{ t('workbench.pill.kRunning') }}
         </span>
-        <span class="opacity-40">·</span>
-        <span class="inline-flex items-center text-on-surface-variant">
+        <span class="inline-flex items-center gap-1 text-on-surface-variant">
+          <span class="relative inline-flex w-1.5 h-1.5">
+            <span v-if="pendingCount > 0" data-test="pill-ping-pending" aria-hidden="true"
+              class="absolute inline-flex h-full w-full rounded-full bg-error opacity-60 animate-ping motion-reduce:animate-none"></span>
+            <span data-test="pill-dot-pending" class="relative inline-flex w-1.5 h-1.5 rounded-full transition-colors"
+              :class="pendingCount > 0 ? 'bg-error' : 'bg-outline-variant/60'"></span>
+          </span>
           <span class="font-bold" :class="pendingCount > 0 ? 'text-error' : ''">{{ pendingCount }}</span>{{ t('workbench.pill.kPending') }}
         </span>
       </span>
@@ -183,7 +210,7 @@ function relTime(ts) {
               <span class="block text-body-sm font-semibold text-on-surface truncate">{{ p.name }}</span>
               <span class="block text-body-xs text-on-surface-variant">
                 <template v-if="p.clusterId">{{ p.clusterName }}</template>
-                <template v-else><span class="inline-block px-1 py-px rounded bg-warning/10 text-warning">{{ t('workbench.unboundBadge') }}</span></template>
+                <template v-else><span class="inline-block px-1 py-px rounded bg-tertiary/10 text-tertiary">{{ t('workbench.unboundBadge') }}</span></template>
               </span>
             </span>
             <span class="flex items-center gap-xs shrink-0 text-body-xs text-on-surface-variant">
