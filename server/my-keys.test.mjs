@@ -53,11 +53,13 @@ test('POST:未分配集群 403;非法 tier 400;非法 ttl 400;供给失败 502 �
   await routes.handle({ ...REQ, method: 'POST', _body: { clusterId: 'c1', namespace: 'n', tier: 'admin' } }, {}, new URL('http://x/api/my/keys'))
   assert.equal(sent.at(-1).status, 400)
   await routes.handle({ ...REQ, method: 'POST', _body: { clusterId: 'c1', namespace: 'n', tier: 'read', ttlDays: 99999 } }, {}, new URL('http://x/api/my/keys'))
-  assert.equal(sent.at(-1).status, 400)
+  assert.equal(sent.at(-1).status, 200)   // 超上限静默钳到默认 90(controller 裁决:钳制而非 400)
+  assert.ok(lookupKey(db, sent.at(-1).payload.apikey.plaintext).expiresAt <= Date.now() + 91 * 86400000)
   const fail = makeRoutes(db, { _provision: async () => ({ ok: false, failed: [{ kind: 'rbac', error: 'boom' }] }) })
+  const before = db.prepare('SELECT COUNT(*) c FROM api_keys').get().c
   await fail.routes.handle({ ...REQ, method: 'POST', _body: { clusterId: 'c1', namespace: 'n', tier: 'read' } }, {}, new URL('http://x/api/my/keys'))
   assert.equal(fail.sent.at(-1).status, 502)
-  assert.equal(db.prepare('SELECT COUNT(*) c FROM api_keys').get().c, 0)   // 先供给后落库:失败无「出生即死亡」key
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM api_keys').get().c, before)   // 先供给后落库:失败无「出生即死亡」key(钳制案例已落 1 行)
 })
 
 test('POST:ttl 钳到 maxTtlDays(设置 7 → 999 请求得 ≤7 天)', async () => {
@@ -65,6 +67,24 @@ test('POST:ttl 钳到 maxTtlDays(设置 7 → 999 请求得 ≤7 天)', async ()
   await routes.handle({ ...REQ, method: 'POST', _body: { clusterId: 'c1', namespace: 'n', tier: 'read', ttlDays: 999 } }, {}, new URL('http://x/api/my/keys'))
   const row = lookupKey(db, sent.at(-1).payload.apikey.plaintext)
   assert.ok(row.expiresAt <= Date.now() + 8 * 86400000)
+})
+
+test('POST:ttl 超上限静默钳制(未配置上限 90 → 999 请求得 ≤91 天,200 非 400)', async () => {
+  const db = makeDb(); const { routes, sent } = makeRoutes(db)
+  await routes.handle({ ...REQ, method: 'POST', _body: { clusterId: 'c1', namespace: 'n', tier: 'read', ttlDays: 999 } }, {}, new URL('http://x/api/my/keys'))
+  assert.equal(sent.at(-1).status, 200)
+  const row = lookupKey(db, sent.at(-1).payload.apikey.plaintext)
+  assert.ok(row.expiresAt <= Date.now() + 91 * 86400000)
+})
+
+test('POST:ttl 非法(ttlDays 0 / 非数字)→ 400 ttlInvalid', async () => {
+  const db = makeDb(); const { routes, sent } = makeRoutes(db)
+  await routes.handle({ ...REQ, method: 'POST', _body: { clusterId: 'c1', namespace: 'n', tier: 'read', ttlDays: 0 } }, {}, new URL('http://x/api/my/keys'))
+  assert.equal(sent.at(-1).status, 400)
+  assert.equal(sent.at(-1).payload.message, '有效期须在 1-90 天内')
+  await routes.handle({ ...REQ, method: 'POST', _body: { clusterId: 'c1', namespace: 'n', tier: 'read', ttlDays: 'abc' } }, {}, new URL('http://x/api/my/keys'))
+  assert.equal(sent.at(-1).status, 400)
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM api_keys').get().c, 0)
 })
 
 test('GET:只回自己的(含已吊销);DELETE:归属过滤,他人/不存在 404,成功后 key 失效', async () => {

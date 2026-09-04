@@ -39,14 +39,12 @@ export function createMyKeyRoutes(deps) {
           const exists = getCluster(clusterId)
           if (!exists) { sendJson(res, 403, { message: msg(req, 'mykeys.clusterForbidden') }); return true }
         }
-        // TTL:显式 <1/非数字 → 400;maxTtlDays 未配置时超默认上限(90) → 400;已配置上限则静默钳制
-        const cap = maxTtlDays()
-        const ttlSetting = getSetting?.('apikey.maxTtlDays')
-        const raw = Number(input?.ttlDays)
-        const ttl = Math.min(Math.max(Math.floor(Number.isFinite(raw) && raw >= 1 ? raw : 30), 1), cap)
-        if ((input?.ttlDays != null && (!Number.isFinite(raw) || raw < 1)) || (ttlSetting == null && Number.isFinite(raw) && raw > cap)) {
-          sendJson(res, 400, { message: msg(req, 'mykeys.ttlInvalid', { max: cap }) }); return true
+        // TTL:显式 <1/非数字 → 400;超上限一律静默钳到 maxTtlDays;缺省 30 钳入 [1, maxTtl]
+        const requested = Number(input?.ttlDays)
+        if (input?.ttlDays != null && (!Number.isFinite(requested) || requested < 1)) {
+          sendJson(res, 400, { message: msg(req, 'mykeys.ttlInvalid', { max: maxTtlDays() }) }); return true
         }
+        const ttl = Math.min(Math.max(Math.floor(Number.isFinite(requested) ? requested : 30), 1), maxTtlDays())
         if (!provisionCluster || !getCluster) { sendJson(res, 503, { message: msg(req, 'mykeys.provisionUnavailable') }); return true }
         const id = randomUUID()
         const name = managedSaName(id)
