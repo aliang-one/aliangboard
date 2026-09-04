@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import Modal from '@/components/common/Modal.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import { canUseClusterDefault, resolveClusterDefaultName } from '@/logic/classDefault'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -48,7 +49,7 @@ async function create() {
       status: 'Pending',
       capacity: form.value.capacity || '10Gi',
       accessModes: form.value.accessModes,
-      storageClass: form.value.storageClass || allSCs.value.find(s => s.default)?.name || 'standard',
+      storageClass: form.value.storageClass || resolveClusterDefaultName(allSCs.value, 'default'),
       volume: '',
       age: 'Just now',
     })
@@ -95,15 +96,18 @@ async function create() {
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('ns.storage.storageClass') }}</label>
         <select v-model="form.storageClass" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
-          <option value="">{{ t('ns.storage.defaultOption') }}</option>
+          <option data-testid="pvc-cluster-default-option" value="" :disabled="!canUseClusterDefault(allSCs, 'default')">
+            {{ canUseClusterDefault(allSCs, 'default') ? t('common.clusterDefaultOption', { name: resolveClusterDefaultName(allSCs, 'default') }) : t('common.clusterDefaultUnset') }}
+          </option>
           <option v-for="sc in allSCs" :key="sc.name" :value="sc.name">{{ sc.name }}{{ sc.default ? ' (default)' : '' }}</option>
         </select>
+        <p v-if="!canUseClusterDefault(allSCs, 'default')" data-testid="pvc-cluster-default-hint" class="text-label-caps text-on-surface-variant mt-xs">{{ t('common.noDefaultStorageClassHint') }}</p>
       </div>
       <p v-if="error" class="text-body-sm text-error">{{ error }}</p>
     </div>
     <template #actions>
       <button @click="close" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
-      <button data-testid="pvc-create" @click="create" :disabled="!form.name.trim() || applying"
+      <button data-testid="pvc-create" @click="create" :disabled="!form.name.trim() || applying || (!form.storageClass && !canUseClusterDefault(allSCs, 'default'))"
         class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">
         <span v-if="applying" class="material-symbols-outlined animate-spin text-lg">progress_activity</span>
         {{ applying ? t('component.createPvc.creating') : t('common.create') }}
