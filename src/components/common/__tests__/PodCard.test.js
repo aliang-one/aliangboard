@@ -40,6 +40,11 @@ test('showLogs=false 隐藏日志按钮', () => {
   expect(w.find('[data-testid="podcard-logs"]').exists()).toBe(false)
 })
 
+test('Running 卡片同排只允许一颗呼吸点(行首健康点)——StatusChip 内置点在卡内必须关闭(f5360f9 起的双点缺陷)', () => {
+  const w = mountCard()
+  expect(w.findAll('.animate-pulse-status')).toHaveLength(1)
+})
+
 test('批量模式:selectable 渲染 checkbox 视觉,selected 切换图标,点击卡片仍 emit click', async () => {
   const w1 = mountCard({ selectable: true, selected: false })
   const cb1 = w1.find('[data-test="batch-checkbox"]')
