@@ -4025,6 +4025,7 @@
     "orphanChipTitle": "未跟踪的网关存活会话:{serverId}(属主 {user}),点击终止",
     "orphanKillConfirm": "终止该未跟踪会话?它的终端可能仍被某个标签页使用中",
     "sshNewTerminal": "新开终端",
+    "podNewTerminal": "新开终端",
     "sshSessions": "{n} 个终端",
     "overflowMore": "更多 {n} 个会话",
     "dblClickRename": "{name}（双击重命名）",

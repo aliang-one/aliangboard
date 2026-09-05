@@ -179,3 +179,34 @@ test('死 chip 点击(复审 F3):已打开的死窗口强制 minimize→restore 
   expect(resSpy).toHaveBeenCalledWith(w.id)  // 翻转完成 → SshTerminalWindow watcher 的 connectIfIdle 重连
   expect(w.status).toBe('open')
 })
+
+// —— 同 pod 多终端(2026-09-05):pod chip「+」= openNewTerminal 恒新建,与 SSH 分组 chip 同款 ——
+
+test('pod chip「+」:点击 → openNewTerminal 新建同 pod 终端,命名 #2', async () => {
+  const bar = mountBar()
+  const term = useTerminalStore()
+  term.openTerminal({ namespace: 'ns1', podName: 'pod-a', container: 'main' })
+  await bar.vm.$nextTick()
+  const chip = bar.find('[data-test^="pod-chip-"]')
+  expect(chip.exists()).toBe(true)
+  const plus = chip.find('span[title="新开终端"]')
+  expect(plus.exists()).toBe(true)
+  await plus.trigger('click')
+  expect(term.terminals).toHaveLength(2)
+  expect(term.terminals[1].podName).toBe('pod-a')
+  expect(term.terminals[1].name).toBe('pod-a/main #2')
+  expect(term.terminals[1].status).toBe('open')
+})
+
+test('pod chip 点击本体仍是聚焦语义:多实例时点 chip 不新建', async () => {
+  const bar = mountBar()
+  const term = useTerminalStore()
+  term.openTerminal({ namespace: 'ns1', podName: 'pod-a', container: 'main' })
+  term.openNewTerminal({ namespace: 'ns1', podName: 'pod-a', container: 'main' })
+  await bar.vm.$nextTick()
+  expect(term.terminals).toHaveLength(2)
+  const chips = bar.findAll('[data-test^="pod-chip-"]')
+  expect(chips.length).toBe(2)
+  await chips[0].trigger('click')
+  expect(term.terminals).toHaveLength(2)   // 点击 chip 本体不新建(openOrFocus 语义不变)
+})

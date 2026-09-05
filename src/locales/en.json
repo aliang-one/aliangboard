@@ -4025,6 +4025,7 @@
     "orphanChipTitle": "Untracked live gateway session: {serverId} (owner {user}), click to terminate",
     "orphanKillConfirm": "Terminate this untracked session? Its terminal may still be in use by another tab",
     "sshNewTerminal": "New terminal",
+    "podNewTerminal": "New terminal",
     "sshSessions": "{n} terminals",
     "overflowMore": "{n} more sessions",
     "dblClickRename": "{name} (double-click to rename)",
