@@ -606,7 +606,33 @@
     "langEn": "English",
     "themeLight": "浅色",
     "themeDark": "深色",
-    "themeAuto": "自动"
+    "themeAuto": "自动",
+    "tokens": {
+      "tokensTitle": "访问令牌",
+      "tokensHint": "用于 CI/MCP 的个人凭据;权限随你的账号实时收缩",
+      "mintBtn": "签发令牌",
+      "mintCluster": "集群",
+      "mintNamespace": "绑定 Namespace",
+      "mintTier": "档位",
+      "tierRead": "只读",
+      "tierOperator": "可操作",
+      "mintTtl": "有效期(天)",
+      "mintSubmit": "签发",
+      "plaintextTitle": "请立即保存令牌",
+      "plaintextHint": "关闭后无法再次查看",
+      "copy": "复制",
+      "copied": "已复制",
+      "colToken": "令牌",
+      "colLabel": "备注",
+      "colScope": "范围",
+      "colExpires": "过期于",
+      "colLastUsed": "最近使用",
+      "statusActive": "生效中",
+      "statusExpired": "已过期",
+      "statusRevoked": "已吊销",
+      "revokeConfirmTitle": "吊销该令牌?",
+      "revokeConfirmMessage": "使用它的集成将立即失效"
+    }
   },
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",
@@ -4487,5 +4513,8 @@
     "ledgerStructure": "结构层(平台自动维护)",
     "ledgerNotesPlaceholder": "这台服务器的角色/职责/部署了什么,如:K8s master + 堡垒机",
     "ledgerEmpty": "暂无服务器,先添加"
+  },
+  "mykeys": {
+    "formIncomplete": "请选择集群并填写 namespace"
   }
 }

@@ -1,6 +1,7 @@
 // 三卡交互:资料就地编辑 / 改密表单校验+提交 / 会话列表渲染+吊销确认 / 偏好联动 store。
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 
@@ -227,6 +228,65 @@ test('活动 tab:空列表渲染空态', async () => {
   const w = mountPage('activity')
   await flushPromises()
   expect(w.find('[data-testid="activity-empty"]').exists()).toBe(true)
+  w.unmount()
+})
+
+// === Task 11: 访问令牌 tab ===
+test('令牌 tab:挂载拉 key 列表 + 集群列表,渲染行(含过期/吊销态)', async () => {
+  apiMocks.myKeysList.mockResolvedValue({ apikeys: [
+    { id: 'k1', prefix: 'abcd1234', label: 'ci', clusterId: 'c1', boundSA_namespace: 'team-a', tier: 'read', createdAt: 1756400000000, expiresAt: Date.now() + 86400000, lastUsedAt: null, revokedAt: null, ownerUserId: 'u1' },
+    { id: 'k2', prefix: 'beef5678', label: 'old', clusterId: 'c1', boundSA_namespace: 'team-a', tier: 'read', createdAt: 1756300000000, expiresAt: Date.now() - 86400000, lastUsedAt: 1756390000000, revokedAt: null, ownerUserId: 'u1' },
+    { id: 'k3', prefix: 'dead0000', label: 'x', clusterId: 'c1', boundSA_namespace: 'team-a', tier: 'read', createdAt: 1756200000000, expiresAt: null, lastUsedAt: null, revokedAt: 1756250000000, ownerUserId: 'u1' },
+  ] })
+  apiMocks.myClusters.mockResolvedValue({ clusters: [{ id: 'c1', name: 'prod' }] })
+  const w = mountPage('tokens')
+  await flushPromises()
+  expect(apiMocks.myKeysList).toHaveBeenCalledTimes(1)
+  const rows = w.findAll('[data-testid="token-row"]')
+  expect(rows).toHaveLength(3)
+  expect(rows[0].text()).toContain('abcd1234')
+  expect(rows[1].html()).toContain('expired')              // data-testid=token-status-expired
+  expect(rows[2].html()).toContain('revoked')
+  expect(w.find('[data-testid="token-revoke-k3"]').exists()).toBe(false)
+  w.unmount()
+})
+
+test('签发:填表 mint → 明文只显一次弹窗(含复制钮)→ 关闭后列表重拉', async () => {
+  apiMocks.myClusters.mockResolvedValue({ clusters: [{ id: 'c1', name: 'prod' }] })
+  apiMocks.myKeysList.mockResolvedValue({ apikeys: [] })
+  apiMocks.myKeysMint.mockResolvedValue({ apikey: { id: 'k9', plaintext: 'PLAINTEXT-VALUE-123', prefix: 'PLAINTEXT' } })
+  const w = mountPage('tokens')
+  await flushPromises()
+  await w.find('[data-testid="token-mint-btn"]').trigger('click')
+  // 签发/明文 Modal 均 Teleport 到 body(既有契约),teleported 节点走 document.body 查询
+  const bq = (sel) => document.body.querySelector(sel)
+  bq('[data-testid="token-mint-cluster"]').value = 'c1'
+  bq('[data-testid="token-mint-cluster"]').dispatchEvent(new Event('change'))
+  bq('[data-testid="token-mint-namespace"]').value = 'team-a'
+  bq('[data-testid="token-mint-namespace"]').dispatchEvent(new Event('input'))
+  await nextTick()
+  bq('[data-testid="token-mint-submit"]').click()
+  await flushPromises()
+  expect(apiMocks.myKeysMint).toHaveBeenCalledWith({ clusterId: 'c1', namespace: 'team-a', tier: 'read', label: '', ttlDays: 30 })
+  expect(bq('[data-testid="token-plaintext"]').textContent).toContain('PLAINTEXT-VALUE-123')
+  expect(bq('[data-testid="token-copy"]')).toBeTruthy()
+  bq('[data-testid="token-plaintext-close"]').click()
+  await nextTick()
+  expect(apiMocks.myKeysList).toHaveBeenCalledTimes(2)
+  w.unmount()
+})
+
+test('吊销:确认框链后调 myKeysRevoke 并重拉', async () => {
+  apiMocks.myClusters.mockResolvedValue({ clusters: [{ id: 'c1', name: 'prod' }] })
+  apiMocks.myKeysList.mockResolvedValue({ apikeys: [{ id: 'k1', prefix: 'abcd1234', label: '', clusterId: 'c1', boundSA_namespace: 'n', tier: 'read', createdAt: 1, expiresAt: null, lastUsedAt: null, revokedAt: null }] })
+  apiMocks.myKeysRevoke.mockResolvedValue({ ok: true })
+  const w = mountPage('tokens')
+  await flushPromises()
+  await w.find('[data-testid="token-revoke-k1"]').trigger('click')
+  document.body.querySelector('[data-testid="confirm-ok"]').click()
+  await flushPromises()
+  expect(apiMocks.myKeysRevoke).toHaveBeenCalledWith('k1')
+  expect(apiMocks.myKeysList).toHaveBeenCalledTimes(2)
   w.unmount()
 })
 

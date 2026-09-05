@@ -606,7 +606,33 @@
     "langEn": "English",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "themeAuto": "Auto"
+    "themeAuto": "Auto",
+    "tokens": {
+      "tokensTitle": "Access Tokens",
+      "tokensHint": "Personal credentials for CI or MCP; scope shrinks live with your account",
+      "mintBtn": "Create Token",
+      "mintCluster": "Cluster",
+      "mintNamespace": "Bound Namespace",
+      "mintTier": "Tier",
+      "tierRead": "Read-only",
+      "tierOperator": "Operate",
+      "mintTtl": "TTL (days)",
+      "mintSubmit": "Create",
+      "plaintextTitle": "Save your token now",
+      "plaintextHint": "It will never be shown again",
+      "copy": "Copy",
+      "copied": "Copied",
+      "colToken": "Token",
+      "colLabel": "Label",
+      "colScope": "Scope",
+      "colExpires": "Expires",
+      "colLastUsed": "Last used",
+      "statusActive": "Active",
+      "statusExpired": "Expired",
+      "statusRevoked": "Revoked",
+      "revokeConfirmTitle": "Revoke this token?",
+      "revokeConfirmMessage": "Integrations using it stop working immediately"
+    }
   },
   "layout": {
     "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",
@@ -4487,5 +4513,8 @@
     "ledgerStructure": "Structured layer (auto-maintained)",
     "ledgerNotesPlaceholder": "This server's role/duties/deployments, e.g. K8s master + bastion",
     "ledgerEmpty": "No servers yet — add one first"
+  },
+  "mykeys": {
+    "formIncomplete": "Pick a cluster and fill in the namespace"
   }
 }
