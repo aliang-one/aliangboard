@@ -731,7 +731,7 @@ export function createAdminRoutes(deps) {
     if (url.pathname === '/api/admin/groups' && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const { name } = await readBody(req)
-      if (!name || !String(name).trim()) { sendJson(res, 400, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      if (!name || !String(name).trim()) { sendJson(res, 400, { message: msg(req, 'admin.groupNameRequired') }); return true }
       const existing = db.prepare('SELECT 1 FROM groups WHERE name=?').get(String(name).trim())
       if (existing) { sendJson(res, 409, { message: msg(req, 'admin.groupNameTaken') }); return true }
       const id = randomUUID()
@@ -745,9 +745,18 @@ export function createAdminRoutes(deps) {
       const id = decodeURIComponent(url.pathname.slice('/api/admin/groups/'.length))
       const group = db.prepare('SELECT id FROM groups WHERE id=?').get(id)
       if (!group) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
-      db.prepare('DELETE FROM groups WHERE id=?').run(id)
-      db.prepare('DELETE FROM group_members WHERE groupId=?').run(id)
-      db.prepare("DELETE FROM ns_grants WHERE subjectType='group' AND subjectId=?").run(id) // sweepOrphanGrants 组侧语义内联
+      // 三表级联(groups/members/该组 grants)单事务:任一失败整体回滚,不留半删组
+      db.exec('BEGIN')
+      try {
+        db.prepare('DELETE FROM groups WHERE id=?').run(id)
+        db.prepare('DELETE FROM group_members WHERE groupId=?').run(id)
+        db.prepare("DELETE FROM ns_grants WHERE subjectType='group' AND subjectId=?").run(id) // sweepOrphanGrants 组侧语义内联
+        db.exec('COMMIT')
+      } catch (e) {
+        try { db.exec('ROLLBACK') } catch { /* 事务已不在 */ }
+        console.error('[admin] group delete transaction failed:', e?.message || e)
+        sendJson(res, 500, { message: msg(req, 'admin.saveFailed') }); return true
+      }
       writeAudit?.(db, { owner: ps.username, verb: 'delete', tool: 'admin_group_delete', result: 'ok', requestSummary: `id=${id}`, source: 'platform' })
       sendJson(res, 200, { ok: true }); return true
     }
@@ -756,7 +765,7 @@ export function createAdminRoutes(deps) {
       const groupId = url.pathname.split('/')[4]
       if (!db.prepare('SELECT 1 FROM groups WHERE id=?').get(groupId)) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
       const { userIds } = await readBody(req)
-      if (!Array.isArray(userIds) || !userIds.length) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      if (!Array.isArray(userIds) || !userIds.length) { sendJson(res, 400, { message: msg(req, 'admin.userIdsRequired') }); return true }
       for (const uid of userIds) {
         if (!db.prepare('SELECT 1 FROM platform_users WHERE id=?').get(uid)) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
       }
@@ -791,10 +800,21 @@ export function createAdminRoutes(deps) {
           if (!r || typeof r.namespace !== 'string' || !NS_NAME_RE.test(r.namespace) || r.namespace.length > 63
             || !['view', 'operate'].includes(r.level)) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
         }
-        // 全量替换该 subject+cluster 的 grants
-        db.prepare('DELETE FROM ns_grants WHERE subjectType=? AND subjectId=? AND clusterId=?').run(subjectType, subjectId, clusterId)
-        const stmt = db.prepare('INSERT OR IGNORE INTO ns_grants (id,subjectType,subjectId,clusterId,namespace,level,grantedBy,grantedAt) VALUES (?,?,?,?,?,?,?,?)')
-        for (const r of rows) stmt.run(randomUUID(), subjectType, subjectId, clusterId, r.namespace, r.level, ps.username, Date.now())
+        // 同一 body 内重复 namespace → 拒(全量替换语义下重复行是调用方 bug,静默去重会掩盖)
+        const nsSet = new Set(rows.map(r => r.namespace))
+        if (nsSet.size !== rows.length) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
+        // 全量替换该 subject+cluster 的 grants(单事务:删+插原子,COMMIT 失败整体回滚)
+        db.exec('BEGIN')
+        try {
+          db.prepare('DELETE FROM ns_grants WHERE subjectType=? AND subjectId=? AND clusterId=?').run(subjectType, subjectId, clusterId)
+          const stmt = db.prepare('INSERT OR IGNORE INTO ns_grants (id,subjectType,subjectId,clusterId,namespace,level,grantedBy,grantedAt) VALUES (?,?,?,?,?,?,?,?)')
+          for (const r of rows) stmt.run(randomUUID(), subjectType, subjectId, clusterId, r.namespace, r.level, ps.username, Date.now())
+          db.exec('COMMIT')
+        } catch (e) {
+          try { db.exec('ROLLBACK') } catch { /* 事务已不在 */ }
+          console.error('[admin] grants save transaction failed:', e?.message || e)
+          sendJson(res, 500, { message: msg(req, 'admin.saveFailed') }); return true
+        }
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_grant_save', result: 'ok', requestSummary: `${subjectType}=${subjectId} cluster=${clusterId} ns=${rows.length}`, source: 'platform' })
         sendJson(res, 200, { ok: true }); return true
       } catch (e) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }

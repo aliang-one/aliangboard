@@ -117,3 +117,91 @@ test('普通用户访问 admin 组端点 → 401(requireAdmin 拒)', async () =>
   await routes.handle({ method: 'GET', on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL('http://x/api/admin/groups'))
   assert.equal(sent[0].status, 401)
 })
+
+// ===== Review round 1:事务原子性 + 400 语义收窄 =====
+
+// db 代理:指定 SQL(如 'COMMIT')首次执行即抛,其余透传真库 —— 用于验证写路径的事务回滚。
+function dbWithFailingExec(db, failSql) {
+  let thrown = false
+  const realExec = db.exec.bind(db)
+  return new Proxy(db, {
+    get(t, k) {
+      if (k === 'exec') {
+        return (sql) => {
+          if (sql === failSql && !thrown) { thrown = true; throw new Error(`stub ${failSql} failure`) }
+          return realExec(sql)
+        }
+      }
+      const v = t[k]
+      return typeof v === 'function' ? v.bind(t) : v
+    },
+  })
+}
+
+// 与 makeHarness 同库另起一个 router(db 走代理;prepare/delete 均透传真库)
+function makeProxiedHarness(proxyDb) {
+  const sent = []
+  const routes = createAdminRoutes({
+    db: proxyDb, sendJson: (r, s, j) => sent.push({ status: s, json: j }),
+    readBody: async () => h._body, requireAdmin: () => ({ userId: 'adm', role: 'admin', username: 'admin' }),
+    getSetting: () => null, setSetting: () => {}, randomUUID: () => 'id-p',
+    writeAudit: () => {}, sessions: new Map(), platformSessions: new Map(),
+  })
+  const h = { sent, _body: {},
+    call: (m, p, body) => { h._body = body || {}; return routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) } }
+  return h
+}
+
+test('PUT grants:COMMIT 抛错 → 500 且 grants 行保持原状(事务回滚)', async () => {
+  const h = makeHarness()
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'user', subjectId: 'u1', clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'view' }] })
+  assert.equal(h.sent[0].status, 200)
+  const before = h.db.prepare('SELECT namespace,level FROM ns_grants ORDER BY namespace').all().map(r => ({ ...r }))
+  const proxied = makeProxiedHarness(dbWithFailingExec(h.db, 'COMMIT'))
+  await proxied.call('PUT', '/api/admin/grants', { subjectType: 'user', subjectId: 'u1', clusterId: 'c1', namespaces: [{ namespace: 'ops', level: 'operate' }] })
+  assert.equal(proxied.sent[0].status, 500, '事务失败须 500 非 400')
+  const after = h.db.prepare('SELECT namespace,level FROM ns_grants ORDER BY namespace').all().map(r => ({ ...r }))
+  assert.deepEqual(after, before, 'COMMIT 失败 → DELETE+INSERT 全部回滚,旧行原样')
+})
+
+test('DELETE group:COMMIT 抛错 → 500 且组/成员/授权行均未被删(事务回滚)', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/admin/groups', { name: 'devs' })
+  const gid = h.sent[0].json.group.id
+  await h.call('POST', `/api/admin/groups/${gid}/members`, { userIds: ['u1'] })
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'view' }] })
+  const proxied = makeProxiedHarness(dbWithFailingExec(h.db, 'COMMIT'))
+  await proxied.call('DELETE', `/api/admin/groups/${gid}`)
+  assert.equal(proxied.sent[0].status, 500)
+  assert.equal(h.db.prepare('SELECT COUNT(*) c FROM groups').get().c, 1)
+  assert.equal(h.db.prepare('SELECT COUNT(*) c FROM group_members').get().c, 1)
+  assert.equal(h.db.prepare('SELECT COUNT(*) c FROM ns_grants').get().c, 1)
+})
+
+test('POST groups:空名 → 400 admin.groupNameRequired(不再借用 groupOrUserNotFound)', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/admin/groups', { name: '   ' })
+  assert.equal(h.sent[0].status, 400)
+  assert.equal(h.sent[0].json.message, '组名必填')
+  await h.call('POST', '/api/admin/groups', { name: '' })
+  assert.equal(h.sent[1].status, 400)
+  assert.equal(h.sent[1].json.message, '组名必填')
+})
+
+test('POST members:空 userIds → 400 admin.userIdsRequired(组存在前提下)', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/admin/groups', { name: 'devs' })
+  const gid = h.sent[0].json.group.id
+  await h.call('POST', `/api/admin/groups/${gid}/members`, { userIds: [] })
+  assert.equal(h.sent[1].status, 400)
+  assert.equal(h.sent[1].json.message, '缺少用户')
+  await h.call('POST', `/api/admin/groups/${gid}/members`, {})
+  assert.equal(h.sent[2].status, 400)
+})
+
+test('PUT grants:同一 body 内重复 namespace → 400(先查重再入事务)', async () => {
+  const h = makeHarness()
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'user', subjectId: 'u1', clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'view' }, { namespace: 'app', level: 'operate' }] })
+  assert.equal(h.sent[0].status, 400)
+  assert.equal(h.db.prepare('SELECT COUNT(*) c FROM ns_grants').get().c, 0, '校验失败不得写入任何行')
+})
