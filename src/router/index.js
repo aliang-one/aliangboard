@@ -503,6 +503,12 @@ const routes = [
         meta: { titleKey: 'nav.userManagement', icon: 'group', scope: 'global', requireAdmin: true, requiresCluster: false }
       },
       {
+        path: 'admin/groups',
+        name: 'AdminGroups',
+        component: () => import('@/views/admin/GroupsGrants.vue'),
+        meta: { titleKey: 'nav.groupsGrants', icon: 'admin_panel_settings', scope: 'global', requireAdmin: true, requiresCluster: false }
+      },
+      {
         path: 'admin/clusters',
         name: 'AdminClusters',
         component: () => import('@/views/admin/ClusterManagement.vue'),

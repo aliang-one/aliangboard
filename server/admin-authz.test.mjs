@@ -205,3 +205,26 @@ test('PUT grants:同一 body 内重复 namespace → 400(先查重再入事务)'
   assert.equal(h.sent[0].status, 400)
   assert.equal(h.db.prepare('SELECT COUNT(*) c FROM ns_grants').get().c, 0, '校验失败不得写入任何行')
 })
+
+test('GET members / GET grants:读端点(Task 5 管理页数据面)', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/admin/groups', { name: 'devs' })
+  const gid = h.sent[0].json.group.id
+  await h.call('POST', `/api/admin/groups/${gid}/members`, { userIds: ['u1'] })
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'operate' }] })
+
+  await h.call('GET', `/api/admin/groups/${gid}/members`)
+  assert.equal(h.sent[3].status, 200)
+  assert.deepEqual(h.sent[3].json.members.map(m => ({ ...m })), [{ userId: 'u1', username: 'alice', displayName: null }])
+  await h.call('GET', '/api/admin/groups/nope/members')
+  assert.equal(h.sent[4].status, 404)
+
+  await h.call('GET', `/api/admin/grants?subjectType=group&subjectId=${gid}&clusterId=c1`)
+  assert.equal(h.sent[5].status, 200)
+  assert.deepEqual(h.sent[5].json.namespaces.map(r => ({ ...r })), [{ namespace: 'app', level: 'operate' }])
+  // 无参数/参数不全 → 400(不猜默认主体)
+  await h.call('GET', '/api/admin/grants')
+  assert.equal(h.sent[6].status, 400)
+  await h.call('GET', '/api/admin/grants?subjectType=user&subjectId=u1')
+  assert.equal(h.sent[7].status, 400)
+})

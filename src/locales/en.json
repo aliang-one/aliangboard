@@ -558,7 +558,8 @@
     "activityLog": "Activity Log",
     "userCenter": "User Center",
     "logout": "Logout",
-    "enterNamespace": "Enter namespace"
+    "enterNamespace": "Enter namespace",
+    "groupsGrants": "Groups & Grants"
   },
   "userCenter": {
     "activityTitle": "My Activity",
@@ -3234,6 +3235,32 @@
       "assignFailed": "Failed to assign",
       "passwordReset": "Password has been reset",
       "resetFailed": "Failed to reset"
+    },
+    "authz": {
+      "title": "Groups & Namespace Grants",
+      "subtitle": "Manage user groups and per-cluster namespace grants",
+      "groups": "Groups",
+      "members": "Members",
+      "grants": "Namespace Grants",
+      "newGroup": "New group",
+      "newGroupPlaceholder": "Group name",
+      "memberCount": "{n} member(s)",
+      "grantCount": "{n} grant(s)",
+      "addMember": "Add member by username",
+      "memberNotFound": "User not found",
+      "deleteGroupConfirm": "Delete group {name}? Its namespace grants are removed too.",
+      "selectGroup": "Select a group",
+      "selectCluster": "Select a cluster",
+      "nsAdd": "Namespace",
+      "nsInvalid": "Invalid namespace name (DNS label required)",
+      "nsExists": "Namespace already added",
+      "levelView": "view",
+      "levelOperate": "operate",
+      "save": "Save grants",
+      "saved": "Grants saved",
+      "saveFailed": "Failed to save grants",
+      "noGroups": "No groups yet",
+      "openNoIsolation": "Open-mode clusters provide no namespace isolation: {names}"
     },
     "agent": {
       "title": "AI Console",

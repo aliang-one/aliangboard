@@ -363,9 +363,11 @@ export const adminApi = {
     remove: id => platformHttp.request(`/api/admin/groups/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     members: (id, userIds) => platformHttp.request(`/api/admin/groups/${encodeURIComponent(id)}/members`, { method: 'POST', body: JSON.stringify({ userIds }) }),
     removeMember: (id, userId) => platformHttp.request(`/api/admin/groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+    membersList: id => platformHttp.request(`/api/admin/groups/${encodeURIComponent(id)}/members`),
   },
   grants: {
     save: payload => platformHttp.request('/api/admin/grants', { method: 'PUT', body: JSON.stringify(payload) }),
+    list: params => platformHttp.request(`/api/admin/grants?${new URLSearchParams(params)}`),
   },
   apikeys: {
     list: () => platformHttp.request('/api/admin/apikeys'),

@@ -98,6 +98,7 @@ const clusterOtherNav = [
 // 平台管理（admin only）
 const platformAdminNav = [
   { icon: 'group', labelKey: 'nav.userManagement', route: '/admin/users' },
+  { icon: 'admin_panel_settings', labelKey: 'nav.groupsGrants', route: '/admin/groups' },
   { icon: 'cloud', labelKey: 'nav.clusterManagement', route: '/admin/clusters' },
   { icon: 'vpn_key', labelKey: 'nav.apiKeys', route: '/admin/apikeys' },
   { icon: 'tune', labelKey: 'nav.aiBehavior', route: '/admin/ai-behavior' },

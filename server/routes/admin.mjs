@@ -784,6 +784,22 @@ export function createAdminRoutes(deps) {
       writeAudit?.(db, { owner: ps.username, verb: 'delete', tool: 'admin_group_member_remove', result: 'ok', requestSummary: `group=${groupId} user=${userId}`, source: 'platform' })
       sendJson(res, 200, { ok: true }); return true
     }
+    // 成员清单(Task 5 管理页数据面):join platform_users 取 username/displayName
+    if (url.pathname.match(/^\/api\/admin\/groups\/[^/]+\/members$/) && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const groupId = url.pathname.split('/')[4]
+      if (!db.prepare('SELECT 1 FROM groups WHERE id=?').get(groupId)) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      const members = db.prepare('SELECT m.userId AS userId, u.username AS username, u.displayName AS displayName FROM group_members m LEFT JOIN platform_users u ON u.id = m.userId WHERE m.groupId=? ORDER BY u.username').all(groupId)
+      sendJson(res, 200, { members }); return true
+    }
+    // 授权读回(Task 5 管理页编辑器回显):三参缺一即 400,不猜默认主体
+    if (url.pathname === '/api/admin/grants' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const { subjectType, subjectId, clusterId } = Object.fromEntries(url.searchParams)
+      if (!['user', 'group'].includes(subjectType) || !subjectId || !clusterId) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
+      const namespaces = db.prepare('SELECT namespace, level FROM ns_grants WHERE subjectType=? AND subjectId=? AND clusterId=? ORDER BY namespace').all(subjectType, subjectId, clusterId)
+      sendJson(res, 200, { namespaces }); return true
+    }
     if (url.pathname === '/api/admin/grants' && req.method === 'PUT') {
       const ps = requireAdmin(req, res); if (!ps) return true
       try {
