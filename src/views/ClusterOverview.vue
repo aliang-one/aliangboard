@@ -47,6 +47,8 @@ const eventsQuery = useResourceList({
   options: { refetchInterval: eventsInterval, refetchOnWindowFocus: false }
 })
 const eventList = computed(() => eventsQuery.data.value || [])
+// 侧栏只展示最新 8 条:全量渲染会把页面撑得很长;全量在集群级事件页看(入口在侧栏底部)
+const displayEvents = computed(() => eventList.value.slice(0, 8))
 
 // 是否存在压力条件（Disk/Memory/PID）——概览卡上合并为一个警告图标
 function hasPressure(node) {
@@ -221,12 +223,13 @@ onUnmounted(() => store.stopMetricsSampling())
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
             <span class="material-symbols-outlined text-primary text-lg">notifications</span>
             <span class="text-body-sm font-semibold">{{ $t('cluster.recentEvents') }}</span>
-            <span class="text-xs text-on-surface-variant ml-auto">{{ eventList.length }}</span>
+            <span class="text-xs text-on-surface-variant ml-auto" data-testid="recent-events-count">{{ eventList.length }}</span>
           </div>
           <div class="flex flex-col gap-sm p-md">
             <div
-              v-for="(event, idx) in eventList"
-              :key="idx"
+              v-for="(event, idx) in displayEvents"
+              :key="event.uid || idx"
+              data-testid="recent-events-item"
               class="flex gap-sm border-b border-outline-variant/30 pb-sm last:border-0 last:pb-0"
             >
               <div class="mt-1">
@@ -252,7 +255,7 @@ onUnmounted(() => store.stopMetricsSampling())
             </div>
           </div>
           <div class="px-md pb-md">
-            <button @click="router.push('/audit-logs')" class="w-full py-1.5 border border-outline-variant rounded-lg text-on-surface-variant font-medium text-body-sm hover:bg-surface-container transition-colors">
+            <button @click="router.push('/cluster/events')" data-testid="events-more-btn" class="w-full py-1.5 border border-outline-variant rounded-lg text-on-surface-variant font-medium text-body-sm hover:bg-surface-container transition-colors">
               {{ $t('cluster.showMoreEvents') }}
             </button>
           </div>

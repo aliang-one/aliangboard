@@ -109,6 +109,16 @@ export const TABLE_CATALOG = [
     ],
   },
   {
+    key: 'clusterEvents', labelKey: 'ns.events.title', label: 'Events', icon: 'event_available',
+    columns: [
+      { key: 'type', labelKey: 'ns.events.thType', label: 'Type' },
+      { key: 'reason', labelKey: 'ns.events.thReason', label: 'Reason' },
+      { key: 'message', labelKey: 'ns.events.thMessage', label: 'Message' },
+      { key: 'namespace', labelKey: 'cluster.events.thNamespace', label: 'Namespace' },
+      { key: 'time', labelKey: 'ns.events.thTime', label: 'Time' },
+    ],
+  },
+  {
     key: 'nsServices', labelKey: 'ns.services.title', label: 'Services', icon: 'share',
     columns: [
       { key: 'name', labelKey: 'ns.services.thName', label: 'Name' },

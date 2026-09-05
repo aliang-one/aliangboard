@@ -702,10 +702,14 @@
     "metricsUnavailableHint": "集群未安装 metrics-server 或当前凭证无 metrics 读取权限",
     "liveWindow": "会话内 · 最近 5min",
     "nodePressureHint": "节点存在压力条件（Disk/Memory/PID）",
-    "showMoreEvents": "显示更多事件",
+    "showMoreEvents": "查看全部事件",
     "ready": "Ready",
     "notReady": "NotReady",
-    "mem": "内存"
+    "mem": "内存",
+    "events": {
+      "subtitle": "集群内全部事件的实时流",
+      "thNamespace": "命名空间"
+    }
   },
   "nodes": {
     "title": "Nodes",
