@@ -36,11 +36,39 @@ import WorkbenchChat from '../WorkbenchChat.vue'
 
 const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh, en } })
 
+// W2-0 Task6:夹具全量重建——mockClear 不清实现/Once 队列,mockReset 每用例重建
+// 并给 conversations.get 一个良性默认实现(done 态),让上一用例残留的孤儿 poll
+// (组件 2s 轮询 interval)即便触发也安全落地,不会吞掉本用例的 mockResolvedValueOnce。
+function reseedApi() {
+  for (const ns of Object.values(api)) {
+    for (const fn of Object.values(ns)) if (fn?.mockReset) fn.mockReset()
+  }
+  if (typeof api.search === 'function') api.search.mockReset()
+  api.search.mockResolvedValue({ results: [] })
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-idle', status: 'done', content: '', trace: '[]', steps: 1, recap: '', messages: [],
+  })
+  api.conversations.approve.mockResolvedValue({ ok: true })
+  api.conversations.deny.mockResolvedValue({ ok: true })
+  api.conversations.cancel.mockResolvedValue({ ok: true })
+}
+
+let activeWrapper = null
+
 // 终审修复(W2-I):防 mockViewport 等 spyOn 跨用例泄漏
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => {
+  // W2-0 Task6:前 3 个用例漏 unmount,组件的 pollTimer/watchdog interval 跨用例存活,
+  // 孤儿 pollOnce 会消费下一用例刚 seed 的 mockResolvedValueOnce → paused 审批弹窗
+  // 不弹 → 断言随机挂(并行 --maxWorkers=2 下 1/3 复现的根源)。
+  if (activeWrapper) { activeWrapper.unmount(); activeWrapper = null }
+  vi.restoreAllMocks()
+})
 
 async function mountPausedApproval(pa) {
   api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ // 默认:再 poll 也回 done,防止 Once 被消费后悬空
+    id: 'conv-idle', status: 'done', content: '', trace: '[]', steps: 1, recap: '', messages: [],
+  })
   api.conversations.get.mockResolvedValueOnce({
     id: 'conv-ap', status: 'paused', content: '', trace: '[]', steps: 1, recap: '', messages: [],
     pendingApproval: JSON.stringify(pa),
@@ -49,12 +77,17 @@ async function mountPausedApproval(pa) {
     props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-ap', activeConversationId: 'conv-ap' },
     global: { plugins: [i18n] },
   })
+  activeWrapper = w
   await flushPromises()
+  // W2-0 Task6:审批弹窗渲染经 pollOnce 异步链,显式等待终态而非裸断言(禁止 sleep)
+  await vi.waitFor(() => {
+    expect(w.find('[data-testid="approval-approve"]').exists()).toBe(true)
+  }, { timeout: 2000 })
   return w
 }
 
 beforeEach(() => {
-  api.conversations.get.mockClear()
+  reseedApi()
 })
 
 test('wb_ssh_exec 审批弹窗显示 server/command/sudo,标题不再是「集群变更审批」', async () => {
