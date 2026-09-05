@@ -102,6 +102,49 @@ body {
   }
 }
 
+/* workbench 氛围画布(spec 2026-09-05 §2):模块的空气——绿雾(main 本体)+ 辉光(::before,
+   原点=右上舷板方位,入场 wb-glow-in 点亮)+ 点阵(::after,工作台面肌理)。
+   仅 meta.module==='workbench' 的 fullHeight 路由挂 wb-atmosphere(main overflow-hidden,层稳定)。 */
+.wb-atmosphere {
+  position: relative;
+  background-image: radial-gradient(120% 90% at 85% 0%, rgb(var(--md-sys-color-primary) / 0.05), transparent 60%);
+}
+.dark .wb-atmosphere {
+  background-image: radial-gradient(120% 90% at 85% 0%, rgb(var(--md-sys-color-primary) / 0.08), transparent 60%);
+}
+.wb-atmosphere::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(520px circle at 92% 0%, rgb(var(--md-sys-color-primary) / 0.10), transparent 70%);
+  animation: wb-glow-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) 1;
+}
+.dark .wb-atmosphere::before {
+  background-image: radial-gradient(520px circle at 92% 0%, rgb(var(--md-sys-color-primary) / 0.15), transparent 70%);
+}
+.wb-atmosphere::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgb(var(--md-sys-color-outline-variant) / 0.25) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.dark .wb-atmosphere::after {
+  background-image: radial-gradient(circle, rgb(var(--md-sys-color-outline-variant) / 0.15) 1px, transparent 1px);
+}
+@keyframes wb-glow-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-atmosphere::before {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .slide-up-enter-active,
 .slide-up-leave-active {
   transition: all 0.3s ease;

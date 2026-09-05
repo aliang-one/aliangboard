@@ -9,6 +9,9 @@ import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
 import ServerLedgerPanel from '@/components/ssh/ServerLedgerPanel.vue'
 
+// chromeless:宿主已提供页头(WorkbenchLedgerPage 的 WbStage titleBar)时隐藏自带标题,防双标题。
+defineProps({ chromeless: { type: Boolean, default: false } })
+
 const { t } = useI18n()
 const auth = useAuthStore()
 const clusters = ref([])
@@ -90,10 +93,10 @@ const verifiedAt = computed(() => {
 </script>
 
 <template>
-  <section class="animate-fade-in p-md max-w-5xl flex flex-col gap-md">
+  <section class="p-md max-w-5xl flex flex-col gap-md">
     <div class="flex items-center justify-between gap-md flex-wrap">
       <div>
-        <h2 class="text-headline-lg font-bold text-on-surface flex items-center gap-sm"><span class="material-symbols-outlined">menu_book</span> {{ t('workbench.ledger.title') }}</h2>
+        <h2 v-if="!chromeless" class="text-headline-lg font-bold text-on-surface flex items-center gap-sm"><span class="material-symbols-outlined">menu_book</span> {{ t('workbench.ledger.title') }}</h2>
         <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('workbench.ledger.subtitle') }}</p>
       </div>
       <div class="flex items-center gap-sm">

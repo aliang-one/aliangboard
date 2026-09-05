@@ -10,6 +10,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { relTime as relTimeFmt } from '@/logic/relTime'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import WorkbenchChat from '@/components/workbench/WorkbenchChat.vue'
+import WbStage from '@/components/workbench/WbStage.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -304,9 +305,11 @@ const treeRows = computed(() => {
     <button class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container" @click="retryLoad">{{ t('workbench.detail.loadRetry') }}</button>
   </div>
 
-  <section v-else-if="project" class="animate-fade-in h-full flex flex-col min-h-0">
-    <!-- Header -->
-    <div class="shrink-0 flex items-center gap-sm px-md py-sm border-b border-outline-variant bg-surface-container-lowest">
+  <section v-else-if="project" class="h-full min-h-0 p-md">
+    <WbStage>
+      <template #titleBar>
+        <!-- Header -->
+        <div class="shrink-0 flex items-center gap-sm flex-wrap px-md py-sm border-b border-outline-variant/40">
       <button @click="router.push('/workbench')" class="p-1 rounded hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">arrow_back</span></button>
       <h2 class="text-body-md font-bold text-on-surface flex items-center gap-xs">
         <span class="material-symbols-outlined text-lg">workspaces</span>{{ project.name }}
@@ -347,9 +350,10 @@ const treeRows = computed(() => {
         <span class="material-symbols-outlined text-sm" :class="reconciling ? 'animate-spin' : ''">{{ reconciling ? 'progress_activity' : 'sync' }}</span>
         <span class="hidden lg:inline">{{ t('workbench.detail.reconcile') }}</span>
       </button>
-    </div>
+      </div>
+      </template>
 
-    <!-- Reconcile status -->
+      <!-- Reconcile status -->
     <div v-if="lastReconcile" class="shrink-0 text-body-xs text-on-surface-variant flex items-start gap-sm px-md py-xs bg-surface-container-low/50">
       <span class="material-symbols-outlined text-sm">sync</span>
       <div class="min-w-0">
@@ -504,6 +508,7 @@ const treeRows = computed(() => {
         </details>
       </div>
     </div>
+    </WbStage>
   </section>
 
   <div v-else class="p-md text-center text-on-surface-variant">{{ t('workbench.detail.projectNotFound') }}</div>
