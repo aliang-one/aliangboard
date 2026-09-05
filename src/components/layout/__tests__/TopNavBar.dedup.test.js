@@ -47,6 +47,8 @@ vi.mock('@/api/client', () => ({
   getSession: () => false,
   getPlatformToken: () => null,
   workbenchApi: { summary: vi.fn().mockResolvedValue({ projects: [], totals: { projects: 0, runningConvs: 0, pendingApprovals: 0, sshSessions: 0 } }) },
+  // Task13:UserMenu 挂载即 ensureLoaded→getAvatar(默认 404 回退首字母)
+  authApi: { getAvatar: vi.fn().mockRejectedValue({ status: 404 }) },
 }))
 
 import TopNavBar from '../TopNavBar.vue'

@@ -5,9 +5,13 @@ import { useI18n } from 'vue-i18n'
 import { authApi } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { notify } from '@/composables/useToast'
+import { fileToAvatarDataUrl } from '@/utils/avatarImage'
+import { useAvatar } from '@/composables/useAvatar'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
+const { avatarDataUrl, ensureLoaded, apply, clearLocal } = useAvatar()
+const avatarFileEl = ref(null)
 
 const user = computed(() => authStore.user || {})
 const createdAtText = computed(() => (user.value.createdAt ? new Date(user.value.createdAt).toLocaleDateString() : '—'))
@@ -15,7 +19,7 @@ const initial = computed(() => (user.value.displayName || user.value.username ||
 
 const displayName = ref('')
 const savingName = ref(false)
-onMounted(() => { displayName.value = user.value.displayName || '' })
+onMounted(() => { displayName.value = user.value.displayName || ''; ensureLoaded() })
 async function saveDisplayName() {
   savingName.value = true
   try {
@@ -25,12 +29,38 @@ async function saveDisplayName() {
   } catch (e) { notify('error', e.message || t('common.opFailed')) }
   finally { savingName.value = false }
 }
+
+function pickAvatar() { avatarFileEl.value?.click() }
+async function onAvatarFile(e) {
+  const file = e.target?.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  const dataUrl = await fileToAvatarDataUrl(file)
+  if (!dataUrl) { notify('error', t('userCenter.avatarInvalid')); return }
+  try {
+    await authApi.uploadAvatar(dataUrl)
+    apply(dataUrl)
+    notify('success', t('common.save'))
+  } catch (err) { notify('error', err.message || t('common.opFailed')) }
+}
+async function onClearAvatar() {
+  try {
+    await authApi.clearAvatar()
+    clearLocal()
+    notify('success', t('common.save'))
+  } catch (err) { notify('error', err.message || t('common.opFailed')) }
+}
 </script>
 
 <template>
   <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg">
     <div class="flex items-center gap-md mb-md">
-      <div class="w-14 h-14 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-headline-lg font-bold">{{ initial }}</div>
+      <div class="relative shrink-0">
+        <img v-if="avatarDataUrl" :src="avatarDataUrl" data-testid="avatar-img" alt="avatar"
+          class="w-14 h-14 rounded-full object-cover border border-outline-variant" />
+        <div v-else data-testid="avatar-fallback"
+          class="w-14 h-14 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-headline-lg font-bold">{{ initial }}</div>
+      </div>
       <div class="min-w-0">
         <div class="flex items-center gap-sm">
           <p class="text-body-lg font-semibold truncate">{{ user.displayName || user.username }}</p>
@@ -48,6 +78,15 @@ async function saveDisplayName() {
       <button data-testid="profile-displayname-save" :disabled="savingName"
         class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm disabled:opacity-50 shrink-0"
         @click="saveDisplayName">{{ $t('common.save') }}</button>
+    </div>
+    <div class="flex items-center gap-sm mt-sm">
+      <input type="file" accept="image/png,image/jpeg,image/webp" data-testid="avatar-input" class="hidden" ref="avatarFileEl" @change="onAvatarFile" />
+      <button data-testid="avatar-pick"
+        class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container transition-colors"
+        @click="pickAvatar">{{ $t('userCenter.avatarUpload') }}</button>
+      <button data-testid="avatar-clear"
+        class="px-md py-sm border border-outline-variant rounded-lg text-body-sm text-error hover:bg-error/10 transition-colors"
+        @click="onClearAvatar">{{ $t('userCenter.avatarClear') }}</button>
     </div>
   </div>
 </template>

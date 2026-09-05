@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useAvatar } from '@/composables/useAvatar'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const router = useRouter()
@@ -28,6 +29,8 @@ const roleLabel = computed(() => {
   return t(role === 'admin' ? 'admin.users.roleAdmin' : 'admin.users.roleUser')
 })
 const prefs = usePreferencesStore()
+// 头像共享单例(2026-09-04 Wave1 Task13):与 ProfileSection 同一 ref,上传/清除即时同步
+const { avatarDataUrl, ensureLoaded } = useAvatar()
 // 快速切换区选项(2026-08-31 设计 §4):文案/图标与用户中心页同源,零新增 i18n 键
 const themeOptions = [
   { v: 'light', icon: 'light_mode', key: 'userCenter.themeLight' },
@@ -58,6 +61,7 @@ function onKey(e) { if (e.key === 'Escape') closeMenu() }
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKey)
+  ensureLoaded()
 })
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
@@ -74,7 +78,10 @@ onBeforeUnmount(() => {
       :aria-label="$t('nav.userCenter')"
       @click="toggle"
     >
-      <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ initial }}</div>
+      <img v-if="avatarDataUrl" :src="avatarDataUrl" data-testid="user-avatar-img" alt="avatar"
+        class="w-8 h-8 rounded-full object-cover" />
+      <div v-else data-testid="user-avatar-fallback"
+        class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold">{{ initial }}</div>
       <div class="flex flex-col items-start min-w-0 leading-tight">
         <span class="text-body-sm font-semibold max-w-[90px] xl:max-w-[120px] truncate max-lg:hidden" :title="displayName">{{ displayName }}</span>
         <span v-if="roleLabel" data-testid="user-menu-role" class="text-[10px] text-on-surface-variant max-w-[90px] xl:max-w-[120px] truncate max-lg:hidden">{{ roleLabel }}</span>
@@ -88,7 +95,10 @@ onBeforeUnmount(() => {
       class="absolute top-full right-0 mt-1 w-60 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-dropdown z-50 overflow-hidden"
     >
       <div class="flex items-center gap-sm px-md py-md border-b border-outline-variant">
-        <div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-headline-sm font-bold shrink-0">{{ initial }}</div>
+        <img v-if="avatarDataUrl" :src="avatarDataUrl" data-testid="user-avatar-img" alt="avatar"
+          class="w-10 h-10 rounded-full object-cover shrink-0" />
+        <div v-else data-testid="user-avatar-fallback"
+          class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-headline-sm font-bold shrink-0">{{ initial }}</div>
         <div class="min-w-0">
           <p class="text-body-md font-semibold truncate">{{ displayName }}</p>
           <p class="text-body-xs text-on-surface-variant truncate font-mono">{{ authStore.user?.username }}</p>

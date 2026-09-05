@@ -26,11 +26,19 @@ const apiMocks = vi.hoisted(() => ({
   uploadAvatar: vi.fn(), clearAvatar: vi.fn(),
 }))
 vi.mock('@/api/client', () => ({ authApi: apiMocks }))
+// canvas 中心裁剪走 happy-dom 不测(无 2d context,2026-09-04 Wave1 Task13):mock 成固定 dataUrl
+vi.mock('@/utils/avatarImage', () => ({
+  AVATAR_SIZE: 256,
+  squareCrop: (w, h) => ({ sx: 0, sy: 0, s: Math.min(w, h) }),
+  isSupportedImage: (f) => !!f && f.type === 'image/jpeg',
+  fileToAvatarDataUrl: vi.fn(async (f) => (f && f.type === 'image/jpeg' ? 'data:image/jpeg;base64,AAA' : null)),
+}))
 
 import UserProfile from '@/views/UserProfile.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
+import { resetAvatarForTest } from '@/composables/useAvatar'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -43,6 +51,9 @@ beforeEach(() => {
     { fingerprint: 'beef5678', ip: '5.6.7.8', userAgent: 'Mozilla/5.0 Firefox', createdAt: 1756300000000, lastSeenAt: 1756390000000, current: false },
   ] })
   apiMocks.updateMe.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: '阿亮' } })
+  apiMocks.getAvatar.mockRejectedValue({ status: 404 })
+  // 头像单例跨用例残留清理(2026-09-04 Wave1 Task13)
+  resetAvatarForTest()
 })
 
 function mountPage(tab = 'security') {
@@ -316,5 +327,31 @@ test('偏好 tab:新增五项控件渲染且写入 store', async () => {
   expect(usePreferencesStore().defaultNamespace).toBe('team-a')
   await w.find('[data-testid="pref-rows"]').setValue('50')
   expect(usePreferencesStore().rowsPerPage).toBe(50)
+  w.unmount()
+})
+
+// === Task 13: 头像上传/清除(资料卡) ===
+test('资料卡:上传头像调 uploadAvatar 且共享态即时更新', async () => {
+  apiMocks.uploadAvatar.mockResolvedValue({ user: {} })
+  const w = mountPage('profile')
+  await flushPromises()
+  const input = w.find('[data-testid="avatar-input"]')
+  // VTU 禁改 event.target:直接挂 files 后派发原生 change(组件内读 e.target.files)
+  Object.defineProperty(input.element, 'files', { value: [new File([], 'a.jpg', { type: 'image/jpeg' })] })
+  await input.element.dispatchEvent(new Event('change'))
+  await flushPromises()
+  expect(apiMocks.uploadAvatar).toHaveBeenCalledWith('data:image/jpeg;base64,AAA')
+  expect(w.find('[data-testid="avatar-img"]').exists()).toBe(true)   // 共享单例即时生效
+  w.unmount()
+})
+
+test('资料卡:清除头像调 clearAvatar 并回退首字母', async () => {
+  apiMocks.clearAvatar.mockResolvedValue({ user: {} })
+  const w = mountPage('profile')
+  await flushPromises()
+  await w.find('[data-testid="avatar-clear"]').trigger('click')
+  await flushPromises()
+  expect(apiMocks.clearAvatar).toHaveBeenCalledTimes(1)
+  expect(w.find('[data-testid="avatar-fallback"]').exists()).toBe(true)
   w.unmount()
 })
