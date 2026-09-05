@@ -87,7 +87,7 @@ test('编辑 Modal 打开后 init/sidecar 行内表单渲染已有行(锁定现�
       imageRepo: 'nginx', imageTag: 'latest', replicas: '1', tier: 'default',
       imagePullPolicy: 'IfNotPresent', command: '', args: '', workingDir: '',
       cpuReq: '', cpuLim: '', memReq: '', memLim: '',
-      ports: [], env: [], envCMKeys: [], envSecretKeys: [], envFromConfigMap: '', envFromSecret: '',
+      ports: [], envRows: [], envFromRows: [],
       liveness: { enabled: false }, readiness: { enabled: false }, startup: { enabled: false },
       volumeMounts: [], nodeSelectors: [], tolerations: [],
       securityContext: {}, lifecycle: { postStart: '', preStop: '' },
@@ -217,4 +217,44 @@ test('原生 sidecar 挂载往返:回填 tag 分流正确,重建不丢挂载', a
   } finally {
     state.demoWorkload = orig
   }
+})
+
+test('编辑壳:多 envFrom 与 fieldRef 回填并完整保存(D1/D2 根治)', async () => {
+  state.demoWorkload = {
+    ...demoWorkload,
+    raw: {
+      metadata: { name: 'demo-deploy', namespace: 'default', labels: { app: 'demo' } },
+      spec: { replicas: 1, selector: { matchLabels: { app: 'demo' } },
+        template: { metadata: { labels: { app: 'demo' } }, spec: {
+          containers: [{ name: 'main', image: 'nginx',
+            env: [
+              { name: 'FOO', value: 'bar' },
+              { name: 'MY_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name', apiVersion: 'v1' } } },
+            ],
+            envFrom: [{ prefix: 'MY_', configMapRef: { name: 'cm1' } }, { secretRef: { name: 's1' } }],
+          }],
+        } } },
+    },
+  }
+  const w = mountDetailB()
+  await flushPromises()
+  await w.vm.openEdit()
+  expect(w.vm.editForm.envRows.map(r => r.name)).toEqual(['FOO', 'MY_NAME'])
+  expect(w.vm.editForm.envRows[1].type).toBe('fieldRef')
+  expect(w.vm.editForm.envRows[1].passthrough).toEqual({ apiVersion: 'v1' })   // 长尾子字段保全
+  expect(w.vm.editForm.envFromRows.map(r => r.name)).toEqual(['cm1', 's1'])    // 多条不取第一个
+  expect(w.vm.editForm.envFromRows[0].passthrough).toEqual({ prefix: 'MY_' })
+  await w.vm.saveEdit()
+  const spec = capturedSpec()
+  expect(spec.containers[0].env).toEqual([
+    { name: 'FOO', value: 'bar' },
+    { name: 'MY_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name', apiVersion: 'v1' } } },
+  ])
+  expect(spec.containers[0].envFrom).toEqual([
+    { prefix: 'MY_', configMapRef: { name: 'cm1' } },
+    { secretRef: { name: 's1' } },
+  ])
+  state.demoWorkload = demoWorkload                                           // 复原文件级夹具
+  w.unmount()
+  document.body.innerHTML = ''
 })
