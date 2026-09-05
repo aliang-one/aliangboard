@@ -101,3 +101,17 @@ test('GET:只回自己的(含已吊销);DELETE:归属过滤,他人/不存在 404
   assert.equal(sent.at(-1).status, 200)
   assert.ok(db.prepare('SELECT revokedAt FROM api_keys WHERE id=?').get('k-mine').revokedAt > 0)
 })
+
+// 终审 F3:缺 clusterId 早拒 400(此前 .get(userId, undefined) 抛 SQLite 原文泄漏)+ catch 不再漏原文
+test('POST:缺 clusterId → 400「缺少集群」,不留行;供给抛错 → 400「签发失败」非原文泄漏', async () => {
+  const db = makeDb(); const { routes, sent } = makeRoutes(db)
+  await routes.handle({ ...REQ, method: 'POST', _body: { namespace: 'n', tier: 'read' } }, {}, new URL('http://x/api/my/keys'))
+  assert.equal(sent.at(-1).status, 400)
+  assert.equal(sent.at(-1).payload.message, '缺少集群')
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM api_keys').get().c, 0)
+  // catch 路径:供给组件抛异常 → 统一「签发失败」,不得把 e.message 原文回给客户端
+  const boom = makeRoutes(db, { _provision: async () => { throw new Error('cannot bind undefined: sqlite internals') } })
+  await boom.routes.handle({ ...REQ, method: 'POST', _body: { clusterId: 'c1', namespace: 'n', tier: 'read' } }, {}, new URL('http://x/api/my/keys'))
+  assert.equal(boom.sent.at(-1).status, 400)
+  assert.equal(boom.sent.at(-1).payload.message, '签发失败')
+})
