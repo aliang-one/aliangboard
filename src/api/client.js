@@ -50,6 +50,12 @@ export function clearStashedSession() {
   try { localStorage.removeItem(prevSessionKey) } catch { /* noop */ }
 }
 
+// 账号切换专用(W2-0 §0.4-4):双键全清且不暂存——与 clearSession(暂存供同集群 rekey)语义相反。
+// 登录成功时调用:上一账号的 K8s token/暂存一律不留,防跨账号复用与窗口记录继承。
+export function purgeSession() {
+  try { sessionStorage.removeItem(sessionKey); localStorage.removeItem(sessionKey); localStorage.removeItem(prevSessionKey) } catch { /* 存储不可用静默 */ }
+}
+
 export function getSession() {
   return getSessionToken()
 }

@@ -13,7 +13,7 @@ import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxS
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { registry } from '../tool-registry.mjs'
 import { isValidMinutes } from '../ssh/reap-policy.mjs'
-import { revokeUserSessions } from '../session-revoke.mjs'
+import { revokeUserSessions, revokeUserClusterSessions, revokeClusterSessions } from '../session-revoke.mjs'
 
 export function createAdminRoutes(deps) {
   const {
@@ -319,7 +319,10 @@ export function createAdminRoutes(deps) {
         try { db.prepare('DELETE FROM sessions WHERE apiServer=?').run(row.apiServer) } catch { /* noop */ }
         for (const [t, s] of sessions) if (String(s.apiServer) === row.apiServer) sessions.delete(t)
       }
+      // W2-0 §0.4-3:归属列/平台链路径全用户该集群 session 吊销(与上面 apiServer 尽力回收互补)。
+      const revokedSessions = revokeClusterSessions({ db, sessions, platformSessions }, id)
       clusterProber.invalidate(id)
+      writeAudit?.(db, { owner: ps.username, verb: 'delete', tool: 'admin_cluster_delete', result: 'ok', requestSummary: `id=${id} revokedSessions=${revokedSessions}`, source: 'platform' })
       sendJson(res, 200, { ok: true })
       return true
     }
@@ -700,11 +703,16 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const userId = url.pathname.split('/')[4]
       const { clusterIds } = await readBody(req)
+      const old = db.prepare('SELECT clusterId FROM user_clusters WHERE userId=?').all(userId).map(r => r.clusterId)
       db.prepare('DELETE FROM user_clusters WHERE userId=?').run(userId)
       if (Array.isArray(clusterIds)) {
         const stmt = db.prepare('INSERT INTO user_clusters (userId,clusterId,assignedBy,assignedAt) VALUES (?,?,?,?)')
         for (const cid of clusterIds) stmt.run(userId, cid, ps.username, Date.now())
       }
+      // W2-0 §0.4-2:被移除的集群 → 立即吊销该用户的存量 K8s session
+      const removed = old.filter(cid => !(Array.isArray(clusterIds) && clusterIds.includes(cid)))
+      const revokedSessions = revokeUserClusterSessions({ db, sessions, platformSessions }, userId, removed)
+      writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'admin_user_clusters', result: 'ok', requestSummary: `id=${userId} revokedSessions=${revokedSessions}`, source: 'platform' })
       sendJson(res, 200, { clusterIds: clusterIds || [] })
       return true
     }

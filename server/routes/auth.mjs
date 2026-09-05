@@ -319,7 +319,7 @@ export function createAuthRoutes(deps) {
         }
         // 从 clusters 行构造 K8s session（字段与 sessions 表完全一致;经 buildCallContext 统一形状）
         const apiServer = normalizeServer(cluster.apiServer)
-        const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+        const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now(), userId: ps.userId, clusterId: cluster.id }
         const probe = await requestKubernetes(k8sSession, '/version')
         k8sSession.version = probe.body?.gitVersion || 'unknown'
         const k8sToken = randomUUID()

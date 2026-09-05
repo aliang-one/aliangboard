@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { api, authApi, saveSession, clearSession, getSessionToken, getStashedSession, clearStashedSession, rekeyApi } from '@/api/client'
+import { api, authApi, saveSession, clearSession, getSessionToken, getStashedSession, clearStashedSession, purgeSession, rekeyApi } from '@/api/client'
 import { usePreferencesStore } from '@/stores/preferences'
 import { resetAvatarSession } from '@/composables/useAvatar'
 
@@ -26,6 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = res.token
     user.value = res.user
     localStorage.setItem('aliangboard.platform', res.token)
+    purgeSession()   // W2-0:登录即清上一账号 K8s token 与暂存(账号切换不复用)
     usePreferencesStore().hydrateFromServer(res.prefs)
     return res
   }
@@ -94,6 +95,7 @@ export const useAuthStore = defineStore('auth', () => {
     k8sToken.value = ''
     localStorage.removeItem('aliangboard.platform')
     clearSession()
+    clearStashedSession()   // W2-0:登出不留暂存(防下账号同集群 rekey 继承窗口记录)
     resetAvatarSession() // 头像单例(模块级)必须随会话归零,否则 SPA 登出→登录下一账号看到上一账号头像
     // 登出不清除 lastCluster——用户下次登录仍自动连上次的集群
   }

@@ -390,3 +390,23 @@ test('PUT preferences 新键:合法落库,非法 400', async () => {
   await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
   assert.equal(sent.at(-1).status, 400)
 })
+
+test('connect-cluster: 签发的 K8s session 携带 userId+clusterId(persistSession 落戳, W2-0)', async () => {
+  const db = makeDb(); seed(db)
+  db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT NOT NULL,
+    authHeader TEXT, ca TEXT, cert TEXT, key TEXT, insecure INTEGER DEFAULT 0, version TEXT)`)
+  db.prepare(`INSERT INTO clusters (id,name,apiServer) VALUES ('c1','prod','https://k8s:6443')`).run()
+  db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
+  db.prepare(`INSERT INTO user_clusters VALUES ('u1','c1','admin',1)`).run()
+  const persisted = []
+  const { routes, sent } = makeRoutes(db, {
+    persistSession: (tok, s) => persisted.push({ tok, s }),
+    requestKubernetes: async () => ({ body: { gitVersion: 'v1.30' } }),
+  })
+  routes._body = { clusterId: 'c1' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/connect-cluster'))
+  assert.equal(sent[0].status, 200)
+  assert.equal(persisted.length, 1)
+  assert.equal(persisted[0].s.userId, 'u1')
+  assert.equal(persisted[0].s.clusterId, 'c1')
+})

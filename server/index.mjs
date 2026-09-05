@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody } from './call-context.mjs'
+import { sessionOwnerValid } from './session-guard.mjs'
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
@@ -115,7 +116,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
 )`)
 try { db.exec('ALTER TABLE sessions ADD COLUMN endpoints TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE sessions ADD COLUMN endpointIdx INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
-const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt, endpoints, endpointIdx) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+try { db.exec('ALTER TABLE sessions ADD COLUMN userId TEXT') } catch { /* 列已存在 */ }   // W2-0:归属(谁连的)
+try { db.exec('ALTER TABLE sessions ADD COLUMN clusterId TEXT') } catch { /* 列已存在 */ } // W2-0:哪个集群
+const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt, endpoints, endpointIdx, userId, clusterId) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
 // 终端会话持久化（任务栏：多终端、重命名、最小化，刷新不丢）
 db.exec(`CREATE TABLE IF NOT EXISTS terminals (
   id TEXT PRIMARY KEY,
@@ -398,6 +401,8 @@ function persistSession(token, session) {
       session.createdAt || Date.now(),
       JSON.stringify((session.endpoints || [session.apiServer]).map(u => u.toString())),
       session.endpointIdx || 0,
+      session.userId ?? null,
+      session.clusterId ?? null,
     )
   } catch (e) { console.error('[sqlite] persistSession 失败', e?.message || e) }
 }
@@ -413,6 +418,8 @@ function loadPersistedSessions() {
         endpointIdx: r.endpointIdx || 0,
         version: r.version || undefined,
         createdAt: r.createdAt,
+        userId: r.userId || undefined,
+        clusterId: r.clusterId || undefined,
       }
       session.endpoints = r.endpoints ? JSON.parse(r.endpoints).map(s => new URL(s)) : [session.apiServer]
       session.insecureDispatcher = getDispatcher({ ca: r.ca, cert: r.cert, key: r.key, insecure: true })
@@ -459,10 +466,16 @@ const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
 
 function sessionFromRequest(req) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
-  const session = token ? sessions.get(token) : null
+  let session = token ? sessions.get(token) : null
   if (session && Date.now() - session.createdAt > sessionTtl) {
     sessions.delete(token)
     removePersistedSession(token) // 过期：从库中清除
+    return null
+  }
+  // W2-0 §0.4:逐请求归属复检——用户被禁用/删除或失去集群分配即刻失效(三处同清:内存+库)。
+  if (session && !sessionOwnerValid(db, session)) {
+    sessions.delete(token)
+    removePersistedSession(token)
     return null
   }
   return session
@@ -2240,7 +2253,7 @@ httpServer.on('upgrade', (req, socket, head) => {
   if (url.pathname !== '/api/exec') { socket.destroy(); return }
   const token = url.searchParams.get('session')
   const session = token ? sessions.get(token) : null
-  if (!session || Date.now() - session.createdAt > sessionTtl) {
+  if (!session || Date.now() - session.createdAt > sessionTtl || !sessionOwnerValid(db, session)) {
     socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
     socket.destroy()
     return

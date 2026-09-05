@@ -105,6 +105,11 @@ export function createWorkbenchProjectRoutes(deps) {
     if (url.pathname.startsWith('/api/workbench/projects')) {
       const ps = requirePlatform(req, res); if (!ps) return true
       const clusterNameOf = cid => db.prepare('SELECT name FROM clusters WHERE id=?').get(cid)?.name || (cid ? cid.slice(0, 8) : '-')
+      // W2-0 §2.6:项目域集群门——发起者(项目 owner)须仍被分配该集群;admin 豁免;空 clusterId(未绑定)放行
+      const clusterEntitled = (ps0, cid) => {
+        if (!cid || ps0.role === 'admin') return true
+        return !!db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(ps0.userId, cid)
+      }
       // 解析:/api/workbench/projects[/<id>[/files/<path>|/commit]]
       const seg = url.pathname.slice('/api/workbench/projects'.length).split('/').filter(Boolean)
       const id = seg[0]
@@ -120,6 +125,7 @@ export function createWorkbenchProjectRoutes(deps) {
             const input = await readBody(req)
             if (!input.name) { sendJson(res, 400, { message: msg(req, 'wbp.nameClusterRequired') }); return true }
             if (input.clusterId && !db.prepare('SELECT 1 FROM clusters WHERE id=?').get(input.clusterId)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
+            if (!clusterEntitled(ps, input.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
             const p = createProject(db, { name: input.name, clusterId: input.clusterId, ownerId: ps.userId })
             const repo = projectRepoPath(WORKBENCH_DIR, p)
             await initRepo(repo)
@@ -214,6 +220,7 @@ export function createWorkbenchProjectRoutes(deps) {
         const input = await readBody(req)
         const cid = input.clusterId ?? ''
         if (cid && !db.prepare('SELECT 1 FROM clusters WHERE id=?').get(cid)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
+        if (cid && !clusterEntitled(ps, cid)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         db.prepare('UPDATE workbench_projects SET clusterId=? WHERE id=?').run(cid, id)
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'workbench_project_cluster', result: 'ok', requestSummary: `project=${id} clusterId=${cid || '(unbound)'}`, source: 'platform' })
         sendJson(res, 200, { ok: true, project: { ...getProject(db, id), clusterName: clusterNameOf(cid) } })
@@ -242,6 +249,7 @@ export function createWorkbenchProjectRoutes(deps) {
       // 提交 :id/commit
       if (seg[1] === 'commit' && req.method === 'POST') {
         try {
+          if (!clusterEntitled(ps, p.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
           const input = await readBody(req)
           const r = await wbCommit(repo, input.message || 'update')
           sendJson(res, 200, r)
@@ -252,6 +260,7 @@ export function createWorkbenchProjectRoutes(deps) {
       // reconcile :id/reconcile(第 4 阶段 R2):幂等再 apply manifests,集群对齐 repo(声明字段作用域)
       if (seg[1] === 'reconcile' && req.method === 'POST') {
         try {
+          if (!clusterEntitled(ps, p.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
           const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
           if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
           const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
