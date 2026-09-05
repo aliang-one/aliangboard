@@ -141,6 +141,44 @@ export function createTerminalService({
   }
   function attachments(tid) { return [...(map.get(tid)?.connIds || []).values()] }
 
+  // 二段式回收(注入时钟,毫秒级可测):阶段一 DETACHED 超时→DETACHED_TIMEOUT(tmux 保留);
+  // 阶段二 DETACHED_TIMEOUT 超时→claimClose(CAS)→CLOSED(transition 内 releaseBackend)。
+  function sweep(policy = {}, nowTs = now()) {
+    const s1 = (policy.detachedIdleMin || 0) * 60000
+    const s2 = (policy.backendIdleMin || 0) * 60000
+    const events = []
+    for (const t of map.values()) {
+      if (t.status === 'DETACHED' && s1 > 0 && nowTs - (t.detachedSince ?? nowTs) > s1) {
+        transition(t, 'DETACHED_TIMEOUT', 'reaped-detached-idle')
+        events.push({ tid: t.id, action: 'timeout-stage1' })
+      } else if (t.status === 'DETACHED_TIMEOUT' && s2 > 0 && nowTs - (t.backendIdleSince ?? nowTs) > s2) {
+        if (claimClose(t.id)) {
+          transition(t, 'CLOSED', 'reaped-backend-idle')
+          events.push({ tid: t.id, action: 'timeout-stage2' })
+        }
+      }
+    }
+    return events
+  }
+
+  // boot 对账(listen 之前跑,单进程无并发写者):存活的 ATTACHED/DETACHED* → DETACHED,
+  // 两段锚点=bootAt(不探测不建连,尊重 lazy;last_active_at 保留,阶段二锚点不被顺延);
+  // CREATING → LOST('gateway-restart')。
+  function reconcileOnBoot(bootAt) {
+    let reattached = 0, lost = 0
+    for (const t of map.values()) {
+      if (t.status === 'CREATING') { t.lastError = 'gateway-restart'; transition(t, 'LOST', 'gateway-restart'); lost++; continue }
+      if (t.status === 'ATTACHED' || t.status === 'DETACHED' || t.status === 'DETACHED_TIMEOUT') {
+        t.status = 'DETACHED'
+        t.detachedSince = bootAt
+        t.backendIdleSince = bootAt
+        t.statusVersion = (t.statusVersion || 0) + 1
+        reattached++
+      }
+    }
+    return { reattached, lost }
+  }
+
   function markLost(tid, reason) {
     const t = map.get(tid); if (!t) return
     t.lastError = String(reason || '')
@@ -181,5 +219,5 @@ export function createTerminalService({
     }
   }
 
-  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, attach, detach, abandon, markLost, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments }
+  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, attach, detach, abandon, markLost, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot }
 }

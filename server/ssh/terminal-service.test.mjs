@@ -163,3 +163,42 @@ test('claimClose:CAS 同步认领,仅 DETACHED_TIMEOUT 可认领一次', () => {
   const { terminal: u } = svc.getOrCreate('t2', () => svc.newTerminal({ id: 't2', owner: 'u', serverId: 'sv' }))
   assert.equal(svc.claimClose('t2'), false)              // 非 DETACHED_TIMEOUT
 })
+
+test('二段 sweep:阶段一 DETACHED→DETACHED_TIMEOUT;阶段二→CLOSED;注入时钟毫秒级穷举', async () => {
+  let clock = 0
+  const svc = createTerminalService({ now: () => clock })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  svc.bindChannel('t1', {}); svc.readyForOwner('t1').resolve()
+  await svc.attach('t1', 'c1', { close() {} })
+  clock = 10 * 60 * 1000
+  svc.detach('t1', 'c1')                                  // detachedSince=10min
+  const policy = { detachedIdleMin: 10, backendIdleMin: 10080 }
+  clock = 20 * 60 * 1000 + 1                              // +10min+1ms:阶段一(严格大于阈值)
+  let ev = svc.sweep(policy, clock)
+  assert.equal(t.status, 'DETACHED_TIMEOUT')
+  assert.deepEqual(ev, [{ tid: 't1', action: 'timeout-stage1' }])
+  clock = 25 * 60 * 1000                                  // 未到 7 天
+  ev = svc.sweep(policy, clock)
+  assert.equal(t.status, 'DETACHED_TIMEOUT')
+  clock = t.backendIdleSince + 10080 * 60 * 1000 + 1      // 阶段二:自 backend_idle_since 起 7 天
+  ev = svc.sweep(policy, clock)
+  assert.deepEqual(ev, [{ tid: 't1', action: 'timeout-stage2' }])
+  assert.equal(t.status, 'CLOSED')
+})
+
+test('sweep 不动 ATTACHED/CREATING;boot 对账:ATTACHED→DETACHED(锚点=bootAt),CREATING→LOST', async () => {
+  let clock = 0
+  const svc = createTerminalService({ now: () => clock })
+  const a = svc.getOrCreate('ta', () => svc.newTerminal({ id: 'ta', owner: 'u', serverId: 'sv' })).terminal
+  const c = svc.getOrCreate('tc', () => svc.newTerminal({ id: 'tc', owner: 'u', serverId: 'sv' })).terminal
+  a.status = 'ATTACHED'; c.status = 'CREATING'
+  clock = 5 * 60 * 1000
+  const r = svc.reconcileOnBoot(clock)
+  assert.equal(a.status, 'DETACHED')
+  assert.equal(a.detachedSince, clock)
+  assert.equal(a.backendIdleSince, clock)
+  assert.equal(c.status, 'LOST')
+  // a 锚点=bootAt(5min);+11min 时距 boot 11min>10min → 阶段一(锚点自 boot 起算,未被顺延)
+  const ev = svc.sweep({ detachedIdleMin: 10, backendIdleMin: 10080 }, clock + 11 * 60 * 1000)
+  assert.deepEqual(ev, [{ tid: 'ta', action: 'timeout-stage1' }])
+})
