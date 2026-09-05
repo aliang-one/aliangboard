@@ -231,3 +231,21 @@ test('镜像 merge-on-write(事故⑤):冻结标签页醒来后 persist 不抹�
   const ids2 = JSON.parse(localStorage.getItem(LS_KEY)).map(r => r.id).sort()
   expect(ids2).toEqual(['ssh-w2', w3.id].sort())
 })
+
+test('删除墓碑(复审 F4):closeWindow 落跨页墓碑;冻结页醒来 persist/装载都不复活已删 sid', () => {
+  fresh()
+  const tombKey = 'aliangboard.ssh.removedTombstones'
+  const storeA = useSshTerminalStore()
+  const w1 = storeA.openNew({ id: 'sv1', name: 'web' })
+  storeA.closeWindow(w1.id)
+  expect(typeof JSON.parse(localStorage.getItem(tombKey))[w1.id]).toBe('number')   // 墓碑落盘
+
+  // 模拟:磁盘上有人把已删 sid 写回(他页/外部)
+  localStorage.setItem(LS_KEY, JSON.stringify([{ id: w1.id, serverId: 'sv1', name: 'web' }]))
+  storeA.openNew({ id: 'sv2', name: 'db' })              // A 页再次 persist
+  expect(JSON.parse(localStorage.getItem(LS_KEY)).map(r => r.id)).not.toContain(w1.id)   // 墓碑过滤,不复活
+
+  setActivePinia(createPinia())                          // 模拟刷新:全新 pinia 装载
+  const storeB = useSshTerminalStore()
+  expect(storeB.windows.find(w => w.id === w1.id)).toBeUndefined()   // 装载同样被墓碑过滤
+})

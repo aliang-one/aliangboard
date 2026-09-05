@@ -164,3 +164,18 @@ test('死 chip 标记(事故④):本地窗口连续两轮不在网关列表 → 
     expect(chip.attributes('title')).not.toContain('空闲回收')
   } finally { vi.useRealTimers(); vi.restoreAllMocks() }
 })
+
+test('死 chip 点击(复审 F3):已打开的死窗口强制 minimize→restore 翻转触发重连', async () => {
+  const bar = mountBar()
+  const ssh = useSshTerminalStore()
+  const w = ssh.openNew({ id: 'sv1', name: 'web-1' })
+  ssh.markDeadSids([w.id])
+  await bar.vm.$nextTick()
+  const chip = findSshChip(bar)[0]
+  const minSpy = vi.spyOn(ssh, 'minimizeWindow')
+  const resSpy = vi.spyOn(ssh, 'restoreWindow')
+  await chip.trigger('click')              // status=open + dead → 翻转而非 focus
+  expect(minSpy).toHaveBeenCalledWith(w.id)
+  expect(resSpy).toHaveBeenCalledWith(w.id)  // 翻转完成 → SshTerminalWindow watcher 的 connectIfIdle 重连
+  expect(w.status).toBe('open')
+})

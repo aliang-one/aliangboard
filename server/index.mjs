@@ -58,7 +58,7 @@ import { createSshJobBridge } from './ssh/job-bridge.mjs'
 import { resolveJobPolicy } from './ssh/job-policy.mjs'
 import { createTerminalRegistry } from './ssh/terminal-sessions.mjs'
 import { resolvePolicy } from './ssh/reap-policy.mjs'
-import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness } from './ssh/terminal-wire.mjs'
+import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness, createCloseSentinel } from './ssh/terminal-wire.mjs'
 import { reconcileProject } from './reconcile.mjs'
 import { serveStatic } from './static.mjs'
 import { DatabaseSync } from 'node:sqlite'
@@ -812,6 +812,7 @@ function wsSend(ws, type, payload) {
 // 建立 Pod exec 终端会话
 async function handleExec(ws, session, url, req) {
   markAlive(ws)   // WS 存活探测打标(半开 TCP 不发 close,靠 ping/pong 发现死连接)
+  const sentinel = createCloseSentinel(ws)   // 入口关闭哨兵(复审 F1,同 handleSshTerminal)
   const namespace = url.searchParams.get('namespace')
   const pod = url.searchParams.get('pod')
   if (!namespace || !pod) { wsSend(ws, CH_ERROR, msg(req, 'api.missingNsPodParams')); return ws.close() }
@@ -867,6 +868,12 @@ async function handleExec(ws, session, url, req) {
       execCommand = command
     }
   }
+  if (sentinel.gone) {
+    // 建连 await 链(tmux 探测/建会话)中浏览器已断(复审 F1):回退附着计数,idle reaper
+    // 稍后按钟回收刚建的 tmux;不主动 kill——慢 F5 场景同 sid 立刻重连还能续上
+    if (attachedMeta) attachedMeta.attached = Math.max(0, (attachedMeta.attached || 1) - 1)
+    return
+  }
   // 告知前端最终是否持久(徽标) + 实际 shell(auto 探测可能与前端假设不同,头部展示用)
   wsSend(ws, CH_MODE, JSON.stringify({ persistent, ...(mode === 'attach' ? {} : { shell: command.join(' ') }) }))
 
@@ -894,6 +901,12 @@ async function handleExec(ws, session, url, req) {
     return ws.close()
   }
 
+  if (sentinel.gone) {
+    // k8s exec 建立期间浏览器已断(复审 F1):立刻关 exec(杀 tmux attach 客户端/一次性 shell)
+    // + 回退附着计数,再交棒给下方 close 处理
+    try { conn?.close() } catch { /* noop */ }
+    if (attachedMeta) attachedMeta.attached = Math.max(0, (attachedMeta.attached || 1) - 1)
+  }
   conn.on('close', () => { try { ws.close() } catch { /* noop */ } })
   conn.on('error', () => { try { ws.close() } catch { /* noop */ } })
 
@@ -916,6 +929,7 @@ async function handleExec(ws, session, url, req) {
     try { stdin.end() } catch { /* noop */ }
     try { conn?.close() } catch { /* noop */ }
   })
+  sentinel.dispose()   // 此后 close 由上方处理器全权负责
   ws.on('error', () => { try { conn?.close() } catch { /* noop */ } })
 }
 
@@ -2157,6 +2171,9 @@ sessionSweeper.unref?.()
 
 async function handleSshTerminal(ws, ps, url) {
   markAlive(ws)   // WS 存活探测打标(半开 TCP 不发 close,靠 ping/pong 发现死连接)
+  // 入口关闭哨兵(2026-09-04 复审 F1):建连链路的 await 窗口内浏览器断开时,close 先于
+  // 接线发生会被 EventEmitter 丢失 → 计数卡死泄漏。每个 await 后 bail 并释放已取得资源。
+  const sentinel = createCloseSentinel(ws)
   const serverId = url.searchParams.get('serverId')
   // sid 必传(2026-08-29 审计):此前缺失时 crypto.randomUUID() 补位 → 客户端永远无从知道
   // sid,会话成任务栏/对账盲区(「不可见活会话」的出生通道)。契约硬化:缺即拒。
@@ -2173,6 +2190,7 @@ async function handleSshTerminal(ws, ps, url) {
     let session = sshTerminals.get(sid)
     if (!session) {
       const { client, release } = await sshPool.acquire(serverId, ps.userId)
+      if (sentinel.gone) { try { release() } catch { /* noop */ } return }   // 窗口内已断:还池句柄,不留痕
       let shellOk, shellFail
       const ready = new Promise((res, rej) => { shellOk = res; shellFail = rej })
       // 先 ensure 再开 shell:打开窗口期进来的第二个连接走重连分支,await extra.ready 等同一结果
@@ -2189,6 +2207,7 @@ async function handleSshTerminal(ws, ps, url) {
           try { ws.close() } catch {}
           return
         }
+        if (sentinel.gone) return   // 已断:句柄已归还、尚未 attach,无资源需清理
       } else {
       session.extra.release = release
       client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
@@ -2212,6 +2231,14 @@ async function handleSshTerminal(ws, ps, url) {
         sshTerminals.close(sid, s => s.extra.release?.())
         throw shellErr
       }
+      if (sentinel.gone) {
+        // 属主建连窗口内已断(复审 F1):收掉 channel+撤登记+还池句柄,再记 open/close 审计对
+        try { session.extra.channel?.close?.() } catch { /* noop */ }
+        sshTerminals.close(sid, s2 => s2.extra.release?.())
+        writeAudit(db, { owner: ps.username, verb: 'open', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
+        writeAudit(db, { owner: ps.username, verb: 'close', tool: 'ssh_terminal', result: 'ok', reason: 'client-gone-during-setup', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
+        return
+      }
       writeAudit(db, { owner: ps.username, verb: 'open', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
       }
     } else if (!session.extra.channel) {
@@ -2221,6 +2248,7 @@ async function handleSshTerminal(ws, ps, url) {
         try { ws.close() } catch {}
         return
       }
+      if (sentinel.gone) return   // 已断:尚未 attach,无资源需清理
     }
     if (!sshTerminals.attach(sid, ps.username)) {   // sid 属主校验:他人会话不可附
       wsSend(ws, CH_ERROR, 'session 不属于当前用户')
@@ -2237,6 +2265,7 @@ async function handleSshTerminal(ws, ps, url) {
       onDetach: () => sshTerminals.detachBrowser(sid),
       types: { stdin: CH_STDIN, resize: CH_RESIZE, replay: CH_REPLAY },
     })
+    sentinel.dispose()   // 此后 close/error 由 attachSocketToSession 的 drop 全权负责
   } catch (e) {
     wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
     try { ws.close() } catch {}

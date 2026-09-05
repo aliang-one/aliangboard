@@ -33,6 +33,14 @@ function onTermClick(item) {
 function onFilesClick(b) { b.status === 'minimized' ? fbStore.restoreBrowser(b.id) : fbStore.focusBrowser(b.id) }
 function onSshItemClick(w) {
   if (w.status === 'external') { sshStore.focusExternal(w.id); return }
+  if (w.status !== 'minimized' && sshStore.isDead(w.id)) {
+    // 已打开但会话已被网关回收(2026-09-04 复审 F3):浮窗里的终端停在 Error 态,
+    // 单纯 focus 不会重连。强制 minimize→restore 翻转,触发 SshTerminalWindow watcher
+    // 的 connectIfIdle 重连——兑现 dead chip「点击重连将开启新会话」的承诺。
+    sshStore.minimizeWindow(w.id)
+    nextTick(() => sshStore.restoreWindow(w.id))
+    return
+  }
   w.status === 'minimized' ? sshStore.restoreWindow(w.id) : sshStore.focusWindow(w.id)
 }
 
