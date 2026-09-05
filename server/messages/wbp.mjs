@@ -12,6 +12,7 @@ export const TABLE = {
   'wbp.commitFailed': { zh: '提交失败', en: 'Failed to commit' },
   'wbp.boundClusterNotFound': { zh: '项目绑定的集群不存在', en: 'The cluster bound to this project does not exist' },
   'wbp.reconcileFailed': { zh: 'reconcile 失败', en: 'Reconcile failed' },
+  'wbp.clusterForbidden': { zh: '该集群未分配给你', en: 'This cluster is not assigned to you' },
   'wbp.unknownRoute': { zh: '未知的工作台路由', en: 'Unknown workbench route' },
   'wbp.projectIdRequired': { zh: '缺 projectId', en: 'projectId is required' },
   'wbp.noBoundCluster': { zh: '项目未绑定集群', en: 'Project has no bound cluster' },
