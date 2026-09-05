@@ -87,6 +87,13 @@ test('envFrom: 多行保序往返 + prefix 条目级剩余键保留 + 未知形�
   assert.deepEqual(envFromRowsToSpec(envFromRowsFromSpec(weird)), weird)
 })
 
+test('envFrom: 引用对象内部字段(optional 等)往返无损', () => {
+  const arr = [{ prefix: 'P_', configMapRef: { name: 'cm', optional: true } }]
+  assert.deepEqual(envFromRowsToSpec(envFromRowsFromSpec(arr)), arr)
+  const arr2 = [{ secretRef: { name: 's', optional: true } }]
+  assert.deepEqual(envFromRowsToSpec(envFromRowsFromSpec(arr2)), arr2)
+})
+
 test('envFrom: 空名行跳过、kind 归一', () => {
   assert.deepEqual(envFromRowsToSpec([
     { kind: 'configmap', name: '' },

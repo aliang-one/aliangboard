@@ -102,7 +102,11 @@ export function envFromRowsToSpec(rows = []) {
     }
     const refKey = r.kind === 'secret' ? 'secretRef' : 'configMapRef'
     const entry = { [refKey]: { name: s(r.name).trim() } }
-    if (r.passthrough && Object.keys(r.passthrough).length) Object.assign(entry, clone(r.passthrough))
+    if (r.passthrough && Object.keys(r.passthrough).length) {
+      const { [refKey]: refExtra, ...entryRest } = clone(r.passthrough)
+      if (refExtra && typeof refExtra === 'object' && !Array.isArray(refExtra)) Object.assign(entry[refKey], refExtra)
+      Object.assign(entry, entryRest)
+    }
     out.push(entry)
   }
   return out
@@ -116,6 +120,10 @@ export function envFromRowsFromSpec(arr = []) {
       const refKey = kind === 'configmap' ? 'configMapRef' : 'secretRef'
       const row = { kind, name: s(e[refKey]?.name) }
       const rest = Object.fromEntries(Object.entries(e).filter(([k]) => k !== refKey))
+      // 引用对象内部未建模键(如 optional)收进 passthrough[refKey](与条目级 rest 区分)
+      const ref = (e[refKey] && typeof e[refKey] === 'object') ? e[refKey] : {}
+      const refRest = Object.fromEntries(Object.entries(ref).filter(([k]) => k !== 'name'))
+      if (Object.keys(refRest).length) rest[refKey] = refRest
       if (Object.keys(rest).length) row.passthrough = rest
       return row
     }

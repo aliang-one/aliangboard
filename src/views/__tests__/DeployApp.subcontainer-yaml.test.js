@@ -68,3 +68,25 @@ test('子容器挂载按 target 落 volumeMounts(创建面)', async () => {
   })
   expect(pod.containers[1].volumeMounts).toEqual([{ name: 'v1', mountPath: '/data', subPath: 's', readOnly: true }])
 })
+
+test('主容器 env/envFrom 落地(含 prefix passthrough 行)', async () => {
+  const pod = await podWith({
+    envRows: [
+      { name: 'E1', type: 'value', value: 'v1' },
+      { name: 'E2', type: 'fieldRef', fieldPath: 'metadata.name' },
+    ],
+    envFromRows: [
+      { kind: 'configmap', name: 'cm1', passthrough: { prefix: 'CM_' } },
+      { kind: 'secret', name: 's1' },
+    ],
+  })
+  const main = pod.containers[0]
+  expect(main.env).toEqual([
+    { name: 'E1', value: 'v1' },
+    { name: 'E2', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
+  ])
+  expect(main.envFrom).toEqual([
+    { prefix: 'CM_', configMapRef: { name: 'cm1' } },
+    { secretRef: { name: 's1' } },
+  ])
+})

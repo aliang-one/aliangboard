@@ -2065,7 +2065,6 @@
     "envDuplicateName": "Env var {name} is duplicated — env names must be unique within a container",
     "envRowsGroup": "Environment Variables",
     "envRowsAdd": "Add Variable",
-    "envRowType": "Type",
     "envRowNamePh": "variable name",
     "envFieldPathPh": "e.g. metadata.name",
     "envResourcePh": "e.g. requests.cpu",
@@ -2080,7 +2079,7 @@
       "value": "Value",
       "configMapKeyRef": "ConfigMap Key",
       "secretKeyRef": "Secret Key",
-      "fieldRef": "Pod Field",
+      "fieldRef": "Field reference",
       "resourceFieldRef": "Container Resource"
     },
     "envField": {
@@ -2182,7 +2181,6 @@
       "commandPlaceholder": "space-separated, e.g. /bin/sh -c \"echo hi\"",
       "argsPlaceholder": "one per line, e.g. --port=8080",
       "argsHint": "one per line; spaces kept within a line",
-      "envNamePlaceholder": "ENV name",
       "capabilitiesAdd": "Add Capabilities",
       "capabilitiesAddPlaceholder": "comma-separated, e.g. NET_ADMIN,SYS_TIME",
       "capabilitiesDrop": "Drop Capabilities",

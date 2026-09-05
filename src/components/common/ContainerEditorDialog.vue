@@ -29,8 +29,8 @@ const { t } = useI18n()
 function cloneDraft(c) {
   return {
     ...makeSubContainer(), ...c,
-    envRows: (c.envRows || []).map(e => ({ ...e })),
-    envFromRows: (c.envFromRows || []).map(e => ({ ...e })),
+    envRows: (c.envRows || []).map(e => ({ ...e, ...(e.passthrough ? { passthrough: JSON.parse(JSON.stringify(e.passthrough)) } : {}) })),
+    envFromRows: (c.envFromRows || []).map(e => ({ ...e, ...(e.passthrough ? { passthrough: JSON.parse(JSON.stringify(e.passthrough)) } : {}) })),
     ports: (c.ports || []).map(p => ({ ...p })),
     liveness: { ...makeSubContainer().liveness, ...c.liveness },
     readiness: { ...makeSubContainer().readiness, ...c.readiness },
