@@ -7,7 +7,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
-const state = vi.hoisted(() => ({ classes: [] }))
+const state = vi.hoisted(() => ({ classes: [], pcs: [] }))
 // 提交桩:落库契约断言(选中「集群默认」→ 生成的 YAML 写显式 ingressClassName)
 const applyResourceYaml = vi.fn(async () => ({ ok: true }))
 vi.mock('@/api/client', () => ({
@@ -17,7 +17,7 @@ vi.mock('@/composables/useToast', () => ({ notify: vi.fn() }))
 vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   currentCluster: 'demo', watchStateOf: () => 'off', setNamespace: () => {},
   fetchIngressClasses: vi.fn(async () => state.classes),
-  fetchNamespaces: vi.fn(async () => []), fetchServiceAccounts: vi.fn(async () => []), fetchPriorityClasses: vi.fn(async () => []),
+  fetchNamespaces: vi.fn(async () => []), fetchServiceAccounts: vi.fn(async () => []), fetchPriorityClasses: vi.fn(async () => state.pcs),
   fetchServices: vi.fn(async () => []), fetchConfigMaps: vi.fn(async () => []), fetchSecrets: vi.fn(async () => []), fetchPVCs: vi.fn(async () => []),
   applyResourceYaml: (...a) => applyResourceYaml(...a),
 }) }))
@@ -85,4 +85,43 @@ test('有默认 → 选中「集群默认」后部署:提交的 YAML 写显式 i
   await flushPromises()
   expect(applyResourceYaml).toHaveBeenCalledTimes(1)
   expect(applyResourceYaml.mock.calls[0][0]).toContain('ingressClassName: nginx')
+})
+
+// === PriorityClass「集群默认」守卫选项(2026-09-05 审计:globalDefault 字段型默认同语义)===
+async function mountWithSchedulingStep() {
+  const { w, qc } = mountApp()
+  await flushPromises()
+  await w.setData({ currentStep: 3 })
+  return { w, qc }
+}
+
+test('PC 有 globalDefault → 优先级集群默认 option 可选,value=类名', async () => {
+  state.pcs = [{ name: 'low' }, { name: 'high', globalDefault: true }]
+  const { w } = await mountWithSchedulingStep()
+  const opt = w.find('[data-testid="priority-cluster-default-option"]')
+  expect(opt.exists()).toBe(true)
+  expect(opt.attributes('disabled')).toBeUndefined()
+  expect(opt.element.value).toBe('high')
+})
+
+test('PC 无 globalDefault → option disabled + hint', async () => {
+  state.pcs = [{ name: 'low', globalDefault: false }]
+  const { w } = await mountWithSchedulingStep()
+  const opt = w.find('[data-testid="priority-cluster-default-option"]')
+  expect(opt.attributes('disabled')).toBeDefined()
+  expect(w.find('[data-testid="priority-cluster-default-hint"]').exists()).toBe(true)
+})
+
+test('PC 空列表 → option disabled;hint 不渲染(空列表走「无类」语义,与 IC 配方一致)', async () => {
+  state.pcs = []
+  const { w } = await mountWithSchedulingStep()
+  expect(w.find('[data-testid="priority-cluster-default-option"]').attributes('disabled')).toBeDefined()
+  expect(w.find('[data-testid="priority-cluster-default-hint"]').exists()).toBe(false)
+})
+
+test('PC 有默认 → 选中「集群默认」即 form.priorityClassName=显式类名', async () => {
+  state.pcs = [{ name: 'low' }, { name: 'high', globalDefault: true }]
+  const { w } = await mountWithSchedulingStep()
+  await w.find('[data-testid="priority-class-select"]').setValue('high')
+  expect(w.vm.form.priorityClassName).toBe('high')
 })

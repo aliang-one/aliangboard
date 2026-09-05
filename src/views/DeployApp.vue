@@ -353,6 +353,7 @@ const mountAudit = computed(() => validateVolumeMounts(form.value.volumeMounts, 
 const availableSecrets = computed(() => (_secQ.data.value || []).filter(s => s.namespace === form.value.namespace).map(s => s.name))
 const availablePVCs = computed(() => (_pvcQ.data.value || []).filter(p => p.namespace === form.value.namespace).map(p => p.name))
 const availablePriorityClasses = computed(() => (priorityClassesQuery.data.value || []).map(p => p.name))
+const availablePriorityClassObjects = computed(() => priorityClassesQuery.data.value || [])
 const availableServiceAccounts = computed(() => (serviceAccountsQuery.data.value || []).filter(s => s.namespace === form.value.namespace).map(s => s.name))
 
 // 部署向导：targetPort 候选 = 本步骤已填的容器端口（去重），引导用户选对后端端口
@@ -1464,10 +1465,17 @@ async function handleDeploy() {
         <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.priorityClass') }}</h4>
         <div>
           <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.priorityClass') }}</label>
-          <select v-model="form.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+          <select v-model="form.priorityClassName" data-testid="priority-class-select" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+            <!-- 集群默认守卫(2026-09-05 审计):globalDefault 存在才可选,落库显式类名;空值 None 恒合法(无默认=0 优先级,不失败) -->
+            <option data-testid="priority-cluster-default-option"
+              :value="resolveClusterDefaultName(availablePriorityClassObjects, 'globalDefault')"
+              :disabled="!canUseClusterDefault(availablePriorityClassObjects, 'globalDefault')">
+              {{ canUseClusterDefault(availablePriorityClassObjects, 'globalDefault') ? $t('common.clusterDefaultOption', { name: resolveClusterDefaultName(availablePriorityClassObjects, 'globalDefault') }) : $t('common.clusterDefaultUnset') }}
+            </option>
             <option value="">None</option>
             <option v-for="pc in availablePriorityClasses" :key="pc" :value="pc">{{ pc }}</option>
           </select>
+          <p v-if="availablePriorityClassObjects.length && !canUseClusterDefault(availablePriorityClassObjects, 'globalDefault')" data-testid="priority-cluster-default-hint" class="text-xs text-on-surface-variant mt-xs">{{ $t('common.noDefaultPriorityClassHint') }}</p>
         </div>
 
         <!-- 服务账号 -->
