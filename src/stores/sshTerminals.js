@@ -57,11 +57,36 @@ function genSid() {
   return `ssh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+// 删除墓碑(2026-09-04 复审 F4):merge-on-write 修复了「冻结标签页短列表抹掉他页新增」,
+// 但冻结页错过他页的删除事件后,醒来一次 persist 会把内存里的旧 sid 并回磁盘(删除复活)。
+// 删除动作同步落一份墓碑日志(localStorage 跨页可读),persist/装载按墓碑过滤;
+// sid 永不复用(genSid),墓碑按 id 即可永久有效,超龄(7d)清理防日志无界。
+const TOMB_KEY = 'aliangboard.ssh.removedTombstones'
+const TOMB_TTL = 7 * 24 * 60 * 60 * 1000
+function loadTombstones() {
+  try {
+    const t = JSON.parse(localStorage.getItem(TOMB_KEY) || '{}')
+    return t && typeof t === 'object' && !Array.isArray(t) ? t : {}
+  } catch { return {} }
+}
+function recordTombstone(id) {
+  try {
+    const t = loadTombstones()
+    t[id] = Date.now()
+    const now = Date.now()
+    for (const [k, at] of Object.entries(t)) if (now - at > TOMB_TTL) delete t[k]
+    localStorage.setItem(TOMB_KEY, JSON.stringify(t))
+  } catch { /* 存储不可用:降级(仅本页 locallyRemoved 保护) */ }
+}
+function isTombstoned(id) {
+  return typeof loadTombstones()[id] === 'number'
+}
+
 function loadPersisted() {
   try {
     const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]')
     return (Array.isArray(arr) ? arr : [])
-      .filter(r => r && r.id && r.serverId)
+      .filter(r => r && r.id && r.serverId && !isTombstoned(r.id))
       .map(r => ({ id: r.id, serverId: r.serverId, name: r.name || r.serverId, status: 'minimized', zIndex: 0 }))
   } catch { return [] }
 }
@@ -98,7 +123,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
       if (!Array.isArray(base)) base = []
       const byId = new Map(base.map(r => [r.id, r]))
       for (const w of windows.value) byId.set(w.id, { id: w.id, serverId: w.serverId, name: w.name })
-      localStorage.setItem(LS_KEY, JSON.stringify([...byId.values()].filter(r => !locallyRemoved.has(r.id))))
+      localStorage.setItem(LS_KEY, JSON.stringify([...byId.values()].filter(r => !locallyRemoved.has(r.id) && !isTombstoned(r.id))))
     } catch { /* 隐私模式等存储不可用:降级为会话内有效 */ }
   }
 
@@ -138,6 +163,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   // 显式关闭 = 本地记录 + 网关会话一起收;recentlyClosed 供任务栏 reconcile 降噪
   const closeWindow = id => {
     locallyRemoved.add(id)
+    recordTombstone(id)
     windows.value = windows.value.filter(w => w.id !== id)
     persist()
     markRecentlyClosed(id)
@@ -229,7 +255,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
       windows.value = windows.value.filter(x => x.id !== sid)
       if (windows.value.length !== before) {
         locallyRemoved.add(sid)
-        persist()
+        recordTombstone(sid)
         markRecentlyClosed(sid)
       }
     }, GONE_GRACE_MS))
