@@ -149,8 +149,9 @@ describe('TopNavBar 工作台品牌胶囊', () => {
     expect(capsule.classes().join(' ')).toContain('from-primary-container/10')
     expect(capsule.classes().join(' ')).toContain('dark:from-primary/15')
     expect(capsule.classes()).toContain('hover:shadow-card-hover')
-    // 暗色黑影不可见:暗色档悬停换 primary 辉光同语言
+    // 暗色黑影不可见:暗色档悬停换 primary 辉光同语言;idle 无激活脉冲
     expect(capsule.classes().join(' ')).toContain('dark:hover:shadow-')
+    expect(capsule.classes()).not.toContain('animate-wb-pulse')
     expect(findPill(w).classes()).not.toContain('bg-primary-container')
   })
 
@@ -162,6 +163,8 @@ describe('TopNavBar 工作台品牌胶囊', () => {
     expect(capsule.classes().join(' ')).toContain('from-primary-container/35')
     // 光照二:激活态柔和 primary 外发光(CSS 变量取色,亮暗主题自动翻转)
     expect(capsule.classes().join(' ')).toContain('rgb(var(--md-sys-color-primary)')
+    // 激活瞬间:辉光泛起→回落一次性脉冲(转场批次:入口被点亮的因果感)
+    expect(capsule.classes()).toContain('animate-wb-pulse')
     expect(findPill(w).classes()).toContain('bg-primary-container')
   })
 })

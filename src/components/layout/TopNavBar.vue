@@ -296,7 +296,7 @@ onBeforeUnmount(unbindDropFollow)
         data-test="identity-capsule"
         class="relative self-stretch -mr-lg shrink-0 rounded-tl-[38px] rounded-bl-[16px] border transition-all duration-300 animate-panel-in motion-reduce:animate-none"
         :class="wbActive
-          ? 'border-primary/40 bg-gradient-to-r from-primary-container/35 to-primary-container/10 shadow-[0_0_22px_rgb(var(--md-sys-color-primary)/0.18)]'
+          ? 'border-primary/40 bg-gradient-to-r from-primary-container/35 to-primary-container/10 shadow-[0_0_22px_rgb(var(--md-sys-color-primary)/0.18)] animate-wb-pulse motion-reduce:animate-none'
           : 'border-outline-variant bg-gradient-to-r from-primary-container/10 via-surface-container-low to-surface-container-lowest/50 dark:from-primary/15 hover:border-primary/30 hover:shadow-card-hover dark:hover:shadow-[0_0_18px_rgb(var(--md-sys-color-primary)/0.10)]'"
       >
         <!-- 同心回声细线:radius 随 inset 收减(38-3 / 16-3),与外弧平行 -->

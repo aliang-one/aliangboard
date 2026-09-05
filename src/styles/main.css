@@ -73,6 +73,35 @@ body {
   opacity: 0;
 }
 
+/* 工作台入场转场(2026-09-05 转场批次):/workbench* 进入时内容从舷板方向(右)滑入+
+   淡入,曲线与舷板 panel-in 同族;离开与其他路由维持 fade。out-in 语义下 leave 也走
+   wb-enter 命名——统一快速淡出(离开要快,进入才从容)。 */
+.wb-enter-enter-active {
+  transition: opacity 0.2s ease-out, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.wb-enter-enter-from {
+  opacity: 0;
+  transform: translateX(14px);
+}
+.wb-enter-enter-to {
+  opacity: 1;
+  transform: translateX(0);
+}
+.wb-enter-leave-active {
+  transition: opacity 0.12s ease;
+}
+.wb-enter-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-enter-enter-active {
+    transition: opacity 0.1s ease;
+  }
+  .wb-enter-enter-from {
+    transform: none;
+  }
+}
+
 .slide-up-enter-active,
 .slide-up-leave-active {
   transition: all 0.3s ease;

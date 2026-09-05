@@ -96,7 +96,10 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
            由页面内部自管滚动;其余路由保持文档式页面滚动 -->
       <main class="flex-1 min-h-0" :class="route?.meta?.fullHeight ? 'overflow-hidden' : 'overflow-y-auto bg-surface p-margin'">
         <router-view v-slot="{ Component, route }">
-          <transition name="fade" mode="out-in">
+          <!-- 转场语言(2026-09-05):进入 /workbench* 用 wb-enter(内容从舷板方向右滑入+淡入,
+               与舷板 panel-in 同曲线),其余路由维持 fade;out-in 下 name 取「新路由」,
+               离开工作台时 leave 走 fade 快淡出。reduced-motion 退化见 main.css -->
+          <transition :name="route.path.startsWith('/workbench') ? 'wb-enter' : 'fade'" mode="out-in">
             <!-- 用单根 div 包裹，避免页面组件为多根节点（fragment）时
                  <transition mode="out-in"> 无法动画化导致新页面不挂载（详情页点击空白） -->
             <div :key="route.path + '#' + refreshTick" :class="route?.meta?.fullHeight ? 'h-full' : ''">
