@@ -1,5 +1,7 @@
 // 终端生命周期唯一状态机(2026-09-05 方案 P1,spec §2):七操作独占写,全部幂等。
-// 其余入口禁止裸 Map.delete/channel.close —— terminal-guard.test.mjs 静态守卫钉住。
+// 其余入口禁止裸 Map.delete/channel.close —— terminal-guard.test.mjs 静态守卫钉住
+// (sweep 的残尸驱逐是 service 内唯一合法 map.delete,2026-09-05 审计#2)。
+import { shouldReapSession } from './reap-policy.mjs'
 
 // 环形缓冲(自 terminal-sessions.mjs 移入,2026-09-05 方案 P1 Task6):原始字节块+字节上限。
 export function createRingBuffer(maxBytes = 4 * 1024 * 1024) {
@@ -52,7 +54,11 @@ export function createTerminalService({
     if (to === 'DETACHED') t.detachedSince = now()
     if (to === 'DETACHED_TIMEOUT') t.backendIdleSince = now()
     if (to === 'ATTACHED') { t.detachedSince = null; t.backendIdleSince = null }
-    if (to === 'CLOSED' || to === 'LOST') releaseBackend(t)
+    if (to === 'CLOSED' || to === 'LOST') {
+      // 首次进入终态的时间(sweep 残尸驱逐锚点);clock=0 是合法时刻,须用 null 判而非真值判
+      if (t.endedAt == null) t.endedAt = now()
+      releaseBackend(t)
+    }
     onIrreversible({ tid: t.id, event: to, reason, from })
     onTransition(t.id, from, to, reason)
     return true
@@ -75,8 +81,8 @@ export function createTerminalService({
       connIds: new Map(), waiterSockets: new Set(), primary: null,
       channel: null, release: null, ring: createRingBuffer(ringMaxBytes),
       ready: null, resolveReady: null, rejectReady: null, waiters: 0,
-      createdAt: now(), lastActiveAt: now(),
-      detachedSince: null, backendIdleSince: null,
+      createdAt: now(), lastActiveAt: now(), lastOutputAt: 0,
+      detachedSince: null, backendIdleSince: null, endedAt: null,
       lastAttachAt: 0, lastDetachAt: 0, attachCount: 0,
     }
     // ready 即刻存在:等待者 attach 可先于 owner 的 readyForOwner 到达,不允许 await undefined
@@ -110,6 +116,9 @@ export function createTerminalService({
     }
   }
   function bindChannel(tid, channel) { const t = map.get(tid); if (t) t.channel = channel }
+  // 池句柄挂到终端(2026-09-05 审计#1):LOST/CLOSED 时 releaseBackend 统一归还;
+  // handler 创建分支在 isOwner 时调用(此前调用了一个不存在的方法,SSH 终端全死)。
+  function bindRelease(tid, release) { const t = map.get(tid); if (t) t.release = release }
 
   function doAttach(t, connId, socket) {
     const prev = t.connIds.get(connId)
@@ -156,20 +165,46 @@ export function createTerminalService({
   }
 
   function touch(tid) { const t = map.get(tid); if (t) t.lastActiveAt = now() }
-  function markOutput(tid, chunk) { const t = map.get(tid); if (t) t.ring.push(chunk) }
+  function markOutput(tid, chunk) { const t = map.get(tid); if (t) { t.ring.push(chunk); t.lastOutputAt = now() } }
   function broadcast(tid, type, payload, send = (socket, ty, pl) => socket.send?.(ty, pl)) {
     const t = map.get(tid); if (!t) return
     for (const a of t.connIds.values()) { try { send(a.socket, type, payload) } catch { /* noop */ } }
   }
   function attachments(tid) { return [...(map.get(tid)?.connIds || []).values()] }
 
-  // 二段式回收(注入时钟,毫秒级可测):阶段一 DETACHED 超时→DETACHED_TIMEOUT(tmux 保留);
-  // 阶段二 DETACHED_TIMEOUT 超时→claimClose(CAS)→CLOSED(transition 内 releaseBackend)。
+  // 二段式回收 + 残留治理(注入时钟,毫秒级可测):
+  //   阶段〇  maxLifetimeMin(2026-09-05 审计#3 接回,v1.0.24 语义):任何活态超龄 → CAS → CLOSED
+  //   阶段〇' attachedIdleMin(同上接回):ATTACHED 且完全静默(输出≠活动续命,口径同
+  //          shouldReapSession 非对称时钟)→ CAS → CLOSED。决策复用 shouldReapSession 单源。
+  //   阶段一  DETACHED 超时 → DETACHED_TIMEOUT(tmux 保留)
+  //   阶段二  DETACHED_TIMEOUT 超时 → claimClose(CAS)→ CLOSED(transition 内 releaseBackend)
+  //   驱逐    CLOSED/LOST 超 closedTombstoneMin(默认 30,幂等/对账观测窗)→ map.delete
+  //          (service 内唯一合法删除点;静态守卫禁外部删)——审计#2:此前残尸永不出 map,
+  //          list() 恒返 → 任务栏 ghost chip kill 无效、30s 复活、内存无界。
+  const CLOSED_TOMBSTONE_MIN = 30
   function sweep(policy = {}, nowTs = now()) {
     const s1 = (policy.detachedIdleMin || 0) * 60000
     const s2 = (policy.backendIdleMin || 0) * 60000
+    const tombstone = ((policy.closedTombstoneMin ?? CLOSED_TOMBSTONE_MIN) || 0) * 60000
     const events = []
     for (const t of map.values()) {
+      // 终态残尸驱逐(先行:终态不做任何回收判定)
+      if (t.status === 'CLOSED' || t.status === 'LOST') {
+        if (tombstone > 0 && t.endedAt != null && nowTs - t.endedAt > tombstone) map.delete(t.id)
+        continue
+      }
+      // 阶段〇/〇':复用 shouldReapSession(最长寿命 + 挂机回收;detached-idle 判定由下方
+      // 两阶段接管,此处忽略其 detached 分支)。shouldReapSession 只产 max-lifetime 与
+      // attached-idle 两类可执行判定(browserCount>0 时)。
+      const verdict = shouldReapSession(
+        { createdAt: t.createdAt, browserCount: t.connIds.size, lastActiveAt: t.lastActiveAt, lastOutputAt: t.lastOutputAt },
+        policy, nowTs)
+      if (verdict.reap && (verdict.reason === 'max-lifetime' || (verdict.reason === 'attached-idle' && t.status === 'ATTACHED'))) {
+        t.closing = true                                   // CAS:与 close/claimClose 同一把认领闸
+        transition(t, 'CLOSED', `reaped-${verdict.reason}`)
+        events.push({ tid: t.id, action: `reaped-${verdict.reason}` })
+        continue
+      }
       if (t.status === 'DETACHED' && s1 > 0 && nowTs - (t.detachedSince ?? nowTs) > s1) {
         transition(t, 'DETACHED_TIMEOUT', 'reaped-detached-idle')
         events.push({ tid: t.id, action: 'timeout-stage1' })
@@ -263,5 +298,5 @@ export function createTerminalService({
     return r.ok ? { ok: true } : null
   }
 
-  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, attach, detach, abandon, markLost, markBackendFailed, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot, list, listByServer, killSession }
+  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, bindRelease, attach, detach, abandon, markLost, markBackendFailed, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot, list, listByServer, killSession }
 }

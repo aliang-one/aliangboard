@@ -36,20 +36,26 @@ export function createSshTerminalHandler(deps) {
         if (isOwner) service.bindRelease(tid, release)   // 池句柄挂到终端(LOST/CLOSED 时释放)
         else { try { release() } catch { /* noop */ } }  // 非属主:多余句柄立即归还
 
-        client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
-          if (err) return service.markBackendFailed(tid, err)
-          service.bindChannel(tid, channel)
-          channel.on('data', d => { service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend) })
-          channel.stderr?.on?.('data', d => { service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend) })
-          channel.on('close', () => {
-            // 复审三 P1:channel close 事件可能晚到——期间同 tid 已被重连者重建新会话时,
-            // 旧回调不得动新会话(身份守卫),资源由 service.markLost 统一释放。
-            if (service.get(tid) !== session) return
-            service.broadcast(tid, CH_ERROR, 'channel closed', wsSend)
-            service.markLost(tid, 'channel-closed')
+        // isOwner 门控(2026-09-05 审计#4,v1.0.24 的 2026-08-28 守卫在重写中丢失):
+        // get 判空到 getOrCreate 之间隔着整个 await acquire(最长 15s 握手)——两个冷连接同
+        // 挤进本分支时,只有属主开 shell;非属主的多余句柄已还,落到底部 attach 排队等 ready。
+        // 无此门:第二条 shell 覆盖 bindChannel、其 close 事件 markLost 误杀活会话。
+        if (isOwner) {
+          client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
+            if (err) return service.markBackendFailed(tid, err)
+            service.bindChannel(tid, channel)
+            channel.on('data', d => { service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend) })
+            channel.stderr?.on?.('data', d => { service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend) })
+            channel.on('close', () => {
+              // 复审三 P1:channel close 事件可能晚到——期间同 tid 已被重连者重建新会话时,
+              // 旧回调不得动新会话(身份守卫),资源由 service.markLost 统一释放。
+              if (service.get(tid) !== session) return
+              service.broadcast(tid, CH_ERROR, 'channel closed', wsSend)
+              service.markLost(tid, 'channel-closed')
+            })
+            session.resolveReady({ status: session.status })
           })
-          session.resolveReady({ status: session.status })
-        })
+        }
       } else if (session.status === 'CREATING') {
         // 创建窗口期的第二连接:attach 会排队等 ready(无需额外处理)
       }

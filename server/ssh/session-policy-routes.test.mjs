@@ -36,26 +36,27 @@ test('SSH 会话策略:GET 空态=默认;PUT 部分更新;越界 400;非 admin 4
 
   // 空态=内置默认
   assert.deepEqual(await (await fetch(`${BASE}/api/admin/ssh-session-policy`, { headers: H })).json(),
-    { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 })
+    { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0, backendIdleMin: 10080 })
 
   // 部分更新:只动 attached,其余保持
   const put1 = await (await fetch(`${BASE}/api/admin/ssh-session-policy`, { method: 'PUT', headers: H,
     body: JSON.stringify({ attachedIdleMin: 30 }) })).json()
-  assert.deepEqual(put1.policy, { detachedIdleMin: 10, attachedIdleMin: 30, maxLifetimeMin: 0 })
+  assert.deepEqual(put1.policy, { detachedIdleMin: 10, attachedIdleMin: 30, maxLifetimeMin: 0, backendIdleMin: 10080 })
 
   // 全量更新 + 0=禁用语义可写回
   const put2 = await (await fetch(`${BASE}/api/admin/ssh-session-policy`, { method: 'PUT', headers: H,
     body: JSON.stringify({ detachedIdleMin: 0, attachedIdleMin: 0, maxLifetimeMin: 720 }) })).json()
-  assert.deepEqual(put2.policy, { detachedIdleMin: 0, attachedIdleMin: 0, maxLifetimeMin: 720 })
+  assert.deepEqual(put2.policy, { detachedIdleMin: 0, attachedIdleMin: 0, maxLifetimeMin: 720, backendIdleMin: 10080 })
 
   // 越界/非整数 → 400
-  for (const bad of [{ detachedIdleMin: -1 }, { maxLifetimeMin: 10081 }, { attachedIdleMin: 1.5 }, { attachedIdleMin: 'x' }]) {
+  // null(空输入序列化产物)必须 400:Number(null)=0 会把清空输入误判成合法「禁用」
+  for (const bad of [{ detachedIdleMin: -1 }, { maxLifetimeMin: 10081 }, { attachedIdleMin: 1.5 }, { attachedIdleMin: 'x' }, { detachedIdleMin: null }]) {
     const r = await fetch(`${BASE}/api/admin/ssh-session-policy`, { method: 'PUT', headers: H, body: JSON.stringify(bad) })
     assert.equal(r.status, 400, JSON.stringify(bad))
   }
   // 失败请求不得污染已存值
   assert.deepEqual((await (await fetch(`${BASE}/api/admin/ssh-session-policy`, { headers: H })).json()),
-    { detachedIdleMin: 0, attachedIdleMin: 0, maxLifetimeMin: 720 })
+    { detachedIdleMin: 0, attachedIdleMin: 0, maxLifetimeMin: 720, backendIdleMin: 10080 })
 
   // 无 token → 401(requireAdmin 在分支内)
   assert.equal((await fetch(`${BASE}/api/admin/ssh-session-policy`)).status, 401)

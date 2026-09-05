@@ -21,7 +21,7 @@ async function mountAdminAndAuth() {
   return mount(Settings, { global: { plugins: [pinia, i18n] } })
 }
 
-const SESSION = { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 }
+const SESSION = { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0, backendIdleMin: 10080 }
 beforeEach(() => {
   vi.restoreAllMocks()
   localStorage.clear()
@@ -44,7 +44,7 @@ test('admin:「终端与会话」tab 可见,三组策略进页即拉取回填(�
   await tab.trigger('click')
   await flushPromises()
   const inputs = w.findAll('input[type="number"]')
-  expect(inputs.length).toBe(6)   // 会话 3 + pod 1 + job 2
+  expect(inputs.length).toBe(7)   // 会话 4(含阶段二 backendIdleMin) + pod 1 + job 2
 })
 
 test('保存:一次点击串发三个 PUT,回传各组当前值', async () => {

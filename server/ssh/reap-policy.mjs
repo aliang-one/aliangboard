@@ -1,6 +1,8 @@
 // SSH 会话回收策略(2026-08-29 spec:docs/superpowers/specs/2026-08-29-ssh-session-reap-policy-design.md)
-// 三阈值全局策略,分钟单位,0=该条件禁用,全 0=永不自动关闭;判定为纯函数(时钟注入可测)。
-export const SESSION_POLICY_DEFAULT = { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 }
+// 四阈值全局策略,分钟单位,0=该条件禁用,全 0=永不自动关闭;判定为纯函数(时钟注入可测)。
+// backendIdleMin(2026-09-05 审计#3 补生产者,生命周期 spec 阶段二):DETACHED_TIMEOUT(tmux
+// 保活窗口)后再闲置多久关闭后端,默认 10080=7 天(与记录保留/校验上限三方自洽,见生命周期 spec O1)。
+export const SESSION_POLICY_DEFAULT = { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0, backendIdleMin: 10080 }
 export const SESSION_POLICY_MAX_MIN = 10080   // 0~7 天
 
 export function isValidMinutes(v) {
@@ -22,6 +24,7 @@ export function resolvePolicy(getFn, env = {}) {
   return {
     detachedIdleMin: read('ssh.session.detachedIdleMin', envFallback ?? SESSION_POLICY_DEFAULT.detachedIdleMin),
     attachedIdleMin: read('ssh.session.attachedIdleMin', SESSION_POLICY_DEFAULT.attachedIdleMin),
+    backendIdleMin: read('ssh.session.backendIdleMin', SESSION_POLICY_DEFAULT.backendIdleMin),
     maxLifetimeMin: read('ssh.session.maxLifetimeMin', SESSION_POLICY_DEFAULT.maxLifetimeMin),
   }
 }
