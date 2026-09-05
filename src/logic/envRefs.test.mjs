@@ -103,13 +103,14 @@ test('envRefErrors: 空行跳过、半行报 missing(name 缺失排首位)', () 
     { name: '', type: 'configMapKeyRef', cmName: 'cm', key: 'k' },             // 缺 name
     { name: 'H2', type: 'secretKeyRef', secretName: 's', key: '' },            // 缺 key
     { name: 'H3', type: 'fieldRef', fieldPath: '' },                           // 缺 fieldPath
-    { name: '', type: 'resourceFieldRef', resource: '', containerName: '' },   // 缺 name+resource
+    { name: '', type: 'resourceFieldRef', resource: '', containerName: '' },   // 全空行 → 跳过(五类型同政策)
+    { name: '', type: 'resourceFieldRef', resource: '', containerName: 'c1' }, // 部分填写 → 仍报错
   ])
   assert.deepEqual(errs, [
     { index: 3, name: '', type: 'configMapKeyRef', missing: ['name'] },
     { index: 4, name: 'H2', type: 'secretKeyRef', missing: ['key'] },
     { index: 5, name: 'H3', type: 'fieldRef', missing: ['fieldPath'] },
-    { index: 6, name: '', type: 'resourceFieldRef', missing: ['name', 'resource'] },
+    { index: 7, name: '', type: 'resourceFieldRef', missing: ['name', 'resource'] },
   ])
 })
 

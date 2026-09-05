@@ -129,10 +129,8 @@ export function envRefErrors(rows = []) {
     if (!r) return
     const type = TYPE_FIELDS[r.type] ? r.type : 'value'
     const spec = TYPE_FIELDS[type]
-    if (type === 'value') {
-      const all = ['name', ...spec.fields]
-      if (all.every(f => !nonEmpty(r[f]))) return // 直填整行空 → 跳过
-    }
+    const all = ['name', ...spec.fields]
+    if (all.every(f => !nonEmpty(r[f]))) return // 整行空 → 跳过(五类型同政策;半行才报错)
     const missing = spec.required.filter(f => !nonEmpty(r[f]))
     if (!nonEmpty(r.name)) missing.unshift('name')
     if (missing.length) errs.push({ index, name: s(r.name), type, missing })
