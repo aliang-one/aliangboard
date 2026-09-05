@@ -103,3 +103,63 @@ test('broadcast:到达全部 attachment;markOutput 入 ring', async () => {
   assert.equal(t.ring.snapshot().toString(), 'hi')
   assert.equal(seen.length, 1)
 })
+
+test('abandon:CREATING 无等待者 → LOST(create-abandoned) + 资源释放;有等待者 → 交棒 no-op', async () => {
+  const released = []
+  const svc = createTerminalService({ now: () => 1000 })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  t.release = () => released.push('pool')
+  const p = svc.attach('t1', 'c1', { close() {} })       // 等待者
+  svc.abandon('t1', 'c0')                                // 属主连接断开
+  assert.equal(t.status, 'CREATING')                     // 交棒:不拆
+  svc.bindChannel('t1', {}); svc.readyForOwner('t1').resolve()
+  await p
+  assert.equal(t.status, 'ATTACHED')                     // 等待者接管成功
+
+  const { terminal: t2 } = svc.getOrCreate('t2', () => svc.newTerminal({ id: 't2', owner: 'u', serverId: 'sv' }))
+  t2.release = () => released.push('pool2')
+  svc.abandon('t2', 'cX')                                // CREATING 无等待者 → LOST + releaseBackend
+  assert.equal(t2.status, 'LOST')
+  assert.ok(released.includes('pool2'))
+  const late = await svc.attach('t2', 'cz', { close() {} })   // LOST 后 attach 拒绝
+  assert.equal(late.ok, false)
+  assert.equal(late.status, 'LOST')
+})
+
+test('close 软护栏:ATTACHED 且 60s 内活跃 → terminal-active;force 越过;幂等', () => {
+  let clock = 100_000
+  const svc = createTerminalService({ now: () => clock })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  svc.bindChannel('t1', {}); svc.readyForOwner('t1').resolve()
+  svc.attach('t1', 'c1', { close() {} })
+  let closed = 0
+  t.release = () => closed++
+  const r1 = svc.close('t1', { reason: 'explicit' })     // 刚活跃 → 软护栏
+  assert.equal(r1.ok, false); assert.equal(r1.error, 'terminal-active')
+  const r2 = svc.close('t1', { reason: 'explicit', force: true })
+  assert.equal(r2.ok, true)
+  assert.equal(t.status, 'CLOSED')
+  assert.equal(closed, 1)                                // releaseBackend 恰一次
+  const r3 = svc.close('t1', { reason: 'again' })        // 幂等
+  assert.equal(r3.ok, true)
+  assert.equal(closed, 1)
+})
+
+test('markLost:资源释放 + lastError', () => {
+  const svc = createTerminalService({ now: () => 1000 })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  svc.markLost('t1', 'backend failed')
+  assert.equal(t.status, 'LOST')
+  assert.equal(t.lastError, 'backend failed')
+})
+
+test('claimClose:CAS 同步认领,仅 DETACHED_TIMEOUT 可认领一次', () => {
+  const svc = createTerminalService({ now: () => 1000 })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  t.status = 'DETACHED_TIMEOUT'
+  assert.equal(svc.claimClose('t1'), true)
+  assert.equal(t.status, 'CLOSING')
+  assert.equal(svc.claimClose('t1'), false)              // 已认领
+  const { terminal: u } = svc.getOrCreate('t2', () => svc.newTerminal({ id: 't2', owner: 'u', serverId: 'sv' }))
+  assert.equal(svc.claimClose('t2'), false)              // 非 DETACHED_TIMEOUT
+})

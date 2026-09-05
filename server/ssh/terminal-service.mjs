@@ -141,5 +141,45 @@ export function createTerminalService({
   }
   function attachments(tid) { return [...(map.get(tid)?.connIds || []).values()] }
 
-  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, attach, detach, touch, markOutput, broadcast, attachments }
+  function markLost(tid, reason) {
+    const t = map.get(tid); if (!t) return
+    t.lastError = String(reason || '')
+    transition(t, 'LOST', reason)     // transition 内部对 LOST 走 releaseBackend
+  }
+
+  function abandon(tid, connId) {
+    const t = map.get(tid); if (!t) return
+    if (t.status !== 'CREATING') { detach(tid, connId, 'abandon'); return }
+    if ((t.waiters || 0) > 0) return                 // 交棒:等待中的重连者接管,会话保留
+    markLost(tid, 'create-abandoned')                // 无人等待:LOST + releaseBackend
+  }
+
+  function claimClose(tid) {
+    const t = map.get(tid)
+    if (!t || t.status !== 'DETACHED_TIMEOUT' || t.closing) return false
+    t.closing = true
+    transition(t, 'CLOSING', 'reaped-backend-idle')
+    return true
+  }
+
+  function close(tid, { reason = 'explicit', force = false } = {}) {
+    const t = map.get(tid); if (!t) return { ok: false, error: 'unknown-terminal' }
+    if (t.status === 'CLOSED' || t.closing) return { ok: true }   // 幂等
+    // 软护栏:有人附着/正在建连 且 60s 内活跃 → 拒绝(前端转二次确认);force 越过
+    if (!force && (t.connIds.size > 0 || t.waiters > 0) && now() - t.lastActiveAt < 60_000)
+      return { ok: false, error: 'terminal-active' }
+    t.closing = true
+    transition(t, 'CLOSED', reason)
+    return { ok: true }
+  }
+
+  function closeByServer(serverId, reason = 'server-deleted') {
+    for (const t of map.values()) {
+      if (t.serverId !== serverId || t.status === 'CLOSED') continue
+      t.closing = true
+      transition(t, 'CLOSED', reason)
+    }
+  }
+
+  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, attach, detach, abandon, markLost, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments }
 }
