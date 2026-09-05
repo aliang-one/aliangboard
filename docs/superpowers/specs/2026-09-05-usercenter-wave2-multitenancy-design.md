@@ -1,6 +1,7 @@
 # 用户中心 Wave 2 详细设计:组 + namespace 授权 + 授权传导
 
 - 日期: 2026-09-05
+- 修订: r2(2026-09-05 外部技术评审采纳:新增 §0.4 现状绕过与 Phase 0/W2-0 强制前置、§2.7 open 模式语义、§6.1 部分收权语义、§3 决策函数完整 API 面 + 索引/孤儿清理、§4 body-param 端点全覆盖、§6.3 detached runner 逐调用复检、§9 双用户负向矩阵、§10 各期退出判据)
 - 状态: 待用户评审
 - 父 spec: `docs/superpowers/specs/2026-09-04-usercenter-enterprise-design.md`(§2 公理 / §4 约束;本文档将 §4 从约束升格为可实施设计)
 - 事实基础: 2026-09-05 三路代码审计(工作台隔离现状 / 枚举搜索面 / 授权机器复用评估),全部结论带 file:line,摘要见附录 A/B
@@ -39,9 +40,17 @@ Wave 1 已落地:双类 key(用户 key `ownerUserId` 必填 / 服务 key 显式 
 - **必须单独改造**:`@mention` 注入(`ref-fetch.mjs:46-49` 无权限检查;**`workbench-conversations.mjs:79` 还有第二份平行实现 buildRefsContext,两处都要改**)、wb_* 工具执行层(tool-registry 枚举类工具直连集群)、`connect-cluster` 后的会话凭据语义(v2 impersonation 解决)、`/api/admin/clusters/:id/namespaces`(admin-only,普通用户 ns 候选须改走白名单派生)。
 - **已安全**:`/api/my-clusters`(集群门)、`/api/my/activity`(本人)、`/api/my/keys`(ns 粒度)、SSH 服务器面(exposeToAi 闸,ns 无关,host 已脱敏)。
 
----
+### 0.4 现状授权绕过(W2-0 的事实基础,2026-09-05 二轮审核逐条核实)
 
-## 1. 数据模型
+1. **K8s session 无归属**:sessions 表只有 token/apiServer/凭据列(index.mjs:106-117),无 userId/clusterId——服务端无从知道某个 K8s session 属于谁、连的哪个集群,请求时也无法复检。
+2. **取消集群分配零吊销**:PUT /api/admin/users/:id/clusters(admin.mjs:679-690)只 DELETE+INSERT user_clusters,**不调 revokeUserSessions**——被取消分配的用户存量 K8s session 活满 8h TTL(改密/禁用/删户的级联不覆盖此路径)。
+3. **Workspace 集群门残缺**:项目创建(可自带 cluster)与 reconcile/commit 均不校验发起者是否仍被分配该集群;绑定(PUT :id/cluster)亦无(workbench-projects.mjs:138 只查项目归属)。
+4. **浏览器 token 仓库全局键**:`aliangboard.session`(client.js:6)不按账号隔离;登出有 clearSession,但任何绕过登出的路径(旧标签页/异常流程)残留可用 token(服务端 8h 内有效)。
+5. **自助 key 的 ns 自由输入**:my-keys.mjs:36-43 只查集群分配,namespace 任意——用户可在已分配集群的**任意 ns** 供给托管 SA(least privilege 违例;open 模式下不算提权,allowlist 模式下必须封)。
+
+**结论:以上是今天(与 Wave 2 特性无关)就存在的绕过面。W2-0 作为强制前置先关闭(§10 Phase 0),完成前不得降对话门、不得实施 groups/ns grants。**
+
+---
 
 ```sql
 CREATE TABLE IF NOT EXISTS groups (
@@ -76,7 +85,8 @@ ALTER TABLE clusters ADD COLUMN nsAuthMode TEXT NOT NULL DEFAULT 'open';
 3. **admin 恒全量**,不受 grants 约束。
 4. **集群级资源**(nodes/pv/storageclasses/clusterroles/crd 等):allowlist 模式下**非 admin 整域 403**(导航隐藏,附录 B 通道 1 的集群级 path 一律拒)。
 5. **ns 列表**:allowlist 集群的 `GET /api/v1/namespaces` **过滤响应**只回授权项(非 admin);`open` 模式原样。
-6. **project 绑集群闸**:PUT /:id/cluster(workbench-projects.mjs:138 现仅校验归属)**追加** `user_clusters` 分配校验;对话运行时(workbench-agent.mjs:185,:277 重建 k8sSession 处)同检。
+6. **project 集群门(W2-0 起)**:项目创建带 cluster、PUT /:id/cluster 绑定、reconcile/commit 运行时——三处都校验发起者(项目 owner)对该集群的 `user_clusters` 分配(admin 豁免),失效即拒。
+7. **open 模式不是多租户隔离(必须显式声明)**:`nsAuthMode=open` 是兼容迁移态——该集群下被分配用户默认可见全部 ns,**不提供租户隔离**;只有 `allowlist` 集群才算启用 ns 隔离。落地:①部署/产品文档明示两态语义与迁移路径;②管理后台对 open 集群显示安全状态标识与风险提示(「未启用 namespace 隔离」);③生产多租户集群必须显式切 allowlist。
 
 ## 3. effectiveGrants:单一决策函数
 
@@ -84,21 +94,30 @@ ALTER TABLE clusters ADD COLUMN nsAuthMode TEXT NOT NULL DEFAULT 'open';
 
 ```
 effectiveGrants(db, principal) -> { role, clusters: { [clusterId]: { mode, ns: Map<ns, 'view'|'operate'> } } }
-canAccessNs(db, principal, clusterId, namespace, needLevel) -> boolean   // 便捷封装
-principal = { kind:'user', userId, username, role }                      // 平台会话
-         | { kind:'key', keyRow }                                        // → 归属用户实时 grants ∩ key 自身 ns 配置
+canAccessCluster(db, principal, clusterId) -> boolean          // user_clusters 门(admin 豁免)
+canAccessNs(db, principal, clusterId, namespace, needLevel) -> boolean
+levelForRequest(method, path) -> 'view' | 'operate'            // 方法+子资源 → 档位,单源映射表
+principal = { kind:'user', userId, username, role }             // 平台会话
+         | { kind:'key', keyRow }                               // → 归属用户实时 grants ∩ key 自身 ns 配置
 ```
 
-- **请求时求值**(公理 4):每次判定现查 groups/group_members/ns_grants + platform_users.role/disabled;不落物化副本。
+- **判定合成**:普通用户须**同时**通过 `canAccessCluster` 与 `canAccessNs`;admin 恒全量;直接授权与组授权合并取最高档;授权对象不存在/ns 非法/集群不存在 → 拒(写路径)或拒访(读路径),fail-closed。
+- **索引**:group_members 加 `idx_group_members_user(userId)`(「用户在哪些组」反向查);ns_grants 的 UNIQUE(subjectType,subjectId,clusterId,namespace) 前缀已覆盖 subject 查询。
+- **孤儿清理**:库无外键体系——删除用户/组的管理路由必须级联删 group_members / ns_grants 行(照 user_clusters 级联先例),并提供 admin 启动/周期 sweep 兜底。
+- **请求时求值**(公理 4):每次判定现查 groups/group_members/ns_grants + platform_users.role/disabled;不落物化副本;删除用户、禁用、移出组、删授权立即生效,不依赖前端 grants。
 - **AI 不是主体**(公理 2):wb 工具/@mention/对话全部以发起用户为 principal;MCP 以 key 归属用户为 principal。
 - 单一事实源:K8s 代理面、wb 工具面、@mention 面、key 面**全部调它**(公理 3);禁止各处自写判定。
 - 性能:每请求 2-3 个索引查询(PK/UNIQUE 命中),与既有 platformUserFromRequest 逐请求复读惯例同级;如成瓶颈再加 5s 进程内缓存(keyed by user + grants 版本号),**先不加**(YAGNI)。
 
 ## 4. 网关执行 v1(allowlist 集群上)
 
-**新写 `server/k8s-path.mjs` 反向解析器**(审计确认缺口):`parseApiPath(pathname) -> { clusterScope, namespace, resource, name, verbHint } | null`——基于 `KIND_API` 的 prefix 表 + `/apis/<group>/<version>/` 通配;未知路径 **fail-closed**(拒)。fieldSelector 中的 `namespace=`/`fieldSelector=metadata.namespace` 同步提取校验(注入面,新写)。
+**新写 `server/k8s-path.mjs` 反向解析器**(审计确认缺口):`parseApiPath(pathname) -> { clusterScope, namespace, resource, name, subresource } | null`——基于 `KIND_API` 的 prefix 表 + `/apis/<group>/<version>/` 通配;识别 namespaced / cluster-scoped / subresource 三态;**路径规范化前置**:拒绝 `..`、反斜杠、双重编码(%252F 等)、空段与异常路径(解析失败=拒);未知路径对非 admin **fail-closed**。fieldSelector 中的 `namespace=`/`metadata.namespace` 同步提取校验(注入面,新写)。
 
-执行点:`server/index.mjs:2076` 路径剥离之后、上游转发之前,统一一道;`/api/k8s-watch` 在 `parseResources`(k8s-watch-mux.mjs)后按资源 ns 校验。
+**覆盖面(二轮审核修正,不止透传)**——allowlist 集群上的 session 面全部入口,分两类:
+- **path 型**(解析器判):`/api/k8s/*` 透传、`/api/k8s-watch` WS、`/api/resource/tree`;
+- **body/query 型**(解析器看不到,逐端点声明 ns 来源,authz.mjs 提供 `nsSource` 适配):`POST /api/apply`、`POST /api/pod/debug`、`POST /api/cronjob/trigger`、`/api/portforward`(建转发的 body ns)、`/api/podfile/`、`/api/pvcfile/`、`/api/terminals`、`/api/file-browsers`(pod 级 → ns+pod 校验)、`POST /api/registry/tags`(ns 无关但集群门适用)。每一处都是今天**未经授权检查的 K8s 出口**,B 期出口零遗漏为硬验收。
+
+**头剥离**:入站 `Impersonate-*` / `X-Remote-*` 无条件剥离(与执行同道,先剥后判;CVE-2021-31999)。**denied 审计**:每次拒绝写审计,记 user/cluster/namespace/path/method(平台侧开始填 clusterId/namespace 列)。
 
 | 请求形态 | allowlist 模式行为 |
 |---|---|
@@ -122,7 +141,9 @@ principal = { kind:'user', userId, username, role }                      // 平�
 
 ### 6.1 API key:ns 级交集
 
-`resolveApiKey` 判定链追加(在现有 owner 存活 + 集群粗交集之后):owner 的 `effectiveGrants` 中该集群为 allowlist 时,key 的 `effectiveNamespaces` 与 owner 授权 ns **求交集**;交集为空 → null。实现为 authz.mjs 的 key-principal 路径,resolveApiKey 调它——**仍单点**,MCP 与 HTTP 门同享。服务 key(ownerUserId NULL)不受影响。`refetch`/重供给:授权变更后 key 的集群内 SA RBAC 由既有 drift 检测收敛(验收 §9.5)。
+`resolveApiKey` 判定链追加(在现有 owner 存活 + 集群粗交集之后):owner 的 `effectiveGrants` 中该集群为 allowlist 时,key 生效 ns = **按 ns 逐项求交**——`key 的 effectiveNamespaces ∩ owner 授权 ns`,交集为空 → 整 key 失效;owner 失去某一个 ns 只收窄该 ns,**其余 ns 继续有效**(部分收权,不做「一失全失」)。**档位映射**:read key 至少需要该 ns 的 `view` grant;operator key 需要 `operate` grant——不足即按该 ns 不可用处理。实现为 authz.mjs 的 key-principal 路径,resolveApiKey 调它——**仍单点**,MCP 与 HTTP 门同享。
+
+**自助签发收口**:签发表单的 ns 候选 = 本人当前有权访问的 ns(A 期起由 `/api/my/grantable-ns` 之类端点下发;grants 不存在时即无候选);服务端照判,双保险。**服务 key(ownerUserId NULL)明确定位为平台级凭据**:不随任何个人变化,仅 admin 创建/轮换/吊销,审计独立标注——与用户 key 的生命周期彻底分离。授权变更后 key 的集群内 SA RBAC 由既有 drift 检测收敛(验收 §9.5)。
 
 ### 6.2 Workspace 隔离修复包(对话降门的前置)
 
@@ -139,7 +160,8 @@ principal = { kind:'user', userId, username, role }                      // 平�
 
 ### 6.3 AI 工具与 @mention 执行面(搜索三问的核心)
 
-- **wb_* 工具**:tool-registry 枚举/操作类工具的执行实现(index.mjs:1243-1463)统一加 `canAccessNs(principal, project.clusterId, ns, levelByTool)`,ns 来源:工具参数显式 ns,或 `listResources` 类无 ns 调用 → **结果按授权 ns 过滤**(listApiPath 集群级调用改白名单内逐 ns 并集,或对响应 items 过滤——取响应过滤,与通道 1 同构);集群级 kind 工具对非 admin 在 allowlist 集群拒。工具执行凭据维持平台级(v1);v2 impersonation 后自动归真。
+- **wb_* 工具**:tool-registry 枚举/操作类工具的执行实现(index.mjs:1243-1463)统一加 `canAccessNs(principal, project.clusterId, ns, levelByTool)`,ns 来源:工具参数显式 ns,或 `wb_list_resources` 类无 ns 调用 → **结果按授权 ns 过滤**(响应 items 过滤,与通道 1 同构);集群级 kind 工具对非 admin 在 allowlist 集群拒。工具执行凭据维持平台级(v1);v2 impersonation 后自动归真。
+- **detached runner 逐调用复检(二轮审核)**:后台/恢复执行链(workbench-agent.mjs runConversation:155 / resumeConversation:247)的 actor 目前只带 username——扩展为携带 `conversationId/projectId/ownerUserId/clusterId` 的执行上下文,**每次工具调用、每次引用读取、每次 K8s 访问都以 ownerUserId 现查实时授权**;用户运行中被禁用/移出组/失去 ns 授权,后续调用立即拒绝。`/api/workbench/search` 的 K8s 分支与 server 分支同补 project ownership + cluster entitlement;reconcile 走授权后的上下文(§2.6 运行时检)。**不得把当前管理员身份误当项目 owner**(审批/续跑统一以 conv→project.ownerId 为准)。
 - **@mention 两份实现都改**:`ref-fetch.mjs:46-49` 与 `workbench-conversations.mjs:79`(buildRefsContext)在拉取前过 `canAccessNs`(ref 带 ns 时)与集群分配校验;`@server` ref 维持 exposedOnly + host 脱敏(**per-user 服务器白名单明确不做**,留 Wave 3+ 决策)。
 - **提示词限制不算执行**(公理 2):一切强制在上述执行器,不依赖 system prompt。
 
@@ -161,26 +183,40 @@ principal = { kind:'user', userId, username, role }                      // 平�
 
 ## 9. 验收标准
 
-allowlist 集群上,组 A 成员 u1 对组 B 的 ns `team-b`:
+**双用户负向矩阵(固定夹具,自动化测试钉死)**:`u1 → group-a → team-a(view)`;`u2 → group-b → team-b(operate)`;`c1 = allowlist`。至少覆盖:
+
+1. u1 触达 team-b:GET/POST/PATCH/DELETE/logs/exec/watch/portforward **全部 403**;`GET /namespaces` 不含 team-b。
+2. 绕过手法全堵:URL 直达、fieldSelector 注入、双重编码、`..` 路径、未知路径 → 均拒。
+3. u1 的 key 失去 team-a 授权后**立即拒绝**;部分收权:失去 team-a 但仍有 team-c 时 key 对 team-c 继续可用。
+4. u1 失去 c1 集群分配后,**存量浏览器 token 立即失效**(W2-0 验收)。
+5. u1 不能把 Workspace 绑定/创建/reconcile 到未分配集群(W2-0 验收)。
+6. u1 不能读/流/审批/删除 u2 的任何对话(D 期验收)。
+7. 普通用户的搜索、@mention、AI 工具不能看到 team-b(C 期验收);admin 维持全量。
+8. `open` 模式兼容保持,测试明确标注「不提供租户隔离」;service key 行为独立不受个人变化影响。
+9. 登出后切换账号不能复用前一账号 token(浏览器与服务端两侧)。
+
+allowlist 集群上,组 A 成员 u1 对组 B 的 ns `team-b`(端到端):
 
 1. UI:ns 下拉无 team-b;直达 URL 落 403 页;集群级导航页隐藏。
-2. K8s API:任何 path/fieldSelector/watch 手法触达 team-b → 403 + denied 审计行(带 clusterId/namespace);`GET /namespaces` 响应无 team-b。
+2. K8s API:任何 path/fieldSelector/watch 手法触达 team-b → 403 + denied 审计行(带 user/cluster/namespace/path/method);`GET /namespaces` 响应无 team-b。
 3. **伪造头**:携带 `Impersonate-User: x` 的入站请求被剥离后正常判定(漏洞复测用例)。
-4. API key:u1 的 key boundNS=team-a 且 u1 无 team-b 授权 → 经 MCP/HTTP 触达 team-b 一律 denied;u1 被移出组 A 后即刻生效。
-5. 集群内 RBAC:grants 变更后 RoleBinding 在漂移检测周期内收敛;u1 的请求在集群审计日志出现 `aliangboard:u-<id>`。
-6. Workspace:u2(u1 的非 admin 同事)不可读/流/删/批 u1 的任何对话(403);records 只见自己的对话与统计;presence 不含他人;`/search` server 分支不泄露他人项目。
-7. AI 面:u1 的对话 agent 调 wb_list_resources/wb_get_pod_logs 触达 team-b 被拒;@mention team-b 资源注入为空;普通用户现在**可以**正常使用工作台对话(降门后)且仅见自己项目。
-8. 回归:`open` 模式集群行为与 Wave 1 逐字节一致(存量部署零感知);`npm test` / `test:unit` / `typecheck` / `i18n:check` / `build` 全绿;新端点全登记 ROUTE_AUTH;新 UI 文本双语齐。
+4. 集群内 RBAC:grants 变更后 RoleBinding 在漂移检测周期内收敛;u1 的请求在集群审计日志出现 `aliangboard:u-<id>`。
+5. 回归:`open` 模式集群行为与 Wave 1 逐字节一致(存量部署零感知);`npm test` / `test:unit` / `typecheck` / `i18n:check` / `build` 全绿;新端点全登记 ROUTE_AUTH;新 UI 文本双语齐。
 
-## 10. 实施分期(每期独立可合、可验收)
+## 10. 实施分期(每期独立可合、可验收;带退出判据)
 
-| 期 | 内容 | 依赖 |
-|---|---|---|
-| **A** | 数据模型 + authz.mjs(effectiveGrants)+ admin 管理页(组/授权/模式开关)+ /me 下发 grants | 无 |
-| **B** | k8s-path 反向解析器 + 网关执行(通道 1/2/3)+ denied 审计 + UI 403/导航适配 | A |
-| **C** | 授权传导:key ns 交集(§6.1)+ wb 工具与 @mention 过滤(§6.3)+ Workspace 修复包(§6.2) | A,B |
-| **D** | 对话 15 端点降门 + records/presence 开放(§6.2 A/B/C/F)——**必须在 C 合入后** | C |
-| **E** | Impersonation v2(§7) | B |
+| 期 | 内容 | 前置 | 退出判据(不满足不得进下期) |
+|---|---|---|---|
+| **W2-0** | **关闭现有授权绕过**:①sessions 写入 userId+clusterId(try-ALTER),connect-cluster 落戳;②每请求复检用户状态 + user_clusters(对齐 resolveApiKey 惯例);③取消集群分配即吊销该用户对应 K8s session(admin.mjs:679 补 revoke,双路径:platform_sessions 链 + sessions.userId);④Workspace 创建/绑定/reconcile 集群门(§2.6);⑤浏览器 token 处置(登出全清 + 账号切换不复用,测试钉);⑥双用户负向测试夹具落地;⑦WorkbenchChat CAS flaky 改确定性(时钟/状态注入)或显式隔离——**稳定测试基线是全波前置**。**不做**:对话降门、groups/ns grants。 | 无 | 取消分配后旧 token 立即失效;负向矩阵 W2-0 子集全绿;门禁稳定全绿(无已知 flaky 干扰) |
+| **A** | 数据模型 + authz.mjs(effectiveGrants/canAccessCluster/canAccessNs/levelForRequest + 索引 + 孤儿清理)+ admin 管理页(组/授权/模式开关 + open 风险提示)+ /me 下发 grants + 自助 key ns 候选端点 | W2-0 | 直接授权/组授权/admin/open-allowlist 四态单测齐 |
+| **B** | k8s-path 反向解析器(含路径规范化)+ 网关执行(path 型 + body 型全清单 §4)+ ns 列表过滤 + watch 建流校验 + 未知路径 fail-closed + 头剥离 + denied 审计 | A | **不存在任何未经授权检查的 K8s 出口**(逐端点清单核对) |
+| **C** | key ns 部分收权(§6.1)+ wb 工具/detached runner/@mention 过滤(§6.3)+ Workspace 修复包(§6.2 B/C/E) | A,B | 工具与引用用平台级凭据也读不到未授权 ns(负向矩阵子集全绿) |
+| **D** | 对话 15 端点降门 + owner 链 + records/presence 开放 + 审批归属(§6.2 A/F) | **C 合入是硬前提** | C 未完成禁止合入;u2 全矩阵不可触达 u1 域 |
+| **E** | Impersonation v2 + 组级 RoleBinding + 漂移收敛 + 集群审计身份 | B | v1 网关授权 + 伪造头测试通过 |
+
+**全波硬规则**:实现者不得自行合并 main;每期独立审查;C 未完成不得放开对话门。
+
+**W2-0 之外的既有欠账(不阻塞但须记账)**:`/api/my-clusters` 追加 ns 授权信息下发(A 期);spec §3.2 的事件类型(tool)过滤器(activity tab 前端);admin keys UI owner 列。
 
 ---
 
