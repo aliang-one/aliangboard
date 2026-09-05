@@ -17,7 +17,7 @@ const { t } = useI18n()
         </div>
       </template>
       <div class="flex-1 min-h-0 overflow-y-auto">
-        <WorkbenchLedger />
+        <WorkbenchLedger chromeless />
       </div>
     </WbStage>
   </section>
