@@ -4,7 +4,11 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+const routeState = vi.hoisted(() => ({ query: {} }))
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRoute: () => routeState,
+}))
 const apiMocks = vi.hoisted(() => ({
   updateMe: vi.fn(),
   changePassword: vi.fn(),
@@ -12,6 +16,13 @@ const apiMocks = vi.hoisted(() => ({
   revokeSession: vi.fn(),
   revokeOtherSessions: vi.fn(),
   savePreferences: vi.fn().mockResolvedValue({}),
+  myActivity: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, size: 50, windowDays: 90 }),
+  myKeysList: vi.fn().mockResolvedValue({ apikeys: [] }),
+  myKeysMint: vi.fn(), myKeysRevoke: vi.fn(),
+  myClusters: vi.fn().mockResolvedValue({ clusters: [] }),
+  getPasswordPolicy: vi.fn().mockResolvedValue({ policy: { minLength: 8, requireMixed: false, requireDigit: false, requireSymbol: false } }),
+  getAvatar: vi.fn().mockRejectedValue({ status: 404 }),
+  uploadAvatar: vi.fn(), clearAvatar: vi.fn(),
 }))
 vi.mock('@/api/client', () => ({ authApi: apiMocks }))
 
@@ -32,7 +43,8 @@ beforeEach(() => {
   apiMocks.updateMe.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: '阿亮' } })
 })
 
-function mountPage() {
+function mountPage(tab = 'security') {
+  routeState.query = { tab }
   return mount(UserProfile, { global: { plugins: [i18n] } })
 }
 
@@ -48,7 +60,7 @@ test('挂载:拉会话列表,渲染两行,当前行有标记', async () => {
 })
 
 test('displayName 就地编辑:保存调 updateMe 并回写 authStore', async () => {
-  const w = mountPage()
+  const w = mountPage('profile')
   await flushPromises()
   await w.find('[data-testid="profile-displayname-input"]').setValue('阿亮')
   await w.find('[data-testid="profile-displayname-save"]').trigger('click')
@@ -158,7 +170,7 @@ test('会话分页:末页吊销后页码收敛(clamp),不悬空', async () => {
 })
 
 test('偏好卡:语言/主题选择联动 preferences store', async () => {
-  const w = mountPage()
+  const w = mountPage('preferences')
   await flushPromises()
   await w.find('[data-testid="pref-lang-en"]').trigger('click')
   await w.find('[data-testid="pref-theme-dark"]').trigger('click')
