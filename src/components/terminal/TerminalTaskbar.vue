@@ -3,8 +3,11 @@
 // 2026-08-29 任务栏化改造:
 // - SSH 服务器分区:同服务器多终端聚合成分组 chip(dns 图标 + ×N),chip 身上的
 //   「+」随时新开终端(多开入口常驻任务栏);count>1 时点 chip 弹会话菜单。
-// - 折叠三层(src/utils/taskbarFit.js 纯函数决策):①名称收窄为图标 ②尾部 chip 逐个
-//   折进「⋯ n」下拉 ③空间回富逆向回收。pod/文件分区保持平铺(量少)。
+// - 折叠三层(src/utils/taskbarFit.js 纯函数决策 + runFitLoop 收敛闭环):①名称收窄为
+//   截断短名 ②尾部 chip 逐个折进「⋯ n」下拉 ③方向闸门:shrink 锁定/recover 凭增长信号
+//   (chip 减少/容器变宽)逐级回收。pod/文件分区保持平铺(量少)。
+// - 2026-09-05 振荡修复:旧决策器闭环下 set-icon↔unset-icon 打摆,60 轮上限停在名称态
+//   → 名称平铺+尾部被裁+「⋯」永不出现;详见 taskbarFit.js 头注与组合环仿真用例。
 // - 2026-08-29 修复:会话菜单原先渲染在 overflow-hidden 折叠行内部且定位在任务栏
 //   上方 → 整个被裁切不可见(真机几何实测 menu.top=352 vs wrap 底=491)。现改到
 //   任务栏根部渲染(与溢出面板同款不裁切位置),按 chip 锚点 left 定位 + 点击遮罩关闭。
@@ -15,7 +18,7 @@ import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { useTransferStore, fmtBytes } from '@/stores/transfers'
 import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { sshApi } from '@/api/client'
-import { nextFitStep } from '@/utils/taskbarFit'
+import { runFitLoop } from '@/utils/taskbarFit'
 import { Z } from '@/styles/zScale'
 
 const { t } = useI18n()
@@ -112,11 +115,17 @@ const flatSig = computed(() => flat.value.map(c => `${c.kind}:${c.id}:${c.status
 // 菜单数据源:当前打开菜单的分组(从 groups 派生,窗口关闭后自动消失)
 const menuChip = computed(() => sshChips.value.find(c => c.id === menuOpenFor.value) || null)
 
-// —— 三层折叠(refit:决策器给 step,组件下一帧测量再执行)——
+// —— 三层折叠(收敛闭环:runFitLoop 测量→决策→应用,方向闸门防振荡)——
+// fitDir='shrink' 只收不放、放得下即锁;仅当空间确认富余(chip 总数减少/容器变宽)才放行
+// 'recover' 逐级回收。旧版无方向闸门,闭环 set-icon↔unset-icon 打摆 60 轮停在名称态:
+// 宽屏多终端=名称平铺+overflow-hidden 裁掉尾部+「⋯」永不出现(2026-09-05 用户报告根因)。
 const wrap = ref(null)
 const iconMode = ref(false)
 const overflowCount = ref(0)
 const overflowOpen = ref(false)
+const fitDir = ref('shrink')
+let prevTotal = 0
+let prevWidth = 0
 const visible = computed(() => flat.value.slice(0, flat.value.length - overflowCount.value))
 const folded = computed(() => flat.value.slice(flat.value.length - overflowCount.value))
 let raf = 0
@@ -127,17 +136,23 @@ function scheduleRefit() {
 async function refit() {
   const el = wrap.value
   if (!el || typeof el.scrollWidth !== 'number') return
-  for (let i = 0; i < 60; i++) {
-    const step = nextFitStep({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, iconMode: iconMode.value, overflowCount: overflowCount.value, total: flat.value.length })
-    if (step.action === 'done') return
-    if (step.action === 'set-icon') iconMode.value = true
-    else if (step.action === 'unset-icon') iconMode.value = false
-    else if (step.action === 'fold-one') { overflowCount.value++; overflowOpen.value = false }
-    else if (step.action === 'unfold-one') overflowCount.value--
-    await nextTick()
-  }
+  if (flat.value.length < prevTotal || el.clientWidth > prevWidth + 1) fitDir.value = 'recover'
+  prevTotal = flat.value.length
+  prevWidth = el.clientWidth
+  await runFitLoop({
+    measure: () => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }),
+    getTotal: () => flat.value.length,
+    getDirection: () => fitDir.value,
+    setDirection: d => { fitDir.value = d },
+    getIconMode: () => iconMode.value,
+    setIconMode: v => { iconMode.value = v },
+    getOverflowCount: () => overflowCount.value,
+    setOverflowCount: v => { overflowCount.value = v },
+    tick: nextTick,
+  })
 }
 watch(flatSig, () => { overflowOpen.value = false; scheduleRefit() })
+watch(overflowCount, () => { overflowOpen.value = false })
 watch(iconMode, scheduleRefit)
 let ro = null
 onMounted(() => {
@@ -192,7 +207,7 @@ function closeAll() {
           class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0 bg-error/10 text-error border border-error/30 hover:bg-error/20"
           :title="t('terminal.orphanChipTitle', { serverId: chip.name, user: chip.user })">
           <span class="material-symbols-outlined text-sm">link_off</span>
-          <span v-if="!iconMode" class="truncate font-mono">{{ chip.name }}</span>
+          <span class="truncate font-mono" :class="iconMode ? 'max-w-[64px]' : ''">{{ chip.name }}</span>
           <span @click.stop="killOrphan(chip)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-error/60 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
@@ -203,7 +218,7 @@ function closeAll() {
           :class="chip.status === 'open' ? 'bg-primary/15 text-primary border border-primary/30' : chip.status === 'external' ? 'bg-secondary/10 text-secondary border border-secondary/30' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
           :title="`${chip.name}（${chip.status === 'open' ? t('terminal.statusFloating') : chip.status === 'external' ? t('terminal.statusExternal') : t('terminal.statusMinimized')}）`">
           <span class="material-symbols-outlined text-sm">{{ chip.status === 'open' ? 'terminal' : chip.status === 'external' ? 'open_in_new' : 'hide_source' }}</span>
-          <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
+          <span class="truncate" :class="iconMode ? 'max-w-[64px]' : ''">{{ chip.name }}</span>
           <span @click.stop="termStore.closeTerminal(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
@@ -214,7 +229,7 @@ function closeAll() {
           :class="chip.status === 'open' ? 'bg-tertiary-container/15 text-tertiary-container border border-tertiary-container/30' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
           :title="`${chip.name}（${chip.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized')}）`">
           <span class="material-symbols-outlined text-sm">{{ chip.status === 'open' ? 'folder_open' : 'hide_source' }}</span>
-          <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
+          <span class="truncate" :class="iconMode ? 'max-w-[64px]' : ''">{{ chip.name }}</span>
           <span @click.stop="fbStore.closeBrowser(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
@@ -225,7 +240,7 @@ function closeAll() {
           :class="[chip.status === 'open' ? 'bg-secondary-container/25 text-secondary border border-secondary/40' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent', chip.dead ? 'border border-dashed border-error/50 opacity-80' : '']"
           :title="`${chip.name} · SSH（${chip.count === 1 ? t('terminal.statusFloating') : t('terminal.sshSessions', { n: chip.count })}）${chip.dead ? ' · ' + t('terminal.sessionReapedTitle') : ''}`">
           <span class="material-symbols-outlined text-sm" :class="chip.dead ? 'text-error' : ''">{{ chip.dead ? 'link_off' : 'dns' }}</span>
-          <span v-if="!iconMode" class="truncate">{{ chip.name }}</span>
+          <span class="truncate" :class="iconMode ? 'max-w-[64px]' : ''">{{ chip.name }}</span>
           <span v-if="chip.count > 1" class="text-[10px] font-mono px-1 rounded bg-secondary/20">×{{ chip.count }}</span>
           <span v-if="!iconMode || chip.count > 1" @click.stop="onSshNew(chip)" class="ml-0.5 px-1 rounded hover:bg-secondary/30 text-secondary leading-4" :title="t('terminal.sshNewTerminal')">+</span>
           <span @click.stop="sshStore.closeWindow(chip.windows[chip.windows.length - 1].id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
