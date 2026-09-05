@@ -40,21 +40,26 @@ export function createTerminalService({
     try { t.channel?.close?.() } catch { /* noop */ }
     try { t.release?.() } catch { /* noop */ }
     for (const a of t.connIds.values()) { try { a.socket.close() } catch { /* noop */ } }
+    for (const sk of t.waiterSockets) { try { sk.close() } catch { /* noop */ } }
     t.connIds.clear()
+    t.waiterSockets.clear()
     t.primary = null
   }
 
   function newTerminal({ id, owner, serverId, backend = 'ephemeral', title = '' }) {
-    return {
+    const t = {
       id, owner, serverId, backend, title,
       status: 'CREATING', lastError: null, statusVersion: 0,
-      connIds: new Map(), primary: null,
+      connIds: new Map(), waiterSockets: new Set(), primary: null,
       channel: null, release: null, ring: createRingBuffer(ringMaxBytes),
       ready: null, resolveReady: null, rejectReady: null, waiters: 0,
       createdAt: now(), lastActiveAt: now(),
       detachedSince: null, backendIdleSince: null,
       lastAttachAt: 0, lastDetachAt: 0, attachCount: 0,
     }
+    // ready 即刻存在:等待者 attach 可先于 owner 的 readyForOwner 到达,不允许 await undefined
+    t.ready = new Promise((resolve, reject) => { t.resolveReady = resolve; t.rejectReady = reject })
+    return t
   }
 
   function getOrCreate(tid, factory) {
@@ -68,5 +73,73 @@ export function createTerminalService({
 
   function get(tid) { return map.get(tid) || null }
 
-  return { map, newTerminal, getOrCreate, get }
+  // —— 创建单飞支撑:owner 持 ready 控制权,等待者经 attach 排队(复审二 P0 abandon/单飞)——
+  function readyForOwner(tid) {
+    const t = map.get(tid)
+    if (!t) return { resolve() {}, reject() {} }
+    return {
+      resolve: () => t.resolveReady?.({ status: t.status }),
+      reject: e => {
+        // ready 失败 = 后端建立失败:transition 内部已对 LOST 走 releaseBackend(等待者全收 LOST)
+        t.lastError = String(e?.message || e)
+        transition(t, 'LOST', 'backend-failed')
+        t.rejectReady?.(e)
+      },
+    }
+  }
+  function bindChannel(tid, channel) { const t = map.get(tid); if (t) t.channel = channel }
+
+  function doAttach(t, connId, socket) {
+    const prev = t.connIds.get(connId)
+    if (prev && prev.socket !== socket) { try { prev.socket.close() } catch { /* noop */ } }   // 同 connId 接管
+    const first = t.connIds.size === 0
+    t.connIds.set(connId, { socket, attachedAt: now() })
+    t.primary = socket
+    t.lastAttachAt = now(); t.attachCount++; t.lastActiveAt = now()
+    if (first || t.status === 'CREATING') transition(t, 'ATTACHED', 'attach')
+  }
+
+  async function attach(tid, connId, socket) {
+    const t = map.get(tid)
+    if (!t) return { ok: false, status: 'CLOSED', reason: 'unknown-terminal' }
+    if (t.status === 'CLOSED' || t.status === 'LOST' || t.status === 'CLOSING')
+      return { ok: false, status: t.status, reason: t.lastError || 'terminal-' + t.status }
+    const prev = t.connIds.get(connId)
+    if (prev && prev.socket !== socket) { try { prev.socket.close() } catch { /* noop */ } }
+    if (t.status === 'CREATING') {
+      t.waiters++
+      t.waiterSockets.add(socket)     // 释放面:LOST/CLOSED 时等待中的 socket 一并关闭
+      try {
+        await t.ready
+      } catch (e) {
+        return { ok: false, status: 'LOST', reason: String(e?.message || e) }
+      } finally {
+        t.waiterSockets.delete(socket)
+        t.waiters = Math.max(0, t.waiters - 1)
+      }
+      if (t.status === 'CLOSED' || t.status === 'LOST') return { ok: false, status: t.status, reason: t.lastError || '' }
+    }
+    doAttach(t, connId, socket)
+    return { ok: true, status: t.status, reason: null }
+  }
+
+  function detach(tid, connId, reason = 'detach') {
+    const t = map.get(tid); if (!t) return
+    const a = t.connIds.get(connId)
+    if (!a) return                                        // 未知 connId:no-op(幂等)
+    t.connIds.delete(connId)
+    if (t.primary === a.socket) t.primary = ([...t.connIds.values()][0] || {}).socket || null
+    t.lastDetachAt = now()
+    if (t.connIds.size === 0) transition(t, 'DETACHED', reason)
+  }
+
+  function touch(tid) { const t = map.get(tid); if (t) t.lastActiveAt = now() }
+  function markOutput(tid, chunk) { const t = map.get(tid); if (t) t.ring.push(chunk) }
+  function broadcast(tid, type, payload, send = (socket, ty, pl) => socket.send?.(ty, pl)) {
+    const t = map.get(tid); if (!t) return
+    for (const a of t.connIds.values()) { try { send(a.socket, type, payload) } catch { /* noop */ } }
+  }
+  function attachments(tid) { return [...(map.get(tid)?.connIds || []).values()] }
+
+  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, attach, detach, touch, markOutput, broadcast, attachments }
 }
