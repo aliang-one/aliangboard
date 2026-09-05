@@ -62,6 +62,60 @@ async function handleDelete() {
   await store.deleteIngressClass(route.params.name)
   router.push('/ingressclasses')
 }
+
+// === 结构化编辑(2026-09-05):controller/parameters/labels/annotations 走 updateIngressClassSpec
+// 手术 merge-patch(不走 generateYAML 有损重建);isDefault 开关走 promote/demote 保 sweep 唯一性。
+const showEditModal = ref(false)
+const editForm = ref({})
+const rowsToMap = rows => {
+  const m = {}
+  for (const r of rows) { const k = (r.key || '').trim(); if (k) m[k] = r.value }
+  return m
+}
+const DEFAULT_KEY = 'ingressclass.kubernetes.io/is-default-class'
+const editCanSave = computed(() => {
+  if (!editForm.value.paramsEnabled) return true
+  const p = editForm.value.params || {}
+  return !!(p.kind || '').trim() && !!(p.name || '').trim()   // parameters 启用时 kind/name 必填
+})
+function openEdit() {
+  const anns = Object.entries(ic.value?.annotations || {}).filter(([k]) => k !== DEFAULT_KEY)
+  editForm.value = {
+    controller: ic.value?.controller || '',
+    paramsEnabled: !!ic.value?.parameters,
+    params: { apiGroup: ic.value?.parameters?.apiGroup || '', kind: ic.value?.parameters?.kind || '', name: ic.value?.parameters?.name || '' },
+    labels: Object.entries(ic.value?.labels || {}).map(([key, value]) => ({ key, value: String(value) })),
+    annotations: anns.map(([key, value]) => ({ key, value: String(value) })),
+    isDefault: !!ic.value?.isDefault,
+  }
+  showEditModal.value = true
+}
+function addRow(list) { editForm.value[list].push({ key: '', value: '' }) }
+function removeRow(list, i) { editForm.value[list].splice(i, 1) }
+// 全字面量键( i18n 门禁静态扫描无法解析拼接的 'admin.ingressClasses.' + key )
+const KV_SECTIONS = [
+  { key: 'labels', labelKey: 'admin.ingressClasses.labels' },
+  { key: 'annotations', labelKey: 'admin.ingressClasses.annotations' },
+]
+async function saveEdit() {
+  const f = editForm.value
+  const updates = {
+    controller: f.controller,
+    parameters: f.paramsEnabled
+      ? { apiGroup: (f.params.apiGroup || '').trim() || undefined, kind: f.params.kind.trim(), name: f.params.name.trim() }
+      : null,
+    labels: rowsToMap(f.labels),
+    annotations: rowsToMap(f.annotations),
+  }
+  const r = await store.updateIngressClassSpec(route.params.name, updates)
+  if (r && r.ok === false) return // spec 保存失败:保留弹窗(错误已由 store notify),不动默认态
+  if (f.isDefault !== !!ic.value?.isDefault) {
+    // spec 已落库;默认态切换失败时 toast 已可见,详情轮询回真,弹窗关闭后可用 header ⭐ 重试
+    if (f.isDefault) await store.promoteIngressClassDefault(route.params.name)
+    else await store.demoteIngressClassDefault(route.params.name)
+  }
+  showEditModal.value = false
+}
 </script>
 
 <template>
@@ -86,6 +140,9 @@ async function handleDelete() {
         </div>
       </div>
       <div class="flex items-center gap-xs">
+        <button data-testid="detail-edit-btn" @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
+          <span class="material-symbols-outlined text-sm">edit</span> {{ t('common.edit') }}
+        </button>
         <button data-testid="promote-default-btn" v-if="!ic.isDefault" @click="toggleDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold border border-primary/40 text-primary rounded-lg hover:bg-primary-container/10 transition-colors">
           <span class="material-symbols-outlined text-sm">star</span> {{ t('common.setAsDefault') }}
         </button>
@@ -157,6 +214,53 @@ async function handleDelete() {
     <div v-if="activeTab === 'yaml'">
       <YamlEditor :model-value="yaml" :readonly="false" height="500px" @save="applyYaml" />
     </div>
+
+    <!-- 结构化编辑 Modal(2026-09-05) -->
+    <Modal v-model="showEditModal" :title="t('admin.ingressClasses.editTitle')" width="max-w-xl">
+      <div class="flex flex-col gap-md">
+        <div>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('admin.ingressClasses.thController') }}</label>
+          <input data-testid="edit-controller" v-model="editForm.controller" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+          <p class="text-label-caps text-on-surface-variant mt-xs flex items-center gap-xs">
+            <span class="material-symbols-outlined text-sm text-error">warning</span>{{ t('admin.ingressClasses.controllerWarning') }}
+          </p>
+        </div>
+
+        <div>
+          <label class="flex items-center gap-sm cursor-pointer">
+            <input data-testid="edit-params-enable" v-model="editForm.paramsEnabled" type="checkbox" class="h-4 w-4 accent-primary" />
+            <span class="text-body-md text-on-surface">{{ t('admin.ingressClasses.paramsEnable') }}</span>
+          </label>
+          <div v-if="editForm.paramsEnabled" class="grid grid-cols-3 gap-sm mt-sm">
+            <input data-testid="edit-params-apigroup" v-model="editForm.params.apiGroup" :placeholder="t('admin.ingressClasses.paramsApiGroup')" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" />
+            <input data-testid="edit-params-kind" v-model="editForm.params.kind" :placeholder="t('admin.ingressClasses.paramsKind')" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" />
+            <input data-testid="edit-params-name" v-model="editForm.params.name" :placeholder="t('admin.ingressClasses.paramsName')" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" />
+          </div>
+        </div>
+
+        <label class="flex items-center gap-sm cursor-pointer">
+          <input data-testid="edit-is-default" v-model="editForm.isDefault" type="checkbox" class="h-4 w-4 accent-primary" />
+          <span class="text-body-md text-on-surface">{{ t('admin.ingressClasses.setDefaultLabel') }}</span>
+        </label>
+
+        <div v-for="s in KV_SECTIONS" :key="s.key">
+          <div class="flex items-center justify-between mb-xs">
+            <label class="text-label-caps text-on-surface-variant">{{ t(s.labelKey) }}</label>
+            <button @click="addRow(s.key)" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
+          </div>
+          <div v-for="(row, i) in editForm[s.key]" :key="s.key + i" class="flex gap-xs mb-xs">
+            <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
+            <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
+            <button @click="removeRow(s.key, i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
+          </div>
+          <p v-if="!(editForm[s.key] || []).length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
+        </div>
+      </div>
+      <template #actions>
+        <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('admin.ingressClasses.cancel') }}</button>
+        <button data-testid="edit-save" :disabled="!editCanSave" @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 disabled:opacity-40">{{ t('common.save') }}</button>
+      </template>
+    </Modal>
 
     <!-- 删除确认 Modal -->
     <Modal v-model="showDeleteModal" :title="t('admin.ingressClasses.deleteTitle')" width="max-w-md">

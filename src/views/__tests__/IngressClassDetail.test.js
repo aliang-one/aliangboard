@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   fetchIngresses: vi.fn(),
   promoteIngressClassDefault: vi.fn(),
   demoteIngressClassDefault: vi.fn(),
+  updateIngressClassSpec: vi.fn(),
   applyYaml: vi.fn(async () => ({ ok: true })),
   captured: { opts: null, data: null, related: null, loading: { value: false } }, // vi.hoisted 先于 import 执行,不能用 ref()
 }))
@@ -28,6 +29,7 @@ vi.mock('@/stores/cluster', () => ({
     fetchIngresses: h.fetchIngresses,
     promoteIngressClassDefault: h.promoteIngressClassDefault,
     demoteIngressClassDefault: h.demoteIngressClassDefault,
+    updateIngressClassSpec: h.updateIngressClassSpec,
   }),
 }))
 vi.mock('@/composables/useK8sQuery', () => ({
@@ -71,7 +73,7 @@ function mountView() {
 
 describe('IngressClassDetail', () => {
   beforeEach(() => { // 用例共享 hoisted spy:清理防调用计数跨用例泄漏
-    for (const spy of [h.push, h.fetchIngressClass, h.deleteIngressClass, h.fetchIngresses, h.promoteIngressClassDefault, h.demoteIngressClassDefault, h.applyYaml]) spy.mockClear()
+    for (const spy of [h.push, h.fetchIngressClass, h.deleteIngressClass, h.fetchIngresses, h.promoteIngressClassDefault, h.demoteIngressClassDefault, h.updateIngressClassSpec, h.applyYaml]) spy.mockClear()
     h.captured.related = ref([RELATED[0]])
   })
   it('数据接线:useResourceDetail key 指向 ingressclasses 单资源,fetcher 走 store.fetchIngressClass', async () => {
@@ -171,5 +173,79 @@ describe('IngressClassDetail', () => {
     expect(back.exists()).toBe(true)
     await back.trigger('click')
     expect(h.push).toHaveBeenCalledWith('/ingressclasses')
+  })
+})
+
+// 结构化编辑弹窗(2026-09-05):controller/parameters/labels/annotations 走 updateIngressClassSpec 手术 patch;
+// isDefault 开关走 promote/demote(sweep 唯一性),不进 patch。
+describe('IngressClassDetail 结构化编辑', () => {
+  beforeEach(() => {
+    for (const spy of [h.push, h.fetchIngressClass, h.promoteIngressClassDefault, h.demoteIngressClassDefault, h.updateIngressClassSpec]) spy.mockClear()
+    h.captured.related = ref([RELATED[0]])
+    h.captured.data = ref(FIXTURE)
+    h.updateIngressClassSpec.mockResolvedValue({ ok: true })
+  })
+
+  it('编辑钮打开弹窗,字段按当前对象回显(controller/parameters 启用三元组/labels 行)', async () => {
+    const w = mountView()
+    await w.vm.$nextTick()
+    await w.find('[data-testid="detail-edit-btn"]').trigger('click')
+    expect(w.find('[data-testid="edit-controller"]').element.value).toBe('k8s.io/ingress-nginx')
+    expect(w.find('[data-testid="edit-params-enable"]').element.checked).toBe(true)
+    expect(w.find('[data-testid="edit-params-kind"]').element.value).toBe('NginxConfiguration')
+    expect(w.find('[data-testid="edit-params-name"]').element.value).toBe('nginx-config')
+    expect(w.find('[data-testid="edit-params-apigroup"]').element.value).toBe('k8s.example.com')
+    expect(w.text()).toContain('team') // labels 行回显
+  })
+
+  it('保存:controller 改动 + 未变字段全量传 → updateIngressClassSpec 手术 diff(annotations 排除 is-default 键)', async () => {
+    const w = mountView()
+    await w.vm.$nextTick()
+    await w.find('[data-testid="detail-edit-btn"]').trigger('click')
+    await w.find('[data-testid="edit-controller"]').setValue('k8s.io/other')
+    await w.find('[data-testid="edit-save"]').trigger('click')
+    await w.vm.$nextTick()
+    expect(h.updateIngressClassSpec).toHaveBeenCalledTimes(1)
+    const payload = h.updateIngressClassSpec.mock.calls[0][1]
+    expect(payload.controller).toBe('k8s.io/other')
+    expect(payload.parameters).toEqual(FIXTURE.parameters) // 未动 → 原样传,diff 层判定无变化
+    expect(payload.labels).toEqual({ team: 'edge' })
+    expect(payload.annotations).toEqual({}) // 唯一注解是 is-default 键,表单排除后为空
+    expect(payload.isDefault).toBeUndefined() // 默认态不进 spec patch
+  })
+
+  it('关闭 parameters 开关保存 → payload.parameters = null(整体删除)', async () => {
+    const w = mountView()
+    await w.vm.$nextTick()
+    await w.find('[data-testid="detail-edit-btn"]').trigger('click')
+    await w.find('[data-testid="edit-params-enable"]').setValue(false)
+    await w.find('[data-testid="edit-save"]').trigger('click')
+    await w.vm.$nextTick()
+    expect(h.updateIngressClassSpec.mock.calls[0][1].parameters).toBeNull()
+  })
+
+  it('isDefault 开关变更 → 保存走 demote(sweep),spec patch 不含默认注解', async () => {
+    h.demoteIngressClassDefault.mockResolvedValue({ ok: true })
+    const w = mountView()
+    await w.vm.$nextTick()
+    await w.find('[data-testid="detail-edit-btn"]').trigger('click')
+    await w.find('[data-testid="edit-is-default"]').setValue(false)
+    await w.find('[data-testid="edit-save"]').trigger('click')
+    await w.vm.$nextTick()
+    expect(h.updateIngressClassSpec).toHaveBeenCalledTimes(1)
+    expect(h.demoteIngressClassDefault).toHaveBeenCalledWith('nginx')
+    expect(h.updateIngressClassSpec.mock.calls[0][1].isDefault).toBeUndefined()
+  })
+
+  it('spec 保存失败({ok:false})→ 提前返回,不触发默认态切换', async () => {
+    h.updateIngressClassSpec.mockResolvedValue({ ok: false, error: 'x' })
+    h.demoteIngressClassDefault.mockResolvedValue({ ok: true })
+    const w = mountView()
+    await w.vm.$nextTick()
+    await w.find('[data-testid="detail-edit-btn"]').trigger('click')
+    await w.find('[data-testid="edit-is-default"]').setValue(false)
+    await w.find('[data-testid="edit-save"]').trigger('click')
+    await w.vm.$nextTick()
+    expect(h.demoteIngressClassDefault).not.toHaveBeenCalled()
   })
 })

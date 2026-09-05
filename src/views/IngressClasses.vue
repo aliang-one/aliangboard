@@ -71,6 +71,12 @@ function handleDelete() {
   showDeleteModal.value = false
   deleteTarget.value = null
 }
+
+// 行级设默认(2026-09-05):promote 自带 sweep 摘旧默认,demote 允许回到无默认态(创建入口选项联动置灰)
+async function toggleDefault(row) {
+  if (row.isDefault) await store.demoteIngressClassDefault(row.name)
+  else await store.promoteIngressClassDefault(row.name)
+}
 </script>
 
 <template>
@@ -110,7 +116,16 @@ function handleDelete() {
       </template>
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
-        <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.ingressClasses.deleteTip')">
+        <button data-testid="ic-toggle-default" @click.stop="toggleDefault(row)"
+          class="p-xs rounded-lg transition-colors"
+          :class="row.isDefault ? 'text-primary hover:bg-primary-container/10' : 'text-on-surface-variant hover:text-primary hover:bg-primary-container/10'"
+          :title="row.isDefault ? $t('admin.ingressClasses.unsetDefaultTip') : $t('admin.ingressClasses.setDefaultTip')">
+          <span class="material-symbols-outlined text-lg">{{ row.isDefault ? 'star' : 'star_outline' }}</span>
+        </button>
+        <button data-testid="ic-edit" @click.stop="openDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="$t('common.edit')">
+          <span class="material-symbols-outlined text-lg">edit</span>
+        </button>
+        <button data-testid="ic-delete" @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.ingressClasses.deleteTip')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>

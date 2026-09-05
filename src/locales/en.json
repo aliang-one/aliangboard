@@ -3257,7 +3257,15 @@
       "labels": "Labels",
       "annotations": "Annotations",
       "notFound": "IngressClass Not Found",
-      "backToList": "Back to IngressClasses"
+      "backToList": "Back to IngressClasses",
+      "setDefaultTip": "Set as cluster default",
+      "unsetDefaultTip": "Unset cluster default",
+      "editTitle": "Edit IngressClass",
+      "controllerWarning": "Changing the controller affects all Ingresses referencing this class.",
+      "paramsEnable": "Configure parameters",
+      "paramsApiGroup": "API group (optional)",
+      "paramsKind": "Kind",
+      "paramsName": "Name"
     },
     "priorityClasses": {
       "title": "PriorityClasses",

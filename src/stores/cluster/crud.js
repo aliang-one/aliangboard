@@ -309,6 +309,18 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     invalidateResource('ingressclasses')
     return r
   }
+  // 全参数结构化编辑(2026-09-05):fetch 最新单对象 → buildIngressClassPatch 手术 diff → merge-patch。
+  // 不走 makeCrud updateIngressClass(经 generateYAML 有损重建,会剪掉 parameters/labels)。
+  async function updateIngressClassSpec(name, updates = {}) {
+    let cur
+    try { cur = await fetchIngressClass(name) } catch { const error = i18n.global.t('store.loadFailed'); notify('error', error); return { ok: false, error } }
+    if (!cur) { const error = i18n.global.t('store.permissionDeniedOrNotFound'); notify('error', error); return { ok: false, error } }
+    const patch = buildIngressClassPatch(cur, updates)
+    if (!patch) return { ok: true }
+    const r = await remotePatch(icPath(name), patch, `IngressClass/${name}`)
+    invalidateResource('ingressclasses')
+    return r
+  }
   async function promoteStorageClassDefault(name) {
     const sweep = await sweepStorageClassDefaults(name)
     if (!sweep.ok) return sweep
@@ -418,6 +430,7 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     addPriorityClass, updatePriorityClass, deletePriorityClass, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     updateIngressRules, addPV, updatePV, deletePV, addStorageClass, updateStorageClass, deleteStorageClass,
     promoteIngressClassDefault, demoteIngressClassDefault, promoteStorageClassDefault,
+    updateIngressClassSpec,
     deleteWorkload, getWorkloadForEdit, updateWorkload,
   }
 }
