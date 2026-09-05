@@ -96,6 +96,7 @@ export const useClusterStore = defineStore('cluster', () => {
     addPriorityClass, updatePriorityClass, deletePriorityClass, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     updateIngressRules, addPV, updatePV, deletePV, addStorageClass, updateStorageClass, deleteStorageClass,
     promoteIngressClassDefault, demoteIngressClassDefault, promoteStorageClassDefault,
+    promotePriorityClassDefault,
     updateIngressClassSpec,
     deleteWorkload, getWorkloadForEdit, updateWorkload } = createCrudDomain({ aliangTag, currentCluster, namespaceList, fetchWorkload, generateYAML, generateExtraYAML })
 
@@ -562,6 +563,7 @@ export const useClusterStore = defineStore('cluster', () => {
     // CRUD: IngressClass / RuntimeClass（集群级）
     addIngressClass, updateIngressClass, deleteIngressClass, addRuntimeClass, updateRuntimeClass, deleteRuntimeClass,
     promoteIngressClassDefault, demoteIngressClassDefault, promoteStorageClassDefault,
+    promotePriorityClassDefault,
     updateIngressClassSpec,
     // CRUD: Workloads
     deleteWorkload, updateWorkload, applyWorkloadTemplate, updateWorkloadMeta, scaleWorkload, restartWorkload, rollbackWorkload, reassignLayer,

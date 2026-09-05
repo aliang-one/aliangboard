@@ -213,3 +213,44 @@ test('updateIngressClassSpec: fetch 失败 → {ok:false} 不写 + toast', async
   expect(notify).toHaveBeenCalledWith('error', r.error)
   expect(k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')).toHaveLength(0)
 })
+
+// === PriorityClass globalDefault sweep(2026-09-05 审计):字段型集群默认与注解型同病 ===
+test('promotePriorityClassDefault: sweep 其他 globalDefault(merge-patch false)再写目标 true', async () => {
+  fetcherState.fetchPriorityClasses = async () => [
+    { name: 'old-pc', globalDefault: true },
+    { name: 'new-pc', globalDefault: false },
+  ]
+  const r = await store.promotePriorityClassDefault('new-pc')
+  expect(r.ok).toBe(true)
+  const patches = k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')
+  expect(patches).toHaveLength(2)
+  expect(patches[0][0]).toBe('/apis/scheduling.k8s.io/v1/priorityclasses/old-pc')
+  expect(patches[0][1].body).toBe(JSON.stringify({ globalDefault: false }))
+  expect(patches[1][0]).toBe('/apis/scheduling.k8s.io/v1/priorityclasses/new-pc')
+  expect(patches[1][1].body).toBe(JSON.stringify({ globalDefault: true }))
+  expect(invalidateQueries).toHaveBeenCalled()
+})
+
+test('promotePriorityClassDefault: sweep PATCH 失败 → 中止不写目标 + toast', async () => {
+  fetcherState.fetchPriorityClasses = async () => [
+    { name: 'old-pc', globalDefault: true },
+    { name: 'new-pc', globalDefault: false },
+  ]
+  k8s.mockImplementation(async (path, opts) => {
+    if (opts?.method === 'PATCH' && String(path).endsWith('/old-pc')) throw new Error('403')
+    return {}
+  })
+  const r = await store.promotePriorityClassDefault('new-pc')
+  expect(r.ok).toBe(false)
+  expect(notify).toHaveBeenCalledWith('error', r.error)
+  const targetPatch = k8s.mock.calls.filter(c => String(c[0]).endsWith('/new-pc') && c[1]?.method === 'PATCH')
+  expect(targetPatch).toHaveLength(0)
+})
+
+test('promotePriorityClassDefault: 列表 fetch 失败 → 中止不写目标 + toast', async () => {
+  fetcherState.fetchPriorityClasses = async () => { throw new Error('boom') }
+  const r = await store.promotePriorityClassDefault('new-pc')
+  expect(r.ok).toBe(false)
+  expect(notify).toHaveBeenCalledWith('error', r.error)
+  expect(k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')).toHaveLength(0)
+})

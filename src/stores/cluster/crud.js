@@ -12,7 +12,7 @@ import { buildIngressClassPatch } from '@/composables/useClassPatch'
 import { queryClient } from '@/queryClient'
 import { encodeSecretData } from '@/composables/useResourceMappers'
 import { invalidateResource } from './invalidate'
-import { fetchConfigMap, fetchSecret, fetchService, fetchIngress, fetchIngressClass, fetchNetworkPolicy, fetchPDB, fetchLimitRange, fetchResourceQuota, fetchHPA, fetchPV, fetchPVC, fetchStorageClass, fetchRoleBinding, fetchRuntimeClass, fetchPriorityClass, fetchClusterRoleBinding, fetchServiceAccount, fetchIngressClasses, fetchStorageClasses } from '@/composables/useFetchers'
+import { fetchConfigMap, fetchSecret, fetchService, fetchIngress, fetchIngressClass, fetchNetworkPolicy, fetchPDB, fetchLimitRange, fetchResourceQuota, fetchHPA, fetchPV, fetchPVC, fetchStorageClass, fetchRoleBinding, fetchRuntimeClass, fetchPriorityClass, fetchClusterRoleBinding, fetchServiceAccount, fetchIngressClasses, fetchStorageClasses, fetchPriorityClasses } from '@/composables/useFetchers'
 
 // HPA 定点 patch(strategic-merge):仅更新可编辑字段(minReplicas/maxReplicas/metrics),
 // 保留 spec.behavior / scaleTargetRef 等其余字段 —— 避免全量 SSA prune。
@@ -328,6 +328,22 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     invalidateResource('storageclasses')
     return r
   }
+
+  // PriorityClass globalDefault sweep(2026-09-05 审计):字段型集群默认与 IC/SC 注解型同病——
+  // 双 globalDefault 会让未指定 priorityClassName 的 Pod 创建被 apiserver 拒。
+  // sweep 先于目标写、失败中止防双默认;PC 无损但 sweep 用定点 merge-patch(置 false)与 IC/SC 同构。
+  const pcPath = name => `/apis/scheduling.k8s.io/v1/priorityclasses/${encodeURIComponent(name)}`
+  async function promotePriorityClassDefault(name) {
+    let items
+    try { items = await fetchPriorityClasses() } catch (e) { return sweepFetchFailed(e) }
+    const others = (items || []).filter(c => c.globalDefault && c.name !== name)
+    for (const c of others) {
+      try { await patchSilent(pcPath(c.name), { globalDefault: false }) } catch { const error = i18n.global.t('store.defaultSweepFailed', { failed: c.name }); notify('error', error); return { ok: false, error } }
+    }
+    const r = await remotePatch(pcPath(name), { globalDefault: true }, `PriorityClass/${name}`)
+    invalidateResource('priorityclasses')
+    return r
+  }
   async function deleteStorageClass(name) {
     try {
       await api.k8s(`/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`, { method: 'DELETE' })
@@ -430,6 +446,7 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     addPriorityClass, updatePriorityClass, deletePriorityClass, addClusterRoleBinding, updateClusterRoleBinding, deleteClusterRoleBinding,
     updateIngressRules, addPV, updatePV, deletePV, addStorageClass, updateStorageClass, deleteStorageClass,
     promoteIngressClassDefault, demoteIngressClassDefault, promoteStorageClassDefault,
+    promotePriorityClassDefault,
     updateIngressClassSpec,
     deleteWorkload, getWorkloadForEdit, updateWorkload,
   }

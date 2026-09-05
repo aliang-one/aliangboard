@@ -55,14 +55,21 @@ const createForm = ref({ name: '', value: 100000, globalDefault: false, descript
 function resetCreate() {
   createForm.value = { name: '', value: 100000, globalDefault: false, description: '' }
 }
-function handleCreate() {
+async function handleCreate() {
   const f = createForm.value
-  store.addPriorityClass({
+  // 创建即设 globalDefault 也须 sweep(2026-09-05 审计):双 globalDefault 会让未指定
+  // priorityClassName 的 Pod 创建被 apiserver 拒。先以 false 创建,成功后 promote(sweep→置默认)。
+  const r = await store.addPriorityClass({
     name: f.name,
     value: parseInt(f.value, 10) || 0,
-    globalDefault: !!f.globalDefault,
+    globalDefault: false,
     description: f.description,
   })
+  if (r && r.ok === false) return // 远端创建失败:保留弹窗(错误已由 store notify)
+  if (f.globalDefault) {
+    const p = await store.promotePriorityClassDefault(f.name)
+    if (p && p.ok === false) return // promote(sweep)失败:资源已创建但默认未成,保留弹窗(错误已 notify)
+  }
   showCreateModal.value = false
   resetCreate()
 }
@@ -228,6 +235,7 @@ function handleDelete() {
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('admin.priorityClasses.nameLabel') }}</label>
         <input
+          data-testid="pc-create-name"
           v-model="createForm.name"
           class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary"
           :placeholder="$t('admin.priorityClasses.namePlaceholder')"
@@ -252,7 +260,7 @@ function handleDelete() {
         />
       </div>
       <label class="flex items-center gap-sm cursor-pointer">
-        <input v-model="createForm.globalDefault" type="checkbox" class="w-4 h-4 accent-primary" />
+        <input data-testid="pc-create-global-default" v-model="createForm.globalDefault" type="checkbox" class="w-4 h-4 accent-primary" />
         <span class="text-body-md text-on-surface">{{ $t('admin.priorityClasses.globalDefaultLabel') }}</span>
       </label>
     </div>
