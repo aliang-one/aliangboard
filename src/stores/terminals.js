@@ -115,6 +115,24 @@ export const useTerminalStore = defineStore('terminals', () => {
     }
   }
 
+  // 建记录本体(openTerminal/openNewTerminal 共用):id=WS sid=tmux 会话名,服务端纯 INSERT
+  function createRecord({ namespace, podName, container, command, name }) {
+    const term = {
+      id: `term-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      name,
+      namespace, podName,
+      container: container || '',
+      command: command || 'sh',
+      status: 'open',
+      zIndex: takeZ(),
+      createdAt: Date.now(),
+    }
+    terminals.value.push(term)
+    persistCreate(term)
+    persistMirror()
+    return term
+  }
+
   // 创建（从任意 Pod 打开终端）。若同一 Pod+container 已有终端 → 聚焦它
   function openTerminal({ namespace, podName, container, command, name }) {
     const existing = terminals.value.find(t =>
@@ -132,20 +150,21 @@ export const useTerminalStore = defineStore('terminals', () => {
       persistMirror()
       return existing
     }
-    const term = {
-      id: `term-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-      name: name || `${podName}/${container || 'main'}`,
-      namespace, podName,
-      container: container || '',
-      command: command || 'sh',
-      status: 'open',
-      zIndex: takeZ(),
-      createdAt: Date.now(),
-    }
-    terminals.value.push(term)
-    persistCreate(term)
-    persistMirror()
-    return term
+    return createRecord({ namespace, podName, container, command, name: name || `${podName}/${container || 'main'}` })
+  }
+
+  // 同 pod 多终端(2026-09-05):恒新建,供任务栏 pod chip「+」等显式多开入口。
+  // 去重语义只在 openTerminal(点击=聚焦/恢复,跨标签页重复 chip 防线);显式多开绕过它。
+  // 缺省命名同 pod+container 第 2/3 个实例自动 #2/#3(按现有实例数计,重命名不影响序号);
+  // 显式传 name 不加后缀。
+  function openNewTerminal({ namespace, podName, container, command, name }) {
+    const siblings = terminals.value.filter(t =>
+      t.namespace === namespace && t.podName === podName && (t.container || '') === (container || ''))
+    const base = `${podName}/${container || 'main'}`
+    return createRecord({
+      namespace, podName, container, command,
+      name: name || (siblings.length ? `${base} #${siblings.length + 1}` : base),
+    })
   }
 
   // 关闭
@@ -275,6 +294,6 @@ export const useTerminalStore = defineStore('terminals', () => {
 
   return {
     terminals, openTerminals, minimizedTerminals, allTerminals,
-    loadPersisted, openTerminal, closeTerminal, minimizeTerminal, restoreTerminal, renameTerminal, focusTerminal, openExternal, focusExternal,
+    loadPersisted, openTerminal, openNewTerminal, closeTerminal, minimizeTerminal, restoreTerminal, renameTerminal, focusTerminal, openExternal, focusExternal,
   }
 })

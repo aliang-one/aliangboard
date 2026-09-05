@@ -33,6 +33,11 @@ function onTermClick(item) {
   } else if (item.status === 'minimized') termStore.restoreTerminal(item.id)
   else termStore.focusTerminal(item.id)
 }
+// 同 pod 多终端(2026-09-05):pod chip「+」= 显式多开(SSH 分组 chip 同款),恒新建;
+// chip 本体点击仍是聚焦/恢复语义。
+function onPodNew(chip) {
+  termStore.openNewTerminal({ namespace: chip.namespace, podName: chip.podName, container: chip.container })
+}
 function onFilesClick(b) { b.status === 'minimized' ? fbStore.restoreBrowser(b.id) : fbStore.focusBrowser(b.id) }
 function onSshItemClick(w) {
   if (w.status === 'external') { sshStore.focusExternal(w.id); return }
@@ -108,7 +113,7 @@ async function killOrphan(chip) {
 const orphanChips = computed(() => orphans.value.map(s => ({ kind: 'orphan', id: s.sid, name: s.serverId, user: s.userId, count: 1 })))
 
 // —— 三类 chip 拍平(折叠按此顺序从尾部吃;orphan 置首=警示最晚被折)——
-const podChips = computed(() => termStore.terminals.map(t => ({ kind: 'pod', id: t.id, name: t.name, status: t.status })))
+const podChips = computed(() => termStore.terminals.map(t => ({ kind: 'pod', id: t.id, name: t.name, status: t.status, namespace: t.namespace, podName: t.podName, container: t.container })))
 const fileChips = computed(() => fbStore.browsers.map(b => ({ kind: 'file', id: b.id, name: b.name, status: b.status })))
 const flat = computed(() => [...orphanChips.value, ...podChips.value, ...fileChips.value, ...sshChips.value])
 const flatSig = computed(() => flat.value.map(c => `${c.kind}:${c.id}:${c.status}`).join('|'))
@@ -212,13 +217,14 @@ function closeAll() {
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
         </button>
-        <!-- pod 终端 -->
-        <button v-if="chip.kind === 'pod'" @click="onTermClick(termStore.terminals.find(x => x.id === chip.id))"
+        <!-- pod 终端(「+」=同 pod 再开一个,与 SSH 分组 chip 同款;chip 本体点击=聚焦/恢复) -->
+        <button v-if="chip.kind === 'pod'" :data-test="'pod-chip-' + chip.id" @click="onTermClick(termStore.terminals.find(x => x.id === chip.id))"
           class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0"
           :class="chip.status === 'open' ? 'bg-primary/15 text-primary border border-primary/30' : chip.status === 'external' ? 'bg-secondary/10 text-secondary border border-secondary/30' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-transparent'"
           :title="`${chip.name}（${chip.status === 'open' ? t('terminal.statusFloating') : chip.status === 'external' ? t('terminal.statusExternal') : t('terminal.statusMinimized')}）`">
           <span class="material-symbols-outlined text-sm">{{ chip.status === 'open' ? 'terminal' : chip.status === 'external' ? 'open_in_new' : 'hide_source' }}</span>
           <span class="truncate" :class="iconMode ? 'max-w-[64px]' : ''">{{ chip.name }}</span>
+          <span v-if="!iconMode" @click.stop="onPodNew(chip)" class="ml-0.5 px-1 rounded hover:bg-primary/30 text-primary leading-4" :title="t('terminal.podNewTerminal')">+</span>
           <span @click.stop="termStore.closeTerminal(chip.id)" class="ml-xs p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error transition-colors opacity-0 group-hover:opacity-100 max-sm:opacity-100 max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center" :title="t('terminal.closeThisTitle')">
             <span class="material-symbols-outlined" style="font-size:13px">close</span>
           </span>
