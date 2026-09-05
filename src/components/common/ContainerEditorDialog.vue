@@ -19,7 +19,7 @@ const props = defineProps({
   kind: { type: String, default: 'init' },          // 'init' | 'sidecar'
   index: { type: Number, default: 0 },
   otherNames: { type: Array, default: () => [] },   // 主容器有效名 + 其他容器显式名(查重)
-  namespace: { type: String, default: '' },         // EnvSourceField 候选过滤用
+  namespace: { type: String, default: '' },         // 传给 ContainerEnvEditor 的 env 下拉候选过滤用
 })
 const emit = defineEmits(['update:modelValue', 'confirm'])
 const { t } = useI18n()

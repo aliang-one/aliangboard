@@ -42,7 +42,6 @@ function mapMainContainer(c) {
     cpuLimit: r.limits?.cpu || '500m',
     memoryRequest: r.requests?.memory || '256Mi',
     memoryLimit: r.limits?.memory || '512Mi',
-    envVars: (c?.env || []).filter(e => e && e.value != null && !e.valueFrom).map(e => ({ key: e.name, value: String(e.value) })),
     envRows: envRowsFromSpec(c?.env),
     envFromRows: envFromRowsFromSpec(c?.envFrom),
     ports: (c?.ports || []).map(p => ({ containerPort: p?.containerPort != null ? String(p.containerPort) : '', protocol: p?.protocol || 'TCP' })),
@@ -85,7 +84,7 @@ export function workloadToForm(obj, kind) {
   }
 
   if (containers[0]) Object.assign(out, mapMainContainer(containers[0]))
-  else { out.image = ''; out.containerName = ''; out.envVars = []; out.envRows = []; out.envFromRows = []; out.ports = []; out.liveness = mapProbe(null); out.readiness = mapProbe(null); out.startup = mapProbe(null) }
+  else { out.image = ''; out.containerName = ''; out.envRows = []; out.envFromRows = []; out.ports = []; out.liveness = mapProbe(null); out.readiness = mapProbe(null); out.startup = mapProbe(null) }
   const { plainInits, plainSidecars, nativeSidecars } = splitContainers(pod)
   out.extraContainers = [...plainSidecars, ...nativeSidecars].map(mapSubContainer)
   out.initContainers = plainInits.map(mapSubContainer)
