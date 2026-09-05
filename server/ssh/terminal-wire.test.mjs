@@ -3,7 +3,7 @@
 // 断开的 ws 不再收到广播。spawn 网关无法模拟真 shell,故对抽出的接线辅助做纯逻辑单测。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness } from './terminal-wire.mjs'
+import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness, createCloseSentinel } from './terminal-wire.mjs'
 import { createRingBuffer } from './terminal-sessions.mjs'
 
 const STDOUT = 1, RESIZE = 2, REPLAY = 6
@@ -15,6 +15,8 @@ function fakeWs() {
   return {
     listeners, frames,
     on(ev, fn) { (listeners[ev] ||= []).push(fn) },
+    once(ev, fn) { const g = (...a) => { this.off?.(ev, g); fn(...a) }; (listeners[ev] ||= []).push(g) },
+    off(ev, fn) { const l = listeners[ev]; if (l) { const i = l.indexOf(fn); if (i !== -1) l.splice(i, 1) } },
     emit(ev, ...args) { for (const fn of listeners[ev] || []) fn(...args) },
     send(buf) { frames.push(buf) },
   }
@@ -148,7 +150,7 @@ test('resize 仲裁:primary 断开顺延给剩余附着者;全员离开后 resiz
 // —— WS 存活探测(2026-09-04 事故①)——
 // ws 库不感知半开 TCP(合盖/休眠/代理断链不发 close):浏览器静默消失后 drop 不触发,
 // browserCount 卡 ≥1 → detached-idle 回收永不生效 → shell+ring+池句柄永久泄漏。
-test('WS 存活探测:ping 后两轮无 pong 即 onDead;pong 续活;stop 可停', () => {
+test('WS 存活探测:连续两次未应答 ping 才 onDead(双振,复审 F2);pong 续活;stop 可停', () => {
   const terminated = []
   const clients = new Set()
   // onDead(ws.terminate) 后 ws 库会因 'close' 把连接移出 clients——桩里用 delete 模拟
@@ -163,11 +165,13 @@ test('WS 存活探测:ping 后两轮无 pong 即 onDead;pong 续活;stop 可停'
   clients.add(good); clients.add(bad)
 
   liveness.sweep(); good.emit('pong')    // 轮 1:全部 ping → good 按协议回 pong
-  liveness.sweep(); good.emit('pong')    // 轮 2:bad 两轮无 pong → terminate;good ping 后照常回 pong
+  liveness.sweep(); good.emit('pong')    // 轮 2:bad 首次漏 pong(missed=1,双振未满)→ 不杀;good 照常回 pong
+  assert.deepEqual(terminated, [])
+  liveness.sweep()                       // 轮 3:bad 连续两次未应答(missed=2)→ terminate
   assert.deepEqual(terminated, [bad])
   assert.equal(clients.has(good), true)
 
-  liveness.sweep(); good.emit('pong')    // 轮 3-4:pong 必须紧跟每个 ping 轮,持续不误杀
+  liveness.sweep(); good.emit('pong')    // 轮 4-5:good 每轮 ping 后回 pong,持续不误杀
   liveness.sweep()
   assert.deepEqual(terminated, [bad])
   liveness.stop()
@@ -181,7 +185,37 @@ test('markAlive:打标是跟踪前提——未 markAlive 的连接没有 pong �
   clients.add(late)                      // 未 markAlive(isAlive undefined)
   liveness.sweep()                       // 首轮:undefined !== false → 只 ping 不误杀
   assert.deepEqual(terminated, [])
-  liveness.sweep()                       // 次轮:两轮无 pong → 收(协议层自动 pong 不经过我们的监听)
+  liveness.sweep()                       // 次轮:missed=1,双振未满
+  assert.deepEqual(terminated, [])
+  liveness.sweep()                       // 三轮:missed=2 → 收(协议层自动 pong 不经过我们的监听)
   assert.deepEqual(terminated, [late])
   liveness.stop()
 })
+
+// —— 入口关闭哨兵(2026-09-04 复审 F1)——
+// 建连链路有长 await(池握手 15s/shell 建立/tmux 探测),真正的 close 监听要到最后接线才有
+// ——窗口内的关闭事件直接丢失(EventEmitter 不重放),handler 继续走完 → 计数卡死 → 泄漏。
+test('close 哨兵:attach 前的 close/error 均置位 gone;幂等;dispose 后不再跟随', () => {
+  const ws = fakeWs()
+  const sentinel = createCloseSentinel(ws)
+  assert.equal(sentinel.gone, false)
+  ws.emit('error', new Error('x'))
+  assert.equal(sentinel.gone, true)
+  ws.emit('close')                       // 幂等:重复事件仍是同一布尔
+  assert.equal(sentinel.gone, true)
+
+  const ws2 = fakeWs()
+  const s2 = createCloseSentinel(ws2)
+  s2.dispose()                           // 接线(drop)接管后拆哨兵
+  ws2.emit('close')
+  assert.equal(s2.gone, false)
+})
+
+test('close 哨兵:close 先于 error 也置位(两事件竞发只走一个布尔)', () => {
+  const ws = fakeWs()
+  const sentinel = createCloseSentinel(ws)
+  ws.emit('close')
+  ws.emit('error', new Error('late'))
+  assert.equal(sentinel.gone, true)
+})
+

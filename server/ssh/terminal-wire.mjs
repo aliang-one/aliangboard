@@ -51,20 +51,27 @@ export function attachSocketToSession(ws, session, { send, touch = () => {}, onD
   ws.on('error', drop)
 }
 
-// —— WS 存活探测(2026-09-04 事故①)——
+// —— WS 存活探测(2026-09-04 事故①;复审 F2 改真双振)——
 // ws 库不感知半开 TCP:合盖/休眠/代理断链不发 close → drop 不触发 → browserCount 卡 ≥1,
 // detached-idle 回收永不生效(shell+ring+池句柄永久泄漏)。标准方案:周期 ping,
-// 两轮无 pong 即 onDead(网关侧传 ws.terminate() → 触发 'close' → drop → 计数归零)。
+// 连续 maxMissed(默认 2)个周期未应答才 onDead(网关侧传 ws.terminate() → 触发 'close'
+// → drop → 计数归零)——单次未应答给一个周期的宽限,慢速链路不被误杀。
 // 浏览器 WebSocket 在协议层自动回 pong,前端零改动。
 export function markAlive(ws) {
   ws.isAlive = true
+  ws.missedPongs = 0
   ws.on('pong', () => { ws.isAlive = true })
 }
 
-export function attachWsLiveness(wsServer, { intervalMs = 30000, onDead = ws => ws.terminate() } = {}) {
+export function attachWsLiveness(wsServer, { intervalMs = 30000, maxMissed = 2, onDead = ws => ws.terminate() } = {}) {
   const sweep = () => {
     for (const ws of wsServer.clients) {
-      if (ws.isAlive === false) { try { onDead(ws) } catch { /* noop */ } continue }
+      if (ws.isAlive === false) {
+        ws.missedPongs = (ws.missedPongs || 0) + 1
+        if (ws.missedPongs >= maxMissed) { try { onDead(ws) } catch { /* noop */ } }
+        continue
+      }
+      ws.missedPongs = 0
       ws.isAlive = false
       try { ws.ping() } catch { /* noop */ }
     }
@@ -72,4 +79,23 @@ export function attachWsLiveness(wsServer, { intervalMs = 30000, onDead = ws => 
   const timer = setInterval(sweep, intervalMs)
   timer.unref?.()
   return { sweep, stop: () => clearInterval(timer) }
+}
+
+// 入口关闭哨兵(2026-09-04 复审 F1):建连链路里有长 await(池握手最长 15s/shell 建立/
+// tmux 探测链),真正的 close/error → drop 监听要到最后接线才注册——窗口内的关闭事件
+// 直接丢失(EventEmitter 不重放),handler 继续走完 ensure/attach → browserCount/attached
+// 计数卡死 → 会话泄漏。哨兵在 handler 入口同步注册幂等 close/error,任何一处置位 gone;
+// handler 在每个 await 后 bail 并释放已取得的资源。接线(drop)接管后调 dispose 拆哨兵。
+export function createCloseSentinel(ws) {
+  const state = { gone: false }
+  const mark = () => { state.gone = true }
+  ws.on('close', mark)     // mark 幂等(布尔置位),无需 once——dispose 需按原引用摘除
+  ws.on('error', mark)
+  return {
+    get gone() { return state.gone },
+    dispose() {
+      try { ws.off?.('close', mark) } catch { /* noop */ }
+      try { ws.off?.('error', mark) } catch { /* noop */ }
+    },
+  }
 }
