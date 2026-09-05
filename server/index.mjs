@@ -56,7 +56,7 @@ import { createSshPool } from './ssh/pool.mjs'
 import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
 import { createSshJobBridge } from './ssh/job-bridge.mjs'
 import { resolveJobPolicy } from './ssh/job-policy.mjs'
-import { createTerminalRegistry } from './ssh/terminal-sessions.mjs'
+import { createTerminalService } from './ssh/terminal-service.mjs'
 import { resolvePolicy } from './ssh/reap-policy.mjs'
 import { markAlive, attachWsLiveness, createCloseSentinel } from './ssh/terminal-wire.mjs'
 import { createSshTerminalHandler } from './ssh/terminal-handler.mjs'
@@ -1536,14 +1536,14 @@ async function handle(req, res) {
     buildCallContext, requestKubernetes, applyYamlPartial,
     bootstrapLedgerForCluster,
     wbAgent, busDispose,
-    listSshSessions: () => sshTerminals.list(),
+    listSshSessions: () => terminalService.list(),
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
 const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting,
   evictSshServer: id => sshPool.evictServer(id),
-  closeSshServerSessions: id => sshTerminals.closeByServer(id, sess => { try { sess.extra?.channel?.close?.() } catch { /* noop */ }; try { sess.extra?.release?.() } catch { /* noop */ } }),
-  listSshSessions: () => sshTerminals.list(),
-  killSshSession: sid => sshTerminals.close(sid, s => { try { s.extra?.channel?.close?.() } catch { /* noop */ }; try { s.extra?.release?.() } catch { /* noop */ } }),
+  closeSshServerSessions: id => terminalService.closeByServer(id, 'server-deleted'),
+  listSshSessions: () => terminalService.list(),
+  killSshSession: sid => terminalService.killSession(sid, 'manual-kill'),
 })
   if (await sshRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
@@ -2134,7 +2134,16 @@ const httpServer = createServer((req, res) => {
 // 会话注册表:浏览器断开 ≠ 会话死亡;重连同 sid 先回放(CH_REPLAY)再接直播。
 // 环形缓冲字节上限(2026-09-04 P1):防无换行大流/超长单行打爆堆;SSH_RING_MAX_BYTES 可调,下限 64KB。
 const SSH_RING_MAX_BYTES = Math.max(64 * 1024, Number(process.env.SSH_RING_MAX_BYTES) || 4 * 1024 * 1024)
-const sshTerminals = createTerminalRegistry({ ringMaxBytes: SSH_RING_MAX_BYTES })
+const terminalService = createTerminalService({
+  ringMaxBytes: SSH_RING_MAX_BYTES,
+  // 分级审计(复审二 P2):不可逆/有损转换进 audit 链;高频 attach/detach 走行内字段
+  onIrreversible: ({ tid, event, reason, from }) => {
+    const t = terminalService.get(tid)
+    writeAudit(db, { owner: t?.owner || null, verb: 'close', tool: 'ssh_terminal', result: 'ok',
+      reason: `${event}:${reason || 'explicit'}(from ${from})`, requestSummary: `server=${t?.serverId || ''} sid=${tid}`, source: 'platform' })
+  },
+})
+terminalService.reconcileOnBoot(Date.now())   // P1 内存态为空=无操作;P2 catalog 落地后即生效
 // SSH 异步任务 TTL 清理(规格 2026-08-30 §4):对内存 map 里活跃过的服务器逐台远端 find。
 // 网关重启后内存为空 → 该轮不扫;孤儿目录由下次该服务器 run() 的机会性清理兜底(launchScript 已含)。
 const jobBridgeForSweep = createSshJobBridge({ db, pool: sshPool, projectId: '__sweep__', getPolicy: getSshJobPolicy })
@@ -2142,16 +2151,13 @@ const jobBridgeForSweep = createSshJobBridge({ db, pool: sshPool, projectId: '__
 // 有附着浏览器的(attached-idle/max-lifetime)先广播告知再关。detached-idle 无人可告,直接收。
 setInterval(() => {
   try {
-    sshTerminals.reapByPolicy(getSshSessionPolicy(), (s, reason) => {
-      if (s.extra?.sockets?.size > 0) {
-        const key = reason === 'max-lifetime' ? 'ssh.reapedMaxLifetime' : 'ssh.reapedAttached'
-        try { broadcastToSockets(s, wsSend, CH_ERROR, t('zh', key)) } catch { /* 告知失败不阻断回收 */ }
-      }
-      try { s.extra?.channel?.close?.() } catch {}
-      try { s.extra?.release?.() } catch {}
-      writeAudit(db, { owner: s.userId, verb: 'close', tool: 'ssh_terminal', result: 'ok', reason,
-        requestSummary: `server=${s.serverId} sid=${s.sid}`, source: 'platform' })
-    })
+    // 二段式回收经 TerminalService.sweep(策略每跳现读,≤60s 生效);CLOSED/LOST 审计由
+    // onIrreversible 统一落链(reason 含阶段与锚点龄期)
+    const events = terminalService.sweep(getSshSessionPolicy(), Date.now())
+    for (const ev of events) {
+      const t = terminalService.get(ev.tid)
+      console.log(`[ssh] terminal ${ev.tid} -> ${t ? t.status : 'CLOSED'} (${ev.action})`)
+    }
   } catch (e) { console.error('[ssh] reap sweep failed:', e?.message || e) }
   // SSH 异步任务 TTL 清理:单台失败不阻断(catch 全吞),sweep 只依赖 pool/db,projectId 无关。
   // 但失败必须可见(终审 T6):ops 文档声称周期清理有效,静默失败 = 清理从未发生而无人知。
@@ -2182,7 +2188,7 @@ sessionSweeper.unref?.()
 
 const handleSshTerminal = createSshTerminalHandler({
   sshPool,
-  registry: sshTerminals,
+  service: terminalService,
   writeAudit,
   wsSend,
   lookupServer: serverId => db.prepare('SELECT id FROM ssh_servers WHERE id=?').get(serverId),

@@ -1,6 +1,28 @@
 // 终端生命周期唯一状态机(2026-09-05 方案 P1,spec §2):七操作独占写,全部幂等。
 // 其余入口禁止裸 Map.delete/channel.close —— terminal-guard.test.mjs 静态守卫钉住。
-import { createRingBuffer } from './terminal-sessions.mjs'   // Task 6 移入本文件后改本文件
+
+// 环形缓冲(自 terminal-sessions.mjs 移入,2026-09-05 方案 P1 Task6):原始字节块+字节上限。
+export function createRingBuffer(maxBytes = 4 * 1024 * 1024) {
+  const chunks = []
+  let total = 0
+  return {
+    push(chunk) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)   // string/Uint8Array → utf8
+      if (!buf.length) return
+      chunks.push(buf)
+      total += buf.length
+      while (total > maxBytes && chunks.length > 1) { total -= chunks[0].length; chunks.shift() }
+      if (total > maxBytes) {
+        const tail = Buffer.from(buf.subarray(buf.length - maxBytes))
+        chunks.length = 0
+        chunks.push(tail)
+        total = tail.length
+      }
+    },
+    snapshot() { return Buffer.concat(chunks) },
+    byteLength() { return total },
+  }
+}
 
 export const TERMINAL_TRANSITIONS = {
   CREATING: ['ATTACHED', 'LOST', 'CLOSED'],
@@ -185,6 +207,14 @@ export function createTerminalService({
     transition(t, 'LOST', reason)     // transition 内部对 LOST 走 releaseBackend
   }
 
+  // 后端建立失败(shell 起不来等):LOST + releaseBackend + 等待者全部收到 {ok:false, LOST}
+  function markBackendFailed(tid, err) {
+    const t = map.get(tid); if (!t) return
+    t.lastError = String(err?.message || err)
+    transition(t, 'LOST', 'backend-failed')
+    t.rejectReady?.(err)
+  }
+
   function abandon(tid, connId) {
     const t = map.get(tid); if (!t) return
     if (t.status !== 'CREATING') { detach(tid, connId, 'abandon'); return }
@@ -219,5 +249,19 @@ export function createTerminalService({
     }
   }
 
-  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, attach, detach, abandon, markLost, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot }
+  // 观测端点/任务栏对账数据源(保持旧 registry.list 字段形状:sid/serverId/userId/browserCount/idleMs + status)
+  function list() {
+    return [...map.values()].map(t => ({
+      sid: t.id, serverId: t.serverId, userId: t.owner, status: t.status,
+      browserCount: t.connIds.size, idleMs: Math.max(0, now() - t.lastActiveAt),
+      createdAt: t.createdAt, backend: t.backend, lastError: t.lastError,
+    }))
+  }
+  function listByServer(serverId) { return list().filter(r => r.serverId === serverId) }
+  function killSession(tid, reason = 'manual-kill') {
+    const r = close(tid, { force: true, reason })
+    return r.ok ? { ok: true } : null
+  }
+
+  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, attach, detach, abandon, markLost, markBackendFailed, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot, list, listByServer, killSession }
 }

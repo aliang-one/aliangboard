@@ -202,3 +202,18 @@ test('sweep 不动 ATTACHED/CREATING;boot 对账:ATTACHED→DETACHED(锚点=boot
   const ev = svc.sweep({ detachedIdleMin: 10, backendIdleMin: 10080 }, clock + 11 * 60 * 1000)
   assert.deepEqual(ev, [{ tid: 'ta', action: 'timeout-stage1' }])
 })
+
+test('markBackendFailed:LOST + releaseBackend + 等待者 attach 全收 {ok:false, LOST}', async () => {
+  const released = []
+  const svc = createTerminalService({ now: () => 1000 })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  t.release = () => released.push('pool')
+  const ws = { close() { released.push('ws') } }
+  const p = svc.attach('t1', 'c1', ws)
+  svc.markBackendFailed('t1', new Error('shell failed'))
+  const res = await p
+  assert.equal(res.ok, false)
+  assert.equal(res.status, 'LOST')
+  assert.equal(res.reason, 'shell failed')
+  assert.deepEqual(released, ['pool', 'ws'])
+})
