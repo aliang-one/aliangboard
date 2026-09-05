@@ -11,6 +11,7 @@ import { buildPVPatch, buildStorageClassPatch } from '@/composables/useStoragePa
 import { buildStorageClassYaml } from '@/data/storageClassYaml'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import { queryClient } from '@/queryClient'
+import { usePreferencesStore } from '@/stores/preferences'
 import { mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV, mapStorageClass, mapEndpoints, mapIngressClass, mapRuntimeClass, mapPriorityClass, mapService, mapIngress, mapNetworkPolicy, mapHPA, mapResourceQuota, mapLimitRange, mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf, eventIconColor, encodeSecretData, encodeBase64, decodeBase64 } from '@/composables/useResourceMappers'
 import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchPV, fetchStorageClasses, fetchStorageClass, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchRuntimeClass, fetchIngressClasses, fetchIngressClass, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace, fetchWorkloadRevisions, fetchReplicaSets } from '@/composables/useFetchers'
 import { applyWatchEvent } from '@/composables/useK8sQuery'
@@ -520,6 +521,11 @@ export const useClusterStore = defineStore('cluster', () => {
       if (currentNamespace.value && namespaceList.value.length
           && !namespaceList.value.some(n => n.name === currentNamespace.value)) {
         setNamespace(namespaceList.value[0].name)
+      } else if (!currentNamespace.value) {
+        // Wave1 §3.4:无记忆 ns 时落偏好默认(仅当其存在于该集群;无 pinia 环境(单测)静默跳过)
+        let preferred = null
+        try { preferred = usePreferencesStore().defaultNamespace } catch { /* 无 pinia */ }
+        if (preferred && namespaceList.value.some(n => n.name === preferred)) setNamespace(preferred)
       }
       // hydrateExtendedResources 已停用：11 个 extended 资源全部迁 Vue Query（零直接 store 读者），
       // 各页面按需拉取 + 同 key 去重。首屏从 2+11=13 请求降至 2（namespaces+nodes）。

@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { usePreferencesStore } from '@/stores/preferences'
 import { safeRedirectPath } from '@/utils/safeRedirect'
 
 const router = useRouter()
@@ -29,6 +30,13 @@ async function handleLogin() {
     // 全量加载(非 router.push):弹窗页需完整启动流程(main.js 交接槽/路由守卫重跑)。
     const target = safeRedirectPath(route.query.redirect)
     if (target) { window.location.href = target; return }
+    // 落地页偏好(Wave1 §3.4):redirect > landingView > 自动连集群(现状)
+    const landing = usePreferencesStore().landingView
+    if (landing === 'workbench') { router.push('/workbench'); return }
+    if (landing === 'last') {
+      const last = localStorage.getItem('aliangboard.lastView')
+      if (last && last.startsWith('/') && !last.startsWith('/login')) { window.location.href = last; return }
+    }
     // 尝试自动连接上次使用的集群；成功直接进集群，失败才跳选择页
     const auto = await authStore.tryAutoConnect()
     if (auto) {

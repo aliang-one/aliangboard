@@ -302,3 +302,19 @@ test('活动 tab:翻页重拉携带 page+size', async () => {
   expect(apiMocks.myActivity).toHaveBeenLastCalledWith({ page: 2, size: 50 })
   w.unmount()
 })
+
+// === Task 12: 偏好丰富化(五项控件) ===
+test('偏好 tab:新增五项控件渲染且写入 store', async () => {
+  apiMocks.myClusters.mockResolvedValue({ clusters: [{ id: 'c1', name: 'prod' }] })
+  const w = mountPage('preferences')
+  await flushPromises()
+  await w.find('[data-testid="pref-landing"]').setValue('workbench')
+  expect(usePreferencesStore().landingView).toBe('workbench')
+  await w.find('[data-testid="pref-default-cluster"]').setValue('c1')
+  expect(usePreferencesStore().defaultClusterId).toBe('c1')
+  await w.find('[data-testid="pref-default-ns"]').setValue('team-a')
+  expect(usePreferencesStore().defaultNamespace).toBe('team-a')
+  await w.find('[data-testid="pref-rows"]').setValue('50')
+  expect(usePreferencesStore().rowsPerPage).toBe(50)
+  w.unmount()
+})
