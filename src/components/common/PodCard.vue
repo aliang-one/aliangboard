@@ -81,7 +81,8 @@ function openLogs() {
       <span v-if="selectable" data-test="batch-checkbox" class="material-symbols-outlined text-base text-primary select-none pointer-events-none shrink-0">{{ selected ? 'check_box' : 'check_box_outline_blank' }}</span>
       <span class="w-2 h-2 rounded-full shrink-0" :class="[health.dot, pod.status === 'Running' ? 'animate-pulse-status' : '']"></span>
       <span class="font-mono text-xs font-medium text-on-surface truncate flex-1 min-w-0" :title="pod.name">{{ nameDisp.base }}<span class="text-on-surface-variant/40 font-normal">{{ nameDisp.suffix }}</span></span>
-      <StatusChip :status="pod.status" size="sm" />
+      <!-- dot=false:行首已有健康呼吸点,chip 内置点会叠成双点并推宽行致窄列溢出 -->
+      <StatusChip :status="pod.status" size="sm" :dot="false" />
       <span v-if="containers.length > 1" class="text-[10px] text-on-surface-variant/60 flex items-center gap-0.5 shrink-0" :title="t('component.podCard.containers', { n: containers.length })"><span class="material-symbols-outlined" style="font-size:11px">inventory_2</span>{{ containers.length }}</span>
       <span v-if="showNamespace && pod.namespace" class="text-[10px] px-1 rounded font-medium shrink-0 bg-secondary/10 text-secondary" :title="t('component.podCard.namespaceTitle', { ns: pod.namespace })">{{ pod.namespace }}</span>
       <span v-if="ready !== null" class="text-[10px] px-1 rounded font-medium shrink-0" :class="ready ? 'bg-primary-container/15 text-primary' : 'bg-tertiary-container/15 text-tertiary-container'">{{ ready ? t('component.podCard.ready') : t('component.podCard.notReady') }}</span>
