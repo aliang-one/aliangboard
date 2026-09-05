@@ -4,7 +4,7 @@
 // 状态角标 + 悬停概览面板。数据 = GET /api/workbench/summary 单一汇总端点,30s 轮询
 // (TopNavBar 全站常驻 ⇒ 全站唯一轮询器;标签页隐藏自动暂停,聚焦即刷新)。
 // 2026-09-04 身份舱段式化:自身描边/底色上交 TopNavBar 的 identity-capsule 容器。
-// 2026-09-04 v4 精修:裸图标升级 primary→tertiary 渐变品牌瓷砖(激活放大+高光扫过),
+// 2026-09-04 v4 精修:裸图标升级 primary→primary-container 双绿渐变品牌瓷砖(激活放大+高光扫过),
 // 段悬停改舷形渐变填充(hoverfill 层 transform scale-x 扫入,轮廓镜像舷板外弧),
 // 统计条灯珠化(绿呼吸/红脉冲,有数据才动;待批在场时呼吸让位)。
 // 激活填充(bg-primary-container)保留。
@@ -126,12 +126,13 @@ function relTime(ts) {
            tap 后粘滞,装饰层整层 max-sm:hidden 才是真「触屏恒隐藏」);pointer-events-none 不挡点击 -->
       <span data-test="pill-hoverfill" aria-hidden="true"
         class="pointer-events-none absolute inset-0 origin-left scale-x-0 rounded-tl-[30px] rounded-bl-[12px] bg-gradient-to-r from-primary/10 via-primary/5 to-transparent transition-transform duration-300 group-hover:scale-x-100 max-sm:hidden motion-reduce:transition-none"></span>
-      <!-- 品牌瓷砖(v4):primary→tertiary 渐变圆角砖包图标(on-primary 亮暗自翻转保对比度),
-           自带底部投影+顶部内高光;激活放大,悬停微倾(手机档取消——粘滞 hover 恒倾);
-           进入 /workbench 时高光扫过一次 -->
+      <!-- 品牌瓷砖(v4.1):primary→primary-container 渐变圆角砖包图标——平台双绿
+           (亮 #006c49→#10b981 / 暗 #4edea3→#005236),弃 tertiary(琥珀/橘调,与主绿平台不协调);
+           on-primary 亮暗自翻转保对比度。自带底部投影+顶部内高光;激活放大,
+           悬停微倾(手机档取消——粘滞 hover 恒倾);进入 /workbench 时高光扫过一次 -->
       <span class="relative inline-flex shrink-0">
         <span data-test="pill-tile"
-          class="relative inline-flex h-[26px] w-[26px] items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-primary to-tertiary shadow-[0_1px_3px_rgb(0_0_0/0.25),inset_0_1px_0_rgb(255_255_255/0.35)] transition-transform duration-300 max-sm:transition-none motion-reduce:transition-none"
+          class="relative inline-flex h-[26px] w-[26px] items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-primary to-primary-container shadow-[0_1px_3px_rgb(0_0_0/0.25),inset_0_1px_0_rgb(255_255_255/0.35)] transition-transform duration-300 max-sm:transition-none motion-reduce:transition-none"
           :class="isWorkbenchActive ? 'scale-105' : 'group-hover:-rotate-6 max-sm:group-hover:rotate-0'">
           <span class="material-symbols-outlined text-base text-on-primary">workspaces</span>
           <!-- 一次性高光扫过:200% 宽背景必配 bg-no-repeat(repeat 会把白带绕回瓷砖常驻洗白);
