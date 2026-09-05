@@ -114,7 +114,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS sessions (
 )`)
 try { db.exec('ALTER TABLE sessions ADD COLUMN endpoints TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE sessions ADD COLUMN endpointIdx INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
-const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt, endpoints, endpointIdx) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+try { db.exec('ALTER TABLE sessions ADD COLUMN userId TEXT') } catch { /* 列已存在 */ }   // W2-0:归属(谁连的)
+try { db.exec('ALTER TABLE sessions ADD COLUMN clusterId TEXT') } catch { /* 列已存在 */ } // W2-0:哪个集群
+const stmtUpsert = db.prepare('INSERT OR REPLACE INTO sessions (token, apiServer, authHeader, ca, cert, key, insecure, version, createdAt, endpoints, endpointIdx, userId, clusterId) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
 // 终端会话持久化（任务栏：多终端、重命名、最小化，刷新不丢）
 db.exec(`CREATE TABLE IF NOT EXISTS terminals (
   id TEXT PRIMARY KEY,
@@ -395,6 +397,8 @@ function persistSession(token, session) {
       session.createdAt || Date.now(),
       JSON.stringify((session.endpoints || [session.apiServer]).map(u => u.toString())),
       session.endpointIdx || 0,
+      session.userId ?? null,
+      session.clusterId ?? null,
     )
   } catch (e) { console.error('[sqlite] persistSession 失败', e?.message || e) }
 }
@@ -410,6 +414,8 @@ function loadPersistedSessions() {
         endpointIdx: r.endpointIdx || 0,
         version: r.version || undefined,
         createdAt: r.createdAt,
+        userId: r.userId || undefined,
+        clusterId: r.clusterId || undefined,
       }
       session.endpoints = r.endpoints ? JSON.parse(r.endpoints).map(s => new URL(s)) : [session.apiServer]
       session.insecureDispatcher = getDispatcher({ ca: r.ca, cert: r.cert, key: r.key, insecure: true })
