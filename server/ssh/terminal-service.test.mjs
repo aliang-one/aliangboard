@@ -293,3 +293,43 @@ test('阻断#3b:挂机回收回归——ATTACHED 静默超限关闭,输出=活�
   assert.equal(u.status, 'CLOSED')
   assert.deepEqual(ev2, [{ tid: 't2', action: 'reaped-attached-idle' }])
 })
+
+// ===== 2026-09-05 评审批(v1025-fixbatch-review)#1/#3/#5 =====
+
+test('评审#1:releaseBackend 幂等——LOST 后再 force-close/closeByServer,pool release 只调一次', async () => {
+  let clock = 0
+  const svc = createTerminalService({ now: () => clock })
+  let releases = 0
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  svc.bindChannel('t1', { close() {} }); svc.readyForOwner('t1').resolve()
+  await svc.attach('t1', 'c1', { close() {} })
+  svc.bindRelease('t1', () => { releases++ })
+  svc.markLost('t1', 'channel-closed')          // 第一次 releaseBackend(release #1)
+  assert.equal(releases, 1)
+  const r = svc.close('t1', { force: true })    // close 不跳过 LOST → 二次 transition → 不得二跳
+  assert.equal(r.ok, true)
+  assert.equal(t.status, 'CLOSED')
+  assert.equal(releases, 1, 'release 幂等:残尸二次转换不得再还池句柄(pool.mjs 是裸 refs--)')
+  svc.closeByServer('sv')                       // closeByServer 只跳过 CLOSED——LOST 场景同理
+  assert.equal(releases, 1)
+})
+
+test('评审#3:进入终态即弃 ring(≤4MB 不占墓碑窗);残尸 markOutput 安全不抛', () => {
+  const svc = createTerminalService({ now: () => 1000 })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  svc.markOutput('t1', Buffer.from('data'))
+  svc.markLost('t1', 'x')
+  assert.equal(t.ring, null, '终态即弃 ring(lifecycle spec)')
+  svc.markOutput('t1', Buffer.from('late'))     // 残尸输出(迟到回调)不得炸
+})
+
+test('评审#5:onIrreversible 收窄到 CLOSED/LOST——attach/detach 不再刷 verb:close 审计行', async () => {
+  const events = []
+  const svc = createTerminalService({ now: () => 1000, onIrreversible: e => events.push(e.event) })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  svc.bindChannel('t1', { close() {} }); svc.readyForOwner('t1').resolve()
+  await svc.attach('t1', 'c1', { close() {} })   // CREATING→ATTACHED
+  svc.detach('t1', 'c1')                         // ATTACHED→DETACHED
+  svc.markLost('t1', 'x')                        // DETACHED→LOST
+  assert.deepEqual(events, ['LOST'], '分级审计:只有不可逆终态进审计,高频 attach/detach 走行内字段')
+})
