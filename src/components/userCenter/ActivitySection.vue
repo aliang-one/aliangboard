@@ -18,7 +18,7 @@ async function load() {
   loading.value = true
   try {
     const params = {}
-    if (page.value > 1) params.page = page.value
+    if (page.value > 1) { params.page = page.value; params.size = pageSize }
     if (resultFilter.value) params.result = resultFilter.value
     const res = await authApi.myActivity(params)
     items.value = res.items || []

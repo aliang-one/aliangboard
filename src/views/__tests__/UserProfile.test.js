@@ -27,6 +27,7 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('@/api/client', () => ({ authApi: apiMocks }))
 
 import UserProfile from '@/views/UserProfile.vue'
+import Pagination from '@/components/common/Pagination.vue'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
 
@@ -226,5 +227,18 @@ test('活动 tab:空列表渲染空态', async () => {
   const w = mountPage('activity')
   await flushPromises()
   expect(w.find('[data-testid="activity-empty"]').exists()).toBe(true)
+  w.unmount()
+})
+
+test('活动 tab:翻页重拉携带 page+size', async () => {
+  apiMocks.myActivity.mockResolvedValue({ items: [
+    { seq: 60, ts: 1756400100000, tool: 'platform_login', verb: 'login', result: 'ok', owner: 'alice', clusterId: null, namespace: null, resource: null, requestSummary: 'ip=1.2.3.4' },
+  ], total: 60, page: 1, size: 50, windowDays: 90 })
+  const w = mountPage('activity')
+  await flushPromises()
+  expect(w.findComponent(Pagination).exists()).toBe(true)
+  w.findComponent(Pagination).vm.$emit('page-change', 2)
+  await flushPromises()
+  expect(apiMocks.myActivity).toHaveBeenLastCalledWith({ page: 2, size: 50 })
   w.unmount()
 })
