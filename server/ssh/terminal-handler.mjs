@@ -23,15 +23,18 @@ export function createSshTerminalHandler(deps) {
 
       let session = service.get(tid)
       let isOwner = false
+      let created = false
       if (!session) {
         const { client, release } = await sshPool.acquire(serverId, ps.userId)
         if (sentinel.gone) { try { release() } catch { /* noop */ } return }   // 窗口内已断:还池句柄
         // 创建单飞由 service.getOrCreate 结构性保证;第二连接走 existing(等待者排队)
-        ;({ terminal: session, existing } = service.getOrCreate(tid, () =>
-          service.newTerminal({ id: tid, owner: ps.username, serverId, backend: 'ephemeral' })))
-        isOwner = !existing
-        if (isOwner) service.bindRelease(tid, release)
-        else { try { release() } catch { /* noop */ } }   // 非属主:多余句柄立即归还
+        const got = service.getOrCreate(tid, () =>
+          service.newTerminal({ id: tid, owner: ps.username, serverId, backend: 'ephemeral' }))
+        session = got.terminal
+        created = !got.existing
+        isOwner = created
+        if (isOwner) service.bindRelease(tid, release)   // 池句柄挂到终端(LOST/CLOSED 时释放)
+        else { try { release() } catch { /* noop */ } }  // 非属主:多余句柄立即归还
 
         client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
           if (err) return service.markBackendFailed(tid, err)
