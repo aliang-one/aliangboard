@@ -3257,7 +3257,15 @@
       "labels": "标签",
       "annotations": "注解",
       "notFound": "未找到 IngressClass",
-      "backToList": "返回 IngressClasses"
+      "backToList": "返回 IngressClasses",
+      "setDefaultTip": "设为集群默认",
+      "unsetDefaultTip": "取消集群默认",
+      "editTitle": "编辑 IngressClass",
+      "controllerWarning": "修改控制器指向将影响所有引用此类的 Ingress。",
+      "paramsEnable": "配置 parameters",
+      "paramsApiGroup": "API 组（可选）",
+      "paramsKind": "Kind",
+      "paramsName": "名称"
     },
     "priorityClasses": {
       "title": "优先级类 (PriorityClasses)",
