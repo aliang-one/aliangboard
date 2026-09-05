@@ -12,6 +12,7 @@ import { sessionOwnerValid } from './session-guard.mjs'
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
+import { sweepOrphanGrants } from './authz.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
@@ -164,8 +165,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS clusters (
   insecure INTEGER DEFAULT 0,
   version TEXT,
   createdBy TEXT,
-  createdAt INTEGER NOT NULL
+  createdAt INTEGER NOT NULL,
+  nsAuthMode TEXT DEFAULT 'open'
 )`)
+// W2 Phase A: 授权数据模型(groups/group_members/ns_grants + clusters.nsAuthMode)。
+// nsAuthMode 对存量库走 try-ALTER(fresh 库 CREATE 已带列,ALTER 吞「列已存在」)。
+try { db.exec("ALTER TABLE clusters ADD COLUMN nsAuthMode TEXT NOT NULL DEFAULT 'open'") } catch { /* 列已存在 */ }
 db.exec(`CREATE TABLE IF NOT EXISTS user_clusters (
   userId TEXT NOT NULL,
   clusterId TEXT NOT NULL,
@@ -173,6 +178,36 @@ db.exec(`CREATE TABLE IF NOT EXISTS user_clusters (
   assignedAt INTEGER NOT NULL,
   PRIMARY KEY (userId, clusterId)
 )`)
+db.exec(`CREATE TABLE IF NOT EXISTS groups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  createdAt INTEGER NOT NULL,
+  createdBy TEXT
+)`)
+db.exec(`CREATE TABLE IF NOT EXISTS group_members (
+  groupId TEXT NOT NULL,
+  userId TEXT NOT NULL,
+  addedBy TEXT,
+  createdAt INTEGER NOT NULL,
+  PRIMARY KEY (groupId, userId)
+)`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(userId)`)
+db.exec(`CREATE TABLE IF NOT EXISTS ns_grants (
+  id TEXT PRIMARY KEY,
+  subjectType TEXT NOT NULL CHECK (subjectType IN ('user','group')),
+  subjectId TEXT NOT NULL,
+  clusterId TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  level TEXT NOT NULL DEFAULT 'view' CHECK (level IN ('view','operate')),
+  grantedBy TEXT,
+  grantedAt INTEGER NOT NULL,
+  UNIQUE (subjectType, subjectId, clusterId, namespace)
+)`)
+// W2 Phase A(spec §3):启动期孤儿授权清扫(存量库删户/删组漏清的历史残留),best-effort 不阻断启动。
+try {
+  const swept = sweepOrphanGrants(db)
+  if (swept.members || swept.grants) console.log(`[authz] orphan grant sweep: removed ${swept.members} group_members, ${swept.grants} ns_grants`)
+} catch (e) { console.error('[authz] orphan grant sweep failed:', e?.message || e) }
 db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
   token TEXT PRIMARY KEY,
   userId TEXT NOT NULL,

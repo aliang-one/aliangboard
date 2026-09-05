@@ -5,6 +5,7 @@ import { msg } from '../messages.mjs'
 import { APP_VERSION } from '../version.mjs'
 import { resolvePasswordPolicy, firstFailedRule } from '../password-policy.mjs'
 import { queryAuditLog } from '../audit.mjs'
+import { effectiveGrants } from '../authz.mjs'
 import { unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -77,11 +78,35 @@ export function createAuthRoutes(deps) {
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
     }
 
-    // GET /api/auth/me — 当前登录用户信息
+    // GET /api/auth/me — 当前登录用户信息(含 grants 下发,仅展示)
     if (url.pathname === '/api/auth/me' && req.method === 'GET') {
       const ps = requirePlatform(req, res); if (!ps) return true
       const user = db.prepare('SELECT id,username,role,displayName,createdAt FROM platform_users WHERE id=?').get(ps.userId)
-      sendJson(res, 200, { user, prefs: readPrefs(db, ps.userId) })
+      const az = effectiveGrants(db, { userId: ps.userId, role: ps.role })
+      const grants = az.role === 'admin'
+        ? { role: 'admin' }
+        : { role: 'user', clusters: Object.fromEntries([...az.clusters.entries()].map(([cid, { mode, ns }]) => [cid, { mode, namespaces: [...ns.entries()].map(([namespace, level]) => ({ namespace, level })) }])) }
+      sendJson(res, 200, { user, prefs: readPrefs(db, ps.userId), grants })
+      return true
+    }
+
+    // GET /api/my/grantable-ns?clusterId= — 自助令牌可签发的 namespace 集(allowlist 集群 = 本人该集群授权;
+    // open 集群无 ns 级自助限制语义,Phase C 一并裁,现恒 409)。
+    if (url.pathname === '/api/my/grantable-ns' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const clusterId = url.searchParams.get('clusterId') || ''
+      if (ps.role !== 'admin') {
+        const assigned = db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(ps.userId, clusterId)
+        if (!assigned) { sendJson(res, 403, { message: msg(req, 'auth.clusterForbidden') }); return true }
+      }
+      const cluster = db.prepare('SELECT nsAuthMode FROM clusters WHERE id=?').get(clusterId)
+      if (!cluster) { sendJson(res, 403, { message: msg(req, 'auth.clusterForbidden') }); return true }
+      if ((cluster.nsAuthMode || 'open') === 'open') { sendJson(res, 409, { message: msg(req, 'auth.grantableOpenCluster') }); return true }
+      // admin 不受 ns 级限制(spec §6.1);effectiveGrants 对 admin 返回 clusters:'ALL' 无 Map 可 .get,须短路
+      if (ps.role === 'admin') { sendJson(res, 200, { namespaces: [], mode: 'admin' }); return true }
+      const az = effectiveGrants(db, { userId: ps.userId, role: ps.role })
+      const entry = az.clusters.get(clusterId)
+      sendJson(res, 200, { namespaces: entry ? [...entry.ns.entries()].map(([namespace, level]) => ({ namespace, level })) : [] })
       return true
     }
 

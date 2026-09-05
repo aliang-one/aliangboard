@@ -6,6 +6,7 @@ export const TABLE = {
   'auth.loginFailed': { zh: '登录失败', en: 'Login failed' },
   'auth.clusterNotFound': { zh: '集群不存在', en: 'Cluster not found' },
   'auth.clusterForbidden': { zh: '无权访问此集群', en: 'No access to this cluster' },
+  'auth.grantableOpenCluster': { zh: 'open 模式集群不提供 namespace 级自助令牌', en: 'Open-mode clusters do not offer namespace-scoped tokens' },
   'auth.connectFailed': { zh: '连接集群失败', en: 'Failed to connect to the cluster' },
   'auth.noUpdateFields': { zh: '没有可更新的字段', en: 'No fields to update' },
   'auth.preferenceInvalid': { zh: '偏好取值非法', en: 'Invalid preference value' },

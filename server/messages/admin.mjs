@@ -47,4 +47,10 @@ export const TABLE = {
   'admin.sshPolicyInvalid': { zh: '非法的策略值:{field}(须为 0–10080 的整数分钟)', en: 'Invalid policy value: {field} (must be an integer 0–10080 minutes)' },
   'admin.passwordPolicyInvalid': { zh: '密码策略非法:最小长度不得小于 8', en: 'Invalid password policy: minLength must be at least 8' },
   'admin.tokenPolicyInvalid': { zh: '令牌有效期上限须在 1-365 天', en: 'Token max TTL must be 1-365 days' },
+  'admin.groupNameTaken': { zh: '组名已存在', en: 'Group name already exists' },
+  'admin.groupNameRequired': { zh: '组名必填', en: 'Group name is required' },
+  'admin.userIdsRequired': { zh: '缺少用户', en: 'User ids are required' },
+  'admin.groupOrUserNotFound': { zh: '组或用户不存在', en: 'Group or user not found' },
+  'admin.grantInvalid': { zh: '授权参数非法', en: 'Invalid grant parameters' },
+  'admin.nsModeInvalid': { zh: '模式须为 open 或 allowlist', en: 'Mode must be open or allowlist' },
 }

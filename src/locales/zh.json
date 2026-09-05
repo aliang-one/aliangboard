@@ -558,7 +558,8 @@
     "activityLog": "活动记录",
     "userCenter": "用户中心",
     "logout": "退出登录",
-    "enterNamespace": "进入命名空间"
+    "enterNamespace": "进入命名空间",
+    "groupsGrants": "组与授权"
   },
   "userCenter": {
     "activityTitle": "我的活动",
@@ -3239,6 +3240,32 @@
       "assignFailed": "分配失败",
       "passwordReset": "密码已重置",
       "resetFailed": "重置失败"
+    },
+    "authz": {
+      "title": "组与 Namespace 授权",
+      "subtitle": "管理用户组与按集群的 namespace 授权",
+      "groups": "组",
+      "members": "成员",
+      "grants": "Namespace 授权",
+      "newGroup": "新建组",
+      "newGroupPlaceholder": "组名",
+      "memberCount": "{n} 名成员",
+      "grantCount": "{n} 条授权",
+      "addMember": "按用户名添加成员",
+      "memberNotFound": "用户不存在",
+      "deleteGroupConfirm": "删除组 {name}?其 namespace 授权将一并移除。",
+      "selectGroup": "选择组",
+      "selectCluster": "选择集群",
+      "nsAdd": "Namespace",
+      "nsInvalid": "namespace 名称非法(须为 DNS 标签)",
+      "nsExists": "该 namespace 已添加",
+      "levelView": "只读",
+      "levelOperate": "可操作",
+      "save": "保存授权",
+      "saved": "授权已保存",
+      "saveFailed": "授权保存失败",
+      "noGroups": "暂无组",
+      "openNoIsolation": "open 模式集群不提供 namespace 隔离:{names}"
     },
     "agent": {
       "title": "AI 控制台",

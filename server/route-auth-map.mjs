@@ -37,6 +37,7 @@ export const ROUTE_AUTH = [
   { method: 'POST', pattern: '/api/my/keys',            auth: 'platform' }, // 自助签发(托管 SA,tier≤operator)
   { prefix: '/api/my/keys/',                            auth: 'platform' }, // DELETE /:id(归属过滤)
   { method: 'GET',  pattern: '/api/my/activity',        auth: 'platform' }, // 我的活动(audit_log 本人只读视图,90d 窗口)
+  { method: 'GET',  pattern: '/api/my/grantable-ns',    auth: 'platform' }, // 自助令牌可签发 namespace 集(W2 Phase A)
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },
   { method: 'GET',  pattern: '/api/version',            auth: 'platform' },
   { method: 'POST', pattern: '/api/version/check',      auth: 'platform' },

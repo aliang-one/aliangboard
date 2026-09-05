@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { createAuditSchema, writeAudit } from './audit.mjs'
+import { createApiKeysSchema } from './auth-keys.mjs'
 import { enforceSessionCap } from './platform-session-reaper.mjs'
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -19,6 +20,12 @@ function makeDb() {
   db.exec(`CREATE TABLE platform_sessions (
     token TEXT PRIMARY KEY, userId TEXT NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL,
     createdAt INTEGER NOT NULL, k8sSessionToken TEXT, lastSeenAt INTEGER, ip TEXT, userAgent TEXT)`)
+  db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT NOT NULL,
+    authHeader TEXT, ca TEXT, cert TEXT, key TEXT, insecure INTEGER DEFAULT 0, version TEXT, nsAuthMode TEXT DEFAULT 'open')`)
+  db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
+  db.exec(`CREATE TABLE groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, createdAt INTEGER NOT NULL, createdBy TEXT)`)
+  db.exec(`CREATE TABLE group_members (groupId TEXT NOT NULL, userId TEXT NOT NULL, addedBy TEXT, createdAt INTEGER NOT NULL, PRIMARY KEY (groupId, userId))`)
+  db.exec(`CREATE TABLE ns_grants (id TEXT PRIMARY KEY, subjectType TEXT NOT NULL, subjectId TEXT NOT NULL, clusterId TEXT NOT NULL, namespace TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'view', grantedBy TEXT, grantedAt INTEGER NOT NULL, UNIQUE(subjectType,subjectId,clusterId,namespace))`)
   createAuditSchema(db)
   return db
 }
@@ -393,10 +400,7 @@ test('PUT preferences 新键:合法落库,非法 400', async () => {
 
 test('connect-cluster: 签发的 K8s session 携带 userId+clusterId(persistSession 落戳, W2-0)', async () => {
   const db = makeDb(); seed(db)
-  db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT NOT NULL,
-    authHeader TEXT, ca TEXT, cert TEXT, key TEXT, insecure INTEGER DEFAULT 0, version TEXT)`)
-  db.prepare(`INSERT INTO clusters (id,name,apiServer) VALUES ('c1','prod','https://k8s:6443')`).run()
-  db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
+  db.prepare(`INSERT INTO clusters (id,name,apiServer,nsAuthMode) VALUES ('c1','prod','https://k8s:6443','open')`).run()
   db.prepare(`INSERT INTO user_clusters VALUES ('u1','c1','admin',1)`).run()
   const persisted = []
   const { routes, sent } = makeRoutes(db, {
@@ -409,4 +413,98 @@ test('connect-cluster: 签发的 K8s session 携带 userId+clusterId(persistSess
   assert.equal(persisted.length, 1)
   assert.equal(persisted[0].s.userId, 'u1')
   assert.equal(persisted[0].s.clusterId, 'c1')
+})
+
+// ===== W2 Phase A Task 4:/me grants 下发 + grantable-ns + my-keys ns 收口 =====
+import { createMyKeyRoutes } from './routes/my-keys.mjs'
+
+function makeAuthzDb() {
+  const db = makeDb()
+  db.exec(`CREATE TABLE user_keys (id TEXT PRIMARY KEY, name TEXT, key TEXT, createdAt INTEGER NOT NULL, ownerUserId TEXT)`)
+  createApiKeysSchema(db)
+  createAuditSchema(db)
+  // alice(u1, user) 分配 c1 + 直接授权 app/view、ops/operate;组 g1 走组授权
+  db.prepare("INSERT INTO platform_users (id,username,passwordHash,role,createdAt) VALUES ('u1','alice','good','user',1)").run()
+  db.prepare("INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES ('t-me','u1','alice','user',1)").run()
+  db.prepare("INSERT INTO clusters (id,name,apiServer,nsAuthMode) VALUES ('c1','prod','https://k8s:6443','allowlist')").run()
+  db.prepare("INSERT INTO clusters (id,name,apiServer,nsAuthMode) VALUES ('c2','dev','https://k8s:6443','open')").run()
+  db.prepare("INSERT INTO user_clusters VALUES ('u1','c1','admin',1)").run()
+  db.prepare("INSERT INTO user_clusters VALUES ('u1','c2','admin',1)").run()
+  db.prepare("INSERT INTO ns_grants VALUES ('gr1','user','u1','c1','app','view',NULL,1)").run()
+  db.prepare("INSERT INTO ns_grants VALUES ('gr2','user','u1','c1','ops','operate',NULL,1)").run()
+  return db
+}
+
+function call(routes, method, path, body) {
+  if (body !== undefined) routes._body = body
+  return routes.routes.handle({ method, headers: { 'x-platform-token': 't-me' } }, {}, new URL(path, 'http://x'))
+}
+
+test('GET me:非 admin 响应带 grants(分配集群 + ns 授权,Map→数组)', async () => {
+  const db = makeAuthzDb()
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'GET', '/api/auth/me')
+  assert.equal(sent[0].status, 200)
+  const grants = sent[0].payload.grants
+  assert.equal(grants.role, 'user')
+  assert.deepEqual(grants.clusters.c1.mode, 'allowlist')
+  assert.deepEqual([...grants.clusters.c1.namespaces].sort((a, b) => a.namespace.localeCompare(b.namespace)),
+    [{ namespace: 'app', level: 'view' }, { namespace: 'ops', level: 'operate' }])
+  assert.equal(grants.clusters.c2.mode, 'open', '分配的 open 集群同样下发(空 namespaces)')
+})
+
+test('GET me:admin 响应 grants = { role: admin }', async () => {
+  const db = makeAuthzDb()
+  db.prepare("UPDATE platform_users SET role='admin' WHERE id='u1'").run()
+  db.prepare("UPDATE platform_sessions SET role='admin' WHERE token='t-me'").run()
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'GET', '/api/auth/me')
+  assert.deepEqual(sent[0].payload.grants, { role: 'admin' })
+})
+
+test('GET /api/my/grantable-ns:allowlist 返回本人该集群 ns;open 集群 409;未分配 403', async () => {
+  const db = makeAuthzDb()
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'GET', '/api/my/grantable-ns?clusterId=c1')
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual([...sent[0].payload.namespaces].sort((a, b) => a.namespace.localeCompare(b.namespace)),
+    [{ namespace: 'app', level: 'view' }, { namespace: 'ops', level: 'operate' }])
+  await call(routes, 'GET', '/api/my/grantable-ns?clusterId=c2')
+  assert.equal(sent[1].status, 409)
+  await call(routes, 'GET', '/api/my/grantable-ns?clusterId=cx')
+  assert.equal(sent[2].status, 403)
+})
+
+// 终审 Finding 2:admin 的 effectiveGrants 是 clusters:'ALL' 无 Map 可 .get,须短路 sentinel(否则 500)
+test('GET /api/my/grantable-ns:admin → 200 + mode=admin sentinel(ns 不受限, spec §6.1)', async () => {
+  const db = makeAuthzDb()
+  db.prepare("UPDATE platform_users SET role='admin' WHERE id='u1'").run()
+  db.prepare("UPDATE platform_sessions SET role='admin' WHERE token='t-me'").run()
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'GET', '/api/my/grantable-ns?clusterId=c1')
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload, { namespaces: [], mode: 'admin' })
+})
+
+test('my-keys POST:allowlist 集群签发未授权 ns → 403;授权 ns → 走到供给链', async () => {
+  const db = makeAuthzDb()
+  const provisioned = []
+  const mk = (over = {}) => {
+    const sent2 = []
+    const deps = {
+      db, sendJson: (_r, s, p) => sent2.push({ status: s, payload: p }),
+      readBody: async () => over.body || {}, requirePlatform: (req) => db.prepare('SELECT * FROM platform_sessions WHERE token=?').get(req.headers['x-platform-token']),
+      randomUUID: () => 'key-1', writeAudit, getSetting: () => null,
+      getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id),
+      provisionCluster: async (_c, arg) => { provisioned.push(arg); return { ok: true } },
+    }
+    return { routes: createMyKeyRoutes(deps), sent: sent2 }
+  }
+  const bad = mk({ body: { clusterId: 'c1', namespace: 'secret-ns', tier: 'read' } })
+  await bad.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/keys'))
+  assert.equal(bad.sent[0].status, 403)
+  const ok = mk({ body: { clusterId: 'c1', namespace: 'app', tier: 'read' } })
+  await ok.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/keys'))
+  assert.equal(ok.sent[0].status, 200)
+  assert.equal(provisioned.length, 1)
 })

@@ -335,6 +335,7 @@ export const authApi = {
   myKeysList: () => platformHttp.request('/api/my/keys'),
   myKeysMint: payload => platformHttp.request('/api/my/keys', { method: 'POST', body: JSON.stringify(payload) }),
   myKeysRevoke: id => platformHttp.request(`/api/my/keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  grantableNs: clusterId => platformHttp.request(`/api/my/grantable-ns?clusterId=${encodeURIComponent(clusterId)}`),
   uploadAvatar: dataUrl => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ avatar: dataUrl }) }),
   clearAvatar: () => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ avatarClear: true }) }),
   getAvatar: () => platformHttp.request('/api/auth/me/avatar'),
@@ -354,6 +355,19 @@ export const adminApi = {
     create: payload => platformHttp.request('/api/admin/clusters', { method: 'POST', body: JSON.stringify(payload) }),
     remove: id => platformHttp.request(`/api/admin/clusters/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     namespaces: id => platformHttp.request(`/api/admin/clusters/${encodeURIComponent(id)}/namespaces`),
+    nsMode: { set: (id, mode) => platformHttp.request(`/api/admin/clusters/${encodeURIComponent(id)}/ns-auth-mode`, { method: 'PUT', body: JSON.stringify({ mode }) }) },
+  },
+  groups: {
+    list: () => platformHttp.request('/api/admin/groups'),
+    create: name => platformHttp.request('/api/admin/groups', { method: 'POST', body: JSON.stringify({ name }) }),
+    remove: id => platformHttp.request(`/api/admin/groups/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    members: (id, userIds) => platformHttp.request(`/api/admin/groups/${encodeURIComponent(id)}/members`, { method: 'POST', body: JSON.stringify({ userIds }) }),
+    removeMember: (id, userId) => platformHttp.request(`/api/admin/groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+    membersList: id => platformHttp.request(`/api/admin/groups/${encodeURIComponent(id)}/members`),
+  },
+  grants: {
+    save: payload => platformHttp.request('/api/admin/grants', { method: 'PUT', body: JSON.stringify(payload) }),
+    list: params => platformHttp.request(`/api/admin/grants?${new URLSearchParams(params)}`),
   },
   apikeys: {
     list: () => platformHttp.request('/api/admin/apikeys'),
