@@ -868,10 +868,19 @@ async function handleExec(ws, session, url, req) {
       execCommand = command
     }
   }
+  // 附着回退统一入口(复审二 P1/P2):sentinel bail 与 ws close 处理器共用,幂等防双递减
+  // (error 先于 close 到达时,bail 与 close 处理器会先后触发,裸减会把多窗共享的 tmux 会话
+  //  的 attached 减两次 → 仍有人看时被 idle reaper 回收)
+  let execDetached = false
+  const detachExecOnce = () => {
+    if (execDetached) return
+    execDetached = true
+    if (attachedMeta) attachedMeta.attached = Math.max(0, (attachedMeta.attached || 1) - 1)
+  }
   if (sentinel.gone) {
     // 建连 await 链(tmux 探测/建会话)中浏览器已断(复审 F1):回退附着计数,idle reaper
     // 稍后按钟回收刚建的 tmux;不主动 kill——慢 F5 场景同 sid 立刻重连还能续上
-    if (attachedMeta) attachedMeta.attached = Math.max(0, (attachedMeta.attached || 1) - 1)
+    detachExecOnce()
     return
   }
   // 告知前端最终是否持久(徽标) + 实际 shell(auto 探测可能与前端假设不同,头部展示用)
@@ -903,9 +912,10 @@ async function handleExec(ws, session, url, req) {
 
   if (sentinel.gone) {
     // k8s exec 建立期间浏览器已断(复审 F1):立刻关 exec(杀 tmux attach 客户端/一次性 shell)
-    // + 回退附着计数,再交棒给下方 close 处理
+    // + 幂等回退附着计数(此后 close 处理器的再触发被 execDetached 挡住)
     try { conn?.close() } catch { /* noop */ }
-    if (attachedMeta) attachedMeta.attached = Math.max(0, (attachedMeta.attached || 1) - 1)
+    detachExecOnce()
+    return
   }
   conn.on('close', () => { try { ws.close() } catch { /* noop */ } })
   conn.on('error', () => { try { ws.close() } catch { /* noop */ } })
@@ -925,7 +935,7 @@ async function handleExec(ws, session, url, req) {
     }
   })
   ws.on('close', () => {
-    if (attachedMeta) attachedMeta.attached = Math.max(0, (attachedMeta.attached || 1) - 1)   // 本 exec 的附着-1
+    detachExecOnce()   // 本 exec 的附着-1(幂等:bail 路径已回退过则跳过)
     try { stdin.end() } catch { /* noop */ }
     try { conn?.close() } catch { /* noop */ }
   })
@@ -2202,12 +2212,15 @@ async function handleSshTerminal(ws, ps, url) {
       // 「等首连 ready」路径——同一 sid 永远只有一条 shell 通道、一个有效 release(2026-08-28 修复)。
       if (session.extra.ready !== ready) {
         try { release() } catch { /* noop */ }
-        try { await session.extra.ready } catch (e) {
-          wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
-          try { ws.close() } catch {}
-          return
-        }
-        if (sentinel.gone) return   // 已断:句柄已归还、尚未 attach,无资源需清理
+        session.extra.waiters = (session.extra.waiters || 0) + 1   // 登记等待:属主断开时不得拆会话(复审二 P1)
+        try {
+          try { await session.extra.ready } catch (e) {
+            wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
+            try { ws.close() } catch {}
+            return
+          }
+          if (sentinel.gone) return   // 已断:句柄已归还、尚未 attach,无资源需清理
+        } finally { session.extra.waiters = Math.max(0, (session.extra.waiters || 1) - 1) }
       } else {
       session.extra.release = release
       client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
@@ -2232,7 +2245,12 @@ async function handleSshTerminal(ws, ps, url) {
         throw shellErr
       }
       if (sentinel.gone) {
-        // 属主建连窗口内已断(复审 F1):收掉 channel+撤登记+还池句柄,再记 open/close 审计对
+        // 属主建连窗口内已断。复审二 P1:有等待 extra.ready 的重连者(快速 F5)必须交棒——
+        // 拆会话会让等待者收到「session 不属于当前用户」;channel+会话原样留给等待者接管。
+        if (!teardownOnOwnerGone(session.extra.waiters)) {
+          writeAudit(db, { owner: ps.username, verb: 'open', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
+          return
+        }
         try { session.extra.channel?.close?.() } catch { /* noop */ }
         sshTerminals.close(sid, s2 => s2.extra.release?.())
         writeAudit(db, { owner: ps.username, verb: 'open', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
@@ -2243,12 +2261,15 @@ async function handleSshTerminal(ws, ps, url) {
       }
     } else if (!session.extra.channel) {
       // 首连 shell 打开窗口期进来的连接:等首连方开 shell 的结果;失败则本 ws 收 ERROR,会话归首连方收尾
-      try { await session.extra.ready } catch (e) {
-        wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
-        try { ws.close() } catch {}
-        return
-      }
-      if (sentinel.gone) return   // 已断:尚未 attach,无资源需清理
+      session.extra.waiters = (session.extra.waiters || 0) + 1
+      try {
+        try { await session.extra.ready } catch (e) {
+          wsSend(ws, CH_ERROR, e?.message || 'ssh terminal failed')
+          try { ws.close() } catch {}
+          return
+        }
+        if (sentinel.gone) return   // 已断:尚未 attach,无资源需清理
+      } finally { session.extra.waiters = Math.max(0, (session.extra.waiters || 1) - 1) }
     }
     if (!sshTerminals.attach(sid, ps.username)) {   // sid 属主校验:他人会话不可附
       wsSend(ws, CH_ERROR, 'session 不属于当前用户')

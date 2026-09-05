@@ -54,7 +54,7 @@ export function attachSocketToSession(ws, session, { send, touch = () => {}, onD
 // —— WS 存活探测(2026-09-04 事故①;复审 F2 改真双振)——
 // ws 库不感知半开 TCP:合盖/休眠/代理断链不发 close → drop 不触发 → browserCount 卡 ≥1,
 // detached-idle 回收永不生效(shell+ring+池句柄永久泄漏)。标准方案:周期 ping,
-// 连续 maxMissed(默认 2)个周期未应答才 onDead(网关侧传 ws.terminate() → 触发 'close'
+// 一次 ping 后连续 maxMissed(默认 2)个轮询未收到 pong 即 onDead(计数等待,不重发 ping)(网关侧传 ws.terminate() → 触发 'close'
 // → drop → 计数归零)——单次未应答给一个周期的宽限,慢速链路不被误杀。
 // 浏览器 WebSocket 在协议层自动回 pong,前端零改动。
 export function markAlive(ws) {
@@ -86,6 +86,13 @@ export function attachWsLiveness(wsServer, { intervalMs = 30000, maxMissed = 2, 
 // 直接丢失(EventEmitter 不重放),handler 继续走完 ensure/attach → browserCount/attached
 // 计数卡死 → 会话泄漏。哨兵在 handler 入口同步注册幂等 close/error,任何一处置位 gone;
 // handler 在每个 await 后 bail 并释放已取得的资源。接线(drop)接管后调 dispose 拆哨兵。
+// 属主建连断开时的处置(复审二 P1):等待首连 ready 的重连者(快速 F5)正在 await 同一
+// session.extra.ready——属主此时拆会话会让重连者收到「session 不属于当前用户」。
+// 有等待者 → 交棒(保留 channel+会话);无人等待 → 拆(关 channel+撤登记+还池句柄)。
+export function teardownOnOwnerGone(waiters) {
+  return (waiters || 0) === 0
+}
+
 export function createCloseSentinel(ws) {
   const state = { gone: false }
   const mark = () => { state.gone = true }
