@@ -65,7 +65,8 @@
     "clusterDefaultOption": "集群默认（跟随 {name}）",
     "clusterDefaultUnset": "集群默认（未设置）",
     "noDefaultIngressClassHint": "集群当前无默认 IngressClass，已预选第一个可用类；可在 IngressClass 页设为默认",
-    "noDefaultStorageClassHint": "集群当前无默认 StorageClass，请显式选择",
+    "noDefaultPriorityClassHint": "集群当前无 globalDefault 优先级类，未指定优先级的 Pod 将以 0 优先级调度。",
+      "noDefaultStorageClassHint": "集群当前无默认 StorageClass，请显式选择",
     "setAsDefault": "设为默认",
     "unsetDefault": "取消默认"
   },
