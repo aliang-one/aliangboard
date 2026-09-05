@@ -181,3 +181,35 @@ test('promoteStorageClassDefault: SC 列表拉取失败 → 中止,零 PATCH', a
   const patches = k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')
   expect(patches).toHaveLength(0)
 })
+
+// === 全参数结构化编辑(2026-09-05):updateIngressClassSpec 手术式 merge-patch ===
+test('updateIngressClassSpec: fetch 单对象→手术 patch→PATCH→invalidate', async () => {
+  fetcherState.fetchIngressClass = async () => ({
+    name: 'nginx', controller: 'k8s.io/ingress-nginx', isDefault: false,
+    labels: { team: 'edge' }, annotations: { note: 'x' }, parameters: null,
+  })
+  const r = await store.updateIngressClassSpec('nginx', {
+    controller: 'k8s.io/other', labels: { team: 'core' }, annotations: { note: 'x' },
+  })
+  expect(r.ok).toBe(true)
+  const patch = k8s.mock.calls.find(c => c[1]?.method === 'PATCH')
+  expect(patch[0]).toBe('/apis/networking.k8s.io/v1/ingressclasses/nginx')
+  expect(patch[1].headers['content-type']).toBe('application/merge-patch+json')
+  expect(patch[1].body).toBe(JSON.stringify({ spec: { controller: 'k8s.io/other' }, metadata: { labels: { team: 'core' } } }))
+  expect(invalidateQueries).toHaveBeenCalled()
+})
+
+test('updateIngressClassSpec: 无改动 → {ok:true} 且零 PATCH', async () => {
+  fetcherState.fetchIngressClass = async () => ({ name: 'nginx', controller: 'c', isDefault: false, labels: {}, annotations: {}, parameters: null })
+  const r = await store.updateIngressClassSpec('nginx', { controller: 'c' })
+  expect(r.ok).toBe(true)
+  expect(k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')).toHaveLength(0)
+})
+
+test('updateIngressClassSpec: fetch 失败 → {ok:false} 不写 + toast', async () => {
+  fetcherState.fetchIngressClass = async () => { throw new Error('boom') }
+  const r = await store.updateIngressClassSpec('nginx', { controller: 'x' })
+  expect(r.ok).toBe(false)
+  expect(notify).toHaveBeenCalledWith('error', r.error)
+  expect(k8s.mock.calls.filter(c => c[1]?.method === 'PATCH')).toHaveLength(0)
+})
