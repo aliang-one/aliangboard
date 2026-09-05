@@ -67,6 +67,10 @@ const filteredRelated = computed(() => {
   return related.value.filter(i => [i.namespace, i.name, hostListOf(i).join(' '), backendsOf(i).join(' ')].join(' ').toLowerCase().includes(q))
 })
 const visibleRelated = computed(() => (relatedExpanded.value ? filteredRelated.value : filteredRelated.value.slice(0, RELATED_COLLAPSE)))
+// Overview 右栏摘要 hosts 上限(2026-09-05 第三轮):超出进「+N」→ 全宽 tab
+const SUMMARY_HOSTS_CAP = 8
+const summaryHosts = computed(() => hostList.value.slice(0, SUMMARY_HOSTS_CAP))
+const hiddenHosts = computed(() => hostList.value.length - summaryHosts.value.length)
 watch([relatedSearch, () => related.value.length], () => { relatedExpanded.value = false })
 async function toggleDefault() {
   if (ic.value.isDefault) await store.demoteIngressClassDefault(ic.value.name)
@@ -174,10 +178,10 @@ async function saveEdit() {
     </div>
 
     <div class="flex border-b border-outline-variant mb-lg">
-      <button v-for="tab in ['overview', 'yaml']" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in ['overview', 'ingresses', 'yaml']" :key="tab" @click="activeTab = tab"
         class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
-        {{ tab }}
+        {{ tab === 'ingresses' ? `ingresses (${related.length})` : tab }}
       </button>
     </div>
 
@@ -212,60 +216,63 @@ async function saveEdit() {
         </div>
       </div>
       </div>
+      <!-- Overview 右栏:紧凑摘要(第三轮瘦身:明细迁独立全宽 tab) -->
       <div class="lg:col-span-4" data-testid="related-ingresses">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-md">{{ t('admin.ingressClasses.relatedIngresses') }} ({{ related.length }})</h3>
 
-          <!-- 暴露摘要:端口/hosts/后端服务一眼可见(2026-09-05) -->
-          <div v-if="related.length" data-testid="exposure-summary" class="flex flex-col gap-sm mb-md p-md bg-surface-container-low rounded-lg">
+          <div v-if="related.length" data-testid="exposure-summary" class="flex flex-col gap-sm">
             <div class="flex items-center gap-xs flex-wrap">
               <span v-if="hasPlain" class="px-2 py-0.5 rounded bg-surface-container text-label-caps text-on-surface-variant font-mono">:80 HTTP</span>
               <span v-if="hasTls" class="px-2 py-0.5 rounded bg-secondary-container/20 text-secondary text-label-caps font-mono flex items-center gap-xs"><span class="material-symbols-outlined text-sm">lock</span>:443 HTTPS</span>
               <span data-testid="exposure-stats" :data-counts="`${related.length}|${hostList.length}|${svcList.length}`" class="text-label-caps text-on-surface-variant">{{ related.length }} · {{ hostList.length }} · {{ svcList.length }}</span>
             </div>
-            <div v-if="hostList.length" class="flex flex-col gap-xs">
-              <p class="text-label-caps text-on-surface-variant">{{ t('admin.ingressClasses.exposedHosts') }}</p>
-              <div class="flex flex-wrap gap-xs">
-                <span v-for="h in hostList" :key="h" class="px-2 py-0.5 rounded bg-surface-container text-code-sm font-mono"
-                  :class="tlsSet.has(h) ? 'text-secondary' : 'text-on-surface'">{{ h }}{{ tlsSet.has(h) ? ':443' : ':80' }}</span>
-              </div>
+            <div v-if="hostList.length" class="flex flex-wrap gap-xs">
+              <span v-for="h in summaryHosts" :key="h" class="px-2 py-0.5 rounded bg-surface-container text-code-sm font-mono"
+                :class="tlsSet.has(h) ? 'text-secondary' : 'text-on-surface'">{{ h }}{{ tlsSet.has(h) ? ':443' : ':80' }}</span>
+              <button v-if="hiddenHosts > 0" data-testid="related-hosts-more" @click="activeTab = 'ingresses'"
+                class="px-2 py-0.5 rounded bg-primary-container/10 text-primary text-code-sm font-mono hover:bg-primary-container/20">+{{ hiddenHosts }}</button>
             </div>
-            <div v-if="svcList.length" class="flex flex-col gap-xs">
-              <p class="text-label-caps text-on-surface-variant">{{ t('admin.ingressClasses.exposedBackends') }}</p>
-              <div class="flex flex-wrap gap-xs">
-                <span v-for="s in svcList" :key="s" class="px-2 py-0.5 rounded bg-surface-container text-code-sm font-mono text-on-surface">{{ s }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 明细:搜索过滤 + 折叠展开 -->
-          <div v-if="related.length" class="mb-sm">
-            <input data-testid="related-search" v-model="relatedSearch" :placeholder="t('admin.ingressClasses.searchRelated')"
-              class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-1.5 text-body-sm focus:ring-2 focus:ring-primary" />
-          </div>
-          <div v-if="filteredRelated.length" class="flex flex-col gap-sm">
-            <button v-for="ing in visibleRelated" :key="ing.namespace + '/' + ing.name" data-testid="related-row" @click="router.push({ name: 'NsIngressDetail', params: { namespace: ing.namespace, name: ing.name } })"
-              class="flex flex-col items-start gap-xs px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors text-left">
-              <span class="font-mono text-code-sm text-primary truncate max-w-full">{{ ing.namespace }}/{{ ing.name }}</span>
-              <span v-if="hostListOf(ing).length" class="flex flex-wrap gap-xs text-code-sm font-mono">
-                <span v-for="h in hostListOf(ing)" :key="h" :class="tlsSet.has(h) ? 'text-secondary' : 'text-on-surface-variant'">{{ h }}{{ tlsSet.has(h) ? ':443' : ':80' }}</span>
-              </span>
-              <span v-if="backendsOf(ing).length" class="flex flex-wrap gap-xs text-label-caps font-mono text-on-surface-variant">
-                <span v-for="b in backendsOf(ing)" :key="b" class="px-1.5 py-0.5 rounded bg-surface-container">{{ b }}</span>
-              </span>
-            </button>
-            <button v-if="filteredRelated.length > visibleRelated.length" data-testid="related-expand" @click="relatedExpanded = true"
-              class="text-body-sm text-primary font-medium hover:underline text-center py-xs">
-              {{ t('admin.ingressClasses.showAll', { n: filteredRelated.length }) }}
-            </button>
-            <button v-else-if="relatedExpanded && filteredRelated.length > RELATED_COLLAPSE" data-testid="related-collapse" @click="relatedExpanded = false"
-              class="text-body-sm text-primary font-medium hover:underline text-center py-xs">
-              {{ t('admin.ingressClasses.showLess') }}
+            <button data-testid="related-view-all" @click="activeTab = 'ingresses'"
+              class="text-body-sm text-primary font-medium hover:underline text-left flex items-center gap-xs">
+              {{ t('admin.ingressClasses.viewAll', { n: related.length }) }}
+              <span class="material-symbols-outlined text-sm">arrow_forward</span>
             </button>
           </div>
-          <p v-else-if="related.length" class="text-body-sm text-on-surface-variant py-md text-center">{{ t('common.noData') }}</p>
           <p v-else class="text-body-sm text-on-surface-variant py-md text-center">{{ t('admin.ingressClasses.relatedEmpty') }}</p>
         </div>
+      </div>
+    </div>
+
+    <!-- Ingresses tab(全宽单行明细,2026-09-05 第三轮) -->
+    <div v-if="activeTab === 'ingresses'">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
+        <div v-if="related.length" class="mb-md max-w-xl">
+          <input data-testid="related-search" v-model="relatedSearch" :placeholder="t('admin.ingressClasses.searchRelated')"
+            class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-1.5 text-body-sm focus:ring-2 focus:ring-primary" />
+        </div>
+        <div v-if="filteredRelated.length" class="flex flex-col gap-xs">
+          <button v-for="ing in visibleRelated" :key="ing.namespace + '/' + ing.name" data-testid="related-row" @click="router.push({ name: 'NsIngressDetail', params: { namespace: ing.namespace, name: ing.name } })"
+            class="flex items-center gap-lg px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors text-left min-w-0">
+            <span class="font-mono text-code-sm text-primary shrink-0">{{ ing.namespace }}/{{ ing.name }}</span>
+            <span v-if="hostListOf(ing).length" class="flex flex-wrap gap-xs text-code-sm font-mono min-w-0">
+              <span v-for="h in hostListOf(ing)" :key="h" :class="tlsSet.has(h) ? 'text-secondary' : 'text-on-surface-variant'">{{ h }}{{ tlsSet.has(h) ? ':443' : ':80' }}</span>
+            </span>
+            <span v-if="backendsOf(ing).length" class="flex flex-wrap gap-xs text-label-caps font-mono text-on-surface-variant ml-auto shrink-0">
+              <span v-for="b in backendsOf(ing)" :key="b" class="px-1.5 py-0.5 rounded bg-surface-container">{{ b }}</span>
+            </span>
+          </button>
+          <button v-if="filteredRelated.length > visibleRelated.length" data-testid="related-expand" @click="relatedExpanded = true"
+            class="text-body-sm text-primary font-medium hover:underline text-center py-xs">
+            {{ t('admin.ingressClasses.showAll', { n: filteredRelated.length }) }}
+          </button>
+          <button v-else-if="relatedExpanded && filteredRelated.length > RELATED_COLLAPSE" data-testid="related-collapse" @click="relatedExpanded = false"
+            class="text-body-sm text-primary font-medium hover:underline text-center py-xs">
+            {{ t('admin.ingressClasses.showLess') }}
+          </button>
+        </div>
+        <p v-else-if="related.length" class="text-body-sm text-on-surface-variant py-md text-center">{{ t('common.noData') }}</p>
+        <p v-else class="text-body-sm text-on-surface-variant py-md text-center">{{ t('admin.ingressClasses.relatedEmpty') }}</p>
       </div>
     </div>
 

@@ -3260,6 +3260,7 @@
       "backToList": "返回 IngressClasses",
       "exposedHosts": "Hosts",
       "exposedBackends": "后端服务",
+      "viewAll": "查看全部 {n} 条 Ingress",
       "searchRelated": "搜索 namespace / 名称 / host / 服务",
       "showAll": "显示全部 {n} 条",
       "showLess": "收起",

@@ -59,7 +59,7 @@ const FIXTURE = {
 }
 
 const RELATED = [
-  { name: 'app1', namespace: 'web', className: 'nginx', hosts: 'a.com,b.com', tls: true, tlsSecret: 's', rules: [{ http: { paths: [{ backend: { service: { name: 'svc1', port: { number: 8080 } } } }] } }], defaultBackend: null, age: '1d' },
+  { name: 'app1', namespace: 'web', className: 'nginx', hosts: 'a.com,b.com', tls: true, tlsHosts: ['a.com'], tlsSecret: 's', rules: [{ http: { paths: [{ backend: { service: { name: 'svc1', port: { number: 8080 } } } }] } }], defaultBackend: null, age: '1d' },
 ]
 
 // Modal 用 Teleport,stub 成内联渲染 default+actions 槽
@@ -143,16 +143,37 @@ describe('IngressClassDetail', () => {
     expect(h.demoteIngressClassDefault).toHaveBeenCalledWith('nginx')
   })
 
-  it('关联 Ingress 面板:计数/hosts/443/svc:port/点击跳转', async () => {
+  it('关联 Ingress 摘要卡:紧凑(端口徽标+计数+hosts 上限),「查看全部」切 ingresses tab', async () => {
     h.captured.data = ref(FIXTURE)
     const w = mountView()
     await w.vm.$nextTick()
     const card = w.find('[data-testid="related-ingresses"]')
-    expect(card.text()).toContain('a.com')
-    expect(card.text()).toContain('svc1:8080')
-    const row = card.find('button')
+    expect(card.text()).toContain('a.com:443')
+    expect(card.text()).not.toContain('svc1:8080') // svc 聚合 chips 移入全宽 tab,右栏只留紧凑摘要
+    const viewAll = w.find('[data-testid="related-view-all"]')
+    expect(viewAll.exists()).toBe(true)
+    await viewAll.trigger('click')
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="related-search"]').exists()).toBe(true) // 已在 ingresses tab
+    const row = w.find('[data-testid="related-row"]')
     await row.trigger('click')
     expect(h.push).toHaveBeenCalledWith({ name: 'NsIngressDetail', params: { namespace: 'web', name: 'app1' } })
+  })
+
+  it('摘要 hosts 超上限:只渲染 8 个 + 「+N」点击切 tab', async () => {
+    h.captured.data = ref(FIXTURE)
+    const many = { ...RELATED[0], hosts: Array.from({ length: 10 }, (_, i) => `h${i}.com`).join(',') }
+    h.captured.related = ref([{ ...many, tlsHosts: [] }])
+    const w = mountView()
+    await w.vm.$nextTick()
+    const card = w.find('[data-testid="related-ingresses"]')
+    expect(card.text()).toContain('h7.com:80')
+    expect(card.text()).not.toContain('h8.com')
+    const more = w.find('[data-testid="related-hosts-more"]')
+    expect(more.text()).toContain('+2')
+    await more.trigger('click')
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="related-search"]').exists()).toBe(true)
   })
 
   it('关联 Ingress 空态:无引用时渲染空态文案', async () => {
@@ -255,27 +276,38 @@ const R1 = { name: 'app1', namespace: 'web', className: 'nginx', hosts: 'a.com,b
 const R2 = { name: 'app2', namespace: 'api', className: 'nginx', hosts: 'b.com', tls: false, tlsHosts: [], rules: [{ http: { paths: [{ backend: { service: { name: 'svc1', port: { number: 8080 } } } }] } }], defaultBackend: { serviceName: 'svc-default', servicePort: '80' }, age: '2d' }
 
 describe('IngressClassDetail 暴露摘要与明细', () => {
+  // 第三轮:明细迁独立全宽 tab(overview 右栏只留紧凑摘要);行单行化。
+  const openTab = async (w) => {
+    await w.findAll('button').find(b => b.text().startsWith('ingresses')).trigger('click')
+    await w.vm.$nextTick()
+  }
+
   beforeEach(() => {
     h.push.mockClear()
     h.captured.related = ref([R1, R2])
     h.captured.data = ref(FIXTURE)
   })
 
-  it('暴露摘要:80/443 徽标、hosts 去重、后端服务跨 Ingress 去重聚合、计数', async () => {
+  it('摘要卡(Overview 右栏):80/443 徽标 + 计数(svc 数保留在计数,聚合 chips 在 tab)', async () => {
     const w = mountView()
     await w.vm.$nextTick()
     const s = w.find('[data-testid="exposure-summary"]')
     expect(s.exists()).toBe(true)
     expect(s.text()).toContain(':443')   // a.com 走 TLS
     expect(s.text()).toContain(':80')    // b.com 纯 HTTP
-    expect(s.text()).toContain('svc2:9090')       // 后端全量聚合
-    expect(s.text()).toContain('svc-default:80')
     expect(s.find('[data-testid="exposure-stats"]').attributes('data-counts')).toBe('2|2|3') // 2 Ingress / hosts 去重 {a.com,b.com} / svc 去重 {svc1:8080,svc2:9090,svc-default:80}
+  })
+
+  it('tab 标签:ingresses tab 带引用计数', async () => {
+    const w = mountView()
+    await w.vm.$nextTick()
+    const tab = w.findAll('button').find(b => b.text() === 'ingresses (2)')
+    expect(tab).toBeTruthy()
   })
 
   it('明细行:渲染该条全部后端(不只首条)', async () => {
     const w = mountView()
-    await w.vm.$nextTick()
+    await openTab(w)
     const row = w.findAll('[data-testid="related-row"]').find(r => r.text().includes('app1'))
     expect(row.text()).toContain('svc1:8080')
     expect(row.text()).toContain('svc2:9090')
@@ -283,7 +315,7 @@ describe('IngressClassDetail 暴露摘要与明细', () => {
 
   it('host 级端口:TLS host 带 443,纯 HTTP host 带 80', async () => {
     const w = mountView()
-    await w.vm.$nextTick()
+    await openTab(w)
     const row = w.findAll('[data-testid="related-row"]').find(r => r.text().includes('app1'))
     expect(row.text()).toContain('a.com:443')
     expect(row.text()).toContain('b.com:80')
@@ -291,7 +323,7 @@ describe('IngressClassDetail 暴露摘要与明细', () => {
 
   it('搜索:按 namespace/host/服务名过滤明细', async () => {
     const w = mountView()
-    await w.vm.$nextTick()
+    await openTab(w)
     await w.find('[data-testid="related-search"]').setValue('api')
     expect(w.findAll('[data-testid="related-row"]').length).toBe(1)
     expect(w.text()).toContain('app2')
@@ -304,7 +336,7 @@ describe('IngressClassDetail 暴露摘要与明细', () => {
   it('折叠:>5 条默认显示 5 条 + 展开钮;展开/收起可控', async () => {
     h.captured.related = ref(Array.from({ length: 7 }, (_, i) => ({ ...R1, name: `app${i}`, namespace: 'web' })))
     const w = mountView()
-    await w.vm.$nextTick()
+    await openTab(w)
     expect(w.findAll('[data-testid="related-row"]').length).toBe(5)
     const expand = w.find('[data-testid="related-expand"]')
     expect(expand.text()).toContain('7')
