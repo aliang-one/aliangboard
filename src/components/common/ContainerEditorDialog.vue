@@ -8,7 +8,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Modal from '@/components/common/Modal.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
-import EnvSourceField from '@/components/common/EnvSourceField.vue'
+import ContainerEnvEditor from './ContainerEnvEditor.vue'
 import { validateContainerFields } from '@/logic/containerValidation'
 import { makeSubContainer, advancedCount } from '@/logic/subContainer'
 import { sanitizeImageToName } from '@/utils/containerNames'
@@ -19,7 +19,7 @@ const props = defineProps({
   kind: { type: String, default: 'init' },          // 'init' | 'sidecar'
   index: { type: Number, default: 0 },
   otherNames: { type: Array, default: () => [] },   // 主容器有效名 + 其他容器显式名(查重)
-  namespace: { type: String, default: '' },         // EnvSourceField 候选过滤用
+  namespace: { type: String, default: '' },         // 传给 ContainerEnvEditor 的 env 下拉候选过滤用
 })
 const emit = defineEmits(['update:modelValue', 'confirm'])
 const { t } = useI18n()
@@ -29,9 +29,8 @@ const { t } = useI18n()
 function cloneDraft(c) {
   return {
     ...makeSubContainer(), ...c,
-    envVars: (c.envVars || []).map(e => ({ ...e })),
-    envCMKeys: (c.envCMKeys || []).map(e => ({ ...e })),
-    envSecretKeys: (c.envSecretKeys || []).map(e => ({ ...e })),
+    envRows: (c.envRows || []).map(e => ({ ...e, ...(e.passthrough ? { passthrough: JSON.parse(JSON.stringify(e.passthrough)) } : {}) })),
+    envFromRows: (c.envFromRows || []).map(e => ({ ...e, ...(e.passthrough ? { passthrough: JSON.parse(JSON.stringify(e.passthrough)) } : {}) })),
     ports: (c.ports || []).map(p => ({ ...p })),
     liveness: { ...makeSubContainer().liveness, ...c.liveness },
     readiness: { ...makeSubContainer().readiness, ...c.readiness },
@@ -51,9 +50,6 @@ const openSect = ref({ env: false, ports: false, probes: false, lifecycle: false
 const advCount = computed(() => advancedCount(draft.value))
 const PROBES = ['liveness', 'readiness', 'startup']
 
-function addEnvRow(list) {
-  draft.value[list].push(list === 'envVars' ? { key: '', value: '' } : list === 'envCMKeys' ? { name: '', cmName: '', key: '' } : { name: '', secretName: '', key: '' })
-}
 function addPortRow() { draft.value.ports.push({ containerPort: '', protocol: 'TCP' }) }
 
 const errors = computed(() => validateContainerFields(draft.value, props.otherNames))
@@ -184,30 +180,7 @@ function onConfirm() {
           </button>
         </div>
         <div v-show="openSect.env" class="flex flex-col gap-sm mt-sm">
-          <div class="flex items-center justify-between"><span class="text-xs text-on-surface-variant">{{ t('deploy.envDirectGroup') }}</span>
-            <button type="button" data-testid="ced-env-add" @click="addEnvRow('envVars')" class="text-xs text-primary hover:bg-primary-container/10 rounded px-sm py-xs">{{ t('deploy.ced.addEnvRow') }}</button></div>
-          <div v-for="(e, i) in draft.envVars" :key="'ev'+i" class="grid grid-cols-2 gap-sm">
-            <input :data-testid="'ced-env-key-'+i" v-model="e.key" @blur="markTouched('env')" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" :placeholder="t('deploy.ced.envKeyPh')" />
-            <input :data-testid="'ced-env-val-'+i" v-model="e.value" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" :placeholder="t('deploy.ced.envValPh')" />
-          </div>
-          <div class="flex items-center justify-between"><span class="text-xs text-on-surface-variant">{{ t('deploy.fromConfigMap') }}</span>
-            <button type="button" @click="addEnvRow('envCMKeys')" class="text-xs text-primary hover:bg-primary-container/10 rounded px-sm py-xs">{{ t('deploy.ced.addEnvRow') }}</button></div>
-          <div v-for="(e, i) in draft.envCMKeys" :key="'cm'+i" class="flex gap-sm">
-            <input :data-testid="'ced-envcm-name-'+i" v-model="e.name" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-xs font-mono" :placeholder="t('deploy.ced.envNamePh')" />
-            <EnvSourceField kind="configmap" :namespace="namespace" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
-          </div>
-          <div class="flex items-center justify-between"><span class="text-xs text-on-surface-variant">{{ t('deploy.fromSecret') }}</span>
-            <button type="button" @click="addEnvRow('envSecretKeys')" class="text-xs text-primary hover:bg-primary-container/10 rounded px-sm py-xs">{{ t('deploy.ced.addEnvRow') }}</button></div>
-          <div v-for="(e, i) in draft.envSecretKeys" :key="'sk'+i" class="flex gap-sm">
-            <input :data-testid="'ced-envsk-name-'+i" v-model="e.name" class="w-28 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-xs font-mono" :placeholder="t('deploy.ced.envNamePh')" />
-            <EnvSourceField kind="secret" :namespace="namespace" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
-          </div>
-          <div class="grid grid-cols-2 gap-sm">
-            <div><label class="text-xs text-on-surface-variant block mb-xs">{{ t('deploy.ced.envFromCmLabel') }}</label>
-              <input v-model="draft.envFromConfigMap" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" /></div>
-            <div><label class="text-xs text-on-surface-variant block mb-xs">{{ t('deploy.ced.envFromSecretLabel') }}</label>
-              <input v-model="draft.envFromSecret" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono" /></div>
-          </div>
+          <ContainerEnvEditor v-model:env="draft.envRows" v-model:env-from="draft.envFromRows" :namespace="namespace" size="sm" @focusout.capture="markTouched('env')" />
           <p v-if="showErr('env')" data-testid="ced-env-error" class="text-xs text-error">{{ t(showErr('env').msgKey, showErr('env').params) }}</p>
         </div>
       </section>

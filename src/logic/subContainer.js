@@ -5,6 +5,7 @@
 import { splitCommandTokens, splitArgLines, joinCommandTokens, joinArgLines } from '../utils/containerTokens.js'
 import { sanitizeImageToName } from '../utils/containerNames.js'
 import { toMountSpec } from './volumeMountValidation.js'
+import { envRowsToSpec, envFromRowsToSpec, envRowsFromSpec, envFromRowsFromSpec, envRowCount, envSectionEmpty } from './envRefs.js'
 
 export const PROBE_KEYS = ['liveness', 'readiness', 'startup']
 const PROBE_FIELD = { liveness: 'livenessProbe', readiness: 'readinessProbe', startup: 'startupProbe' }
@@ -22,8 +23,7 @@ export function makeSubContainer() {
     name: '', image: '', command: '', args: '',
     cpuRequest: '100m', cpuLimit: '250m', memoryRequest: '128Mi', memoryLimit: '256Mi',
     workingDir: '', pullPolicy: '', stdin: false, tty: false,
-    envVars: [], envFromConfigMap: '', envFromSecret: '',
-    envCMKeys: [], envSecretKeys: [],
+    envRows: [], envFromRows: [],
     ports: [],
     liveness: { ...PROBE_DEFAULTS.liveness },
     readiness: { ...PROBE_DEFAULTS.readiness },
@@ -85,14 +85,9 @@ export function buildSubContainerSpec(c, opts = {}) {
   if (Object.keys(r).length) o.resources = r
   const ports = (c.ports || []).filter(p => p.containerPort).map(p => ({ containerPort: Number(p.containerPort), protocol: p.protocol || 'TCP' }))
   if (ports.length) o.ports = ports
-  const env = []
-  ;(c.envVars || []).filter(e => e.key).forEach(e => env.push({ name: e.key, value: String(e.value ?? '') }))
-  ;(c.envCMKeys || []).filter(e => e.name && e.cmName && e.key).forEach(e => env.push({ name: e.name, valueFrom: { configMapKeyRef: { name: e.cmName, key: e.key } } }))
-  ;(c.envSecretKeys || []).filter(e => e.name && e.secretName && e.key).forEach(e => env.push({ name: e.name, valueFrom: { secretKeyRef: { name: e.secretName, key: e.key } } }))
+  const env = envRowsToSpec(c.envRows)
   if (env.length) o.env = env
-  const envFrom = []
-  if (c.envFromConfigMap) envFrom.push({ configMapRef: { name: c.envFromConfigMap } })
-  if (c.envFromSecret) envFrom.push({ secretRef: { name: c.envFromSecret } })
+  const envFrom = envFromRowsToSpec(c.envFromRows)
   if (envFrom.length) o.envFrom = envFrom
   for (const k of PROBE_KEYS) { const p = buildProbeSpec(c[k]); if (p) o[PROBE_FIELD[k]] = p }
   const lc = {}
@@ -126,11 +121,7 @@ export function advancedCount(c) {
   if (c.pullPolicy) n++
   if (c.stdin) n++
   if (c.tty) n++
-  n += (c.envVars || []).filter(e => e.key).length
-  if (c.envFromConfigMap) n++
-  if (c.envFromSecret) n++
-  n += (c.envCMKeys || []).filter(e => e.name).length
-  n += (c.envSecretKeys || []).filter(e => e.name).length
+  n += envRowCount(c.envRows, c.envFromRows)
   n += (c.ports || []).filter(p => p.containerPort).length
   for (const k of PROBE_KEYS) if (c[k]?.enabled) n++
   if (splitCommandTokens(c.lifecycle?.postStart).length) n++
@@ -146,10 +137,7 @@ export function isSubContainerEmpty(c) {
   if (!c) return true
   if (c.name || c.image || c.command || c.args) return false
   if (c.workingDir || c.pullPolicy || c.stdin || c.tty || c.nativeSidecar) return false
-  if (c.envFromConfigMap || c.envFromSecret) return false
-  if ((c.envVars || []).some(e => e.key || e.value)) return false
-  if ((c.envCMKeys || []).some(e => e.name)) return false
-  if ((c.envSecretKeys || []).some(e => e.name)) return false
+  if (!envSectionEmpty(c.envRows, c.envFromRows)) return false
   if ((c.ports || []).some(p => p.containerPort)) return false
   for (const k of PROBE_KEYS) if (c[k]?.enabled) return false
   if (splitCommandTokens(c.lifecycle?.postStart).length || splitCommandTokens(c.lifecycle?.preStop).length) return false
@@ -196,11 +184,8 @@ export function mapSubContainer(spec = {}) {
     memoryRequest: r.requests?.memory || '', memoryLimit: r.limits?.memory || '',
     workingDir: spec.workingDir || '', pullPolicy: spec.imagePullPolicy || '',
     stdin: !!spec.stdin, tty: !!spec.tty,
-    envVars: (spec.env || []).filter(e => e.value !== undefined && !e.valueFrom).map(e => ({ key: e.name, value: String(e.value ?? '') })),
-    envFromConfigMap: spec.envFrom?.find(e => e.configMapRef)?.configMapRef?.name || '',
-    envFromSecret: spec.envFrom?.find(e => e.secretRef)?.secretRef?.name || '',
-    envCMKeys: (spec.env || []).filter(e => e.valueFrom?.configMapKeyRef).map(e => ({ name: e.name, cmName: e.valueFrom.configMapKeyRef.name, key: e.valueFrom.configMapKeyRef.key })),
-    envSecretKeys: (spec.env || []).filter(e => e.valueFrom?.secretKeyRef).map(e => ({ name: e.name, secretName: e.valueFrom.secretKeyRef.name, key: e.valueFrom.secretKeyRef.key })),
+    envRows: envRowsFromSpec(spec.env),
+    envFromRows: envFromRowsFromSpec(spec.envFrom),
     ports: (spec.ports || []).map(p => ({ containerPort: p.containerPort, protocol: p.protocol || 'TCP' })),
     liveness: probeToForm(spec.livenessProbe, 'liveness'),
     readiness: probeToForm(spec.readinessProbe, 'readiness'),

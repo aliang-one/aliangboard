@@ -79,7 +79,7 @@ test('硬化:command 引号分组;args/env 值含引号、反斜杠、换行经 
     containerName: 'main', image: 'nginx',
     command: 'sh -c "echo hi"',
     args: 'say "hello" \\ world',
-    envVars: [{ key: 'GREETING', value: 'he said "hi"\nand left' }],
+    envRows: [{ name: 'GREETING', type: 'value', value: 'he said "hi"\nand left' }],
   })
   expect(pod.containers[0].command).toEqual(['sh', '-c', 'echo hi'])
   expect(pod.containers[0].args).toEqual(['say "hello" \\ world'])

@@ -11,7 +11,8 @@ import IngressPerfField from '@/components/common/IngressPerfField.vue'
 import { buildWizardIngressYaml } from '@/composables/useIngressRules'
 import { pickIngressClassName } from '@/logic/ingressClass'
 import { canUseClusterDefault, resolveClusterDefaultName } from '@/logic/classDefault'
-import { isEmptyEnvRow, firstDuplicateEnvName } from '@/utils/envRows'
+import { isEmptyEnvRow } from '@/utils/envRows'
+import { envRowsToSpec, envFromRowsToSpec, envRefErrors, duplicateEnvNames, ENV_FIELD_LABEL_KEYS } from '@/logic/envRefs'
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
 import { dump as yamlDump } from 'js-yaml'
@@ -25,7 +26,7 @@ import { recordTagUsage } from '@/composables/useTagHistory'
 import { notify } from '@/composables/useToast'
 import TagInput from '@/components/common/TagInput.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
-import EnvSourceField from '@/components/common/EnvSourceField.vue'
+import ContainerEnvEditor from '@/components/common/ContainerEnvEditor.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
@@ -85,11 +86,8 @@ function makeForm() {
   cpuLimit: '500m',
   memoryRequest: '256Mi',
   memoryLimit: '512Mi',
-  envVars: [],
-  envFromConfigMap: '',
-  envFromSecret: '',
-  envCMKeys: [],
-  envSecretKeys: [],
+  envRows: [],
+  envFromRows: [],
   // 健康探针（容器策略）
   liveness: { enabled: false, type: 'http', httpPath: '/health', port: 8080, execCommand: '', initialDelaySeconds: 30, periodSeconds: 10, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1 },
   readiness: { enabled: false, type: 'http', httpPath: '/ready', port: 8080, execCommand: '', initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1 },
@@ -214,12 +212,6 @@ const steps = [
 
 const workloadTypes = ['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob']
 
-function addEnvVar() { form.value.envVars.push({ key: '', value: '' }) }
-function removeEnvVar(idx) { form.value.envVars.splice(idx, 1) }
-function addEnvCMKey() { form.value.envCMKeys.push({ name: '', cmName: '', key: '' }) }
-function removeEnvCMKey(idx) { form.value.envCMKeys.splice(idx, 1) }
-function addEnvSecretKey() { form.value.envSecretKeys.push({ name: '', secretName: '', key: '' }) }
-function removeEnvSecretKey(idx) { form.value.envSecretKeys.splice(idx, 1) }
 function addExtraContainer() { form.value.extraContainers.push(makeSubContainer()) }
 function removeExtraContainer(idx) { form.value.extraContainers.splice(idx, 1) }
 function addInitContainer() { form.value.initContainers.push(makeSubContainer()) }
@@ -399,7 +391,7 @@ function applyTemplate(t) {
   form.value.memoryLimit = t.memLim
   form.value.servicePorts = [{ name: t.portName || 'http', port: String(t.port), targetPort: String(t.port), nodePort: '', protocol: 'TCP' }]
   form.value.tier = t.tier
-  if (t.env) form.value.envVars = t.env.map(e => ({ key: e.key, value: e.value }))
+  if (t.env) form.value.envRows = t.env.map(e => ({ name: e.key, type: 'value', value: e.value }))
   if (!form.value.labels.some(l => l.key === 'app')) {
     form.value.labels = [{ key: 'app', value: t.id }]
   }
@@ -431,26 +423,16 @@ const previewYAML = computed(() => {
           protocol: ${p.protocol}`)
     .join('\n')
 
-  const envYaml = f.envVars
-    .filter(e => e.key)
-    .map(e => `        - name: ${e.key}\n          value: ${JSON.stringify(e.value)}`)
-    .join('\n')
-
-  const envCMKeyYaml = f.envCMKeys
-    .filter(e => e.name && e.cmName && e.key)
-    .map(e => `        - name: ${e.name}\n          valueFrom:\n            configMapKeyRef:\n              name: ${e.cmName}\n              key: ${e.key}`)
-    .join('\n')
-
-  const envSecretKeyYaml = f.envSecretKeys
-    .filter(e => e.name && e.secretName && e.key)
-    .map(e => `        - name: ${e.name}\n          valueFrom:\n            secretKeyRef:\n              name: ${e.secretName}\n              key: ${e.key}`)
-    .join('\n')
-
-  const allEnvYaml = [envYaml, envCMKeyYaml, envSecretKeyYaml].filter(Boolean).join('\n')
-
-  const envFromYaml = []
-  if (f.envFromConfigMap) envFromYaml.push(`        - configMapRef:\n            name: ${f.envFromConfigMap}`)
-  if (f.envFromSecret) envFromYaml.push(`        - secretRef:\n            name: ${f.envFromSecret}`)
+  // env/envFrom:统一行模型 → spec → js-yaml dump(引号启发式与子容器同源,弃手拼)
+  const DUMP_OPTS = { indent: 2, lineWidth: -1 }
+  const envSpec = envRowsToSpec(f.envRows)
+  const allEnvYaml = envSpec.length
+    ? yamlDump(envSpec, DUMP_OPTS).trimEnd().split('\n').map(l => '        ' + l).join('\n')
+    : ''
+  const envFromSpec = envFromRowsToSpec(f.envFromRows)
+  const envFromYaml = envFromSpec.length
+    ? yamlDump(envFromSpec, DUMP_OPTS).trimEnd().split('\n').map(l => '        ' + l).join('\n')
+    : ''
 
   // 健康探针生成
   function probeYaml(name, p) {
@@ -498,7 +480,6 @@ const previewYAML = computed(() => {
   // 危险值集;lineWidth:-1 禁折行)→ 每行前缀 6 空格(对齐列表项 6/属性 8 缩进)。
   // 丢弃旧手拼(env value 带引号/换行会踩 yamlScalar 系列坑);mountLines 仅主容器继续用。
   // 原生 sidecar 归位:发到 initContainers 尾部(挂载 target 仍按 extraContainers 原索引)。
-  const DUMP_OPTS = { indent: 2, lineWidth: -1 }
   const subYaml = (c, target, fallback) => !c.image ? null :
     yamlDump([buildSubContainerSpec(c, { fallbackName: fallback, mounts: mountsForTarget(f.volumeMounts, target) })], DUMP_OPTS)
       .trimEnd().split('\n').map(l => '      ' + l).join('\n')
@@ -670,7 +651,7 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${yamlScalar(v)}`).join(
   if (f.tty) yaml += `\n        tty: true`
   if (portsYaml) yaml += `\n        ports:\n${portsYaml}`
   if (allEnvYaml) yaml += `\n        env:\n${allEnvYaml}`
-  if (envFromYaml.length) yaml += `\n        envFrom:\n${envFromYaml.join('\n')}`
+  if (envFromYaml) yaml += `\n        envFrom:\n${envFromYaml}`
   yaml += `\n        resources:
           requests:
             cpu: ${f.cpuRequest}
@@ -793,10 +774,11 @@ function validate() {
   pushContainerErrs(f.initContainers, 'init', 'deploy.initContainers')
   pushContainerErrs(f.extraContainers, 'sidecar', 'deploy.sidecarContainers')
   f.ports.forEach((p, i) => { if (!isEmptyEnvRow(p, ['containerPort']) && !p.containerPort) errs.push({ step: 1, msg: t('deploy.portMissing', { idx: i + 1 }) }) })
-  f.envVars.forEach((e, i) => { if (!isEmptyEnvRow(e, ['key', 'value']) && !e.key) errs.push({ step: 1, msg: t('deploy.envMissingKey', { idx: i + 1 }) }) })
-  f.envCMKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'cmName', 'key']) && (!e.name || !e.cmName || !e.key)) errs.push({ step: 1, msg: t('deploy.envCmMissing', { name: e.name || '—' }) }) })
-  f.envSecretKeys.forEach(e => { if (!isEmptyEnvRow(e, ['name', 'secretName', 'key']) && (!e.name || !e.secretName || !e.key)) errs.push({ step: 1, msg: t('deploy.envSecretMissing', { name: e.name || '—' }) }) })
-  const dupEnvName = firstDuplicateEnvName(f.envVars, f.envCMKeys, f.envSecretKeys)
+  for (const e of envRefErrors(f.envRows)) {
+    const fields = e.missing.map(m => t(ENV_FIELD_LABEL_KEYS[m])).join(' / ')
+    errs.push({ step: 1, msg: t('deploy.envRowMissing', { name: e.name || `#${e.index + 1}`, fields }) })
+  }
+  const dupEnvName = duplicateEnvNames(f.envRows)
   if (dupEnvName) errs.push({ step: 1, msg: t('deploy.envDuplicateName', { name: dupEnvName }) })
   if (f.createIngress) {
     for (const e of validateIngressAdv(ingressDialect.value, f.ingressAdv)) errs.push({ step: 4, msg: t('ingressPerf.invalidField', { field: t(e.labelKey), msg: t(e.msgKey) }) })
@@ -1136,53 +1118,13 @@ async function handleDeploy() {
               </div>
             </div>
 
-            <!-- 环境变量 · 直填 -->
+            <!-- 环境变量(统一行列表 + 整批导入) -->
             <div class="rounded-lg border border-outline-variant/60 bg-surface-container-lowest p-md">
               <div class="flex items-center gap-sm mb-sm text-primary">
                 <span class="material-symbols-outlined text-base">code</span>
-                <span class="text-body-sm font-semibold">{{ $t('deploy.envDirectGroup') }}</span>
-                <button @click="addEnvVar" class="ml-auto flex items-center gap-xs px-sm py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
-                  <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addVariable') }}
-                </button>
+                <span class="text-body-sm font-semibold">{{ $t('deploy.envRowsGroup') }}</span>
               </div>
-              <div v-for="(env, idx) in form.envVars" :key="idx" class="flex gap-sm items-center mb-sm">
-                <input v-model="env.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="KEY" />
-                <input v-model="env.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="value" />
-                <button @click="removeEnvVar(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
-              </div>
-            </div>
-
-            <!-- 环境引用 -->
-            <div class="rounded-lg border border-outline-variant/60 bg-surface-container-lowest p-md">
-              <div class="flex flex-wrap items-center gap-sm mb-sm text-primary">
-                <span class="material-symbols-outlined text-base">input</span>
-                <span class="text-body-sm font-semibold">{{ $t('deploy.envRefGroup') }}</span>
-                <span class="ml-auto flex gap-xs">
-                  <button @click="addEnvCMKey" class="flex items-center gap-xs px-sm py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.fromConfigMap') }}</button>
-                  <button @click="addEnvSecretKey" class="flex items-center gap-xs px-sm py-xs text-tertiary-container font-medium text-xs hover:bg-tertiary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.fromSecret') }}</button>
-                </span>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-sm mb-xs">
-                <div>
-                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.fromConfigMap') }}</label>
-                  <EnvSourceField kind="configmap" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromConfigMap" />
-                </div>
-                <div>
-                  <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.fromSecret') }}</label>
-                  <EnvSourceField kind="secret" :namespace="form.namespace" :with-key="false" size="md" v-model:name="form.envFromSecret" />
-                </div>
-              </div>
-              <p class="text-xs text-on-surface-variant/80 mb-sm">{{ $t('deploy.envFromHint') }}</p>
-              <div v-for="(e, idx) in form.envCMKeys" :key="'cmk'+idx" class="flex gap-sm items-center mb-sm">
-                <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
-                <EnvSourceField kind="configmap" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
-                <button @click="removeEnvCMKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
-              </div>
-              <div v-for="(e, idx) in form.envSecretKeys" :key="'sk'+idx" class="flex gap-sm items-center mb-sm">
-                <input v-model="e.name" class="w-36 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ENV_NAME" />
-                <EnvSourceField kind="secret" :namespace="form.namespace" size="md" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
-                <button @click="removeEnvSecretKey(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg flex-shrink-0"><span class="material-symbols-outlined text-base">delete</span></button>
-              </div>
+              <ContainerEnvEditor v-model:env="form.envRows" v-model:env-from="form.envFromRows" :namespace="form.namespace" size="md" />
             </div>
           </div>
         </div>

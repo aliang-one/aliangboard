@@ -505,7 +505,11 @@ test('workloadToForm: 完整 Deployment 映射主容器/副本/标签/节点选�
   assert.equal(f.args, 'sleep 1')
   assert.equal(f.workingDir, '/app')
   assert.deepEqual(f.ports, [{ containerPort: '8080', protocol: 'TCP' }])
-  assert.deepEqual(f.envVars, [{ key: 'FOO', value: 'bar' }])             // valueFrom 类不映射
+  assert.deepEqual(f.envRows, [
+    { name: 'FOO', type: 'value', value: 'bar' },
+    { name: 'REF', type: 'configMapKeyRef', cmName: 'cm', key: '' },   // key 缺失 = 半行,校验层会拦
+  ])
+  assert.deepEqual(f.envFromRows, [])
   assert.equal(f.cpuRequest, '250m'); assert.equal(f.cpuLimit, '500m')
   assert.equal(f.memoryRequest, '256Mi'); assert.equal(f.memoryLimit, '512Mi')
   assert.equal(f.liveness.enabled, true); assert.equal(f.liveness.type, 'http')
@@ -515,6 +519,15 @@ test('workloadToForm: 完整 Deployment 映射主容器/副本/标签/节点选�
   assert.deepEqual(f.tolerations, [{ key: 'k', operator: 'Equal', value: 'v', effect: 'NoSchedule' }])
   assert.equal(f.volumeMounts.length, 1); assert.equal(f.volumeMounts[0].name, 'data')
   assert.equal(f.extraContainers.length, 0); assert.equal(f.initContainers.length, 0)
+})
+
+test('workloadToForm: 主容器 env 引用/envFrom 全量带入(D3 根治)', () => {
+  const obj = { kind: 'Deployment', metadata: { name: 'e', namespace: 'n' }, spec: { template: { spec: { containers: [{ name: 'c', image: 'nginx', env: [{ name: 'FOO', value: 'bar' }, { name: 'N', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } }], envFrom: [{ prefix: 'MY_', configMapRef: { name: 'cm1' } }, { secretRef: { name: 's1' } }] }] } } } }
+  const f = workloadToForm(obj, 'Deployment')
+  assert.equal(f.envRows.length, 2)
+  assert.equal(f.envRows[1].type, 'fieldRef')
+  assert.deepEqual(f.envFromRows.map(r => r.name), ['cm1', 's1'])
+  assert.equal(f.envFromRows[0].passthrough.prefix, 'MY_')
 })
 
 test('workloadToForm: 多容器 —— 主容器完整,其余进 extraContainers,init 进 initContainers', () => {

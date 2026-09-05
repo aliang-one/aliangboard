@@ -7,6 +7,7 @@ import { joinCommandTokens, joinArgLines } from '../utils/containerTokens.js'
 import { SYSTEM_ANNOTATIONS } from '../utils/systemMeta.js'
 import { mapSubContainer } from '../logic/subContainer.js'
 import { backfillVolumes, splitContainers } from '../logic/volumeBackfill.js'
+import { envRowsFromSpec, envFromRowsFromSpec } from '../logic/envRefs.js'
 
 function podSpecOf(obj, kind) {
   if (kind === 'CronJob') return obj?.spec?.jobTemplate?.spec?.template?.spec
@@ -41,7 +42,8 @@ function mapMainContainer(c) {
     cpuLimit: r.limits?.cpu || '500m',
     memoryRequest: r.requests?.memory || '256Mi',
     memoryLimit: r.limits?.memory || '512Mi',
-    envVars: (c?.env || []).filter(e => e && e.value != null && !e.valueFrom).map(e => ({ key: e.name, value: String(e.value) })),
+    envRows: envRowsFromSpec(c?.env),
+    envFromRows: envFromRowsFromSpec(c?.envFrom),
     ports: (c?.ports || []).map(p => ({ containerPort: p?.containerPort != null ? String(p.containerPort) : '', protocol: p?.protocol || 'TCP' })),
     liveness: mapProbe(c?.livenessProbe),
     readiness: mapProbe(c?.readinessProbe),
@@ -82,7 +84,7 @@ export function workloadToForm(obj, kind) {
   }
 
   if (containers[0]) Object.assign(out, mapMainContainer(containers[0]))
-  else { out.image = ''; out.containerName = ''; out.envVars = []; out.ports = []; out.liveness = mapProbe(null); out.readiness = mapProbe(null); out.startup = mapProbe(null) }
+  else { out.image = ''; out.containerName = ''; out.envRows = []; out.envFromRows = []; out.ports = []; out.liveness = mapProbe(null); out.readiness = mapProbe(null); out.startup = mapProbe(null) }
   const { plainInits, plainSidecars, nativeSidecars } = splitContainers(pod)
   out.extraContainers = [...plainSidecars, ...nativeSidecars].map(mapSubContainer)
   out.initContainers = plainInits.map(mapSubContainer)

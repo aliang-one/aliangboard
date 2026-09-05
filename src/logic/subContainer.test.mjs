@@ -7,10 +7,12 @@ const FULL = () => ({
   ...makeSubContainer(),
   name: 'sc', image: 'nginx:1', command: 'sh -c "x"', args: 'a\nb',
   workingDir: '/w', pullPolicy: 'Always', stdin: true, tty: true,
-  envVars: [{ key: 'K', value: 'V' }],
-  envFromConfigMap: 'cm1', envFromSecret: 'sec1',
-  envCMKeys: [{ name: 'A', cmName: 'cm2', key: 'k' }],
-  envSecretKeys: [{ name: 'B', secretName: 's2', key: 'k' }],
+  envRows: [
+    { name: 'K', type: 'value', value: 'V' },
+    { name: 'B', type: 'secretKeyRef', secretName: 's2', key: 'k' },
+    { name: 'FR', type: 'fieldRef', fieldPath: 'metadata.name' },
+  ],
+  envFromRows: [{ kind: 'configmap', name: 'cm1' }, { kind: 'secret', name: 'sec1' }],
   ports: [{ containerPort: 9090, protocol: 'UDP' }],
   liveness: { enabled: true, type: 'http', httpPath: '/h', port: 8080, execCommand: '', initialDelaySeconds: 1, periodSeconds: 2, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1 },
   lifecycle: { postStart: 'echo hi', preStop: '' },
@@ -22,7 +24,7 @@ test('makeSubContainer: 全默认形状(资源默认值与现状卡片一致)', 
   const c = makeSubContainer()
   assert.equal(c.cpuRequest, '100m'); assert.equal(c.cpuLimit, '250m')
   assert.equal(c.memoryRequest, '128Mi'); assert.equal(c.memoryLimit, '256Mi')
-  assert.deepEqual(c.envVars, []); assert.deepEqual(c.ports, [])
+  assert.deepEqual(c.envRows, []); assert.deepEqual(c.envFromRows, []); assert.deepEqual(c.ports, [])
   assert.equal(c.liveness.enabled, false); assert.equal(c.liveness.initialDelaySeconds, 30)
   assert.equal(c.readiness.initialDelaySeconds, 5); assert.equal(c.startup.initialDelaySeconds, 0)
   assert.equal(c.securityContext.enabled, false); assert.equal(c.nativeSidecar, false)
@@ -38,8 +40,8 @@ test('buildSubContainerSpec: 全字段 omitempty 构建正确', () => {
   assert.deepEqual(o.ports, [{ containerPort: 9090, protocol: 'UDP' }])
   assert.deepEqual(o.env, [
     { name: 'K', value: 'V' },
-    { name: 'A', valueFrom: { configMapKeyRef: { name: 'cm2', key: 'k' } } },
     { name: 'B', valueFrom: { secretKeyRef: { name: 's2', key: 'k' } } },
+    { name: 'FR', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
   ])
   assert.deepEqual(o.envFrom, [{ configMapRef: { name: 'cm1' } }, { secretRef: { name: 'sec1' } }])
   assert.deepEqual(o.livenessProbe, { initialDelaySeconds: 1, periodSeconds: 2, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1, httpGet: { path: '/h', port: 8080 } })
@@ -88,7 +90,7 @@ test('mountsForTarget: 按 target 过滤且丢残行;subPath/readOnly 透传', (
 test('advancedCount: 计已配置条目', () => {
   assert.equal(advancedCount(makeSubContainer()), 0)
   const c = FULL()
-  // env 1 + cm 1 + secret 1 + envFrom 2 + ports 1 + liveness 1 + postStart 1 + sc 1
+  // env 3 + envFrom 2 + ports 1 + liveness 1 + postStart 1 + sc 1
   // + workingDir/pullPolicy/stdin/tty/native 各 1 = 14
   assert.equal(advancedCount(c), 14)
 })
@@ -96,8 +98,9 @@ test('advancedCount: 计已配置条目', () => {
 test('isSubContainerEmpty: 4 基础字段空但高级字段有值 → 非空行', () => {
   assert.equal(isSubContainerEmpty(makeSubContainer()), true)
   assert.equal(isSubContainerEmpty({ ...makeSubContainer(), name: 'x' }), false)
-  assert.equal(isSubContainerEmpty({ ...makeSubContainer(), envVars: [{ key: '', value: '' }] }), true)   // 残行不算
-  assert.equal(isSubContainerEmpty({ ...makeSubContainer(), envVars: [{ key: 'K', value: '' }] }), false)
+  assert.equal(isSubContainerEmpty({ ...makeSubContainer(), envRows: [{ name: '', type: 'value', value: '' }] }), true)   // 残行不算
+  assert.equal(isSubContainerEmpty({ ...makeSubContainer(), envRows: [{ name: 'K', type: 'value', value: '' }] }), false)
+  assert.equal(isSubContainerEmpty({ ...makeSubContainer(), envFromRows: [{ kind: 'configmap', name: 'cm' }] }), false)
   assert.equal(isSubContainerEmpty({ ...makeSubContainer(), ports: [{ containerPort: '', protocol: 'TCP' }] }), true)
   assert.equal(isSubContainerEmpty({ ...makeSubContainer(), ports: [{ containerPort: 80, protocol: 'TCP' }] }), false)
   assert.equal(isSubContainerEmpty({ ...makeSubContainer(), liveness: { ...makeSubContainer().liveness, enabled: true } }), false)
@@ -114,6 +117,7 @@ const SPEC = () => ({
     { name: 'K', value: 'V' },
     { name: 'A', valueFrom: { configMapKeyRef: { name: 'cm', key: 'k' } } },
     { name: 'B', valueFrom: { secretKeyRef: { name: 's', key: 'k' } } },
+    { name: 'N', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
   ],
   envFrom: [{ configMapRef: { name: 'cm1' } }, { secretRef: { name: 'sec1' } }],
   livenessProbe: { httpGet: { path: '/h', port: 8080 }, initialDelaySeconds: 3 },
@@ -127,10 +131,13 @@ test('mapSubContainer: 全字段反解 + buildSubContainerSpec 无损往返', ()
   assert.equal(f.name, 'sc'); assert.equal(f.command, 'sh -c x'); assert.equal(f.args, 'a\nb')
   assert.equal(f.workingDir, '/w'); assert.equal(f.pullPolicy, 'Always'); assert.equal(f.stdin, true)
   assert.equal(f.cpuRequest, '1'); assert.equal(f.memoryLimit, '2Gi')
-  assert.deepEqual(f.envVars, [{ key: 'K', value: 'V' }])
-  assert.deepEqual(f.envCMKeys, [{ name: 'A', cmName: 'cm', key: 'k' }])
-  assert.deepEqual(f.envSecretKeys, [{ name: 'B', secretName: 's', key: 'k' }])
-  assert.equal(f.envFromConfigMap, 'cm1'); assert.equal(f.envFromSecret, 'sec1')
+  assert.deepEqual(f.envRows, [
+    { name: 'K', type: 'value', value: 'V' },
+    { name: 'A', type: 'configMapKeyRef', cmName: 'cm', key: 'k' },
+    { name: 'B', type: 'secretKeyRef', secretName: 's', key: 'k' },
+    { name: 'N', type: 'fieldRef', fieldPath: 'metadata.name' },
+  ])
+  assert.deepEqual(f.envFromRows, [{ kind: 'configmap', name: 'cm1' }, { kind: 'secret', name: 'sec1' }])
   assert.deepEqual(f.ports, [{ containerPort: 9090, protocol: 'UDP' }])
   assert.equal(f.liveness.enabled, true); assert.equal(f.liveness.type, 'http'); assert.equal(f.liveness.initialDelaySeconds, 3)
   assert.equal(f.lifecycle.preStop, 'echo bye')
@@ -142,6 +149,13 @@ test('mapSubContainer: 全字段反解 + buildSubContainerSpec 无损往返', ()
   assert.deepEqual(back.lifecycle, SPEC().lifecycle)
   // 探针数值被构建器补全默认(period/timeout/threshold),断言补全后的完整形状
   assert.deepEqual(back.livenessProbe, { httpGet: { path: '/h', port: 8080 }, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 1, failureThreshold: 3, successThreshold: 1 })
+})
+
+test('mapSubContainer: 多 envFrom 与 fieldRef 回填不丢(D1/D2 子容器侧)', () => {
+  const spec = { env: [{ name: 'N', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } }], envFrom: [{ configMapRef: { name: 'a' } }, { configMapRef: { name: 'b' } }] }
+  const form = mapSubContainer(spec)
+  assert.equal(form.envRows[0].type, 'fieldRef')
+  assert.deepEqual(form.envFromRows.map(r => r.name), ['a', 'b'])
 })
 
 test('mapSubContainer: 空 spec → 全默认且资源为空串(缺资源不凭空补默认,无损)', () => {

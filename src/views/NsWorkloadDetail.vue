@@ -22,6 +22,7 @@ import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, te
 import { podsByPrefixFallback, volumesAndPullSecretsFromPodSpec } from '@/logic/topology'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
+import { envRowsFromSpec, envFromRowsFromSpec, envRowsToSpec, envFromRowsToSpec, envRefErrors, ENV_FIELD_LABEL_KEYS } from '@/logic/envRefs'
 import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS, EDIT_MOUNT_KEYS, EDIT_SOURCE_KEY } from '@/logic/volumeMountValidation'
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -31,7 +32,7 @@ import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import AreaLineChart from '@/components/common/AreaLineChart.vue'
 import PortForwardPanel from '@/components/common/PortForwardPanel.vue'
-import EnvSourceField from '@/components/common/EnvSourceField.vue'
+import ContainerEnvEditor from '@/components/common/ContainerEnvEditor.vue'
 import VolumeMountCard from '@/components/common/VolumeMountCard.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
@@ -843,12 +844,9 @@ function openEdit() {
     cpuReq: c0.resources?.requests?.cpu || '', cpuLim: c0.resources?.limits?.cpu || '',
     memReq: c0.resources?.requests?.memory || '', memLim: c0.resources?.limits?.memory || '',
     ports: (c0.ports || []).map(p => ({ containerPort: p.containerPort, protocol: p.protocol || 'TCP' })),
-    // 环境变量（普通 + ConfigMap/Secret 引用 + envFrom）
-    env: (c0.env || []).filter(e => e.value !== undefined && e.valueFrom === undefined).map(e => ({ key: e.name, value: e.value })),
-    envCMKeys: (c0.env || []).filter(e => e.valueFrom?.configMapKeyRef).map(e => ({ name: e.name, cmName: e.valueFrom.configMapKeyRef.name, key: e.valueFrom.configMapKeyRef.key })),
-    envSecretKeys: (c0.env || []).filter(e => e.valueFrom?.secretKeyRef).map(e => ({ name: e.name, secretName: e.valueFrom.secretKeyRef.name, key: e.valueFrom.secretKeyRef.key })),
-    envFromConfigMap: c0.envFrom?.find(e => e.configMapRef)?.configMapRef?.name || '',
-    envFromSecret: c0.envFrom?.find(e => e.secretRef)?.secretRef?.name || '',
+    // 环境变量（统一行模型:全数组回填,fieldRef/resourceFieldRef 等长尾字段无损保全）
+    envRows: envRowsFromSpec(c0.env),
+    envFromRows: envFromRowsFromSpec(c0.envFrom),
     // 探针（三种 × 全时序）
     liveness: probeToForm(c0.livenessProbe, { httpPath: '/health', port: 8080 }),
     readiness: probeToForm(c0.readinessProbe, { httpPath: '/ready', port: 8080 }),
@@ -941,9 +939,10 @@ function validateEdit() {
   pushSubErrs(f.initContainers || [], 'init', 'workload.edit.initContainers')
   pushSubErrs(f.extraContainers || [], 'sidecar', 'workload.edit.sidecarContainers')
   ;(f.ports || []).forEach((p, i) => { if (!p.containerPort) errs.push(t('workload.validation.portMissing', { idx: i + 1 })) })
-  ;(f.env || []).forEach((e, i) => { if (!e.key) errs.push(t('workload.validation.envMissingKey', { idx: i + 1 })) })
-  ;(f.envCMKeys || []).forEach(e => { if (!e.name || !e.cmName || !e.key) errs.push(t('workload.validation.envCmMissing', { name: e.name || '—' })) })
-  ;(f.envSecretKeys || []).forEach(e => { if (!e.name || !e.secretName || !e.key) errs.push(t('workload.validation.envSecretMissing', { name: e.name || '—' })) })
+  for (const e of envRefErrors(f.envRows || [])) {
+    const fields = e.missing.map(m => t(ENV_FIELD_LABEL_KEYS[m])).join(' / ')
+    errs.push(t('deploy.envRowMissing', { name: e.name || `#${e.index + 1}`, fields }))
+  }
   return errs
 }
 async function saveEdit() {
@@ -985,14 +984,9 @@ async function saveEdit() {
       c0.resources = buildResources(f.cpuReq, f.cpuLim, f.memReq, f.memLim)
       const ports = (f.ports || []).filter(p => p.containerPort).map(p => ({ containerPort: Number(p.containerPort), protocol: p.protocol || 'TCP' }))
       c0.ports = ports.length ? ports : null
-      const env = []
-      ;(f.env || []).filter(e => e.key).forEach(e => env.push({ name: e.key, value: String(e.value ?? '') }))
-      ;(f.envCMKeys || []).filter(e => e.name && e.cmName && e.key).forEach(e => env.push({ name: e.name, valueFrom: { configMapKeyRef: { name: e.cmName, key: e.key } } }))
-      ;(f.envSecretKeys || []).filter(e => e.name && e.secretName && e.key).forEach(e => env.push({ name: e.name, valueFrom: { secretKeyRef: { name: e.secretName, key: e.key } } }))
+      const env = envRowsToSpec(f.envRows)
       c0.env = env.length ? env : null
-      const envFrom = []
-      if (f.envFromConfigMap) envFrom.push({ configMapRef: { name: f.envFromConfigMap } })
-      if (f.envFromSecret) envFrom.push({ secretRef: { name: f.envFromSecret } })
+      const envFrom = envFromRowsToSpec(f.envFromRows)
       c0.envFrom = envFrom.length ? envFrom : null
       c0.livenessProbe = buildProbe(f.liveness)
       c0.readinessProbe = buildProbe(f.readiness)
@@ -1979,35 +1973,8 @@ function podStatusBorder(s) {
 
         <!-- 环境变量 -->
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-md">
-          <div class="flex items-center gap-xs"><span class="material-symbols-outlined text-primary text-lg">key</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.envVars') }}</h4></div>
-          <div class="flex flex-col gap-xs">
-            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.envNormal') }}</span><button @click="editForm.env.push({ key: '', value: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addEnv') }}</button></div>
-            <div v-for="(e, i) in editForm.env" :key="i" class="flex items-center gap-xs">
-              <input v-model="e.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="KEY" />
-              <input v-model="e.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="val" />
-              <button @click="editForm.env.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
-            </div>
-          </div>
-          <div class="flex flex-col gap-xs">
-            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.envCmRef') }}</span><button @click="editForm.envCMKeys.push({ name: '', cmName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addEnv') }}</button></div>
-            <div v-for="(e, i) in editForm.envCMKeys" :key="'cm'+i" class="flex items-center gap-xs">
-              <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.envNamePlaceholder')" />
-              <EnvSourceField kind="configmap" :namespace="route.params.namespace" class="flex-1" v-model:name="e.cmName" v-model:dataKey="e.key" />
-              <button @click="editForm.envCMKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
-            </div>
-          </div>
-          <div class="flex flex-col gap-xs">
-            <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.envSecretRef') }}</span><button @click="editForm.envSecretKeys.push({ name: '', secretName: '', key: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addEnv') }}</button></div>
-            <div v-for="(e, i) in editForm.envSecretKeys" :key="'sk'+i" class="flex items-center gap-xs">
-              <input v-model="e.name" class="w-28 flex-shrink-0 bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.envNamePlaceholder')" />
-              <EnvSourceField kind="secret" :namespace="route.params.namespace" class="flex-1" v-model:name="e.secretName" v-model:dataKey="e.key" />
-              <button @click="editForm.envSecretKeys.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-xs">
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">envFrom ConfigMap</label><EnvSourceField kind="configmap" :namespace="route.params.namespace" :with-key="false" v-model:name="editForm.envFromConfigMap" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">envFrom Secret</label><EnvSourceField kind="secret" :namespace="route.params.namespace" :with-key="false" v-model:name="editForm.envFromSecret" /></div>
-          </div>
+          <div class="flex items-center gap-xs"><span class="material-symbols-outlined text-primary text-lg">key</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('deploy.envRowsGroup') }}</h4></div>
+          <ContainerEnvEditor v-model:env="editForm.envRows" v-model:env-from="editForm.envFromRows" :namespace="String(route.params.namespace || '')" size="sm" />
         </section>
 
         <!-- 探针（三种 × 全时序） -->

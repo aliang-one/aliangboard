@@ -87,13 +87,13 @@ test('编辑 Modal 打开后 init/sidecar 行内表单渲染已有行(锁定现�
       imageRepo: 'nginx', imageTag: 'latest', replicas: '1', tier: 'default',
       imagePullPolicy: 'IfNotPresent', command: '', args: '', workingDir: '',
       cpuReq: '', cpuLim: '', memReq: '', memLim: '',
-      ports: [], env: [], envCMKeys: [], envSecretKeys: [], envFromConfigMap: '', envFromSecret: '',
+      ports: [], envRows: [], envFromRows: [],
       liveness: { enabled: false }, readiness: { enabled: false }, startup: { enabled: false },
       volumeMounts: [], nodeSelectors: [], tolerations: [],
       securityContext: {}, lifecycle: { postStart: '', preStop: '' },
       serviceAccountName: '', priorityClassName: '', imagePullSecrets: '',
       strategy: 'RollingUpdate', maxSurge: '25%', maxUnavailable: '25%', revisionHistoryLimit: 10,
-      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envVars: [{ key: 'K', value: 'V' }] }],
+      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envRows: [{ name: 'K', type: 'value', value: 'V' }] }],
       extraContainers: [{ ...makeSubContainer(), name: 's0', image: 'nginx' }],
     },
     showEditModal: true,
@@ -119,7 +119,7 @@ test('编辑面子容器卡片:badge + 点开共享弹窗(嵌套于编辑 Modal 
   await w.vm.openEdit()   // 填全量表单骨架(探针/安全上下文等模板触达键),再注入子容器
   await w.setData({
     editForm: { ...w.vm.editForm,
-      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envVars: [{ key: 'K', value: 'V' }] }] },
+      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envRows: [{ name: 'K', type: 'value', value: 'V' }] }] },
     showEditModal: true,
   })
   await flushPromises()
@@ -135,7 +135,7 @@ test('编辑面子容器卡片:badge + 点开共享弹窗(嵌套于编辑 Modal 
   $$('[data-testid="ced-confirm-btn"]').click()
   await flushPromises()
   expect(w.vm.editForm.initContainers[0].name).toBe('renamed')
-  expect(w.vm.editForm.initContainers[0].envVars[0].key).toBe('K')    // 未写回字段不丢
+  expect(w.vm.editForm.initContainers[0].envRows[0].name).toBe('K')    // 未写回字段不丢
   w.unmount(); document.body.innerHTML = ''
 })
 
@@ -217,4 +217,44 @@ test('原生 sidecar 挂载往返:回填 tag 分流正确,重建不丢挂载', a
   } finally {
     state.demoWorkload = orig
   }
+})
+
+test('编辑壳:多 envFrom 与 fieldRef 回填并完整保存(D1/D2 根治)', async () => {
+  state.demoWorkload = {
+    ...demoWorkload,
+    raw: {
+      metadata: { name: 'demo-deploy', namespace: 'default', labels: { app: 'demo' } },
+      spec: { replicas: 1, selector: { matchLabels: { app: 'demo' } },
+        template: { metadata: { labels: { app: 'demo' } }, spec: {
+          containers: [{ name: 'main', image: 'nginx',
+            env: [
+              { name: 'FOO', value: 'bar' },
+              { name: 'MY_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name', apiVersion: 'v1' } } },
+            ],
+            envFrom: [{ prefix: 'MY_', configMapRef: { name: 'cm1' } }, { secretRef: { name: 's1' } }],
+          }],
+        } } },
+    },
+  }
+  const w = mountDetailB()
+  await flushPromises()
+  await w.vm.openEdit()
+  expect(w.vm.editForm.envRows.map(r => r.name)).toEqual(['FOO', 'MY_NAME'])
+  expect(w.vm.editForm.envRows[1].type).toBe('fieldRef')
+  expect(w.vm.editForm.envRows[1].passthrough).toEqual({ apiVersion: 'v1' })   // 长尾子字段保全
+  expect(w.vm.editForm.envFromRows.map(r => r.name)).toEqual(['cm1', 's1'])    // 多条不取第一个
+  expect(w.vm.editForm.envFromRows[0].passthrough).toEqual({ prefix: 'MY_' })
+  await w.vm.saveEdit()
+  const spec = capturedSpec()
+  expect(spec.containers[0].env).toEqual([
+    { name: 'FOO', value: 'bar' },
+    { name: 'MY_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name', apiVersion: 'v1' } } },
+  ])
+  expect(spec.containers[0].envFrom).toEqual([
+    { prefix: 'MY_', configMapRef: { name: 'cm1' } },
+    { secretRef: { name: 's1' } },
+  ])
+  state.demoWorkload = demoWorkload                                           // 复原文件级夹具
+  w.unmount()
+  document.body.innerHTML = ''
 })
