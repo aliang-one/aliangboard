@@ -61,6 +61,13 @@ const routes = [
         meta: { titleKey: 'route.clusterOverview', icon: 'dashboard', scope: 'global' }
       },
       {
+        // 集群级事件页:ClusterOverview 侧栏「查看全部事件」的落点
+        path: 'cluster/events',
+        name: 'ClusterEvents',
+        component: () => import('@/views/ClusterEvents.vue'),
+        meta: { titleKey: 'nav.events', icon: 'notifications_active', scope: 'global' }
+      },
+      {
         path: 'monitoring',
         name: 'MonitoringCenter',
         component: () => import('@/views/MonitoringCenter.vue'),

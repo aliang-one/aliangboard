@@ -646,10 +646,14 @@
     "metricsUnavailableHint": "Metrics-server not installed or current credentials lack metrics read permission",
     "liveWindow": "Session · last 5min",
     "nodePressureHint": "Node has pressure conditions (Disk/Memory/PID)",
-    "showMoreEvents": "Show More Events",
+    "showMoreEvents": "View All Events",
     "ready": "Ready",
     "notReady": "NotReady",
-    "mem": "Mem"
+    "mem": "Mem",
+    "events": {
+      "subtitle": "Live stream of all events across the cluster",
+      "thNamespace": "Namespace"
+    }
   },
   "nodes": {
     "title": "Nodes",
