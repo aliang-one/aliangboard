@@ -9,7 +9,9 @@ let fetchOnce = null
 export function useAvatar() {
   function ensureLoaded() {
     if (!fetchOnce) {
-      fetchOnce = authApi.getAvatar().then(r => { avatarDataUrl.value = r?.dataUrl || null }).catch(() => { avatarDataUrl.value = null })
+      fetchOnce = authApi.getAvatar()
+        .then(r => { avatarDataUrl.value = r?.dataUrl || null })
+        .catch(() => { avatarDataUrl.value = null; fetchOnce = null })   // 瞬时失败不缓存,重挂载可重试
     }
     return fetchOnce
   }

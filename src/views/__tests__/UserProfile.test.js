@@ -355,3 +355,20 @@ test('资料卡:清除头像调 clearAvatar 并回退首字母', async () => {
   expect(w.find('[data-testid="avatar-fallback"]').exists()).toBe(true)
   w.unmount()
 })
+
+// 瞬时失败不缓存(useAvatar 评审修复):首次 getAvatar 网络拒,重挂载必须重试而非整会话卡死
+test('资料卡:getAvatar 瞬时失败后重挂载重试成功 → 头像出现', async () => {
+  apiMocks.getAvatar.mockRejectedValueOnce({ status: 503 })
+  apiMocks.getAvatar.mockResolvedValue({ dataUrl: 'data:image/png;base64,AAA' })
+  const w1 = mountPage('profile')
+  await flushPromises()
+  expect(w1.find('[data-testid="avatar-fallback"]').exists()).toBe(true)
+  expect(w1.find('[data-testid="avatar-img"]').exists()).toBe(false)
+  w1.unmount()
+  // 两次挂载之间不 resetAvatarForTest:失败必须已把 fetchOnce 清空,重挂载才会真的重拉
+  const w2 = mountPage('profile')
+  await flushPromises()
+  expect(apiMocks.getAvatar).toHaveBeenCalledTimes(2)
+  expect(w2.find('[data-testid="avatar-img"]').exists()).toBe(true)
+  w2.unmount()
+})
