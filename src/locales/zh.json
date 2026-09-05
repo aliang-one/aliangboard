@@ -2076,6 +2076,23 @@
     "processExecGroup": "进程执行",
     "envDirectGroup": "环境变量 · 直填",
     "envRefGroup": "环境引用",
+    "envRowName": "变量名",
+    "envType": {
+      "value": "直填值",
+      "configMapKeyRef": "ConfigMap Key",
+      "secretKeyRef": "Secret Key",
+      "fieldRef": "Pod 字段",
+      "resourceFieldRef": "容器资源"
+    },
+    "envField": {
+      "cmName": "ConfigMap 名",
+      "secretName": "Secret 名",
+      "key": "Key",
+      "fieldPath": "字段路径",
+      "resource": "资源名",
+      "containerName": "容器名",
+      "divisor": "除数"
+    },
     "fixErrors": "请修正：",
     "portMustBeNumber": "端口号必须为正整数",
     "duplicateServicePort": "Service 端口重复：同一 port+protocol 不能出现多次",

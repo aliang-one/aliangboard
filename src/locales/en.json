@@ -2076,6 +2076,23 @@
     "processExecGroup": "Process",
     "envDirectGroup": "Env Vars · Direct",
     "envRefGroup": "Env References",
+    "envRowName": "Name",
+    "envType": {
+      "value": "Value",
+      "configMapKeyRef": "ConfigMap Key",
+      "secretKeyRef": "Secret Key",
+      "fieldRef": "Pod Field",
+      "resourceFieldRef": "Container Resource"
+    },
+    "envField": {
+      "cmName": "ConfigMap Name",
+      "secretName": "Secret Name",
+      "key": "Key",
+      "fieldPath": "Field Path",
+      "resource": "Resource",
+      "containerName": "Container Name",
+      "divisor": "Divisor"
+    },
     "fixErrors": "Please fix: ",
     "portMustBeNumber": "Port must be a positive integer",
     "duplicateServicePort": "Duplicate Service port: the same port+protocol cannot appear more than once",
