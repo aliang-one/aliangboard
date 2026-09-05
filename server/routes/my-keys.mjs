@@ -5,6 +5,7 @@
 import { msg } from '../messages.mjs'
 import { mintKey, revokeKey, listKeys } from '../auth-keys.mjs'
 import { managedSaName, rbacTier } from '../sa-provision.mjs'
+import { canAccessNs } from '../authz.mjs'
 
 const SELF_TIERS = ['read', 'operator']
 
@@ -39,6 +40,14 @@ export function createMyKeyRoutes(deps) {
         } else {
           const exists = getCluster(clusterId)
           if (!exists) { sendJson(res, 403, { message: msg(req, 'mykeys.clusterForbidden') }); return true }
+        }
+        // W2 Phase A §6.1 签发收口:非 admin 且集群为 allowlist → namespace 须在本人有效授权内
+        if (ps.role !== 'admin') {
+          const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+          if ((cluster?.nsAuthMode || 'open') === 'allowlist') {
+            const ok = canAccessNs(db, { userId: ps.userId, role: ps.role }, clusterId, namespace, tier === 'read' ? 'view' : 'operate')
+            if (!ok) { sendJson(res, 403, { message: msg(req, 'mykeys.nsForbidden') }); return true }
+          }
         }
         // TTL:显式 <1/非数字 → 400;超上限一律静默钳到 maxTtlDays;缺省 30 钳入 [1, maxTtl]
         const requested = Number(input?.ttlDays)
