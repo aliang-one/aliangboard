@@ -3402,6 +3402,17 @@
       "noData": "No data",
       "deleteConfirm": "Are you sure you want to delete <span class=\"font-mono text-on-surface font-semibold\">{title}/{name}</span>?",
       "deleteWarning": "This action cannot be undone."
+    },
+    "securityPolicy": {
+      "title": "Security Policy",
+      "password": "Password Policy",
+      "minLength": "Min length",
+      "requireMixed": "Require mixed case",
+      "requireDigit": "Require digit",
+      "requireSymbol": "Require symbol",
+      "tokenTtl": "Token max TTL (days)",
+      "saved": "Saved",
+      "tokenTtlInvalid": "Token max TTL must be 1-365 days"
     }
   },
   "network": {

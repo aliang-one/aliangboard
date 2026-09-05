@@ -566,6 +566,21 @@ export function createAdminRoutes(deps) {
       sendJson(res, 200, { policy })
       return true
     }
+    if (url.pathname === '/api/admin/token-policy' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      sendJson(res, 200, { maxTtlDays: Math.min(Math.max(Math.floor(Number(getSetting('apikey.maxTtlDays')) || 90), 1), 365) })
+      return true
+    }
+    if (url.pathname === '/api/admin/token-policy' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const input = await readBody(req)
+      const n = Math.floor(Number(input?.maxTtlDays))
+      if (!Number.isFinite(n) || n < 1 || n > 365) { sendJson(res, 400, { message: msg(req, 'admin.tokenPolicyInvalid') }); return true }
+      setSetting('apikey.maxTtlDays', String(n))
+      writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'admin_token_policy', result: 'ok', requestSummary: `maxTtlDays=${n}`, source: 'platform' })
+      sendJson(res, 200, { ok: true, maxTtlDays: n })
+      return true
+    }
 
     // ====== 用户管理 ======
     if (url.pathname === '/api/admin/users' && req.method === 'GET') {

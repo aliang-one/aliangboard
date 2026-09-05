@@ -29,6 +29,7 @@ const tabs = computed(() => [
   ...(auth.isAdmin ? [{ key: 'mcp', label: t('settings.tabs.mcp'), icon: 'hub' }] : []),
   ...(auth.isAdmin ? [{ key: 'transfers', label: t('settings.tabs.transfers'), icon: 'swap_vert' }] : []),
   ...(auth.isAdmin ? [{ key: 'ssh', label: t('settings.tabs.ssh'), icon: 'dns' }] : []),
+  ...(auth.isAdmin ? [{ key: 'security', label: t('admin.securityPolicy.title'), icon: 'security' }] : []),
 ])
 
 // === Components: real cluster component health ===
@@ -63,7 +64,7 @@ async function loadComponents() {
 watch(activeTab, tab => { if (tab === 'components' && csState.value === 'idle') loadComponents() })
 onMounted(() => {
   if (activeTab.value === 'components') loadComponents()
-  if (auth.isAdmin) { loadMcpConfig(); loadTransfersConfig(); loadSshPolicy() }
+  if (auth.isAdmin) { loadMcpConfig(); loadTransfersConfig(); loadSshPolicy(); loadSecurityPolicy() }
 })
 
 // === MCP Service toggle (admin only) ===
@@ -122,6 +123,41 @@ async function saveSshPolicy() {
     sshPolicy.value = r.policy; notify('success', t('settings.sshPolicySaved'))
   } catch (e) { notify('error', e.message || t('settings.sshPolicyInvalid')) }
   finally { sshPolicySaving.value = false }
+}
+
+// === 安全策略 (admin only;2026-09-04 Wave1):密码策略 + 令牌 TTL 上限 ===
+const pwPolicy = ref({ minLength: 8, requireMixed: false, requireDigit: false, requireSymbol: false })
+const pwPolicySaving = ref(false)
+const tokenTtl = ref(90)
+const tokenTtlSaving = ref(false)
+async function loadSecurityPolicy() {
+  try { const r = await adminApi.passwordPolicy.get(); pwPolicy.value = { ...pwPolicy.value, ...r.policy } } catch { /* 非 admin 静默 */ }
+  try { const r = await adminApi.tokenPolicy.get(); tokenTtl.value = r.maxTtlDays } catch { /* 非 admin 静默 */ }
+}
+async function savePasswordPolicy() {
+  pwPolicySaving.value = true
+  try {
+    const r = await adminApi.passwordPolicy.save({
+      minLength: Number(pwPolicy.value.minLength) || 8,
+      requireMixed: !!pwPolicy.value.requireMixed,
+      requireDigit: !!pwPolicy.value.requireDigit,
+      requireSymbol: !!pwPolicy.value.requireSymbol,
+    })
+    if (r.policy) pwPolicy.value = { ...pwPolicy.value, ...r.policy }
+    notify('success', t('admin.securityPolicy.saved'))
+  } catch (e) { notify('error', e.message || t('admin.securityPolicy.password')) }
+  finally { pwPolicySaving.value = false }
+}
+async function saveTokenTtl() {
+  const n = Math.floor(Number(tokenTtl.value))
+  if (!(n >= 1 && n <= 365)) { notify('error', t('admin.securityPolicy.tokenTtlInvalid')); return }
+  tokenTtlSaving.value = true
+  try {
+    const r = await adminApi.tokenPolicy.save({ maxTtlDays: n })
+    tokenTtl.value = r.maxTtlDays ?? n
+    notify('success', t('admin.securityPolicy.saved'))
+  } catch (e) { notify('error', e.message || t('admin.securityPolicy.tokenTtl')) }
+  finally { tokenTtlSaving.value = false }
 }
 
 // === Custom Columns: toggleable columns + localStorage persistence (instant effect) ===
@@ -417,6 +453,45 @@ const { catalog, resetAll } = useTableColumns()
             <button @click="saveSshPolicy" :disabled="sshPolicySaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.save') }}</button>
             <p class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyHint') }}</p>
             <p class="text-body-xs text-error/80">{{ t('settings.sshPolicyNeverHint') }}</p>
+          </div>
+        </div>
+
+        <!-- 安全策略 tab (admin only;2026-09-04 Wave1):密码策略 + 令牌 TTL 上限 -->
+        <div v-if="activeTab === 'security'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+          <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+            <span class="material-symbols-outlined text-primary text-lg">security</span>
+            <span class="text-body-sm font-semibold">{{ t('admin.securityPolicy.title') }}</span>
+          </div>
+          <div class="p-md space-y-md">
+            <!-- 密码策略 -->
+            <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+              <p class="text-body-sm font-semibold text-on-surface">{{ t('admin.securityPolicy.password') }}</p>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.securityPolicy.minLength') }}</label>
+                <input v-model="pwPolicy.minLength" type="number" min="8" max="128" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              </div>
+              <label class="flex items-center gap-sm text-body-sm text-on-surface-variant cursor-pointer">
+                <input v-model="pwPolicy.requireMixed" type="checkbox" class="accent-primary w-4 h-4" />
+                {{ t('admin.securityPolicy.requireMixed') }}
+              </label>
+              <label class="flex items-center gap-sm text-body-sm text-on-surface-variant cursor-pointer">
+                <input v-model="pwPolicy.requireDigit" type="checkbox" class="accent-primary w-4 h-4" />
+                {{ t('admin.securityPolicy.requireDigit') }}
+              </label>
+              <label class="flex items-center gap-sm text-body-sm text-on-surface-variant cursor-pointer">
+                <input v-model="pwPolicy.requireSymbol" type="checkbox" class="accent-primary w-4 h-4" />
+                {{ t('admin.securityPolicy.requireSymbol') }}
+              </label>
+              <button data-testid="policy-save" @click="savePasswordPolicy" :disabled="pwPolicySaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.save') }}</button>
+            </div>
+            <!-- 令牌有效期上限 -->
+            <div class="flex items-center gap-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+              <label class="text-body-sm text-on-surface-variant shrink-0">{{ t('admin.securityPolicy.tokenTtl') }}</label>
+              <input data-testid="token-ttl-input" v-model="tokenTtl" type="number" min="1" max="365" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              <button data-testid="token-ttl-save" @click="saveTokenTtl" :disabled="tokenTtlSaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+                {{ t('common.save') }}
+              </button>
+            </div>
           </div>
         </div>
       </div>

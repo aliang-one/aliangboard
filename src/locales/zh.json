@@ -3402,6 +3402,17 @@
       "noData": "暂无数据",
       "deleteConfirm": "确定删除 <span class=\"font-mono text-on-surface font-semibold\">{title}/{name}</span>？",
       "deleteWarning": "此操作不可撤销。"
+    },
+    "securityPolicy": {
+      "title": "安全策略",
+      "password": "密码策略",
+      "minLength": "最小长度",
+      "requireMixed": "需大小写字母",
+      "requireDigit": "需数字",
+      "requireSymbol": "需符号",
+      "tokenTtl": "令牌有效期上限(天)",
+      "saved": "已保存",
+      "tokenTtlInvalid": "令牌有效期上限须在 1-365 天"
     }
   },
   "network": {

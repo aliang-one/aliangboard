@@ -46,4 +46,5 @@ export const TABLE = {
   'admin.aiMaxStepsInvalid': { zh: '最大执行步数必须是 {lo}-{hi} 的整数(0 = 不限制)', en: 'Max agent steps must be an integer between {lo} and {hi} (0 = unlimited)' },
   'admin.sshPolicyInvalid': { zh: '非法的策略值:{field}(须为 0–10080 的整数分钟)', en: 'Invalid policy value: {field} (must be an integer 0–10080 minutes)' },
   'admin.passwordPolicyInvalid': { zh: '密码策略非法:最小长度不得小于 8', en: 'Invalid password policy: minLength must be at least 8' },
+  'admin.tokenPolicyInvalid': { zh: '令牌有效期上限须在 1-365 天', en: 'Token max TTL must be 1-365 days' },
 }
