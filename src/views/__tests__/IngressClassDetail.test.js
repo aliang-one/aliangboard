@@ -249,3 +249,68 @@ describe('IngressClassDetail 结构化编辑', () => {
     expect(h.demoteIngressClassDefault).not.toHaveBeenCalled()
   })
 })
+
+// 暴露摘要 + 明细优化(2026-09-05 第二轮):端口可见(80/443/host 级 TLS)、后端全量聚合、搜索过滤、折叠展开。
+const R1 = { name: 'app1', namespace: 'web', className: 'nginx', hosts: 'a.com,b.com', tls: true, tlsHosts: ['a.com'], tlsSecret: 's', rules: [{ http: { paths: [{ backend: { service: { name: 'svc1', port: { number: 8080 } } } }, { backend: { service: { name: 'svc2', port: { number: 9090 } } } }] } }], defaultBackend: null, age: '1d' }
+const R2 = { name: 'app2', namespace: 'api', className: 'nginx', hosts: 'b.com', tls: false, tlsHosts: [], rules: [{ http: { paths: [{ backend: { service: { name: 'svc1', port: { number: 8080 } } } }] } }], defaultBackend: { serviceName: 'svc-default', servicePort: '80' }, age: '2d' }
+
+describe('IngressClassDetail 暴露摘要与明细', () => {
+  beforeEach(() => {
+    h.push.mockClear()
+    h.captured.related = ref([R1, R2])
+    h.captured.data = ref(FIXTURE)
+  })
+
+  it('暴露摘要:80/443 徽标、hosts 去重、后端服务跨 Ingress 去重聚合、计数', async () => {
+    const w = mountView()
+    await w.vm.$nextTick()
+    const s = w.find('[data-testid="exposure-summary"]')
+    expect(s.exists()).toBe(true)
+    expect(s.text()).toContain(':443')   // a.com 走 TLS
+    expect(s.text()).toContain(':80')    // b.com 纯 HTTP
+    expect(s.text()).toContain('svc2:9090')       // 后端全量聚合
+    expect(s.text()).toContain('svc-default:80')
+    expect(s.find('[data-testid="exposure-stats"]').attributes('data-counts')).toBe('2|2|3') // 2 Ingress / hosts 去重 {a.com,b.com} / svc 去重 {svc1:8080,svc2:9090,svc-default:80}
+  })
+
+  it('明细行:渲染该条全部后端(不只首条)', async () => {
+    const w = mountView()
+    await w.vm.$nextTick()
+    const row = w.findAll('[data-testid="related-row"]').find(r => r.text().includes('app1'))
+    expect(row.text()).toContain('svc1:8080')
+    expect(row.text()).toContain('svc2:9090')
+  })
+
+  it('host 级端口:TLS host 带 443,纯 HTTP host 带 80', async () => {
+    const w = mountView()
+    await w.vm.$nextTick()
+    const row = w.findAll('[data-testid="related-row"]').find(r => r.text().includes('app1'))
+    expect(row.text()).toContain('a.com:443')
+    expect(row.text()).toContain('b.com:80')
+  })
+
+  it('搜索:按 namespace/host/服务名过滤明细', async () => {
+    const w = mountView()
+    await w.vm.$nextTick()
+    await w.find('[data-testid="related-search"]').setValue('api')
+    expect(w.findAll('[data-testid="related-row"]').length).toBe(1)
+    expect(w.text()).toContain('app2')
+    await w.find('[data-testid="related-search"]').setValue('svc2')
+    const rows = w.findAll('[data-testid="related-row"]')
+    expect(rows.length).toBe(1)
+    expect(rows[0].text()).toContain('app1')
+  })
+
+  it('折叠:>5 条默认显示 5 条 + 展开钮;展开/收起可控', async () => {
+    h.captured.related = ref(Array.from({ length: 7 }, (_, i) => ({ ...R1, name: `app${i}`, namespace: 'web' })))
+    const w = mountView()
+    await w.vm.$nextTick()
+    expect(w.findAll('[data-testid="related-row"]').length).toBe(5)
+    const expand = w.find('[data-testid="related-expand"]')
+    expect(expand.text()).toContain('7')
+    await expand.trigger('click')
+    expect(w.findAll('[data-testid="related-row"]').length).toBe(7)
+    await w.find('[data-testid="related-collapse"]').trigger('click')
+    expect(w.findAll('[data-testid="related-row"]').length).toBe(5)
+  })
+})

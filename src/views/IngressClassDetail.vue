@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
@@ -39,15 +39,35 @@ const ingressesQ = useResourceList({
   options: { refetchInterval: 30000 },
 })
 const related = computed(() => (ingressesQ.data.value || []).filter(i => i.className === ic.value?.name))
-// 后端摘要:defaultBackend 映射形 {serviceName,servicePort};rules 内是原生 K8s 形 service:{name,port:{number|name}}
-function backendSummary(ing) {
-  if (ing.defaultBackend?.serviceName) return `${ing.defaultBackend.serviceName}:${ing.defaultBackend.servicePort}`
-  for (const r of ing.rules || []) {
-    const s = r?.http?.paths?.[0]?.backend?.service
-    if (s?.name) { const p = s.port?.number ?? s.port?.name ?? ''; return p ? `${s.name}:${p}` : s.name }
+
+// === 暴露摘要与明细(2026-09-05 第二轮):端口可见(80/443/host 级 TLS)、后端全量、搜索、折叠 ===
+const hostListOf = ing => (ing.hosts || '').split(',').map(h => h.trim()).filter(Boolean)
+// 该条全部后端(defaultBackend 映射形 {serviceName,servicePort};rules 内原生 K8s 形 service:{name,port:{number|name}}),去重
+function backendsOf(ing) {
+  const out = []
+  if (ing.defaultBackend?.serviceName) out.push(`${ing.defaultBackend.serviceName}:${ing.defaultBackend.servicePort}`)
+  for (const r of ing.rules || []) for (const p of r?.http?.paths || []) {
+    const s = p?.backend?.service
+    if (s?.name) out.push(`${s.name}:${s.port?.number ?? s.port?.name ?? ''}`)
   }
-  return ''
+  return [...new Set(out)]
 }
+const tlsSet = computed(() => new Set((related.value || []).flatMap(i => i.tlsHosts || [])))
+const hostList = computed(() => [...new Set((related.value || []).flatMap(hostListOf))])
+const svcList = computed(() => [...new Set((related.value || []).flatMap(backendsOf))])
+const hasTls = computed(() => hostList.value.some(h => tlsSet.value.has(h)))
+const hasPlain = computed(() => hostList.value.some(h => !tlsSet.value.has(h)))
+
+const relatedSearch = ref('')
+const relatedExpanded = ref(false)
+const RELATED_COLLAPSE = 5
+const filteredRelated = computed(() => {
+  const q = relatedSearch.value.trim().toLowerCase()
+  if (!q) return related.value
+  return related.value.filter(i => [i.namespace, i.name, hostListOf(i).join(' '), backendsOf(i).join(' ')].join(' ').toLowerCase().includes(q))
+})
+const visibleRelated = computed(() => (relatedExpanded.value ? filteredRelated.value : filteredRelated.value.slice(0, RELATED_COLLAPSE)))
+watch([relatedSearch, () => related.value.length], () => { relatedExpanded.value = false })
 async function toggleDefault() {
   if (ic.value.isDefault) await store.demoteIngressClassDefault(ic.value.name)
   else await store.promoteIngressClassDefault(ic.value.name)
@@ -195,17 +215,55 @@ async function saveEdit() {
       <div class="lg:col-span-4" data-testid="related-ingresses">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-md">{{ t('admin.ingressClasses.relatedIngresses') }} ({{ related.length }})</h3>
-          <div v-if="related.length" class="flex flex-col gap-sm">
-            <button v-for="ing in related" :key="ing.namespace + '/' + ing.name" @click="router.push({ name: 'NsIngressDetail', params: { namespace: ing.namespace, name: ing.name } })"
+
+          <!-- 暴露摘要:端口/hosts/后端服务一眼可见(2026-09-05) -->
+          <div v-if="related.length" data-testid="exposure-summary" class="flex flex-col gap-sm mb-md p-md bg-surface-container-low rounded-lg">
+            <div class="flex items-center gap-xs flex-wrap">
+              <span v-if="hasPlain" class="px-2 py-0.5 rounded bg-surface-container text-label-caps text-on-surface-variant font-mono">:80 HTTP</span>
+              <span v-if="hasTls" class="px-2 py-0.5 rounded bg-secondary-container/20 text-secondary text-label-caps font-mono flex items-center gap-xs"><span class="material-symbols-outlined text-sm">lock</span>:443 HTTPS</span>
+              <span data-testid="exposure-stats" :data-counts="`${related.length}|${hostList.length}|${svcList.length}`" class="text-label-caps text-on-surface-variant">{{ related.length }} · {{ hostList.length }} · {{ svcList.length }}</span>
+            </div>
+            <div v-if="hostList.length" class="flex flex-col gap-xs">
+              <p class="text-label-caps text-on-surface-variant">{{ t('admin.ingressClasses.exposedHosts') }}</p>
+              <div class="flex flex-wrap gap-xs">
+                <span v-for="h in hostList" :key="h" class="px-2 py-0.5 rounded bg-surface-container text-code-sm font-mono"
+                  :class="tlsSet.has(h) ? 'text-secondary' : 'text-on-surface'">{{ h }}{{ tlsSet.has(h) ? ':443' : ':80' }}</span>
+              </div>
+            </div>
+            <div v-if="svcList.length" class="flex flex-col gap-xs">
+              <p class="text-label-caps text-on-surface-variant">{{ t('admin.ingressClasses.exposedBackends') }}</p>
+              <div class="flex flex-wrap gap-xs">
+                <span v-for="s in svcList" :key="s" class="px-2 py-0.5 rounded bg-surface-container text-code-sm font-mono text-on-surface">{{ s }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 明细:搜索过滤 + 折叠展开 -->
+          <div v-if="related.length" class="mb-sm">
+            <input data-testid="related-search" v-model="relatedSearch" :placeholder="t('admin.ingressClasses.searchRelated')"
+              class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-1.5 text-body-sm focus:ring-2 focus:ring-primary" />
+          </div>
+          <div v-if="filteredRelated.length" class="flex flex-col gap-sm">
+            <button v-for="ing in visibleRelated" :key="ing.namespace + '/' + ing.name" data-testid="related-row" @click="router.push({ name: 'NsIngressDetail', params: { namespace: ing.namespace, name: ing.name } })"
               class="flex flex-col items-start gap-xs px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors text-left">
               <span class="font-mono text-code-sm text-primary truncate max-w-full">{{ ing.namespace }}/{{ ing.name }}</span>
-              <span class="text-body-sm text-on-surface-variant truncate max-w-full">{{ ing.hosts || '—' }}</span>
-              <span class="flex items-center gap-xs text-label-caps text-on-surface-variant">
-                <span v-if="ing.tls" class="flex items-center gap-xs text-secondary"><span class="material-symbols-outlined text-sm">lock</span>443</span>
-                <span v-if="backendSummary(ing)" class="font-mono">{{ backendSummary(ing) }}</span>
+              <span v-if="hostListOf(ing).length" class="flex flex-wrap gap-xs text-code-sm font-mono">
+                <span v-for="h in hostListOf(ing)" :key="h" :class="tlsSet.has(h) ? 'text-secondary' : 'text-on-surface-variant'">{{ h }}{{ tlsSet.has(h) ? ':443' : ':80' }}</span>
+              </span>
+              <span v-if="backendsOf(ing).length" class="flex flex-wrap gap-xs text-label-caps font-mono text-on-surface-variant">
+                <span v-for="b in backendsOf(ing)" :key="b" class="px-1.5 py-0.5 rounded bg-surface-container">{{ b }}</span>
               </span>
             </button>
+            <button v-if="filteredRelated.length > visibleRelated.length" data-testid="related-expand" @click="relatedExpanded = true"
+              class="text-body-sm text-primary font-medium hover:underline text-center py-xs">
+              {{ t('admin.ingressClasses.showAll', { n: filteredRelated.length }) }}
+            </button>
+            <button v-else-if="relatedExpanded && filteredRelated.length > RELATED_COLLAPSE" data-testid="related-collapse" @click="relatedExpanded = false"
+              class="text-body-sm text-primary font-medium hover:underline text-center py-xs">
+              {{ t('admin.ingressClasses.showLess') }}
+            </button>
           </div>
+          <p v-else-if="related.length" class="text-body-sm text-on-surface-variant py-md text-center">{{ t('common.noData') }}</p>
           <p v-else class="text-body-sm text-on-surface-variant py-md text-center">{{ t('admin.ingressClasses.relatedEmpty') }}</p>
         </div>
       </div>
