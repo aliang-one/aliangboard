@@ -32,7 +32,7 @@ async function podWith(extraForm) {
 
 test('子容器 env/探针/安全上下文全落地,YAML 1.1 危险值不变形', async () => {
   const sc = { ...makeSubContainer(), name: 'sc1', image: 'busybox',
-    envVars: [{ key: 'A', value: 'on' }, { key: 'B', value: '3600' }, { key: 'C', value: '2026-08-15' }, { key: 'D', value: 'l1\nl2' }],
+    envRows: [{ name: 'A', type: 'value', value: 'on' }, { name: 'B', type: 'value', value: '3600' }, { name: 'C', type: 'value', value: '2026-08-15' }, { name: 'D', type: 'value', value: 'l1\nl2' }],
     liveness: { ...makeSubContainer().liveness, enabled: true, type: 'http' },
     securityContext: { ...makeSubContainer().securityContext, enabled: true, runAsUser: '1000' } }
   const pod = await podWith({ extraContainers: [sc] })
