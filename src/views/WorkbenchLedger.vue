@@ -8,7 +8,6 @@ import { useAuthStore } from '@/stores/auth'
 import { notify } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
 import ServerLedgerPanel from '@/components/ssh/ServerLedgerPanel.vue'
-import WbStage from '@/components/workbench/WbStage.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -91,17 +90,13 @@ const verifiedAt = computed(() => {
 </script>
 
 <template>
-  <section class="h-full min-h-0 p-md">
-    <WbStage>
-      <template #titleBar>
-        <div class="px-md py-sm border-b border-outline-variant/40">
-          <h2 class="text-headline-sm font-bold text-on-surface flex items-center gap-sm"><span class="material-symbols-outlined">menu_book</span> {{ t('workbench.ledger.title') }}</h2>
-        </div>
-      </template>
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="p-md max-w-5xl flex flex-col gap-md">
-    <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('workbench.ledger.subtitle') }}</p>
-    <div class="flex items-center gap-sm">
+  <section class="p-md max-w-5xl flex flex-col gap-md">
+    <div class="flex items-center justify-between gap-md flex-wrap">
+      <div>
+        <h2 class="text-headline-lg font-bold text-on-surface flex items-center gap-sm"><span class="material-symbols-outlined">menu_book</span> {{ t('workbench.ledger.title') }}</h2>
+        <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('workbench.ledger.subtitle') }}</p>
+      </div>
+      <div class="flex items-center gap-sm">
         <select v-model="clusterId" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm min-w-[180px]">
           <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
@@ -111,6 +106,7 @@ const verifiedAt = computed(() => {
         <button v-if="auth.isAdmin" @click="distill" :disabled="!clusterId || distilling" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" :title="t('workbench.ledger.distillTitle')">
           <span class="material-symbols-outlined text-sm">{{ distilling ? 'progress_activity' : 'psychology' }}</span> {{ distilling ? t('workbench.ledger.distilling') : t('workbench.ledger.distill') }}
         </button>
+      </div>
     </div>
 
     <div v-if="auth.isAdmin" class="flex gap-xs">
@@ -181,8 +177,5 @@ const verifiedAt = computed(() => {
         <button @click="applyDistill" :disabled="applying" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">{{ applying ? t('workbench.ledger.applying') : t('common.apply') }}</button>
       </template>
     </Modal>
-        </div>
-      </div>
-    </WbStage>
   </section>
 </template>

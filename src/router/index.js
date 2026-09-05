@@ -475,7 +475,7 @@ const routes = [
       {
         path: 'workbench/ledger',
         name: 'WorkbenchLedger',
-        component: () => import('@/views/WorkbenchLedger.vue'),
+        component: () => import('@/views/WorkbenchLedgerPage.vue'),
         meta: { titleKey: 'route.clusterLedger', scope: 'global', fullHeight: true, requiresCluster: false, module: 'workbench' }
       },
       {
