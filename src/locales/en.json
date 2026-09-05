@@ -559,6 +559,13 @@
     "enterNamespace": "Enter namespace"
   },
   "userCenter": {
+    "activityTitle": "My Activity",
+    "filterAll": "All",
+    "resultOk": "Success",
+    "resultDenied": "Denied",
+    "resultError": "Error",
+    "activityWindow": "Showing the last {n} days",
+    "activityEmpty": "No recent activity",
     "logoutConfirmTitle": "Sign out",
     "logoutConfirmMessage": "Sign out of this account? Unsaved edits and active terminal sessions will be interrupted.",
     "title": "User Center",

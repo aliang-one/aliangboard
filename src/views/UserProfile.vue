@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import ProfileSection from '@/components/userCenter/ProfileSection.vue'
 import SecuritySection from '@/components/userCenter/SecuritySection.vue'
+import ActivitySection from '@/components/userCenter/ActivitySection.vue'
 import PreferencesSection from '@/components/userCenter/PreferencesSection.vue'
 
 const { t } = useI18n()
@@ -39,7 +40,7 @@ function switchTab(key) { router.replace({ query: { ...route.query, tab: key } }
 
     <ProfileSection v-if="activeTab === 'profile'" />
     <SecuritySection v-else-if="activeTab === 'security'" />
-    <!-- Task 10: <ActivitySection v-else-if="activeTab === 'activity'" /> -->
+    <ActivitySection v-else-if="activeTab === 'activity'" />
     <!-- Task 11: <TokensSection v-else-if="activeTab === 'tokens'" /> -->
     <PreferencesSection v-else-if="activeTab === 'preferences'" />
   </section>

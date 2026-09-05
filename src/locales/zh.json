@@ -559,6 +559,13 @@
     "enterNamespace": "进入命名空间"
   },
   "userCenter": {
+    "activityTitle": "我的活动",
+    "filterAll": "全部",
+    "resultOk": "成功",
+    "resultDenied": "被拒绝",
+    "resultError": "出错",
+    "activityWindow": "展示最近 {n} 天记录",
+    "activityEmpty": "暂无活动记录",
     "logoutConfirmTitle": "退出登录",
     "logoutConfirmMessage": "确定要退出当前账号吗?未提交的编辑与进行中的终端会话将中断。",
     "title": "个人中心",

@@ -202,3 +202,29 @@ test('偏好卡:语言/主题选择联动 preferences store', async () => {
   expect(prefs.theme).toBe('dark')
   w.unmount()
 })
+
+test('活动 tab:挂载拉取并渲染行;result 过滤变化重拉;空态;90 天窗口提示', async () => {
+  apiMocks.myActivity.mockResolvedValue({ items: [
+    { seq: 3, ts: 1756400100000, tool: 'platform_login', verb: 'login', result: 'ok', owner: 'alice', clusterId: null, namespace: null, resource: null, requestSummary: 'ip=1.2.3.4' },
+    { seq: 2, ts: 1756300000000, tool: 'my_key_mint', verb: 'write', result: 'ok', owner: 'alice', clusterId: 'c1', namespace: 'team-a', resource: null, requestSummary: 'id=x tier=read' },
+  ], total: 2, page: 1, size: 50, windowDays: 90 })
+  const w = mountPage('activity')
+  await flushPromises()
+  expect(apiMocks.myActivity).toHaveBeenCalledWith({})
+  const rows = w.findAll('[data-testid="activity-row"]')
+  expect(rows).toHaveLength(2)
+  expect(w.text()).toContain('platform_login')
+  expect(w.find('[data-testid="activity-window"]').text()).toContain('90')
+  await w.find('[data-testid="activity-result-filter"]').setValue('denied')
+  await flushPromises()
+  expect(apiMocks.myActivity).toHaveBeenLastCalledWith({ result: 'denied' })
+  w.unmount()
+})
+
+test('活动 tab:空列表渲染空态', async () => {
+  apiMocks.myActivity.mockResolvedValue({ items: [], total: 0, page: 1, size: 50, windowDays: 90 })
+  const w = mountPage('activity')
+  await flushPromises()
+  expect(w.find('[data-testid="activity-empty"]').exists()).toBe(true)
+  w.unmount()
+})
