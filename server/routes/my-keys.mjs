@@ -29,6 +29,7 @@ export function createMyKeyRoutes(deps) {
         const input = await readBody(req)
         const { clusterId, namespace } = input || {}
         const tier = input?.tier || 'read'
+        if (!clusterId) { sendJson(res, 400, { message: msg(req, 'mykeys.clusterRequired') }); return true }
         if (!namespace) { sendJson(res, 400, { message: msg(req, 'mykeys.namespaceRequired') }); return true }
         if (!SELF_TIERS.includes(tier)) { sendJson(res, 400, { message: msg(req, 'mykeys.tierInvalid') }); return true }
         // 集群粗门禁:admin 全量(对齐 /api/my-clusters 语义),普通用户须已分配
@@ -64,7 +65,7 @@ export function createMyKeyRoutes(deps) {
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'my_key_mint', result: 'ok', clusterId, namespace, requestSummary: `id=${id} tier=${tier} ttl=${ttl}d`, source: 'platform' })
         sendJson(res, 200, { apikey: k })
         return true
-      } catch (e) { sendJson(res, e.status || 400, { message: e?.message || msg(req, 'mykeys.mintFailed') }); return true }
+      } catch (e) { console.error('[my-keys] mint failed:', e); sendJson(res, e.status || 400, { message: msg(req, 'mykeys.mintFailed') }); return true }
     }
 
     const m = url.pathname.match(/^\/api\/my\/keys\/([^/]+)$/)

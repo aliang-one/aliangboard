@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api, authApi, saveSession, clearSession, getSessionToken, getStashedSession, clearStashedSession, rekeyApi } from '@/api/client'
 import { usePreferencesStore } from '@/stores/preferences'
+import { resetAvatarSession } from '@/composables/useAvatar'
 
 const LAST_CLUSTER_KEY = 'aliangboard.lastCluster'
 
@@ -93,6 +94,7 @@ export const useAuthStore = defineStore('auth', () => {
     k8sToken.value = ''
     localStorage.removeItem('aliangboard.platform')
     clearSession()
+    resetAvatarSession() // 头像单例(模块级)必须随会话归零,否则 SPA 登出→登录下一账号看到上一账号头像
     // 登出不清除 lastCluster——用户下次登录仍自动连上次的集群
   }
 

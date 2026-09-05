@@ -280,3 +280,27 @@ test('MCP 真实工厂:keyMode fail-closed(always 拒 / none 放行)+ getJobPoli
   const capped = await callTool('wb_ssh_run', { server: 'none-box', command: 'x' })
   assert.ok(/并发已达上限\(1\)/.test(capped.error || ''), JSON.stringify(capped))
 })
+
+// 终审 F2:MCP 路径回写 lastUsedAt(与 index.mjs apikey 闸对齐,否则 MCP-only key 永远「最近使用 —」)
+import { _resetKeyUsageForTest } from './key-usage-touch.mjs'
+test('HTTP 层: 认证通过即回写 api_keys.lastUsedAt(节流重置后首击必写)', async () => {
+  _resetKeyUsageForTest()
+  const db = new DatabaseSync(':memory:')
+  createApiKeysSchema(db)
+  db.exec('CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT)')
+  const minted = mintKey(db, { owner: 'a', clusterId: 'c1', boundSA_namespace: 'ns', boundSA_name: 'sa' })
+  const before = db.prepare('SELECT lastUsedAt FROM api_keys WHERE id=?').get(minted.id).lastUsedAt
+  assert.ok(!before, 'mint 后 lastUsedAt 应为空')
+  const handler = createMcpServer({ db, apiKeyTools: mockTools() })
+  const req = {
+    headers: { authorization: `Bearer ${minted.plaintext}` },
+    method: 'POST', socket: { remoteAddress: '203.0.113.9' },
+    async *[Symbol.asyncIterator]() { yield Buffer.from('{"jsonrpc":"2.0","id":1,"method":"ping"}') },
+  }
+  const res = { statusCode: null, body: null, setHeader() {}, writeHead(s) { this.statusCode = s }, end(b) { this.body = b ? JSON.parse(b) : null } }
+  await handler(req, res)
+  assert.equal(res.statusCode, 200)
+  const row = db.prepare('SELECT lastUsedAt, lastUsedIp FROM api_keys WHERE id=?').get(minted.id)
+  assert.ok(row.lastUsedAt, 'MCP 认证后 lastUsedAt 已回写')
+  assert.equal(row.lastUsedIp, '203.0.113.9')
+})

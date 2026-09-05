@@ -2,6 +2,7 @@
 // 传输:无状态 Streamable HTTP(POST-only,JSON 响应;codex #18:同步有界 tool 不需 GET/SSE 流)。
 // 鉴权:Authorization: Bearer <apikey>——key 决定 cluster + SA + tier;endpoint /mcp 不含 cluster(eng-review 4A:同进程独立路由)。
 import { resolveApiKey } from './api-key-tools.mjs'
+import { touchKeyUsage } from './key-usage-touch.mjs'
 import { checkRate } from './rate-limit.mjs'
 import { effectiveTools, SSH_KEY_TOOLS } from './authorize.mjs'
 import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
@@ -133,6 +134,7 @@ export function createMcpServer({ db, apiKeyTools, cryptKey, sshPool, getSetting
 
     const keyRow = resolveApiKey(db, req)
     if (!keyRow) return write(res, err(null, -32001, '无效或已吊销的 API key'), 401)
+    touchKeyUsage(db, keyRow, { ip: req.socket?.remoteAddress || null }) // 对齐 index.mjs apikey 闸:MCP-only key 不再「最近使用 —」
     const _rl = checkRate(keyRow.id)
     if (!_rl.allowed) return write(res, err(null, -32002, `RATE_LIMITED,${_rl.retryAfter}s 后重试`), 429, { 'Retry-After': String(_rl.retryAfter) })
 

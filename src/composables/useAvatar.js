@@ -20,5 +20,8 @@ export function useAvatar() {
   return { avatarDataUrl, ensureLoaded, apply, clearLocal }
 }
 
+// 会话身份切换时清空(登出必须调用):单例 ref 与 fetchOnce 归零,下一账号重新拉取
+export function resetAvatarSession() { avatarDataUrl.value = null; fetchOnce = null }
+
 // 仅供测试隔离:单例 ref + fetchOnce 跨用例残留清理(生产代码勿调)
-export function resetAvatarForTest() { avatarDataUrl.value = null; fetchOnce = null }
+export function resetAvatarForTest() { resetAvatarSession() }
