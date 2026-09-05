@@ -2246,7 +2246,7 @@ httpServer.on('upgrade', (req, socket, head) => {
   if (url.pathname !== '/api/exec') { socket.destroy(); return }
   const token = url.searchParams.get('session')
   const session = token ? sessions.get(token) : null
-  if (!session || Date.now() - session.createdAt > sessionTtl) {
+  if (!session || Date.now() - session.createdAt > sessionTtl || !sessionOwnerValid(db, session)) {
     socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
     socket.destroy()
     return

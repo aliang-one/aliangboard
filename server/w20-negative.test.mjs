@@ -141,3 +141,25 @@ test('④ 吊销后旧 k8s token 解析为无会话(Map 缺席 + DB 行消失),�
   assert.equal(stale, undefined, '内存 Map 中 token 缺席 → 请求路径解析不到会话 = 401 等效')
   assert.equal(h.db.prepare('SELECT COUNT(*) c FROM sessions WHERE token=?').get('k-a1').c, 0, '库行已消失')
 })
+
+// W2-0 final-review: /api/exec WS upgrade uses the same predicate (index.mjs exec handler) —
+// owned session with disabled/unassigned owner must fail validity ⇒ upgrade would 401.
+test('exec WS upgrade predicate: disabled/unassigned owner fails sessionOwnerValid (same condition as /api/exec handler)', () => {
+  const mkSeeded = () => {
+    const db = makeDb()
+    db.prepare(`INSERT INTO platform_users VALUES ('u1','user',0)`).run()
+    db.prepare(`INSERT INTO user_clusters VALUES ('u1','c1','a1',1)`).run()
+    return db
+  }
+  // same condition shape as index.mjs exec upgrade handler:
+  // !session || Date.now() - session.createdAt > sessionTtl || !sessionOwnerValid(db, session)
+  const s = { userId: 'u1', clusterId: 'c1', createdAt: Date.now() }
+  const ttl = 1000 * 60 * 60
+  assert.equal(!s || Date.now() - s.createdAt > ttl || !sessionOwnerValid(mkSeeded(), s), false, '正常会话通过')
+  const disabled = mkSeeded()
+  disabled.prepare('UPDATE platform_users SET disabled=1 WHERE id=?').run('u1')
+  assert.equal(!s || Date.now() - s.createdAt > ttl || !sessionOwnerValid(disabled, s), true, '禁用 owner ⇒ 401 分支')
+  const unassigned = mkSeeded()
+  unassigned.prepare('DELETE FROM user_clusters WHERE userId=?').run('u1')
+  assert.equal(!s || Date.now() - s.createdAt > ttl || !sessionOwnerValid(unassigned, s), true, '未分配 owner ⇒ 401 分支')
+})
