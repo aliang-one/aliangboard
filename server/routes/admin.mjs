@@ -717,6 +717,100 @@ export function createAdminRoutes(deps) {
       return true
     }
 
+    // ====== W2 Phase A 授权管理(组/成员/ns_grants/集群 ns 模式)======
+    const NS_NAME_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/ // K8s RFC1123 label(与 authorize.mjs NS_NAME 同款)
+    if (url.pathname === '/api/admin/groups' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const groups = db.prepare('SELECT id,name,createdAt FROM groups ORDER BY createdAt').all()
+      for (const g of groups) {
+        g.memberCount = db.prepare('SELECT COUNT(*) c FROM group_members WHERE groupId=?').get(g.id).c
+        g.grants = db.prepare("SELECT COUNT(*) c FROM ns_grants WHERE subjectType='group' AND subjectId=?").get(g.id).c
+      }
+      sendJson(res, 200, { groups }); return true
+    }
+    if (url.pathname === '/api/admin/groups' && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const { name } = await readBody(req)
+      if (!name || !String(name).trim()) { sendJson(res, 400, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      const existing = db.prepare('SELECT 1 FROM groups WHERE name=?').get(String(name).trim())
+      if (existing) { sendJson(res, 409, { message: msg(req, 'admin.groupNameTaken') }); return true }
+      const id = randomUUID()
+      const createdAt = Date.now()
+      db.prepare('INSERT INTO groups (id,name,createdAt,createdBy) VALUES (?,?,?,?)').run(id, String(name).trim(), createdAt, ps.username)
+      writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_group_create', result: 'ok', requestSummary: `id=${id} name=${name}`, source: 'platform' })
+      sendJson(res, 200, { group: { id, name: String(name).trim(), createdAt, memberCount: 0, grants: 0 } }); return true
+    }
+    if (url.pathname.match(/^\/api\/admin\/groups\/[^/]+$/) && req.method === 'DELETE') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const id = decodeURIComponent(url.pathname.slice('/api/admin/groups/'.length))
+      const group = db.prepare('SELECT id FROM groups WHERE id=?').get(id)
+      if (!group) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      db.prepare('DELETE FROM groups WHERE id=?').run(id)
+      db.prepare('DELETE FROM group_members WHERE groupId=?').run(id)
+      db.prepare("DELETE FROM ns_grants WHERE subjectType='group' AND subjectId=?").run(id) // sweepOrphanGrants 组侧语义内联
+      writeAudit?.(db, { owner: ps.username, verb: 'delete', tool: 'admin_group_delete', result: 'ok', requestSummary: `id=${id}`, source: 'platform' })
+      sendJson(res, 200, { ok: true }); return true
+    }
+    if (url.pathname.match(/^\/api\/admin\/groups\/[^/]+\/members$/) && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const groupId = url.pathname.split('/')[4]
+      if (!db.prepare('SELECT 1 FROM groups WHERE id=?').get(groupId)) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      const { userIds } = await readBody(req)
+      if (!Array.isArray(userIds) || !userIds.length) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      for (const uid of userIds) {
+        if (!db.prepare('SELECT 1 FROM platform_users WHERE id=?').get(uid)) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      }
+      const stmt = db.prepare('INSERT OR IGNORE INTO group_members (groupId,userId,addedBy,createdAt) VALUES (?,?,?,?)')
+      for (const uid of userIds) stmt.run(groupId, uid, ps.username, Date.now())
+      writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_group_members_add', result: 'ok', requestSummary: `group=${groupId} users=${userIds.join(',')}`, source: 'platform' })
+      sendJson(res, 200, { ok: true }); return true
+    }
+    if (url.pathname.match(/^\/api\/admin\/groups\/[^/]+\/members\/[^/]+$/) && req.method === 'DELETE') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const parts = url.pathname.split('/') // ['', 'api','admin','groups',:id,'members',:userId]
+      const groupId = parts[4], userId = decodeURIComponent(parts[6])
+      if (!db.prepare('SELECT 1 FROM groups WHERE id=?').get(groupId)) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      if (!db.prepare('SELECT 1 FROM platform_users WHERE id=?').get(userId)) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      db.prepare('DELETE FROM group_members WHERE groupId=? AND userId=?').run(groupId, userId)
+      writeAudit?.(db, { owner: ps.username, verb: 'delete', tool: 'admin_group_member_remove', result: 'ok', requestSummary: `group=${groupId} user=${userId}`, source: 'platform' })
+      sendJson(res, 200, { ok: true }); return true
+    }
+    if (url.pathname === '/api/admin/grants' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const { subjectType, subjectId, clusterId } = input || {}
+        if (!['user', 'group'].includes(subjectType)) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
+        const subjectOk = subjectType === 'user'
+          ? db.prepare('SELECT 1 FROM platform_users WHERE id=?').get(subjectId)
+          : db.prepare('SELECT 1 FROM groups WHERE id=?').get(subjectId)
+        if (!subjectOk) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
+        if (!db.prepare('SELECT 1 FROM clusters WHERE id=?').get(clusterId)) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
+        const rows = Array.isArray(input.namespaces) ? input.namespaces : []
+        for (const r of rows) {
+          if (!r || typeof r.namespace !== 'string' || !NS_NAME_RE.test(r.namespace) || r.namespace.length > 63
+            || !['view', 'operate'].includes(r.level)) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
+        }
+        // 全量替换该 subject+cluster 的 grants
+        db.prepare('DELETE FROM ns_grants WHERE subjectType=? AND subjectId=? AND clusterId=?').run(subjectType, subjectId, clusterId)
+        const stmt = db.prepare('INSERT OR IGNORE INTO ns_grants (id,subjectType,subjectId,clusterId,namespace,level,grantedBy,grantedAt) VALUES (?,?,?,?,?,?,?,?)')
+        for (const r of rows) stmt.run(randomUUID(), subjectType, subjectId, clusterId, r.namespace, r.level, ps.username, Date.now())
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_grant_save', result: 'ok', requestSummary: `${subjectType}=${subjectId} cluster=${clusterId} ns=${rows.length}`, source: 'platform' })
+        sendJson(res, 200, { ok: true }); return true
+      } catch (e) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
+    }
+    if (url.pathname.match(/^\/api\/admin\/clusters\/[^/]+\/ns-auth-mode$/) && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const id = url.pathname.split('/')[4]
+      const { mode } = await readBody(req)
+      if (!['open', 'allowlist'].includes(mode)) { sendJson(res, 400, { message: msg(req, 'admin.nsModeInvalid') }); return true }
+      const cluster = db.prepare('SELECT id FROM clusters WHERE id=?').get(id)
+      if (!cluster) { sendJson(res, 404, { message: msg(req, 'admin.clusterNotFound') }); return true }
+      db.prepare('UPDATE clusters SET nsAuthMode=? WHERE id=?').run(mode, id)
+      writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_cluster_nsmode', result: 'ok', requestSummary: `id=${id} mode=${mode}`, source: 'platform' })
+      sendJson(res, 200, { ok: true, mode }); return true
+    }
+
     return false // 无匹配
   }
 
