@@ -43,6 +43,14 @@ export function createSshTerminalHandler(deps) {
         if (isOwner) {
           client.shell({ cols, rows, term: 'xterm-256color' }, (err, channel) => {
             if (err) return service.markBackendFailed(tid, err)
+            // 迟到回调守卫(2026-09-05 评审#2):shell 建链窗口(真实 SSH 可达秒级)内终端
+            // 已被 force-kill(CLOSED/LOST/CLOSING)时,releaseBackend 已跑、无人再关这条
+            // 新通道——直接关掉它,绝不把活通道绑上残尸(身份守卫挡不住:同对象)。
+            const tNow = service.get(tid)
+            if (!tNow || tNow.status === 'CLOSED' || tNow.status === 'LOST' || tNow.status === 'CLOSING' || tNow.closing) {
+              try { channel.close() } catch { /* noop */ }
+              return
+            }
             service.bindChannel(tid, channel)
             channel.on('data', d => { service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend) })
             channel.stderr?.on?.('data', d => { service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend) })

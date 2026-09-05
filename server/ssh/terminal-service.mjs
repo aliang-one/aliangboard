@@ -58,15 +58,22 @@ export function createTerminalService({
       // 首次进入终态的时间(sweep 残尸驱逐锚点);clock=0 是合法时刻,须用 null 判而非真值判
       if (t.endedAt == null) t.endedAt = now()
       releaseBackend(t)
+      t.ring = null   // 评审#3:终态即弃 ring(≤4MB 不占 30min 墓碑窗;lifecycle spec)
+      // 分级审计(评审#5):只有不可逆终态进审计链,高频 attach/detach 走行内字段——
+      // 此前每次转换都回调,一条 attach 也写 verb:'close' 审计行(与索引处注释自相矛盾)
+      onIrreversible({ tid: t.id, event: to, reason, from })
     }
-    onIrreversible({ tid: t.id, event: to, reason, from })
     onTransition(t.id, from, to, reason)
     return true
   }
 
   function releaseBackend(t) {
-    try { t.channel?.close?.() } catch { /* noop */ }
-    try { t.release?.() } catch { /* noop */ }
+    // 幂等(评审#1):先摘引用再释放——残尸二次转换(LOST→killSession/closeByServer 只跳
+    // CLOSED)不得二次调用 release,pool.mjs 的 refs-- 是裸减,双跳=计数腐化殃及活连接
+    const ch = t.channel; t.channel = null
+    const rel = t.release; t.release = null
+    try { ch?.close?.() } catch { /* noop */ }
+    try { rel?.() } catch { /* noop */ }
     for (const a of t.connIds.values()) { try { a.socket.close() } catch { /* noop */ } }
     for (const sk of t.waiterSockets) { try { sk.close() } catch { /* noop */ } }
     t.connIds.clear()
@@ -165,7 +172,7 @@ export function createTerminalService({
   }
 
   function touch(tid) { const t = map.get(tid); if (t) t.lastActiveAt = now() }
-  function markOutput(tid, chunk) { const t = map.get(tid); if (t) { t.ring.push(chunk); t.lastOutputAt = now() } }
+  function markOutput(tid, chunk) { const t = map.get(tid); if (t && t.ring) { t.ring.push(chunk); t.lastOutputAt = now() } }
   function broadcast(tid, type, payload, send = (socket, ty, pl) => socket.send?.(ty, pl)) {
     const t = map.get(tid); if (!t) return
     for (const a of t.connIds.values()) { try { send(a.socket, type, payload) } catch { /* noop */ } }

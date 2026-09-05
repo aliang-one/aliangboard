@@ -94,7 +94,8 @@ export function createWorkbenchProjectRoutes(deps) {
           pendingApprovals: enriched.reduce((s, r) => s + r.pendingApprovals, 0),
           // 终端注册表 userId 字段实存 username(server/index.mjs TerminalService newTerminal({owner: ps.username})),
           // 属主比对同源;ps.userId 是 platform_users.id(UUID),不可混用。
-          sshSessions: (listSshSessions?.() || []).filter(s => s.userId === ps.username).length,
+          // 只计活态(2026-09-05 评审#4):与 /api/ssh/sessions「只回活态」同语义,墓窗残尸不进胶囊计数
+          sshSessions: (listSshSessions?.() || []).filter(s => s.userId === ps.username && s.status !== 'CLOSED' && s.status !== 'LOST').length,
         }
         sendJson(res, 200, { projects: enriched.slice(0, 8), totals })
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'wbp.summaryReadFailed') }) }

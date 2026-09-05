@@ -24,13 +24,16 @@ function makeWs() {
 function makeChannel(label) {
   const ch = new EventEmitter()
   ch.label = label
+  ch.closed = false
+  ch.close = () => { ch.closed = true }
   ch.write = () => {}
   ch.setWindow = () => {}
   ch.stderr = new EventEmitter()
   return ch
 }
 
-// 可控池:每次 acquire 挂起一个等待者(模拟最长 15s 的 SSH 握手窗口),测试用 grant(i) 手动放行
+// 可控池:每次 acquire 挂起一个等待者(模拟最长 15s 的 SSH 握手窗口),测试用 grant(i) 手动放行。
+// grant 返回 shell 句柄,回调 fire() 手动触发(真实 SSH 的 shell 建链可达秒级=强杀窗口)。
 function makePool() {
   const shells = []
   const waiters = []
@@ -43,10 +46,24 @@ function makePool() {
         waiters.push({ release, resolve })
       })
     },
-    grant(i = 0) {
+    grant(i = 0, { manual = false } = {}) {
       const w = waiters.splice(i, 1)[0]
       if (!w) throw new Error('no pending acquire')
-      w.resolve({ client: { shell(opts, cb) { const ch = makeChannel(`sh${shells.length + 1}`); shells.push(ch); queueMicrotask(() => cb(null, ch)) } }, release: w.release })
+      // shell 句柄在 client.shell() 真被调用时才创建/计数(manual 模式=回调手持不自动 fire)
+      const client = {
+        _handle: null,
+        shell(opts, cb) {
+          const ch = makeChannel(`sh${shells.length + 1}`)
+          client._handle = { channel: ch, release: w.release, fire(err = null) { queueMicrotask(() => cb(err, ch)) } }
+          shells.push(client._handle)
+          return client._handle
+        },
+      }
+      w.resolve({ client, release: w.release })
+      // 有界轮询:非属主永不调 shell,无上限的 setImmediate 轮询会撑住事件循环使进程无法退出
+      const waitShell = () => new Promise(res => { let n = 0; (function check() { if (client._handle) return res(client._handle); if (++n > 200) return res(null); setImmediate(check) })() })
+      if (manual) return waitShell()
+      return waitShell().then(h => { if (h) h.fire() })
     },
   }
 }
@@ -110,4 +127,24 @@ test('阻断#4 补充:CREATING 窗口期的第二连接排队等 ready,不开 sh
   svc.readyForOwner('t9').resolve()                      // 属主侧 ready(真实流程=shell 起来后 resolve)
   await pLate
   assert.equal(service.get('t9').connIds.size, 1, 'ready 后迟到者附着成功')
+})
+
+test('评审#2:CREATING 强杀窗口——迟到的 shell 回调关闭新通道,绝不绑上残尸', async () => {
+  const { service, pool, handler } = makeHarness()
+  const ws = makeWs()
+  const p = handler(ws, PS, URL_FOR('t1'))
+  await tick()
+  const sh = await pool.grant(0, { manual: true })   // 握手归:shell 已创建,但建链回调手持(真实可达秒级)
+  await tick()                             // handler 前进到 attach(CREATING)排队等 ready
+  const t = service.get('t1')
+  assert.equal(t.status, 'CREATING')
+  const r = service.close('t1', { force: true })   // admin 强杀正落在建链窗口内
+  assert.equal(r.ok, true)
+  assert.equal(t.status, 'CLOSED')
+  assert.equal(sh.release.called, true, 'releaseBackend 已还池句柄')
+  sh.fire()                                // 迟到回调:活通道回来了
+  await Promise.race([p, new Promise(r2 => setTimeout(r2, 50))])
+  assert.equal(sh.channel.closed, true, '迟到通道被守卫立即关闭(否则永不关闭直至池连接死亡)')
+  assert.equal(service.get('t1').channel, null, '残尸身上不得绑定活通道')
+  assert.equal(sh.release.called, true, 'release 仍只调一次(评审#1 幂等)')
 })
