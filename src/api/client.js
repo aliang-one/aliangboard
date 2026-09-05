@@ -323,6 +323,15 @@ export const authApi = {
   savePreferences: prefs => platformHttp.request('/api/auth/preferences', { method: 'PUT', body: JSON.stringify(prefs) }),
   myClusters: () => platformHttp.request('/api/my-clusters'),
   connectCluster: id => platformHttp.request('/api/connect-cluster', { method: 'POST', body: JSON.stringify({ clusterId: id }) }),
+  // —— Wave1 个人域(2026-09-04)——
+  myActivity: (params = {}) => platformHttp.request(`/api/my/activity?${new URLSearchParams(params)}`),
+  getPasswordPolicy: () => platformHttp.request('/api/auth/password-policy'),
+  myKeysList: () => platformHttp.request('/api/my/keys'),
+  myKeysMint: payload => platformHttp.request('/api/my/keys', { method: 'POST', body: JSON.stringify(payload) }),
+  myKeysRevoke: id => platformHttp.request(`/api/my/keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  uploadAvatar: dataUrl => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ avatar: dataUrl }) }),
+  clearAvatar: () => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ avatarClear: true }) }),
+  getAvatar: () => platformHttp.request('/api/auth/me/avatar'),
 }
 // Admin API
 export const adminApi = {
@@ -355,6 +364,15 @@ export const adminApi = {
     active: (params = {}) => platformHttp.request(`/api/admin/audit-log/active?${new URLSearchParams(params)}`),
     list: (params = {}) => platformHttp.request(`/api/admin/audit-log?${new URLSearchParams(params)}`),
     verify: () => platformHttp.request('/api/admin/audit-log/verify'),
+  },
+  // 用户中心 Wave1 策略(2026-09-04):GET 回显;PUT 部分更新 → {ok}
+  passwordPolicy: {
+    get: () => platformHttp.request('/api/admin/password-policy'),
+    save: payload => platformHttp.request('/api/admin/password-policy', { method: 'PUT', body: JSON.stringify(payload) }),
+  },
+  tokenPolicy: {
+    get: () => platformHttp.request('/api/admin/token-policy'),
+    save: payload => platformHttp.request('/api/admin/token-policy', { method: 'PUT', body: JSON.stringify(payload) }),
   },
   // LLM 配置(baseURL/apiKey/model 存 DB;GET 不回传 key)
   llmConfig: {
