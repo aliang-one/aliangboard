@@ -3,7 +3,7 @@
 // 断开的 ws 不再收到广播。spawn 网关无法模拟真 shell,故对抽出的接线辅助做纯逻辑单测。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness, createCloseSentinel } from './terminal-wire.mjs'
+import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness, createCloseSentinel, teardownOnOwnerGone } from './terminal-wire.mjs'
 import { createRingBuffer } from './terminal-sessions.mjs'
 
 const STDOUT = 1, RESIZE = 2, REPLAY = 6
@@ -219,3 +219,11 @@ test('close 哨兵:close 先于 error 也置位(两事件竞发只走一个布�
   assert.equal(sentinel.gone, true)
 })
 
+
+// —— 属主建连断开的处置(复审二 P1)——
+test('teardownOnOwnerGone:无人等待才拆;有等待 extra.ready 的重连者则交棒', () => {
+  assert.equal(teardownOnOwnerGone(0), true)
+  assert.equal(teardownOnOwnerGone(undefined), true)   // 旧会话对象无该字段:视为无人等待
+  assert.equal(teardownOnOwnerGone(1), false)
+  assert.equal(teardownOnOwnerGone(2), false)
+})
