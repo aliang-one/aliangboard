@@ -5,6 +5,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 
+const state = vi.hoisted(() => ({ query: {}, assign: vi.fn() }))
 const loginMock = vi.fn(async () => ({}))
 
 vi.mock('@/stores/auth', () => ({
@@ -14,11 +15,16 @@ vi.mock('@/stores/auth', () => ({
     tryAutoConnect: vi.fn(async () => null),
   }),
 }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }), useRoute: () => ({ query: {} }) }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }), useRoute: () => ({ query: state.query }) }))
 
 import Login from '../Login.vue'
 
-beforeEach(() => loginMock.mockClear())
+beforeEach(() => {
+  loginMock.mockClear()
+  state.query = {}
+  state.assign.mockClear()
+  vi.spyOn(window.location, 'assign').mockImplementation(state.assign)
+})
 
 function mountView() { return mount(Login, { global: { plugins: [i18n] } }) }
 const submit = w => w.findAll('button').find(b => b.text().includes('登录'))
@@ -31,6 +37,27 @@ test('空用户名/密码 → 不发请求,行内提示', async () => {
 
   expect(loginMock).not.toHaveBeenCalled()
   expect(w.text()).toContain('请输入用户名和密码')
+})
+
+test('带 redirect(复审 F5):登录后原路回跳,不走 auto-connect 分支', async () => {
+  state.query = { redirect: '/ssh-terminal-popup?serverId=sv1&sid=ssh-x' }
+  const w = mountView()
+  await w.find('input[type=text]').setValue('admin')
+  await w.find('input[type=password]').setValue('pw')
+  await submit(w).trigger('click')
+  await flushPromises()
+
+  expect(state.assign).toHaveBeenCalledWith('/ssh-terminal-popup?serverId=sv1&sid=ssh-x')
+})
+
+test('无 redirect:保持原 auto-connect 流(守卫 Layer 2 兜底)', async () => {
+  const w = mountView()
+  await w.find('input[type=text]').setValue('admin')
+  await w.find('input[type=password]').setValue('pw')
+  await submit(w).trigger('click')
+  await flushPromises()
+
+  expect(state.assign).not.toHaveBeenCalled()
 })
 
 test('填齐才提交(用户名 trim,密码原样——空格是合法密码字符)', async () => {

@@ -27,8 +27,11 @@ async function handleLogin() {
     // 登录回跳(2026-09-04 事故⑥):被 401 踢来时携带 ?redirect=(原路径+query),登录后原路
     // 返回——SSH 弹窗回到 /ssh-terminal-popup 同 sid 重建 WS,而非被吞进 /cluster。
     // 全量加载(非 router.push):弹窗页需完整启动流程(main.js 交接槽/路由守卫重跑)。
-    const target = safeRedirectPath(route.query.redirect)
-    if (target) { window.location.href = target; return }
+    // 复审 F5:仅显式携带 redirect 才回跳;无参数保持原 auto-connect 流(下方分支可达)。
+    if (route.query.redirect) {
+      window.location.assign(safeRedirectPath(route.query.redirect))
+      return
+    }
     // 尝试自动连接上次使用的集群；成功直接进集群，失败才跳选择页
     const auto = await authStore.tryAutoConnect()
     if (auto) {

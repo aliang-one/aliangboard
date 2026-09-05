@@ -35,5 +35,5 @@ test('client.js:sshTerminalStream 握手段失败探针 /api/auth/me(仅一次,�
 test('Login.vue:登录成功优先安全回跳(全量加载,弹窗页可完整重建)', () => {
   const src = readFileSync(resolve('src/views/Login.vue'), 'utf8')
   expect(src).toContain('safeRedirectPath(route.query.redirect)')
-  expect(src).toContain('window.location.href = target')
+  expect(src).toContain('window.location.assign(safeRedirectPath(route.query.redirect))')
 })
