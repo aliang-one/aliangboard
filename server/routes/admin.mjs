@@ -146,7 +146,7 @@ export function createAdminRoutes(deps) {
         return true
       } catch (e) { sendJson(res, 400, { message: e.message }); return true }
     }
-    // ====== SSH 会话回收策略(2026-08-29 spec):三阈值全局,分钟,0=禁用;改动 ≤60s 随 sweep 生效 ======
+    // ====== SSH 会话回收策略(2026-08-29 spec):四阈值全局,分钟,0=禁用;改动 ≤60s 随 sweep 生效 ======
     if (url.pathname === '/api/admin/ssh-session-policy' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
       sendJson(res, 200, getSshSessionPolicy())
@@ -156,11 +156,12 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       try {
         const input = await readBody(req)
-        // 部分更新语义:仅校验并落库出现的键;省略键保持现值
-        const keys = ['detachedIdleMin', 'attachedIdleMin', 'maxLifetimeMin']
+        // 部分更新语义:仅校验并落库出现的键;省略键保持现值。
+        // null(空输入序列化产物)显式 400:isValidMinutes(Number(null))=0 会把清空输入误判成合法「禁用」
+        const keys = ['detachedIdleMin', 'attachedIdleMin', 'maxLifetimeMin', 'backendIdleMin']
         for (const k of keys) {
           if (input[k] === undefined) continue
-          if (!isValidMinutes(input[k])) { sendJson(res, 400, { message: msg(req, 'admin.sshPolicyInvalid', { field: k }) }); return true }
+          if (input[k] === null || !isValidMinutes(input[k])) { sendJson(res, 400, { message: msg(req, 'admin.sshPolicyInvalid', { field: k }) }); return true }
         }
         for (const k of keys) if (input[k] !== undefined) setSetting(`ssh.session.${k}`, String(input[k]))
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'ssh_session_policy', result: 'ok', requestSummary: JSON.stringify(input), source: 'platform' })

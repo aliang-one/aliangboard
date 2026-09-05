@@ -108,7 +108,7 @@ async function saveTransfersConfig() {
 
 // === 终端与会话策略 (admin only;2026-09-05 由 SSH 策略卡扩展为三组统一页) ===
 // 三组各自端点部分更新;一次保存串发三个 PUT,任一失败报错但不阻断其余组回显。
-const sshPolicy = ref({ detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 })
+const sshPolicy = ref({ detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0, backendIdleMin: 10080 })
 const podPolicy = ref({ idleReapMin: 30 })
 const jobPolicy = ref({ ttlMin: 120, maxPerServer: 4 })
 const sshPolicySaving = ref(false)
@@ -127,9 +127,10 @@ async function saveSshPolicy() {
   sshPolicySaving.value = true
   try {
     const r = await adminApi.sshSessionPolicy.update({
-      detachedIdleMin: Number(sshPolicy.value.detachedIdleMin) || 0,
-      attachedIdleMin: Number(sshPolicy.value.attachedIdleMin) || 0,
-      maxLifetimeMin: Number(sshPolicy.value.maxLifetimeMin) || 0,
+      detachedIdleMin: toInt(sshPolicy.value.detachedIdleMin),
+      attachedIdleMin: toInt(sshPolicy.value.attachedIdleMin),
+      maxLifetimeMin: toInt(sshPolicy.value.maxLifetimeMin),
+      backendIdleMin: toInt(sshPolicy.value.backendIdleMin),
     })
     sshPolicy.value = r.policy
     const r2 = await adminApi.podTerminalPolicy.update({ idleReapMin: toInt(podPolicy.value.idleReapMin) })
@@ -467,7 +468,7 @@ const { catalog, resetAll } = useTableColumns()
             <!-- SSH 会话回收(2026-08-29 spec 迁入) -->
             <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
               <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.sshPolicyTitle') }}</p>
-              <div v-for="f in [['detachedIdleMin', 'sshPolicyDetachedLabel'], ['attachedIdleMin', 'sshPolicyAttachedLabel'], ['maxLifetimeMin', 'sshPolicyMaxLifetimeLabel']]" :key="f[0]" class="flex items-center gap-sm">
+              <div v-for="f in [['detachedIdleMin', 'sshPolicyDetachedLabel'], ['attachedIdleMin', 'sshPolicyAttachedLabel'], ['maxLifetimeMin', 'sshPolicyMaxLifetimeLabel'], ['backendIdleMin', 'sshPolicyBackendLabel']]" :key="f[0]" class="flex items-center gap-sm">
                 <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.' + f[1]) }}</label>
                 <input v-model="sshPolicy[f[0]]" type="number" min="0" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
                 <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>

@@ -6,8 +6,9 @@ import { SESSION_POLICY_DEFAULT, isValidMinutes, resolvePolicy, shouldReapSessio
 
 const min = 60000
 
-test('默认策略:detached=10min(现状),attached/maxLifetime=0(禁用)', () => {
-  assert.deepEqual(SESSION_POLICY_DEFAULT, { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 })
+test('默认策略:detached=10min(现状),attached/maxLifetime=0(禁用),backend=10080(7天)', () => {
+  // backendIdleMin(2026-09-05 审计#3 补生产者):生命周期 spec 阶段二,默认 7 天
+  assert.deepEqual(SESSION_POLICY_DEFAULT, { detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0, backendIdleMin: 10080 })
 })
 
 test('isValidMinutes:0–10080 整数合法;负数/小数/非数字/越界非法', () => {
@@ -25,8 +26,8 @@ test('resolvePolicy:设置值优先;无设置时 detached 走 env SSH_IDLE_REAP_
   console.warn = m => warn.push(String(m))
   try {
     assert.deepEqual(resolvePolicy(() => null, {}), SESSION_POLICY_DEFAULT)
-    assert.deepEqual(resolvePolicy(() => null, { SSH_IDLE_REAP_MS: '300000' }), { detachedIdleMin: 5, attachedIdleMin: 0, maxLifetimeMin: 0 })
-    assert.deepEqual(resolvePolicy(k => ({ 'ssh.session.detachedIdleMin': '30', 'ssh.session.attachedIdleMin': '15' })[k] ?? null, {}), { detachedIdleMin: 30, attachedIdleMin: 15, maxLifetimeMin: 0 })
+    assert.deepEqual(resolvePolicy(() => null, { SSH_IDLE_REAP_MS: '300000' }), { detachedIdleMin: 5, attachedIdleMin: 0, maxLifetimeMin: 0, backendIdleMin: 10080 })
+    assert.deepEqual(resolvePolicy(k => ({ 'ssh.session.detachedIdleMin': '30', 'ssh.session.attachedIdleMin': '15', 'ssh.session.backendIdleMin': '60' })[k] ?? null, {}), { detachedIdleMin: 30, attachedIdleMin: 15, maxLifetimeMin: 0, backendIdleMin: 60 })
     // 非法落库值(手改库):回落默认 + warn 提示,绝不抛
     assert.deepEqual(resolvePolicy(k => ({ 'ssh.session.maxLifetimeMin': 'abc' })[k] ?? null, {}), SESSION_POLICY_DEFAULT)
     assert.ok(warn.some(m => m.includes('maxLifetimeMin')))

@@ -175,10 +175,13 @@ export function createSshRoutes(deps) {
         sendJson(res, 200, out)
         return true
       }
-      // GET /api/ssh/sessions — 存活终端会话观测(admin):网关侧真值,任务栏对账/「不可见会话」排查数据源
+      // GET /api/ssh/sessions — 存活终端会话观测(admin):网关侧真值,任务栏对账/「不可见会话」排查数据源。
+      // 只回活态(2026-09-05 审计#2):CLOSED/LOST 若照列,任务栏对账把残尸当活会话——
+      // kill 幂等无效果、30s 对账后又「复活」,永不可清除;路由语义本就是「存活观测」。
       if (url.pathname === '/api/ssh/sessions' && req.method === 'GET') {
         const ps = requireAdmin(req, res); if (!ps) return true
-        sendJson(res, 200, { sessions: listSshSessions?.() || [] })
+        const sessions = (listSshSessions?.() || []).filter(s => s.status !== 'CLOSED' && s.status !== 'LOST')
+        sendJson(res, 200, { sessions })
         return true
       }
       // DELETE /api/ssh/sessions/:sid — 手动终止存活会话(与 idle 清道夫同款清理:关 channel+还池句柄)
