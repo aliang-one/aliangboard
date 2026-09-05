@@ -73,12 +73,15 @@ test('ports: 残行跳过;containerPort 非数字/越界/协议非法各报对�
   assert.equal(proto[0].msgKey, 'deploy.containerFv.protocolInvalid')
 })
 
-test('env: 残行跳过;缺 key 报 envMissingKey;三机制重名报 envNameDuplicate', () => {
-  const base = () => ({ ...C(), envVars: [], envCMKeys: [], envSecretKeys: [] })
-  assert.deepEqual(validateContainerFields({ ...base(), envVars: [{ key: '', value: '' }] }).filter(e => e.field === 'env'), [])
-  const miss = validateContainerFields({ ...base(), envVars: [{ key: '', value: 'v' }, { key: 'A', value: '' }] })
-  assert.equal(miss[0].msgKey, 'deploy.containerFv.envMissingKey')
-  const dup = validateContainerFields({ ...base(), envVars: [{ key: 'A', value: '1' }], envCMKeys: [{ name: 'A', cmName: 'c', key: 'k' }] })
+test('env: 残行跳过;半行报 envRowMissing(无名用 #序号);重名报 envNameDuplicate', () => {
+  const base = () => ({ ...C(), envRows: [] })
+  assert.deepEqual(validateContainerFields({ ...base(), envRows: [{ name: '', type: 'value', value: '' }] }).filter(e => e.field === 'env'), [])
+  const miss = validateContainerFields({ ...base(), envRows: [{ name: '', type: 'value', value: 'v' }, { name: 'A', type: 'secretKeyRef', secretName: '', key: 'k' }] })
+  assert.equal(miss[0].msgKey, 'deploy.containerFv.envRowMissing')
+  assert.deepEqual(miss[0].params, { name: '#1' })
+  assert.equal(miss[1].msgKey, 'deploy.containerFv.envRowMissing')
+  assert.deepEqual(miss[1].params, { name: 'A' })
+  const dup = validateContainerFields({ ...base(), envRows: [{ name: 'A', type: 'value', value: '1' }, { name: 'A', type: 'configMapKeyRef', cmName: 'c', key: 'k' }] })
   assert.equal(dup[0].msgKey, 'deploy.containerFv.envNameDuplicate')
   assert.deepEqual(dup[0].params, { name: 'A' })
 })

@@ -89,10 +89,10 @@ test('全字段:env/ports/探针/原生开关在 draft 中编辑并随 confirm �
   // 展开 env 节并加一行
   $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
   await nextTick()
-  $('ced-env-add').click()
+  $('ceed-add-env').click()
   await nextTick()
-  const key0 = $('ced-env-section').querySelector('[data-testid="ced-env-key-0"]')
-  key0.value = 'K'; key0.dispatchEvent(new Event('input'))
+  const name0 = $('ced-env-section').querySelector('[data-testid="ceed-name-0"]')
+  name0.value = 'K'; name0.dispatchEvent(new Event('input'))
   await nextTick()
   // 端口节加一行
   $('ced-ports-section').querySelector('button[data-testid="ced-ports-toggle"]').click()
@@ -108,7 +108,7 @@ test('全字段:env/ports/探针/原生开关在 draft 中编辑并随 confirm �
   await nextTick()
   $('ced-confirm-btn').click()
   const payload = wrapper.emitted('confirm')[0][0]
-  expect(payload.envVars).toEqual([{ key: 'K', value: '' }])
+  expect(payload.envRows).toEqual([{ name: 'K', type: 'value', value: '' }])
   expect(payload.ports).toEqual([{ containerPort: 9090, protocol: 'TCP' }])   // v-model 对 type=number 自动数值化(buildSpec Number() 兼容)
   expect(payload.nativeSidecar).toBe(true)
 })
@@ -118,27 +118,27 @@ test('取消丢弃高级编辑:env 行/探针开关/勾选不泄漏进父容器�
   mountDialog({ container: parent })
   $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
   await nextTick()
-  $('ced-env-add').click()
+  $('ceed-add-env').click()
   await nextTick()
   $('ced-probes-section').querySelector('button[data-testid="ced-probes-toggle"]').click()
   await nextTick()
   $('ced-probe-enable-liveness').click()
   await nextTick()
   $('ced-cancel-btn').click()
-  expect(parent.envVars).toEqual([])
+  expect(parent.envRows).toEqual([])
   expect(parent.liveness.enabled).toBe(false)
   // 确认路径仍完整写回:
   wrapper.unmount()                                    // 先卸载,避免两个 teleport 残留串查询
   mountDialog({ container: parent })
   $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
   await nextTick()
-  $('ced-env-add').click()
+  $('ceed-add-env').click()
   await nextTick()
-  const key0 = $('ced-env-section').querySelector('[data-testid="ced-env-key-0"]')
-  key0.value = 'K'; key0.dispatchEvent(new Event('input'))
+  const name0b = $('ced-env-section').querySelector('[data-testid="ceed-name-0"]')
+  name0b.value = 'K'; name0b.dispatchEvent(new Event('input'))
   await nextTick()
   $('ced-confirm-btn').click()
-  expect(wrapper.emitted('confirm')[0][0].envVars).toEqual([{ key: 'K', value: '' }])
+  expect(wrapper.emitted('confirm')[0][0].envRows).toEqual([{ name: 'K', type: 'value', value: '' }])
 })
 
 test('init 容器不渲染原生 sidecar 开关', async () => {
@@ -146,19 +146,19 @@ test('init 容器不渲染原生 sidecar 开关', async () => {
   expect($('ced-native-toggle')).toBeNull()
 })
 
-test('新校验:env 缺 key 残值行 blur 显错;探针 enabled 缺端口显错;确认禁用', async () => {
+test('新校验:env 半行(有名无必填字段或残值行)focusout 显错;探针 enabled 缺端口显错;确认禁用', async () => {
   mountDialog({ container: { ...makeSubContainer(), image: 'nginx' } })
   $('ced-env-section').querySelector('button[data-testid="ced-env-toggle"]').click()
   await nextTick()
-  $('ced-env-add').click()
+  $('ceed-add-env').click()
   await nextTick()
-  const key0 = $('ced-env-section').querySelector('[data-testid="ced-env-key-0"]')
-  const val0 = $('ced-env-section').querySelector('[data-testid="ced-env-val-0"]')
-  val0.value = 'v'; val0.dispatchEvent(new Event('input'))   // 有 value 无 key → 非残行
+  const name0 = $('ced-env-section').querySelector('[data-testid="ceed-name-0"]')
+  const val0 = $('ced-env-section').querySelector('[data-testid="ceed-value-0"]')
+  val0.value = 'v'; val0.dispatchEvent(new Event('input'))   // 有 value 无 name → 非残行
   await nextTick()
-  key0.dispatchEvent(new Event('blur'))
+  name0.dispatchEvent(new Event('focusout', { bubbles: true }))   // 冒泡到 section 的 focusout.capture → markTouched('env')
   await nextTick()
-  expect($('ced-env-error').textContent).toContain(i18n.global.t('deploy.containerFv.envMissingKey', { idx: 1 }))
+  expect($('ced-env-error').textContent).toContain(i18n.global.t('deploy.containerFv.envRowMissing', { name: '#1' }))
   $('ced-probes-section').querySelector('button[data-testid="ced-probes-toggle"]').click()
   await nextTick()
   $('ced-probe-enable-liveness').click()

@@ -93,7 +93,7 @@ test('编辑 Modal 打开后 init/sidecar 行内表单渲染已有行(锁定现�
       securityContext: {}, lifecycle: { postStart: '', preStop: '' },
       serviceAccountName: '', priorityClassName: '', imagePullSecrets: '',
       strategy: 'RollingUpdate', maxSurge: '25%', maxUnavailable: '25%', revisionHistoryLimit: 10,
-      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envVars: [{ key: 'K', value: 'V' }] }],
+      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envRows: [{ name: 'K', type: 'value', value: 'V' }] }],
       extraContainers: [{ ...makeSubContainer(), name: 's0', image: 'nginx' }],
     },
     showEditModal: true,
@@ -119,7 +119,7 @@ test('编辑面子容器卡片:badge + 点开共享弹窗(嵌套于编辑 Modal 
   await w.vm.openEdit()   // 填全量表单骨架(探针/安全上下文等模板触达键),再注入子容器
   await w.setData({
     editForm: { ...w.vm.editForm,
-      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envVars: [{ key: 'K', value: 'V' }] }] },
+      initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envRows: [{ name: 'K', type: 'value', value: 'V' }] }] },
     showEditModal: true,
   })
   await flushPromises()
@@ -135,7 +135,7 @@ test('编辑面子容器卡片:badge + 点开共享弹窗(嵌套于编辑 Modal 
   $$('[data-testid="ced-confirm-btn"]').click()
   await flushPromises()
   expect(w.vm.editForm.initContainers[0].name).toBe('renamed')
-  expect(w.vm.editForm.initContainers[0].envVars[0].key).toBe('K')    // 未写回字段不丢
+  expect(w.vm.editForm.initContainers[0].envRows[0].name).toBe('K')    // 未写回字段不丢
   w.unmount(); document.body.innerHTML = ''
 })
 

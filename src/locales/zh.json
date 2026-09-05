@@ -1919,7 +1919,7 @@
       "portRequired": "端口行 {idx}:端口号必填",
       "portRange": "端口行 {idx}:须在 1-65535",
       "protocolInvalid": "端口行 {idx}:协议须为 TCP/UDP/SCTP",
-      "envMissingKey": "环境变量行不完整(缺名称/键)",
+      "envRowMissing": "环境变量 {name}：字段不完整，请补全该行必填项",
       "envNameDuplicate": "环境变量名重复:{name}",
       "probePortRequired": "{probe} 探针须填端口",
       "probeCommandRequired": "{probe} 探针须填 exec 命令"

@@ -1,11 +1,11 @@
 // Deploy 向导 init/sidecar 容器字段校验(纯函数,无 Vue 依赖,node:test 零依赖可测)。
 // 单一事实源:ContainerEditorDialog 实时校验与 DeployApp 提交 validate() 共用——
 // 两条编辑入口(原地小卡片/弹窗)规则永远一致。
-// 契约:调用方负责「空行整体跳过」(isEmptyEnvRow,与 YAML 生成一致);
+// 契约:env 行空行整体跳过(envRefErrors 内建,与 YAML 生成一致);
 // 本函数假定容器存在 → image 必填无条件检查。
 import { parseQuantity } from '../composables/useResourceQuantity.js'
 import { splitCommandTokens } from '../utils/containerTokens.js'
-import { isEmptyEnvRow, firstDuplicateEnvName } from '../utils/envRows.js'
+import { envRefErrors, duplicateEnvNames } from './envRefs.js'
 
 const DNS1123 = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
 const CPU_FACTOR = { '': 1000, m: 1 }                     // cores → 毫核
@@ -45,17 +45,10 @@ export function validateContainerFields(c, otherNames = []) {
     else if (n < 1 || n > 65535) errs.push({ field: 'ports', msgKey: 'deploy.containerFv.portRange', params: { idx: i + 1 } })
     if (p.protocol && !['TCP', 'UDP', 'SCTP'].includes(p.protocol)) errs.push({ field: 'ports', msgKey: 'deploy.containerFv.protocolInvalid', params: { idx: i + 1 } })
   })
-  // env:三机制残行跳过;非空行缺键报;跨机制重名报
-  ;(c.envVars || []).forEach((e, i) => {
-    if (!isEmptyEnvRow(e, ['key', 'value']) && !e.key) errs.push({ field: 'env', msgKey: 'deploy.containerFv.envMissingKey', params: { idx: i + 1 } })
-  })
-  ;(c.envCMKeys || []).forEach(e => {
-    if (!isEmptyEnvRow(e, ['name', 'cmName', 'key']) && (!e.name || !e.cmName || !e.key)) errs.push({ field: 'env', msgKey: 'deploy.containerFv.envMissingKey', params: { name: e.name || '—' } })
-  })
-  ;(c.envSecretKeys || []).forEach(e => {
-    if (!isEmptyEnvRow(e, ['name', 'secretName', 'key']) && (!e.name || !e.secretName || !e.key)) errs.push({ field: 'env', msgKey: 'deploy.containerFv.envMissingKey', params: { name: e.name || '—' } })
-  })
-  const dup = firstDuplicateEnvName(c.envVars || [], c.envCMKeys || [], c.envSecretKeys || [])
+  // env:统一行模型;空行跳过、半行报(CED 语境用精简文案,精确字段清单在创建/编辑主面)
+  for (const e of envRefErrors(c.envRows || []))
+    errs.push({ field: 'env', msgKey: 'deploy.containerFv.envRowMissing', params: { name: e.name || `#${e.index + 1}` } })
+  const dup = duplicateEnvNames(c.envRows || [])
   if (dup) errs.push({ field: 'env', msgKey: 'deploy.containerFv.envNameDuplicate', params: { name: dup } })
   // 探针:enabled 时 http/tcp 须 port,exec 须命令
   for (const k of ['liveness', 'readiness', 'startup']) {

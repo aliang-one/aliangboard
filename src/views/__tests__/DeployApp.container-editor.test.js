@@ -75,7 +75,7 @@ test('卡片高级 badge:高级字段有值才显示且计数正确;点 badge �
   await flushPromises()
   // currentStep 是根级状态(容器 grid 在步骤 2 v-if 渲染),与 form 平级传
   await w.setData({ currentStep: 1, form: { ...w.vm.form, name: 'app',
-    initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envVars: [{ key: 'K', value: 'V' }], tty: true }] } })
+    initContainers: [{ ...makeSubContainer(), name: 'i0', image: 'busybox', envRows: [{ name: 'K', type: 'value', value: 'V' }], tty: true }] } })
   await flushPromises()
   const badge = w.find('[data-testid="ced-advanced-badge"]')
   expect(badge.exists()).toBe(true)
@@ -89,10 +89,10 @@ test('validate:4 基础字段空但 env 有值的行不再被当空行跳过', a
   const w = mountApp()
   await flushPromises()
   await w.setData({ currentStep: 1, form: { ...w.vm.form, name: 'app', image: 'nginx',
-    initContainers: [{ ...makeSubContainer(), envVars: [{ key: '', value: 'v' }] }] } })
+    initContainers: [{ ...makeSubContainer(), envRows: [{ name: '', type: 'value', value: 'v' }] }] } })
   await flushPromises()
   const errs = w.vm.validate()
-  expect(errs.some(e => e.step === 1 && e.msg.includes(i18n.global.t('deploy.containerFv.envMissingKey')))).toBe(true)
+  expect(errs.some(e => e.step === 1 && e.msg.includes(i18n.global.t('deploy.containerFv.envRowMissing', { name: '#1' })))).toBe(true)
   // 全默认行仍是空行,不报子容器错误
   await w.setData({ form: { ...w.vm.form, initContainers: [makeSubContainer()] } })
   await flushPromises()

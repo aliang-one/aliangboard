@@ -1919,7 +1919,7 @@
       "portRequired": "Port row {idx}: port is required",
       "portRange": "Port row {idx}: must be 1-65535",
       "protocolInvalid": "Port row {idx}: protocol must be TCP/UDP/SCTP",
-      "envMissingKey": "Env row incomplete (missing name/key)",
+      "envRowMissing": "Env {name}: incomplete row — fill in the required fields",
       "envNameDuplicate": "Duplicate env name: {name}",
       "probePortRequired": "{probe} probe requires a port",
       "probeCommandRequired": "{probe} probe requires an exec command"
