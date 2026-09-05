@@ -98,7 +98,7 @@ test('迷你统计条(≥lg):三段常驻,数字状态着色;徽章 lg 隐藏防
 })
 
 // ===== v4 身份舷板精修:品牌瓷砖 / 舷形悬停 / 灯珠 =====
-test('品牌瓷砖:workspaces 图标装进 primary→tertiary 渐变圆角瓷砖(on-primary 图标亮暗自翻转),桌面/手机档都在场', async () => {
+test('品牌瓷砖:workspaces 图标装进 primary→primary-container 渐变圆角瓷砖(平台双绿,无橘调和色;on-primary 图标亮暗自翻转),桌面/手机档都在场', async () => {
   mocks.summary.mockReturnValue(new Promise(() => {}))
   let w = mountPill(); await flushPromises()
   const tile = w.find('[data-test="pill-tile"]')
@@ -106,7 +106,8 @@ test('品牌瓷砖:workspaces 图标装进 primary→tertiary 渐变圆角瓷砖
   const cls = tile.classes()
   expect(cls).toContain('bg-gradient-to-br')
   expect(cls).toContain('from-primary')
-  expect(cls).toContain('to-tertiary')
+  expect(cls).toContain('to-primary-container')
+  expect(cls).not.toContain('to-tertiary')
   const icon = tile.find('.material-symbols-outlined')
   expect(icon.text()).toBe('workspaces')
   expect(icon.classes()).toContain('text-on-primary')
