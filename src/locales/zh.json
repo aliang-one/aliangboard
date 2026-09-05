@@ -1,6 +1,7 @@
 {
   "common": {
     "save": "保存",
+    "refresh": "刷新",
     "cancel": "取消",
     "delete": "删除",
     "add": "添加",
