@@ -8,6 +8,7 @@ import { notify } from '@/composables/useToast'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { uaSummary } from '@/utils/uaSummary'
+import { firstFailedRule, failedRuleMessageKey, DEFAULT_PASSWORD_POLICY } from '@/utils/passwordRules'
 
 const { t } = useI18n()
 
@@ -15,10 +16,13 @@ const { t } = useI18n()
 const pwdForm = ref({ current: '', next: '', confirm: '' })
 const pwdErrors = ref({})
 const pwdLoading = ref(false)
+const policy = ref(DEFAULT_PASSWORD_POLICY)   // 服务端策略档,挂载时拉取
+const nextErrorKey = ref(null)
 async function changePassword() {
   const errs = {}
   if (!pwdForm.value.current) errs.current = true
-  if (!pwdForm.value.next || pwdForm.value.next.length < 8) errs.next = true
+  const rule = firstFailedRule(pwdForm.value.next, policy.value)
+  if (rule) { errs.next = true; nextErrorKey.value = failedRuleMessageKey(rule) }
   if (pwdForm.value.next !== pwdForm.value.confirm) errs.confirm = true
   pwdErrors.value = errs
   if (Object.keys(errs).length) return
@@ -48,7 +52,10 @@ async function loadSessions() {
   catch { /* 会话列表失败不阻塞页面 */ }
   finally { sessionsLoading.value = false; clampPage() }
 }
-onMounted(() => { loadSessions() })
+onMounted(() => {
+  loadSessions()
+  authApi.getPasswordPolicy().then((r) => { policy.value = r.policy || DEFAULT_PASSWORD_POLICY }).catch(() => {})
+})
 function askRevoke(s) { revokeTarget.value = s; showRevokeConfirm.value = true }
 function askRevokeOthers() { revokeTarget.value = { fingerprint: 'others' }; showRevokeConfirm.value = true }
 async function doRevoke() {
@@ -78,7 +85,7 @@ function fmtTime(ts) { return ts ? new Date(ts).toLocaleString() : '—' }
         <label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('userCenter.newPassword') }}</label>
         <input v-model="pwdForm.next" data-testid="pwd-new" type="password" autocomplete="new-password"
           :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm', pwdErrors.next ? 'border-error' : 'border-outline-variant']" />
-        <p v-if="pwdErrors.next" class="text-body-xs text-error mt-xs">{{ $t('userCenter.passwordMinHint') }}</p>
+        <p v-if="pwdErrors.next" class="text-body-xs text-error mt-xs">{{ $t(nextErrorKey || 'userCenter.passwordMinHint') }}</p>
       </div>
       <div>
         <label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('userCenter.confirmPassword') }}</label>
@@ -93,7 +100,12 @@ function fmtTime(ts) { return ts ? new Date(ts).toLocaleString() : '—' }
 
     <div class="flex items-center justify-between mt-lg mb-sm">
       <h4 class="text-body-md font-semibold">{{ $t('userCenter.sessionsTitle') }}</h4>
-      <button data-testid="sessions-revoke-others" class="text-body-sm text-error hover:underline" @click="askRevokeOthers">{{ $t('userCenter.revokeOthers') }}</button>
+      <div class="flex items-center gap-sm">
+        <button data-testid="sessions-refresh" class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-primary/10" :title="$t('common.refresh')" @click="loadSessions">
+          <span class="material-symbols-outlined text-base">refresh</span>
+        </button>
+        <button data-testid="sessions-revoke-others" class="text-body-sm text-error hover:underline" @click="askRevokeOthers">{{ $t('userCenter.revokeOthers') }}</button>
+      </div>
     </div>
     <div v-if="sessionsLoading" class="py-md text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block">progress_activity</span></div>
     <div v-else class="flex flex-col gap-xs">
@@ -102,7 +114,7 @@ function fmtTime(ts) { return ts ? new Date(ts).toLocaleString() : '—' }
         <span class="material-symbols-outlined text-on-surface-variant" :class="s.current ? 'text-primary' : ''">{{ s.current ? 'phonelink_ring' : 'devices_other' }}</span>
         <div class="min-w-0 flex-1">
           <p class="text-body-sm font-medium truncate">{{ uaSummary(s.userAgent) }}<span v-if="s.current" class="ml-sm px-1 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">{{ $t('userCenter.currentSession') }}</span></p>
-          <p class="text-body-xs text-on-surface-variant truncate">{{ s.ip || '—' }} · {{ $t('userCenter.lastActive', { time: fmtTime(s.lastSeenAt) }) }}</p>
+          <p class="text-body-xs text-on-surface-variant truncate">{{ s.ip || '—' }} · {{ $t('userCenter.sessionLoginAt', { time: fmtTime(s.createdAt) }) }} · {{ $t('userCenter.lastActive', { time: fmtTime(s.lastSeenAt) }) }}</p>
         </div>
         <button v-if="!s.current" :data-testid="`session-revoke-${s.fingerprint}`"
           class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10" :title="$t('userCenter.revoke')"

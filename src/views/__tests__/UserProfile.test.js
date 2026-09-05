@@ -169,6 +169,29 @@ test('会话分页:末页吊销后页码收敛(clamp),不悬空', async () => {
   w.unmount()
 })
 
+test('安全卡:会话行显示登录时间 createdAt;刷新钮重拉列表', async () => {
+  const w = mountPage('security')
+  await flushPromises()
+  expect(apiMocks.listSessions).toHaveBeenCalledTimes(1)
+  expect(w.find('[data-testid="session-row"]').text()).toContain(new Date(1756400000000).toLocaleDateString())
+  await w.find('[data-testid="sessions-refresh"]').trigger('click')
+  await flushPromises()
+  expect(apiMocks.listSessions).toHaveBeenCalledTimes(2)
+  w.unmount()
+})
+
+test('改密:策略档(服务端 policy)缺数字 → 客户端拒绝不发请求', async () => {
+  apiMocks.getPasswordPolicy.mockResolvedValue({ policy: { minLength: 8, requireMixed: false, requireDigit: true, requireSymbol: false } })
+  const w = mountPage('security')
+  await flushPromises()
+  await w.find('[data-testid="pwd-current"]').setValue('right-password')
+  await w.find('[data-testid="pwd-new"]').setValue('NoDigitsHere')
+  await w.find('[data-testid="pwd-confirm"]').setValue('NoDigitsHere')
+  await w.find('[data-testid="pwd-submit"]').trigger('click')
+  expect(apiMocks.changePassword).not.toHaveBeenCalled()
+  w.unmount()
+})
+
 test('偏好卡:语言/主题选择联动 preferences store', async () => {
   const w = mountPage('preferences')
   await flushPromises()
