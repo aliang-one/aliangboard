@@ -317,3 +317,23 @@ test('GET /api/auth/password-policy:无策略配置 → 默认档', async () => 
   assert.equal(sent[0].status, 200)
   assert.deepEqual(sent[0].payload.policy, { minLength: 8, requireMixed: false, requireDigit: false, requireSymbol: false })
 })
+
+test('GET /api/my/activity:只回本 username 行;90 天窗口强制;分页透传', async () => {
+  const db = makeDb(); seed(db); createAuditSchema(db)
+  const now = Date.now()
+  writeAudit(db, { owner: 'alice', tool: 'platform_login', verb: 'login', result: 'ok', ts: now, source: 'platform' })
+  writeAudit(db, { owner: 'bob', tool: 'platform_login', verb: 'login', result: 'ok', ts: now, source: 'platform' })
+  // 91 天前的本用户旧行:writeAudit 恒取 Date.now(),须直接 INSERT(writeAudit 只能写「现在」)
+  db.prepare(`INSERT INTO audit_log (ts, status, tool, verb, result, owner, source, prevHash, hash) VALUES (?, 'finalized', 'platform_login', 'login', 'ok', 'alice', 'platform', 'prev-x', 'hash-x')`).run(now - 91 * 86400000)
+  const { routes, sent } = makeRoutes(db)
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity'))
+  assert.equal(sent[0].status, 200)
+  assert.equal(sent[0].status, 200)
+  const out = sent[0].payload
+  assert.equal(out.total, 1)
+  assert.equal(out.items[0].owner, 'alice')
+  assert.equal(out.windowDays, 90)
+  // result 过滤透传
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity?result=denied'))
+  assert.equal(sent[1].payload.total, 0)
+})

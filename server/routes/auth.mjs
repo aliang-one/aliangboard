@@ -4,6 +4,7 @@
 import { msg } from '../messages.mjs'
 import { APP_VERSION } from '../version.mjs'
 import { resolvePasswordPolicy, firstFailedRule } from '../password-policy.mjs'
+import { queryAuditLog } from '../audit.mjs'
 import { unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -176,6 +177,22 @@ export function createAuthRoutes(deps) {
       }
       list.sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
       sendJson(res, 200, { sessions: list })
+      return true
+    }
+
+    // GET /api/my/activity — 我的活动(2026-09-04 Wave1 §3.2):audit_log 按本人 username 过滤的只读视图。
+    // v1 固定 90 天窗口(服务端钳制,client 传 since/until 无效);只回 finalized 行(queryAuditLog 默认)。
+    if (url.pathname === '/api/my/activity' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const q = url.searchParams
+      const out = queryAuditLog(db, {
+        owner: ps.username,
+        tool: q.get('tool') || undefined, toolPrefix: q.get('toolPrefix') || undefined,
+        result: q.get('result') || undefined, source: q.get('source') || undefined,
+        since: Date.now() - 90 * 86400000,
+        page: q.get('page') || undefined, size: q.get('size') || undefined,
+      })
+      sendJson(res, 200, { ...out, windowDays: 90 })
       return true
     }
 

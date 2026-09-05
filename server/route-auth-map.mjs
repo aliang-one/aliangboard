@@ -35,6 +35,7 @@ export const ROUTE_AUTH = [
   { method: 'GET',  pattern: '/api/my/keys',            auth: 'platform' }, // 自助访问令牌列表(仅本人)
   { method: 'POST', pattern: '/api/my/keys',            auth: 'platform' }, // 自助签发(托管 SA,tier≤operator)
   { prefix: '/api/my/keys/',                            auth: 'platform' }, // DELETE /:id(归属过滤)
+  { method: 'GET',  pattern: '/api/my/activity',        auth: 'platform' }, // 我的活动(audit_log 本人只读视图,90d 窗口)
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },
   { method: 'GET',  pattern: '/api/version',            auth: 'platform' },
   { method: 'POST', pattern: '/api/version/check',      auth: 'platform' },
