@@ -401,6 +401,16 @@ export const adminApi = {
     get: () => platformHttp.request('/api/admin/ssh-session-policy'),
     update: patch => platformHttp.request('/api/admin/ssh-session-policy', { method: 'PUT', body: JSON.stringify(patch) }),
   },
+  // Pod 终端空闲回收策略(2026-09-05「终端与会话」):分钟,0=禁用;PUT 部分更新 → { ok, policy }
+  podTerminalPolicy: {
+    get: () => platformHttp.request('/api/admin/pod-terminal-policy'),
+    update: patch => platformHttp.request('/api/admin/pod-terminal-policy', { method: 'PUT', body: JSON.stringify(patch) }),
+  },
+  // SSH 异步任务策略(2026-08-30):ttlMin/maxPerServer;PUT 部分更新 → { ok, policy }
+  sshJobPolicy: {
+    get: () => platformHttp.request('/api/admin/ssh-job-policy'),
+    update: patch => platformHttp.request('/api/admin/ssh-job-policy', { method: 'PUT', body: JSON.stringify(patch) }),
+  },
   // 工作台 AI 行为配置(2026-08-25):GET → {additionalInstructions, disabledTools, toolCatalog, effectivePreview};PUT ← 同名字段 → {ok}
   workbenchAiConfig: {
     get: () => platformHttp.request('/api/admin/workbench-ai-config'),

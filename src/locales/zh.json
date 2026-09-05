@@ -2567,7 +2567,7 @@
       "about": "关于",
       "mcp": "MCP 服务",
       "transfers": "文件传输",
-      "ssh": "SSH"
+      "terminal": "终端与会话"
     },
     "clusterInfo": "集群信息",
     "clusterName": "集群名称",
@@ -2631,6 +2631,15 @@
     "sshPolicyNeverHint": "三项全部设为 0 = 永不自动关闭:会话将保留到手动终止或网关重启,请注意资源与安全风险。",
     "sshPolicySaved": "SSH 会话策略已保存",
     "sshPolicyInvalid": "策略保存失败",
+    "terminalPolicyTitle": "终端与会话策略",
+    "podTerminalPolicyTitle": "Pod 终端",
+    "podIdleReapLabel": "空闲自动回收",
+    "podIdleReapHint": "空闲(无人附着查看)超过该时长的 Pod 终端会话将被自动回收并清理任务栏记录;有人正在查看时豁免;0 = 禁用自动回收。",
+    "sshJobPolicyTitle": "SSH 异步任务",
+    "jobTtlLabel": "任务记录保留时长",
+    "jobMaxPerServerLabel": "每服务器任务数上限",
+    "jobPolicyHint": "SSH 异步任务远端产物保留时长(1-10080)与单服务器同时存在的任务数上限(1-16)。",
+    "terminalPolicyEffectiveHint": "单位:分钟。保存后 ≤60s 生效,无需重启。",
     "about": {
       "title": "关于平台",
       "currentVersion": "当前版本",

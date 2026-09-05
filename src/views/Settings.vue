@@ -28,7 +28,7 @@ const tabs = computed(() => [
   { key: 'about', label: t('settings.tabs.about'), icon: 'update' },
   ...(auth.isAdmin ? [{ key: 'mcp', label: t('settings.tabs.mcp'), icon: 'hub' }] : []),
   ...(auth.isAdmin ? [{ key: 'transfers', label: t('settings.tabs.transfers'), icon: 'swap_vert' }] : []),
-  ...(auth.isAdmin ? [{ key: 'ssh', label: t('settings.tabs.ssh'), icon: 'dns' }] : []),
+  ...(auth.isAdmin ? [{ key: 'ssh', label: t('settings.tabs.terminal'), icon: 'terminal' }] : []),
   ...(auth.isAdmin ? [{ key: 'security', label: t('admin.securityPolicy.title'), icon: 'security' }] : []),
 ])
 
@@ -106,11 +106,22 @@ async function saveTransfersConfig() {
   finally { tfSaving.value = false }
 }
 
-// === SSH 会话回收策略 (admin only;2026-08-29 spec) ===
+// === 终端与会话策略 (admin only;2026-09-05 由 SSH 策略卡扩展为三组统一页) ===
+// 三组各自端点部分更新;一次保存串发三个 PUT,任一失败报错但不阻断其余组回显。
 const sshPolicy = ref({ detachedIdleMin: 10, attachedIdleMin: 0, maxLifetimeMin: 0 })
+const podPolicy = ref({ idleReapMin: 30 })
+const jobPolicy = ref({ ttlMin: 120, maxPerServer: 4 })
 const sshPolicySaving = ref(false)
 async function loadSshPolicy() {
   try { sshPolicy.value = await adminApi.sshSessionPolicy.get() } catch { /* 非 admin 静默 */ }
+  try { podPolicy.value = await adminApi.podTerminalPolicy.get() } catch { /* 同上 */ }
+  try { jobPolicy.value = await adminApi.sshJobPolicy.get() } catch { /* 同上 */ }
+}
+// 空输入→NaN(序列化为 null,服务端 400 报错),与「显式 0=禁用」区分;非法输入不静默改语义
+function toInt(v) {
+  if (v === '' || v === null || v === undefined) return NaN
+  const n = Number(v)
+  return Number.isNaN(n) ? NaN : Math.trunc(n)
 }
 async function saveSshPolicy() {
   sshPolicySaving.value = true
@@ -120,7 +131,15 @@ async function saveSshPolicy() {
       attachedIdleMin: Number(sshPolicy.value.attachedIdleMin) || 0,
       maxLifetimeMin: Number(sshPolicy.value.maxLifetimeMin) || 0,
     })
-    sshPolicy.value = r.policy; notify('success', t('settings.sshPolicySaved'))
+    sshPolicy.value = r.policy
+    const r2 = await adminApi.podTerminalPolicy.update({ idleReapMin: toInt(podPolicy.value.idleReapMin) })
+    podPolicy.value = r2.policy
+    const r3 = await adminApi.sshJobPolicy.update({
+      ttlMin: toInt(jobPolicy.value.ttlMin),
+      maxPerServer: toInt(jobPolicy.value.maxPerServer),
+    })
+    jobPolicy.value = r3.policy
+    notify('success', t('settings.sshPolicySaved'))
   } catch (e) { notify('error', e.message || t('settings.sshPolicyInvalid')) }
   finally { sshPolicySaving.value = false }
 }
@@ -438,21 +457,50 @@ const { catalog, resetAll } = useTableColumns()
           </div>
         </div>
 
-        <!-- SSH 会话回收策略 tab (admin only;2026-08-29 spec) -->
+        <!-- 终端与会话 tab (admin only;2026-09-05 三组统一:SSH 会话回收 / Pod 终端 / SSH 异步任务) -->
         <div v-if="activeTab === 'ssh'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary text-lg">dns</span>
-            <span class="text-body-sm font-semibold">{{ t('settings.sshPolicyTitle') }}</span>
+            <span class="material-symbols-outlined text-primary text-lg">terminal</span>
+            <span class="text-body-sm font-semibold">{{ t('settings.terminalPolicyTitle') }}</span>
           </div>
           <div class="p-md space-y-md">
-            <div v-for="f in [['detachedIdleMin', 'sshPolicyDetachedLabel'], ['attachedIdleMin', 'sshPolicyAttachedLabel'], ['maxLifetimeMin', 'sshPolicyMaxLifetimeLabel']]" :key="f[0]" class="flex items-center gap-sm">
-              <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.' + f[1]) }}</label>
-              <input v-model="sshPolicy[f[0]]" type="number" min="0" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
-              <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>
+            <!-- SSH 会话回收(2026-08-29 spec 迁入) -->
+            <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+              <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.sshPolicyTitle') }}</p>
+              <div v-for="f in [['detachedIdleMin', 'sshPolicyDetachedLabel'], ['attachedIdleMin', 'sshPolicyAttachedLabel'], ['maxLifetimeMin', 'sshPolicyMaxLifetimeLabel']]" :key="f[0]" class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.' + f[1]) }}</label>
+                <input v-model="sshPolicy[f[0]]" type="number" min="0" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+                <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>
+              </div>
+              <p class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyHint') }}</p>
+              <p class="text-body-xs text-error/80">{{ t('settings.sshPolicyNeverHint') }}</p>
+            </div>
+            <!-- Pod 终端空闲回收 -->
+            <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+              <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.podTerminalPolicyTitle') }}</p>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.podIdleReapLabel') }}</label>
+                <input v-model="podPolicy.idleReapMin" type="number" min="0" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+                <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>
+              </div>
+              <p class="text-body-xs text-on-surface-variant">{{ t('settings.podIdleReapHint') }}</p>
+            </div>
+            <!-- SSH 异步任务 -->
+            <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+              <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.sshJobPolicyTitle') }}</p>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.jobTtlLabel') }}</label>
+                <input v-model="jobPolicy.ttlMin" type="number" min="1" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+                <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>
+              </div>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.jobMaxPerServerLabel') }}</label>
+                <input v-model="jobPolicy.maxPerServer" type="number" min="1" max="16" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              </div>
+              <p class="text-body-xs text-on-surface-variant">{{ t('settings.jobPolicyHint') }}</p>
             </div>
             <button @click="saveSshPolicy" :disabled="sshPolicySaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.save') }}</button>
-            <p class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyHint') }}</p>
-            <p class="text-body-xs text-error/80">{{ t('settings.sshPolicyNeverHint') }}</p>
+            <p class="text-body-xs text-on-surface-variant">{{ t('settings.terminalPolicyEffectiveHint') }}</p>
           </div>
         </div>
 

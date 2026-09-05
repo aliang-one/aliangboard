@@ -60,6 +60,7 @@ import { createSshJobBridge } from './ssh/job-bridge.mjs'
 import { resolveJobPolicy } from './ssh/job-policy.mjs'
 import { createTerminalService } from './ssh/terminal-service.mjs'
 import { resolvePolicy } from './ssh/reap-policy.mjs'
+import { resolvePodTerminalPolicy } from './pod-terminal-policy.mjs'
 import { markAlive, attachWsLiveness, createCloseSentinel } from './ssh/terminal-wire.mjs'
 import { createSshTerminalHandler } from './ssh/terminal-handler.mjs'
 import { reconcileProject } from './reconcile.mjs'
@@ -233,6 +234,8 @@ function getSshfileLimitBytes() {
 const getSshSessionPolicy = () => resolvePolicy(getSetting, process.env)
 // SSH 异步任务策略:设置>env>默认,每跳现读(规格 2026-08-30 §4)
 const getSshJobPolicy = () => resolveJobPolicy(getSetting, process.env)
+// Pod 终端空闲回收策略(2026-09-05「终端与会话」配置页):设置>env IDLE_TTL_MS>默认,每轮 sweep 现读
+const getPodTerminalPolicy = () => resolvePodTerminalPolicy(getSetting, process.env)
 
 // LLM 配置:DB 优先,env 回退(管理员未在 UI 配时仍可用 env 跑)
 function getLlmConfig() {
@@ -624,19 +627,23 @@ const TMUX_SCROLLBACK_LINES = Number(process.env.TMUX_SCROLLBACK_LINES || 2000)
 // idle reaper tracker: tmuxSessionName -> { token, ns, pod, container, terminalId, lastActiveAt, attached }
 const idleTracker = new Map()
 
-// 空闲回收：超过 IDLE_TTL 未活动的 tmux 会话 best-effort 杀掉并删行。
+// 空闲回收：超过阈值未活动的 tmux 会话 best-effort 杀掉并删行。
 // 附着的会话豁免(2026-09-04):旧口径只看键入续命,盯静态屏/慢日志 30min 不敲键盘即被回收
 // (「会话意外被关闭」主诉);未附着照旧按时钟回收,无输出续命故无永生泄漏。
 // 已知限制：计时在 gateway 内存,重启后已空闲的会话需等下次 attach-再离开才计时,或等 pod 重启。
-const IDLE_TTL_MS = Number(process.env.IDLE_TTL_MS || 30 * 60 * 1000)
+// 阈值每轮现读(2026-09-05「终端与会话」配置页):设置 pod.terminal.idleReapMin > env IDLE_TTL_MS > 30min,
+// 0=禁用;改动 ≤60s(本 sweep 周期)生效。
 const idleSweeper = setInterval(() => {
   ;(async () => {
+    const { idleReapMin } = getPodTerminalPolicy()
+    if (idleReapMin <= 0) return                            // 0=禁用:本轮不回收
+    const idleTtlMs = idleReapMin * 60000
     const now = Date.now()
-    for (const name of pickStaleSids(now, idleTracker, IDLE_TTL_MS)) {
+    for (const name of pickStaleSids(now, idleTracker, idleTtlMs)) {
       const meta = idleTracker.get(name)
       if (!meta) continue                                   // already gone
       if ((meta.attached || 0) > 0) continue                // 有人附着:豁免(pick 后再复核一次)
-      if (Date.now() - meta.lastActiveAt <= IDLE_TTL_MS) continue   // re-attached since pick → leave it alone
+      if (Date.now() - meta.lastActiveAt <= idleTtlMs) continue   // re-attached since pick → leave it alone
       idleTracker.delete(name)
       const session = sessions.get(meta.token)
       if (session) {
@@ -1505,7 +1512,7 @@ async function handle(req, res) {
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
-    hashPassword, getSshSessionPolicy, getSshJobPolicy, writeAudit, platformSessions, sessions,
+    hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
     provisionCluster: async (row, spec) => {
       if (!row) throw new Error(msg(req, 'api.clusterNotFound'))

@@ -21,7 +21,7 @@ export function createAdminRoutes(deps) {
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
-    hashPassword, getSshSessionPolicy, getSshJobPolicy, writeAudit, platformSessions, sessions,
+    hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
   } = deps
 
   // 匹配 admin 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -190,6 +190,26 @@ export function createAdminRoutes(deps) {
         for (const k of keys) if (input[k] !== undefined) setSetting(`ssh.job.${k}`, String(input[k]))
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'ssh_job_policy', result: 'ok', requestSummary: JSON.stringify(input), source: 'platform' })
         sendJson(res, 200, { ok: true, policy: getSshJobPolicy() })
+        return true
+      } catch (e) { sendJson(res, 400, { message: e.message }); return true }
+    }
+    // ====== Pod 终端空闲回收策略(2026-09-05「终端与会话」配置页):分钟,0=禁用;改动 ≤60s 随 sweep 生效 ======
+    if (url.pathname === '/api/admin/pod-terminal-policy' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      sendJson(res, 200, getPodTerminalPolicy())
+      return true
+    }
+    if (url.pathname === '/api/admin/pod-terminal-policy' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        // null(空输入序列化产物)≠「未传」:Number(null)===0 会被 isValidMinutes 误判成禁用,显式 400
+        if (input.idleReapMin === null || (input.idleReapMin !== undefined && !isValidMinutes(input.idleReapMin))) {
+          sendJson(res, 400, { message: msg(req, 'admin.sshPolicyInvalid', { field: 'idleReapMin' }) }); return true
+        }
+        if (input.idleReapMin !== undefined && input.idleReapMin !== null) setSetting('pod.terminal.idleReapMin', String(input.idleReapMin))
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'pod_terminal_policy', result: 'ok', requestSummary: JSON.stringify(input), source: 'platform' })
+        sendJson(res, 200, { ok: true, policy: getPodTerminalPolicy() })
         return true
       } catch (e) { sendJson(res, 400, { message: e.message }); return true }
     }
