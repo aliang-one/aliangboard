@@ -54,7 +54,7 @@ export function attachSocketToSession(ws, session, { send, touch = () => {}, onD
 // —— WS 存活探测(2026-09-04 事故①;复审 F2 改真双振)——
 // ws 库不感知半开 TCP:合盖/休眠/代理断链不发 close → drop 不触发 → browserCount 卡 ≥1,
 // detached-idle 回收永不生效(shell+ring+池句柄永久泄漏)。标准方案:周期 ping,
-// 一次 ping 后连续 maxMissed(默认 2)个轮询未收到 pong 即 onDead(计数等待,不重发 ping)(网关侧传 ws.terminate() → 触发 'close'
+// 连续 maxMissed(默认 2)次实际 ping 均未获 pong 即 onDead(漏答轮重发 ping 复验)(网关侧传 ws.terminate() → 触发 'close'
 // → drop → 计数归零)——单次未应答给一个周期的宽限,慢速链路不被误杀。
 // 浏览器 WebSocket 在协议层自动回 pong,前端零改动。
 export function markAlive(ws) {
@@ -68,7 +68,8 @@ export function attachWsLiveness(wsServer, { intervalMs = 30000, maxMissed = 2, 
     for (const ws of wsServer.clients) {
       if (ws.isAlive === false) {
         ws.missedPongs = (ws.missedPongs || 0) + 1
-        if (ws.missedPongs >= maxMissed) { try { onDead(ws) } catch { /* noop */ } }
+        if (ws.missedPongs >= maxMissed) { try { onDead(ws) } catch { /* noop */ } continue }
+        try { ws.ping() } catch { /* noop */ }   // 未达双振:重发 ping,口径即「连续两次实际 ping 均未获 pong」
         continue
       }
       ws.missedPongs = 0
