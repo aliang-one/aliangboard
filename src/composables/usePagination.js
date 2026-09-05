@@ -1,4 +1,5 @@
 import { ref, computed, watch } from 'vue'
+import { rowsPerPageDefault } from '@/utils/rowsPerPage'
 
 // 客户端分页工具：传入响应式源列表（通常是 filtered 计算属性），返回分页状态。
 // 用法：
@@ -6,7 +7,7 @@ import { ref, computed, watch } from 'vue'
 //   模板：v-for 用 paginated；表格外加 <Pagination v-if="total > pageSize" .../>（小列表不显示分页栏，保持原貌）。
 // resetDeps：过滤条件变化时回到第 1 页（传过滤相关的 ref 数组）；不传则仅防越界空页。
 export function usePagination(source, opts = {}) {
-  const pageSize = ref(opts.pageSize ?? 10)
+  const pageSize = ref(opts.pageSize ?? rowsPerPageDefault.value)
   const currentPage = ref(1)
   const total = computed(() => source.value?.length || 0)
   const paginated = computed(() => {

@@ -1,17 +1,24 @@
 // 根治回归(2026-08-29):点击头像必须只开菜单;登出必须经 ConfirmDialog 二次确认。
 import { test, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { i18n } from '@/i18n'
 
 const pushMock = vi.fn()
+const apiMocks = vi.hoisted(() => ({
+  savePreferences: vi.fn(() => Promise.resolve()),
+  getAvatar: vi.fn(),
+  clearAvatar: vi.fn(),
+  uploadAvatar: vi.fn(),
+}))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: pushMock }) }))
 vi.mock('@/api/client', async (importOriginal) => {
   const orig = await importOriginal()
-  return { ...orig, authApi: { ...orig.authApi, savePreferences: vi.fn(() => Promise.resolve()) } }
+  return { ...orig, authApi: { ...orig.authApi, ...apiMocks } }
 })
 
 import UserMenu from '@/components/layout/UserMenu.vue'
+import { resetAvatarForTest } from '@/composables/useAvatar'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
 import { usePreferencesStore } from '@/stores/preferences'
@@ -22,6 +29,9 @@ beforeEach(() => {
   localStorage.clear()
   i18n.global.locale.value = 'zh'
   document.body.innerHTML = ''
+  apiMocks.getAvatar.mockReset().mockRejectedValue({ status: 404 })
+  // 头像单例跨用例残留清理(2026-09-04 Wave1 Task13):apply/clearLocal 直写模块级 ref
+  resetAvatarForTest()
 })
 
 function mountMenu() {
@@ -164,5 +174,24 @@ test('点语言「English」:prefs.language=en 且 i18n locale 同步切 en', as
   expect(usePreferencesStore().language).toBe('en')
   expect(i18n.global.locale.value).toBe('en')
   expect(w.find('[data-testid="user-menu-role"]').text()).toBe('Admin')
+  w.unmount()
+})
+
+// === Task 13: 头像位渲染(触发钮+菜单头同款 img/fallback) ===
+test('头像已设置:触发钮渲染 img(getAvatar resolve dataUrl)', async () => {
+  seedUser()
+  apiMocks.getAvatar.mockResolvedValue({ dataUrl: 'data:image/jpeg;base64,AAA' })
+  const w = mountMenu()
+  await flushPromises()
+  expect(w.find('[data-testid="user-avatar-img"]').exists()).toBe(true)
+  w.unmount()
+})
+
+test('头像未设置(getAvatar 404):回退首字母圆', async () => {
+  seedUser()
+  apiMocks.getAvatar.mockRejectedValue({ status: 404 })
+  const w = mountMenu()
+  await flushPromises()
+  expect(w.find('[data-testid="user-avatar-fallback"]').exists()).toBe(true)
   w.unmount()
 })

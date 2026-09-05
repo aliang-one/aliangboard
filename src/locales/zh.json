@@ -1,6 +1,7 @@
 {
   "common": {
     "save": "保存",
+    "refresh": "刷新",
     "cancel": "取消",
     "delete": "删除",
     "add": "添加",
@@ -559,13 +560,28 @@
     "enterNamespace": "进入命名空间"
   },
   "userCenter": {
+    "activityTitle": "我的活动",
+    "filterAll": "全部",
+    "resultOk": "成功",
+    "resultDenied": "被拒绝",
+    "resultError": "出错",
+    "activityWindow": "展示最近 {n} 天记录",
+    "activityEmpty": "暂无活动记录",
     "logoutConfirmTitle": "退出登录",
     "logoutConfirmMessage": "确定要退出当前账号吗?未提交的编辑与进行中的终端会话将中断。",
     "title": "个人中心",
     "subtitle": "管理你的资料、安全与会话",
+    "tabProfile": "资料",
+    "tabSecurity": "安全",
+    "tabActivity": "活动",
+    "tabTokens": "访问令牌",
+    "tabPreferences": "偏好设置",
     "profileSaved": "资料已更新",
     "displayName": "显示名称",
     "joinedAt": "注册于 {date}",
+    "avatarUpload": "上传头像",
+    "avatarClear": "清除头像",
+    "avatarInvalid": "仅支持 png/jpeg/webp",
     "securityTitle": "安全",
     "currentPassword": "当前密码",
     "newPassword": "新密码",
@@ -581,6 +597,11 @@
     "revokeConfirmMessage": "该设备将被登出,需重新登录才能继续操作。",
     "currentSession": "当前",
     "lastActive": "最近活跃 {time}",
+    "sessionLoginAt": "登录于 {time}",
+    "pwdNeedMin": "至少 8 个字符",
+    "pwdNeedMixed": "需同时包含大小写字母",
+    "pwdNeedDigit": "需包含数字",
+    "pwdNeedSymbol": "需包含符号",
     "preferencesTitle": "偏好设置",
     "language": "界面语言",
     "theme": "主题外观",
@@ -588,7 +609,42 @@
     "langEn": "English",
     "themeLight": "浅色",
     "themeDark": "深色",
-    "themeAuto": "自动"
+    "themeAuto": "自动",
+    "prefLanding": "登录后进入",
+    "landingCluster": "集群总览",
+    "landingWorkbench": "工作台",
+    "landingLast": "上次访问",
+    "prefRows": "每页行数",
+    "prefDefaultCluster": "默认集群",
+    "prefNone": "不跟随",
+    "prefDefaultNs": "默认 Namespace",
+    "prefDefaultNsHint": "进入集群时未记住 namespace 则用它",
+    "tokens": {
+      "tokensTitle": "访问令牌",
+      "tokensHint": "用于 CI/MCP 的个人凭据;权限随你的账号实时收缩",
+      "mintBtn": "签发令牌",
+      "mintCluster": "集群",
+      "mintNamespace": "绑定 Namespace",
+      "mintTier": "档位",
+      "tierRead": "只读",
+      "tierOperator": "可操作",
+      "mintTtl": "有效期(天)",
+      "mintSubmit": "签发",
+      "plaintextTitle": "请立即保存令牌",
+      "plaintextHint": "关闭后无法再次查看",
+      "copy": "复制",
+      "copied": "已复制",
+      "colToken": "令牌",
+      "colLabel": "备注",
+      "colScope": "范围",
+      "colExpires": "过期于",
+      "colLastUsed": "最近使用",
+      "statusActive": "生效中",
+      "statusExpired": "已过期",
+      "statusRevoked": "已吊销",
+      "revokeConfirmTitle": "吊销该令牌?",
+      "revokeConfirmMessage": "使用它的集成将立即失效"
+    }
   },
   "layout": {
     "controlPlaneAbnormal": "控制面异常：{ready}/{total} 就绪 · {reasons}",
@@ -3360,6 +3416,17 @@
       "noData": "暂无数据",
       "deleteConfirm": "确定删除 <span class=\"font-mono text-on-surface font-semibold\">{title}/{name}</span>？",
       "deleteWarning": "此操作不可撤销。"
+    },
+    "securityPolicy": {
+      "title": "安全策略",
+      "password": "密码策略",
+      "minLength": "最小长度",
+      "requireMixed": "需大小写字母",
+      "requireDigit": "需数字",
+      "requireSymbol": "需符号",
+      "tokenTtl": "令牌有效期上限(天)",
+      "saved": "已保存",
+      "tokenTtlInvalid": "令牌有效期上限须在 1-365 天"
     }
   },
   "network": {
@@ -4483,5 +4550,8 @@
     "ledgerStructure": "结构层(平台自动维护)",
     "ledgerNotesPlaceholder": "这台服务器的角色/职责/部署了什么,如:K8s master + 堡垒机",
     "ledgerEmpty": "暂无服务器,先添加"
+  },
+  "mykeys": {
+    "formIncomplete": "请选择集群并填写 namespace"
   }
 }

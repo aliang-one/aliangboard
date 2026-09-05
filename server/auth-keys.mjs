@@ -31,6 +31,11 @@ export function createApiKeysSchema(db) {
   try { db.exec('ALTER TABLE api_keys ADD COLUMN allowed_namespaces TEXT') } catch { /* 列已存在 */ }
   try { db.exec('ALTER TABLE api_keys ADD COLUMN saManaged INTEGER NOT NULL DEFAULT 0') } catch { /* 列已存在 */ }
   try { db.exec('ALTER TABLE api_keys ADD COLUMN sshAccess INTEGER NOT NULL DEFAULT 0') } catch { /* 列已存在 */ }   // 2026-08-29:per-key SSH 服务器访问授予(开源从简:布尔,无分组)
+  // Wave1(2026-09-04):双类 key(ownerUserId NULL=服务 key)+ TTL + 使用痕迹。node:sqlite 无 ADD COLUMN IF NOT EXISTS,沿用 try-ALTER 惯例。
+  try { db.exec('ALTER TABLE api_keys ADD COLUMN ownerUserId TEXT') } catch { /* 列已存在 */ }
+  try { db.exec('ALTER TABLE api_keys ADD COLUMN expiresAt INTEGER') } catch { /* 列已存在 */ }
+  try { db.exec('ALTER TABLE api_keys ADD COLUMN lastUsedAt INTEGER') } catch { /* 列已存在 */ }
+  try { db.exec('ALTER TABLE api_keys ADD COLUMN lastUsedIp TEXT') } catch { /* 列已存在 */ }
 }
 
 export function hashKey(plaintext) {
@@ -44,7 +49,7 @@ export function generateKeyPlaintext() {
 
 // 签发一把 key。返回 {id, plaintext(仅此次可见), prefix, ...}。明文不入库。
 export function mintKey(db, input) {
-  const { owner, clusterId, boundSA_namespace, boundSA_name, tier = 'read', label = null, createdBy = null, tool_overrides = null, allowed_namespaces = null, id: inputId = null, saManaged = 0, sshAccess = 0 } = input || {}
+  const { owner, clusterId, boundSA_namespace, boundSA_name, tier = 'read', label = null, createdBy = null, tool_overrides = null, allowed_namespaces = null, id: inputId = null, saManaged = 0, sshAccess = 0, ownerUserId = null, expiresAt = null } = input || {}
   if (!owner || !clusterId || !boundSA_namespace || !boundSA_name) {
     throw new Error('mintKey 缺少必填字段(owner / clusterId / boundSA_namespace / boundSA_name)')
   }
@@ -54,10 +59,10 @@ export function mintKey(db, input) {
   const plaintext = generateKeyPlaintext()
   const id = inputId || randomUUID()
   const createdAt = Date.now()
-  db.prepare(`INSERT INTO api_keys (id, keyHash, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, allowed_namespaces, label, createdBy, createdAt, revokedAt, saManaged, sshAccess)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`).run(
-    id, hashKey(plaintext), plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, overridesJson, allowedNsJson, label, createdBy, createdAt, saManaged ? 1 : 0, sshAccess ? 1 : 0)
-  return { id, plaintext, prefix: plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides: overridesJson, allowed_namespaces: allowedNsJson, label, createdBy, createdAt, saManaged: saManaged ? 1 : 0, sshAccess: sshAccess ? 1 : 0 }
+  db.prepare(`INSERT INTO api_keys (id, keyHash, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, allowed_namespaces, label, createdBy, createdAt, revokedAt, saManaged, sshAccess, ownerUserId, expiresAt)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?)`).run(
+    id, hashKey(plaintext), plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, overridesJson, allowedNsJson, label, createdBy, createdAt, saManaged ? 1 : 0, sshAccess ? 1 : 0, ownerUserId ?? null, expiresAt ?? null)
+  return { id, plaintext, prefix: plaintext.slice(0, 8), owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides: overridesJson, allowed_namespaces: allowedNsJson, label, createdBy, createdAt, saManaged: saManaged ? 1 : 0, sshAccess: sshAccess ? 1 : 0, ownerUserId: ownerUserId ?? null, expiresAt: expiresAt ?? null }
 }
 
 // 按明文查 key(高熵 hash 查找;返回行或 null。是否有效由 isActive 判)。
@@ -67,7 +72,9 @@ export function lookupKey(db, plaintext) {
 }
 
 export function isActive(row) {
-  return !!row && !row.revokedAt
+  if (!row || row.revokedAt) return false
+  if (row.expiresAt && Date.now() > row.expiresAt) return false   // Wave1:TTL 到期即失效(读取时惰性判定)
+  return true
 }
 
 // 幂等吊销:已吊销再吊返回 false。
@@ -76,10 +83,14 @@ export function revokeKey(db, id) {
 }
 
 // 列表(UI 用):绝不返回 keyHash / 明文,只 prefix。
-export function listKeys(db, { owner } = {}) {
-  const sql = `SELECT id, prefix, owner, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, allowed_namespaces, label, createdBy, createdAt, revokedAt, saManaged, sshAccess
-               FROM api_keys ${owner ? 'WHERE owner = ?' : ''} ORDER BY createdAt DESC`
-  return owner ? db.prepare(sql).all(owner) : db.prepare(sql).all()
+export function listKeys(db, { owner, ownerUserId } = {}) {
+  const where = []; const params = []
+  if (owner) { where.push('owner = ?'); params.push(owner) }
+  if (ownerUserId) { where.push('ownerUserId = ?'); params.push(ownerUserId) }
+  const clause = where.length ? 'WHERE ' + where.join(' AND ') : ''
+  const sql = `SELECT id, prefix, owner, ownerUserId, clusterId, boundSA_namespace, boundSA_name, tier, tool_overrides, allowed_namespaces, label, createdBy, createdAt, revokedAt, saManaged, sshAccess, expiresAt, lastUsedAt, lastUsedIp
+               FROM api_keys ${clause} ORDER BY createdAt DESC`
+  return db.prepare(sql).all(...params)
 }
 
 // per-key SSH 服务器访问授予(2026-08-29,开源从简:布尔,无分组)。返回是否生效。

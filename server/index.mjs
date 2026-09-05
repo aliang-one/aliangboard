@@ -42,7 +42,9 @@ import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { createMyKeyRoutes } from './routes/my-keys.mjs'
 import { touchSession } from './session-touch.mjs'
+import { touchKeyUsage } from './key-usage-touch.mjs'
 import { reapExpiredSessions, enforceSessionCap, removeSessionRecord } from './platform-session-reaper.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { authClassFor, createAuthGate } from './route-auth-map.mjs'
@@ -184,6 +186,8 @@ try { db.exec('ALTER TABLE platform_sessions ADD COLUMN lastSeenAt INTEGER') } c
 try { db.exec('ALTER TABLE platform_sessions ADD COLUMN ip TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE platform_sessions ADD COLUMN userAgent TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE platform_users ADD COLUMN prefs TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_users ADD COLUMN avatar BLOB') } catch { /* 列已存在 */ }        // Wave1 §3.5:头像存 SQLite blob(单库不变式)
+try { db.exec('ALTER TABLE platform_users ADD COLUMN avatarMime TEXT') } catch { /* 列已存在 */ }
 // API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
 createApiKeysSchema(db)
 // SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)
@@ -370,6 +374,7 @@ const authGate = createAuthGate({
     apikey: (req, res) => {
       const keyRow = resolveApiKey(db, req)
       if (!keyRow) { sendJson(res, 401, { error: 'PERMISSION_DENIED', reason: 'revoked', message: msg(req, 'api.invalidApiKey') }); return false }
+      touchKeyUsage(db, keyRow, { ip: req.socket?.remoteAddress || null })
       req.abKeyRow = keyRow
       return true
     },
@@ -1490,6 +1495,7 @@ async function handle(req, res) {
     platformSessions, sessions, persistSession,
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit, enforceSessionCap, maxPlatformSessionsPerUser,
+    getSetting,
     removeSessionRecord,
     hashPassword, extractPlatformToken,
   })
@@ -1545,6 +1551,15 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   killSshSession: sid => sshTerminals.close(sid, s => { try { s.extra?.channel?.close?.() } catch { /* noop */ }; try { s.extra?.release?.() } catch { /* noop */ } }),
 })
   if (await sshRoutes.handle(req, res, url)) return
+  const myKeyRoutes = createMyKeyRoutes({
+    db, sendJson, readBody, requirePlatform, randomUUID, writeAudit, getSetting,
+    getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
+    provisionCluster: async (row, spec) => {
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
+      return provisionSa({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
+  })
+  if (await myKeyRoutes.handle(req, res, url)) return
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
   if (await versionRoutes.handle(req, res, url)) return

@@ -600,6 +600,12 @@ export function applyRouteTitle(meta) {
   const key = meta?.titleKey
   document.title = key ? `${i18n.global.t(key)} · AliangBoard` : i18n.global.t('route.brandTitle')
 }
-router.afterEach((to) => applyRouteTitle(to.meta))
+router.afterEach((to) => {
+  applyRouteTitle(to.meta)
+  // Wave1 §3.4:「上次访问」落地页的记忆源(login 不记,防止落地回登录页)
+  if (to.path && to.path !== '/login') {
+    try { localStorage.setItem('aliangboard.lastView', to.fullPath || to.path) } catch { /* 无 storage */ }
+  }
+})
 
 export default router

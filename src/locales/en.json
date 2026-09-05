@@ -1,6 +1,7 @@
 {
   "common": {
     "save": "Save",
+    "refresh": "Refresh",
     "cancel": "Cancel",
     "delete": "Delete",
     "add": "Add",
@@ -559,13 +560,28 @@
     "enterNamespace": "Enter namespace"
   },
   "userCenter": {
+    "activityTitle": "My Activity",
+    "filterAll": "All",
+    "resultOk": "Success",
+    "resultDenied": "Denied",
+    "resultError": "Error",
+    "activityWindow": "Showing the last {n} days",
+    "activityEmpty": "No recent activity",
     "logoutConfirmTitle": "Sign out",
     "logoutConfirmMessage": "Sign out of this account? Unsaved edits and active terminal sessions will be interrupted.",
     "title": "User Center",
     "subtitle": "Manage your profile, security and sessions",
+    "tabProfile": "Profile",
+    "tabSecurity": "Security",
+    "tabActivity": "Activity",
+    "tabTokens": "Access Tokens",
+    "tabPreferences": "Preferences",
     "profileSaved": "Profile updated",
     "displayName": "Display name",
     "joinedAt": "Joined {date}",
+    "avatarUpload": "Upload avatar",
+    "avatarClear": "Remove avatar",
+    "avatarInvalid": "Only png, jpeg, webp are supported",
     "securityTitle": "Security",
     "currentPassword": "Current password",
     "newPassword": "New password",
@@ -581,6 +597,11 @@
     "revokeConfirmMessage": "That device will be signed out and must sign in again to continue.",
     "currentSession": "Current",
     "lastActive": "Last active {time}",
+    "sessionLoginAt": "Signed in {time}",
+    "pwdNeedMin": "At least 8 characters",
+    "pwdNeedMixed": "Must contain upper and lower case",
+    "pwdNeedDigit": "Must contain a digit",
+    "pwdNeedSymbol": "Must contain a symbol",
     "preferencesTitle": "Preferences",
     "language": "Language",
     "theme": "Theme",
@@ -588,7 +609,42 @@
     "langEn": "English",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "themeAuto": "Auto"
+    "themeAuto": "Auto",
+    "prefLanding": "Landing page",
+    "landingCluster": "Cluster overview",
+    "landingWorkbench": "Workbench",
+    "landingLast": "Last visited",
+    "prefRows": "Rows per page",
+    "prefDefaultCluster": "Default cluster",
+    "prefNone": "Not set",
+    "prefDefaultNs": "Default Namespace",
+    "prefDefaultNsHint": "Used when no namespace is remembered for the cluster",
+    "tokens": {
+      "tokensTitle": "Access Tokens",
+      "tokensHint": "Personal credentials for CI or MCP; scope shrinks live with your account",
+      "mintBtn": "Create Token",
+      "mintCluster": "Cluster",
+      "mintNamespace": "Bound Namespace",
+      "mintTier": "Tier",
+      "tierRead": "Read-only",
+      "tierOperator": "Operate",
+      "mintTtl": "TTL (days)",
+      "mintSubmit": "Create",
+      "plaintextTitle": "Save your token now",
+      "plaintextHint": "It will never be shown again",
+      "copy": "Copy",
+      "copied": "Copied",
+      "colToken": "Token",
+      "colLabel": "Label",
+      "colScope": "Scope",
+      "colExpires": "Expires",
+      "colLastUsed": "Last used",
+      "statusActive": "Active",
+      "statusExpired": "Expired",
+      "statusRevoked": "Revoked",
+      "revokeConfirmTitle": "Revoke this token?",
+      "revokeConfirmMessage": "Integrations using it stop working immediately"
+    }
   },
   "layout": {
     "controlPlaneAbnormal": "Control plane abnormal: {ready}/{total} ready · {reasons}",
@@ -3360,6 +3416,17 @@
       "noData": "No data",
       "deleteConfirm": "Are you sure you want to delete <span class=\"font-mono text-on-surface font-semibold\">{title}/{name}</span>?",
       "deleteWarning": "This action cannot be undone."
+    },
+    "securityPolicy": {
+      "title": "Security Policy",
+      "password": "Password Policy",
+      "minLength": "Min length",
+      "requireMixed": "Require mixed case",
+      "requireDigit": "Require digit",
+      "requireSymbol": "Require symbol",
+      "tokenTtl": "Token max TTL (days)",
+      "saved": "Saved",
+      "tokenTtlInvalid": "Token max TTL must be 1-365 days"
     }
   },
   "network": {
@@ -4483,5 +4550,8 @@
     "ledgerStructure": "Structured layer (auto-maintained)",
     "ledgerNotesPlaceholder": "This server's role/duties/deployments, e.g. K8s master + bastion",
     "ledgerEmpty": "No servers yet — add one first"
+  },
+  "mykeys": {
+    "formIncomplete": "Pick a cluster and fill in the namespace"
   }
 }

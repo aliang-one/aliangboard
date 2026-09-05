@@ -67,8 +67,12 @@ export const useAuthStore = defineStore('auth', () => {
     rekeyApi.windowRecords(prev).then(() => clearStashedSession()).catch(() => { /* 保留 stash 重试 */ })
   }
 
-  // 自动连接上次使用的集群（登录后调用）。成功返回 cluster 信息，失败返回 null。
+  // 自动连接(登录后调用):优先偏好里的默认集群(未授权/失效则静默降级),再回退上次使用的集群。
   async function tryAutoConnect() {
+    const preferred = usePreferencesStore().defaultClusterId
+    if (preferred) {
+      try { return await connectCluster(preferred) } catch { /* 首选失效 → 降级 last */ }
+    }
     const lastId = localStorage.getItem(LAST_CLUSTER_KEY)
     if (!lastId) return null
     try {

@@ -3,7 +3,8 @@
 // 用户可见消息走 ../messages.mjs 双语表(msg(req,'auth.xxx'));zh 默认与原文逐字一致。
 import { msg } from '../messages.mjs'
 import { APP_VERSION } from '../version.mjs'
-import { isPasswordOk } from '../password-policy.mjs'
+import { resolvePasswordPolicy, firstFailedRule } from '../password-policy.mjs'
+import { queryAuditLog } from '../audit.mjs'
 import { unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +18,7 @@ export function createAuthRoutes(deps) {
     verifyPassword, randomUUID, normalizeServer, buildCallContext, requestKubernetes,
     checkLoginRate, writeAudit,
     enforceSessionCap, maxPlatformSessionsPerUser,
+    getSetting,
     removeSessionRecord,
     hashPassword, extractPlatformToken,
   } = deps
@@ -83,16 +85,44 @@ export function createAuthRoutes(deps) {
       return true
     }
 
-    // PATCH /api/auth/me — 自助改显示名(2026-08-29 用户中心设计)
-    // 白名单:仅 displayName 可改;username/role/passwordHash 等字段静默忽略(防穿越)。
+    // PATCH /api/auth/me — 自助资料(2026-08-29 设计;Wave1 §3.5 扩头像)。
+    // 白名单:displayName / avatar(data URL) / avatarClear;username/role/passwordHash 静默忽略(防穿越)。
+    // 头像:仅 png/jpeg/webp,解码后 ≤200KB,存 SQLite blob(单库不变式);响应 user 恒不含 avatar 本体。
+    const AVATAR_MIMES = ['image/png', 'image/jpeg', 'image/webp']
+    const AVATAR_MAX_BYTES = 200 * 1024
     if (url.pathname === '/api/auth/me' && req.method === 'PATCH') {
       const ps = requirePlatform(req, res); if (!ps) return true
       const input = await readBody(req)
-      if (input.displayName == null) { sendJson(res, 400, { message: msg(req, 'auth.noUpdateFields') }); return true }
-      const displayName = String(input.displayName).trim().slice(0, 64)
-      db.prepare('UPDATE platform_users SET displayName=? WHERE id=?').run(displayName || null, ps.userId)
+      if (input.displayName == null && input.avatar == null && !input.avatarClear) {
+        sendJson(res, 400, { message: msg(req, 'auth.noUpdateFields') }); return true
+      }
+      if (input.displayName != null) {
+        const displayName = String(input.displayName).trim().slice(0, 64)
+        db.prepare('UPDATE platform_users SET displayName=? WHERE id=?').run(displayName || null, ps.userId)
+      }
+      if (input.avatarClear) {
+        db.prepare('UPDATE platform_users SET avatar=NULL, avatarMime=NULL WHERE id=?').run(ps.userId)
+      }
+      if (input.avatar != null) {
+        const m = typeof input.avatar === 'string' ? input.avatar.match(/^data:([^;,]+);base64,(.*)$/s) : null
+        const buf = m ? Buffer.from(m[2], 'base64') : null
+        if (!m || !AVATAR_MIMES.includes(m[1]) || !buf.length || buf.length > AVATAR_MAX_BYTES) {
+          sendJson(res, 400, { message: msg(req, 'auth.avatarInvalid') }); return true
+        }
+        db.prepare('UPDATE platform_users SET avatar=?, avatarMime=? WHERE id=?').run(buf, m[1], ps.userId)
+      }
       const user = db.prepare('SELECT id,username,role,displayName,createdAt FROM platform_users WHERE id=?').get(ps.userId)
       sendJson(res, 200, { user })
+      return true
+    }
+
+    // GET /api/auth/me/avatar — 头像读取(JSON dataUrl;header 鉴权,不走 <img> 裸链,Wave1 §3.5 裁决)
+    if (url.pathname === '/api/auth/me/avatar' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const row = db.prepare('SELECT avatar, avatarMime FROM platform_users WHERE id=?').get(ps.userId)
+      if (!row || !row.avatar) { sendJson(res, 404, { message: msg(req, 'auth.avatarNotFound') }); return true }
+      const buf = Buffer.isBuffer(row.avatar) ? row.avatar : Buffer.from(row.avatar)
+      sendJson(res, 200, { dataUrl: `data:${row.avatarMime || 'image/png'};base64,${buf.toString('base64')}` })
       return true
     }
 
@@ -106,11 +136,28 @@ export function createAuthRoutes(deps) {
       const input = await readBody(req)
       if (input.language != null && !PREF_LANGS.includes(input.language)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
       if (input.theme != null && !PREF_THEMES.includes(input.theme)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      const PREF_LANDINGS = ['cluster', 'workbench', 'last']
+      const PREF_ROWS = [10, 20, 50, 100]
+      if (input.landingView !== undefined && input.landingView !== null && !PREF_LANDINGS.includes(input.landingView)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      if (input.defaultClusterId !== undefined && input.defaultClusterId !== null && (typeof input.defaultClusterId !== 'string' || input.defaultClusterId.length > 64)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      if (input.defaultNamespace !== undefined && input.defaultNamespace !== null && (typeof input.defaultNamespace !== 'string' || !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(input.defaultNamespace))) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      if (input.rowsPerPage !== undefined && input.rowsPerPage !== null && !PREF_ROWS.includes(input.rowsPerPage)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
       const prefs = readPrefs(db, ps.userId)
       if (input.language != null) prefs.language = input.language
       if (input.theme != null) prefs.theme = input.theme
+      if (input.landingView !== undefined) prefs.landingView = input.landingView
+      if (input.defaultClusterId !== undefined) prefs.defaultClusterId = input.defaultClusterId
+      if (input.defaultNamespace !== undefined) prefs.defaultNamespace = input.defaultNamespace
+      if (input.rowsPerPage !== undefined) prefs.rowsPerPage = input.rowsPerPage
       db.prepare('UPDATE platform_users SET prefs=? WHERE id=?').run(JSON.stringify(prefs), ps.userId)
       sendJson(res, 200, { prefs })
+      return true
+    }
+
+    // GET /api/auth/password-policy — 当前生效密码策略(前端改密表单做同规则预检,Wave1 §3.7)
+    if (url.pathname === '/api/auth/password-policy' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      sendJson(res, 200, { policy: resolvePasswordPolicy(getSetting) })
       return true
     }
 
@@ -125,7 +172,14 @@ export function createAuthRoutes(deps) {
           auditChange('denied', 'bad-current-password')
           sendJson(res, 401, { message: msg(req, 'auth.currentPasswordWrong') }); return true
         }
-        if (!isPasswordOk(newPassword)) { sendJson(res, 400, { message: msg(req, 'auth.passwordTooShort') }); return true }
+        const policy = resolvePasswordPolicy(getSetting)
+        const rule = firstFailedRule(newPassword, policy)
+        if (rule) {
+          const key = rule === 'minLength' ? 'auth.passwordTooShort'
+            : rule === 'mixed' ? 'auth.passwordNeedMixed'
+            : rule === 'digit' ? 'auth.passwordNeedDigit' : 'auth.passwordNeedSymbol'
+          sendJson(res, 400, { message: msg(req, key) }); return true
+        }
         db.prepare('UPDATE platform_users SET passwordHash=? WHERE id=?').run(hashPassword(String(newPassword)), ps.userId)
         const currentToken = extractPlatformToken(req)
         let revoked = 0
@@ -161,6 +215,22 @@ export function createAuthRoutes(deps) {
       }
       list.sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
       sendJson(res, 200, { sessions: list })
+      return true
+    }
+
+    // GET /api/my/activity — 我的活动(2026-09-04 Wave1 §3.2):audit_log 按本人 username 过滤的只读视图。
+    // v1 固定 90 天窗口(服务端钳制,client 传 since/until 无效);只回 finalized 行(queryAuditLog 默认)。
+    if (url.pathname === '/api/my/activity' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const q = url.searchParams
+      const out = queryAuditLog(db, {
+        owner: ps.username,
+        tool: q.get('tool') || undefined, toolPrefix: q.get('toolPrefix') || undefined,
+        result: q.get('result') || undefined, source: q.get('source') || undefined,
+        since: Date.now() - 90 * 86400000,
+        page: q.get('page') || undefined, size: q.get('size') || undefined,
+      })
+      sendJson(res, 200, { ...out, windowDays: 90 })
       return true
     }
 

@@ -23,14 +23,20 @@ export const ROUTE_AUTH = [
   { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204(POST /api/session 已下线:CSO #1 未认证 SSRF 链)
   // --- 平台 ---
   { method: 'GET',  pattern: '/api/auth/me',            auth: 'platform' },
+  { method: 'GET', pattern: '/api/auth/me/avatar', auth: 'platform' }, // 头像读取(JSON dataUrl,本人)
   { method: 'PATCH', pattern: '/api/auth/me',              auth: 'platform' }, // 自助改 displayName
   { method: 'PUT',   pattern: '/api/auth/preferences',     auth: 'platform' }, // 自助偏好(language/theme)
   { method: 'POST',   pattern: '/api/auth/change-password',     auth: 'platform' }, // 自助改密(踢其他会话)
   { method: 'GET',    pattern: '/api/auth/sessions',            auth: 'platform' }, // 我的活跃会话
   { method: 'DELETE', pattern: '/api/auth/sessions/others',     auth: 'platform' }, // 退出其他设备
   { prefix: '/api/auth/sessions/', auth: 'platform' },                              // :fingerprint 吊销
+  { method: 'GET',  pattern: '/api/auth/password-policy', auth: 'platform' }, // 自助改密表单的生效策略
   { method: 'GET',  pattern: '/api/ssh/terminal',        auth: 'platform' }, // WS 升级(ssh 终端):upgrade 时自校验平台 session,门登记为地板
   { method: 'GET',  pattern: '/api/my-clusters',        auth: 'platform' },
+  { method: 'GET',  pattern: '/api/my/keys',            auth: 'platform' }, // 自助访问令牌列表(仅本人)
+  { method: 'POST', pattern: '/api/my/keys',            auth: 'platform' }, // 自助签发(托管 SA,tier≤operator)
+  { prefix: '/api/my/keys/',                            auth: 'platform' }, // DELETE /:id(归属过滤)
+  { method: 'GET',  pattern: '/api/my/activity',        auth: 'platform' }, // 我的活动(audit_log 本人只读视图,90d 窗口)
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },
   { method: 'GET',  pattern: '/api/version',            auth: 'platform' },
   { method: 'POST', pattern: '/api/version/check',      auth: 'platform' },

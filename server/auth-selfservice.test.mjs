@@ -15,7 +15,7 @@ function makeDb() {
   db.exec(`CREATE TABLE platform_users (
     id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, passwordHash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user', displayName TEXT, createdAt INTEGER NOT NULL,
-    disabled INTEGER DEFAULT 0, prefs TEXT)`)
+    disabled INTEGER DEFAULT 0, prefs TEXT, avatar BLOB, avatarMime TEXT)`)
   db.exec(`CREATE TABLE platform_sessions (
     token TEXT PRIMARY KEY, userId TEXT NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL,
     createdAt INTEGER NOT NULL, k8sSessionToken TEXT, lastSeenAt INTEGER, ip TEXT, userAgent TEXT)`)
@@ -284,4 +284,109 @@ test('登录:cap 强制抛异常不阻断登录(降级不踢)', async () => {
   routes._body = { username: 'alice', password: 'right-password' }
   await routes.routes.handle({ method: 'POST', headers: { 'user-agent': 'vitest' }, url: '/api/auth/login' }, {}, new URL('/api/auth/login', 'http://x'))
   assert.equal(sent[0].status, 200, '登录应成功')
+})
+
+// === Wave1 Task 1:密码策略可配置(自改接线 + GET policy 端点) ===
+import { TABLE as MSG } from './messages/auth.mjs'
+
+test('改密:策略档 requireDigit 开启 → 缺数字 400 passwordNeedDigit;满足则通过', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db, { getSetting: () => JSON.stringify({ minLength: 8, requireMixed: true, requireDigit: true, requireSymbol: false }) })
+  routes._body = { currentPassword: 'right-password', newPassword: 'NoDigitsHere' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+  assert.equal(sent[0].status, 400)
+  assert.equal(sent[0].payload.message, MSG['auth.passwordNeedDigit'].zh) // NoDigitsHere 大小写齐全 → digit 规则命中
+  // 满足全部规则 → 200
+  routes._body = { currentPassword: 'right-password', newPassword: 'Good1!Pass' }
+  await routes.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/change-password' }, {}, new URL('/api/auth/change-password', 'http://x'))
+  assert.equal(sent[1].status, 200)
+})
+
+test('GET /api/auth/password-policy:回当前生效策略', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db, { getSetting: () => JSON.stringify({ minLength: 12 }) })
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/password-policy' }, {}, new URL('/api/auth/password-policy', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload.policy, { minLength: 12, requireMixed: false, requireDigit: false, requireSymbol: false })
+})
+
+test('GET /api/auth/password-policy:无策略配置 → 默认档', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/password-policy' }, {}, new URL('/api/auth/password-policy', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload.policy, { minLength: 8, requireMixed: false, requireDigit: false, requireSymbol: false })
+})
+
+test('GET /api/my/activity:只回本 username 行;90 天窗口强制;分页透传', async () => {
+  const db = makeDb(); seed(db); createAuditSchema(db)
+  const now = Date.now()
+  writeAudit(db, { owner: 'alice', tool: 'platform_login', verb: 'login', result: 'ok', ts: now, source: 'platform' })
+  writeAudit(db, { owner: 'bob', tool: 'platform_login', verb: 'login', result: 'ok', ts: now, source: 'platform' })
+  // 91 天前的本用户旧行:writeAudit 恒取 Date.now(),须直接 INSERT(writeAudit 只能写「现在」)
+  db.prepare(`INSERT INTO audit_log (ts, status, tool, verb, result, owner, source, prevHash, hash) VALUES (?, 'finalized', 'platform_login', 'login', 'ok', 'alice', 'platform', 'prev-x', 'hash-x')`).run(now - 91 * 86400000)
+  // 'started' 行(reserveAudit 每次调用都会先写一条)默认不进列表(queryAuditLog status 默认 'finalized')
+  db.prepare(`INSERT INTO audit_log (ts, status, tool, verb, result, owner, source, prevHash, hash) VALUES (?, 'started', 'platform_login', 'login', NULL, 'alice', 'platform', 'prev-x', 'hash-x')`).run(now)
+  const { routes, sent } = makeRoutes(db)
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity'))
+  assert.equal(sent[0].status, 200)
+  const out = sent[0].payload
+  assert.equal(out.total, 1)
+  assert.equal(out.items[0].owner, 'alice')
+  assert.equal(out.windowDays, 90)
+  // 安全校约钉死:query 里的 owner/since 覆盖企图无效(服务端钳制)——bob 的行和 91 天旧行仍被排除
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity?owner=bob&since=0'))
+  assert.equal(sent[1].payload.total, 1)
+  assert.equal(sent[1].payload.items[0].owner, 'alice')
+  // result 过滤透传
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity?result=denied'))
+  assert.equal(sent[2].payload.total, 0)
+})
+
+test('PATCH me 头像:合法 data URL 落库;超 200KB 400;坏 mime 400;avatarClear 清空;user 响应不含 avatar', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  const tinyPng = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
+  routes._body = { avatar: tinyPng }
+  await routes.routes.handle({ method: 'PATCH', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.ok(sent.at(-1).payload.user.avatar === undefined)
+  assert.ok(db.prepare('SELECT avatar FROM platform_users WHERE id=?').get('u1').avatar.length > 0)
+  const big = 'data:image/png;base64,' + Buffer.alloc(200 * 1024 + 1, 7).toString('base64')
+  routes._body = { avatar: big }
+  await routes.routes.handle({ method: 'PATCH', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me'))
+  assert.equal(sent.at(-1).status, 400)
+  routes._body = { avatar: 'data:text/html;base64,PGI+' }
+  await routes.routes.handle({ method: 'PATCH', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me'))
+  assert.equal(sent.at(-1).status, 400)
+  routes._body = { avatarClear: true }
+  await routes.routes.handle({ method: 'PATCH', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.equal(db.prepare('SELECT avatar FROM platform_users WHERE id=?').get('u1').avatar, null)
+})
+
+test('GET avatar:有则回 dataUrl;无则 404', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me/avatar'))
+  assert.equal(sent.at(-1).status, 404)
+  db.prepare('UPDATE platform_users SET avatar=?, avatarMime=? WHERE id=?').run(Buffer.from([1, 2, 3]), 'image/png', 'u1')
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me/avatar'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.ok(sent.at(-1).payload.dataUrl.startsWith('data:image/png;base64,'))
+})
+
+test('PUT preferences 新键:合法落库,非法 400', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  routes._body = { landingView: 'workbench', rowsPerPage: 50, defaultNamespace: 'team-a', defaultClusterId: 'c1' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.equal(JSON.parse(db.prepare('SELECT prefs FROM platform_users WHERE id=?').get('u1').prefs).landingView, 'workbench')
+  routes._body = { landingView: 'evil' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 400)
+  routes._body = { rowsPerPage: 33 }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 400)
 })

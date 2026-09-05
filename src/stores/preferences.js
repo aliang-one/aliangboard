@@ -8,6 +8,7 @@ import { ref } from 'vue'
 import { authApi } from '@/api/client'
 import { setLocale } from '@/i18n'
 import { applyThemeMode } from '@/styles/theme'
+import { setRowsPerPageDefault } from '@/utils/rowsPerPage'
 
 const LOCALE_KEY = 'aliangboard.locale'
 const THEME_KEY = 'aliangboard.theme'
@@ -19,6 +20,11 @@ function readStorage(key) {
 export const usePreferencesStore = defineStore('preferences', () => {
   const language = ref(readStorage(LOCALE_KEY))  // 'en' | 'zh' | null(未设置 → i18n 默认)
   const theme = ref(readStorage(THEME_KEY))      // 'light' | 'dark' | 'auto' | null(未设置 → auto)
+  // Wave1 个人域新键(2026-09-04):账号级偏好,仅登录后由服务端 hydrate,不入 localStorage
+  const landingView = ref(null)                  // 'clusters' | 'workbench' | null(未设置 → 默认)
+  const defaultClusterId = ref(null)
+  const defaultNamespace = ref(null)
+  const rowsPerPage = ref(null)
 
   // 服务端为准覆盖(auth.login / authStore.fetchMe 拿到 prefs 后调用)
   function hydrateFromServer(prefs) {
@@ -28,6 +34,10 @@ export const usePreferencesStore = defineStore('preferences', () => {
       const t = prefs.theme === 'dark' || prefs.theme === 'light' ? prefs.theme : 'auto'
       if (t !== theme.value) { theme.value = t; applyThemeMode(t) }
     }
+    if (prefs.landingView) landingView.value = prefs.landingView
+    if (prefs.defaultClusterId) defaultClusterId.value = prefs.defaultClusterId
+    if (prefs.defaultNamespace) defaultNamespace.value = prefs.defaultNamespace
+    if (prefs.rowsPerPage) { rowsPerPage.value = prefs.rowsPerPage; setRowsPerPageDefault(prefs.rowsPerPage) }
   }
 
   function setLanguage(lang) {
@@ -40,12 +50,31 @@ export const usePreferencesStore = defineStore('preferences', () => {
     applyThemeMode(mode)
     persist()
   }
+  // Wave1 个人域 actions(模式同 setTheme:赋值 → persist)
+  function setLandingView(v) {
+    landingView.value = v
+    persist()
+  }
+  function setDefaultClusterId(v) {
+    defaultClusterId.value = v
+    persist()
+  }
+  function setDefaultNamespace(v) {
+    defaultNamespace.value = v
+    persist()
+  }
+  function setRowsPerPage(n) {
+    rowsPerPage.value = n
+    setRowsPerPageDefault(n)
+    persist()
+  }
   function persist() {
     try {
       localStorage.setItem(LOCALE_KEY, language.value || '')
       localStorage.setItem(THEME_KEY, theme.value || '')
     } catch { /* 无 storage 环境 */ }
-    authApi.savePreferences({ language: language.value, theme: theme.value }).catch(() => { /* 离线兜底:本地已生效 */ })
+    // localStorage 双写仅保留 language/theme 两键——新键是账号级偏好,登录前无意义
+    authApi.savePreferences({ language: language.value, theme: theme.value, landingView: landingView.value, defaultClusterId: defaultClusterId.value, defaultNamespace: defaultNamespace.value, rowsPerPage: rowsPerPage.value }).catch(() => { /* 离线兜底:本地已生效 */ })
   }
-  return { language, theme, hydrateFromServer, setLanguage, setTheme }
+  return { language, theme, landingView, defaultClusterId, defaultNamespace, rowsPerPage, hydrateFromServer, setLanguage, setTheme, setLandingView, setDefaultClusterId, setDefaultNamespace, setRowsPerPage }
 })
