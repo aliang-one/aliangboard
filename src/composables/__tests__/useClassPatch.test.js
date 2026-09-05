@@ -20,3 +20,58 @@ describe('buildIngressClassPatch', () => {
     expect(buildIngressClassPatch({ isDefault: false }, { isDefault: null })).toBeNull()
   })
 })
+
+// 全参数结构化编辑(2026-09-05):controller/parameters/labels/annotations 手术式合并。
+// parameters 语义:undefined=不动;null=整体删除(merge-patch);对象=设置。
+describe('buildIngressClassPatch 全参数扩展', () => {
+  const BASE = {
+    name: 'nginx',
+    controller: 'k8s.io/ingress-nginx',
+    isDefault: false,
+    labels: { team: 'edge' },
+    annotations: { note: 'x' },
+    parameters: { apiGroup: 'k8s.example.com', kind: 'NginxConfiguration', name: 'cfg' },
+  }
+
+  it('controller 变更 → spec.controller;未变不写', () => {
+    expect(buildIngressClassPatch(BASE, { controller: 'k8s.io/other' }))
+      .toEqual({ spec: { controller: 'k8s.io/other' } })
+    expect(buildIngressClassPatch(BASE, { controller: 'k8s.io/ingress-nginx' })).toBeNull()
+  })
+
+  it('parameters 置 null → 整体删除;已空时 null 幂等', () => {
+    expect(buildIngressClassPatch(BASE, { parameters: null }))
+      .toEqual({ spec: { parameters: null } })
+    expect(buildIngressClassPatch({ ...BASE, parameters: null }, { parameters: null })).toBeNull()
+  })
+
+  it('parameters 对象变更 → 设置;未提及(undefined)不动', () => {
+    const next = { kind: 'ConfigMap', name: 'other-cfg' }
+    expect(buildIngressClassPatch(BASE, { parameters: next }))
+      .toEqual({ spec: { parameters: next } })
+    expect(buildIngressClassPatch(BASE, {})).toBeNull()
+  })
+
+  it('labels diff:增/改/删(null)', () => {
+    expect(buildIngressClassPatch(BASE, { labels: { team: 'core', new: '1' } }))
+      .toEqual({ metadata: { labels: { team: 'core', new: '1' } } })
+    expect(buildIngressClassPatch(BASE, { labels: {} }))
+      .toEqual({ metadata: { labels: { team: null } } })
+  })
+
+  it('annotations diff 排除 is-default 键;与 isDefault 分支合并不互覆', () => {
+    const withDefault = { ...BASE, isDefault: true, annotations: { note: 'x', [INGRESSCLASS_DEFAULT_KEY]: 'true' } }
+    // 仅 annotations:is-default 键不参与 diff(由 promote/demote 管)
+    expect(buildIngressClassPatch(withDefault, { annotations: { note: 'y' } }))
+      .toEqual({ metadata: { annotations: { note: 'y' } } })
+    // isDefault + annotations 同时改:合并进同一 annPatch
+    const p = buildIngressClassPatch(BASE, { isDefault: true, annotations: { note: 'y' } })
+    expect(p.metadata.annotations).toEqual({ [INGRESSCLASS_DEFAULT_KEY]: 'true', note: 'y' })
+  })
+
+  it('spec+metadata 联合改动进同一 patch;全无改动 → null', () => {
+    const p = buildIngressClassPatch(BASE, { controller: 'k8s.io/other', labels: { team: 'core' } })
+    expect(p).toEqual({ spec: { controller: 'k8s.io/other' }, metadata: { labels: { team: 'core' } } })
+    expect(buildIngressClassPatch(BASE, { controller: BASE.controller, labels: { team: 'edge' }, annotations: { note: 'x' }, parameters: BASE.parameters })).toBeNull()
+  })
+})
