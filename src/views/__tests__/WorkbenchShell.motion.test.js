@@ -51,9 +51,13 @@ test('staggered 入场:门面标题栏立即/tabs 40ms;pane 挂 wb-rise 且随 t
   expect(w.find('[data-test="wb-facade-sheen"]').classes()).toContain('bg-no-repeat')
 })
 
-test('动效 token 在案:wb-pulse(舷板激活辉光脉冲)与 wb-rise(both fill 防延迟闪现)', () => {
+test('动效 token 在案:wb-pulse(舷板激活辉光脉冲)与 wb-rise(backwards fill:延迟期防闪现)', () => {
+  // 2026-09-05 浮层受困事故:wb-rise 原用 both fill——动画结束后永久保留末帧 transform,
+  // pane 成为 fixed 后代的包含块,弹窗/浮窗被困进 stage 裁切。backwards 同样在延迟期保持
+  // 0% 帧(防闪现不变),但结束后释放 transform。禁回 both:scripts/ui-language-guard V3。
   expect(tailwindConfig.theme.extend.animation['wb-pulse']).toBeTruthy()
-  expect(tailwindConfig.theme.extend.animation['wb-rise']).toContain('both')
+  expect(tailwindConfig.theme.extend.animation['wb-rise']).toContain('backwards')
+  expect(tailwindConfig.theme.extend.animation['wb-rise']).not.toContain('both')
   expect(tailwindConfig.theme.extend.keyframes['wb-rise']).toBeTruthy()
   expect(tailwindConfig.theme.extend.keyframes['wb-pulse']).toBeTruthy()
 })

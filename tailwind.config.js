@@ -75,10 +75,13 @@ export default {
         'sheen': 'sheen 1.1s ease-out 1 both',
         'panel-in': 'panel-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 1',
         // 转场批次(2026-09-05):舷板激活辉光脉冲(一次性,首末帧=激活基础阴影,animate-none
-        // 兜底安全)——若改激活阴影值,这里首末帧须同步;/ wb-rise 分层上浮(both fill:延迟期
-        // 保持 0% 帧,无延迟闪现)
+        // 兜底安全)——若改激活阴影值,这里首末帧须同步;/ wb-rise 分层上浮(backwards fill:
+        // 延迟期保持 0% 帧无延迟闪现;**禁用 both**——both 会在动画结束后永久保留末帧
+        // transform,使该元素成为 position:fixed 后代的包含块,工作台 pane 内一切 fixed
+        // 浮层(弹窗/浮窗)被困进 stage 裁切(2026-09-05 事故)。末帧=自然态,backwards
+        // 结束后释放 transform,视觉零差异。改 keyframes 时勿引入 both。)
         'wb-pulse': 'wb-pulse 0.5s ease-out 1',
-        'wb-rise': 'wb-rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+        'wb-rise': 'wb-rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) backwards',
       },
       keyframes: {
         'pulse-status': {
