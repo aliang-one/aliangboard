@@ -57,6 +57,13 @@ export function createTerminalRegistry({ now = Date.now, ringMaxBytes } = {}) {
     }
   }
   function close(sid, onReap) { const s = map.get(sid); if (!s) return null; map.delete(sid); try { onReap?.(s) } catch {}; return s }
+  // 身份校验版 close(复审三 P1):旧 channel 的 close 事件可能晚到——期间同 sid 已被重连者
+  // 重建新会话时,按 sid 裸删会误删新会话并错放其池引用。expected 不匹配(或已无会话)则静默跳过。
+  function closeIf(sid, expected, onReap) {
+    const s = map.get(sid)
+    if (!s || s !== expected) return null
+    return close(sid, onReap)
+  }
   function closeByServer(serverId, onClose) {
     for (const [sid, sess] of [...map]) {
       if (sess.serverId === serverId) { map.delete(sid); try { onClose?.(sess) } catch { /* noop */ } }
@@ -70,5 +77,5 @@ export function createTerminalRegistry({ now = Date.now, ringMaxBytes } = {}) {
     createdAt: s.createdAt, lastOutputAt: s.lastOutputAt,
     idleMs: Math.max(0, now() - s.lastActiveAt),
   }))
-  return { ensure, get, attach, detachBrowser, touch, markOutput, reapByPolicy, close, closeByServer, count, list }
+  return { ensure, get, attach, detachBrowser, touch, markOutput, reapByPolicy, close, closeIf, closeByServer, count, list }
 }

@@ -126,3 +126,19 @@ test('reapByPolicy: 仅回收「无浏览器 且 空闲超阈」;close 即刻回
   reg.close('b', () => { closed = true })
   assert.ok(closed); assert.equal(reg.get('b'), null); assert.ok(s2)
 })
+
+// —— 旧 channel 延迟 close 的身份校验(复审三 P1)——
+test('closeIf:身份不符不动新会话;身份相符正常关闭', () => {
+  const reg = createTerminalRegistry({})
+  const old = reg.ensure('s1', {}, () => ({ channel: 1 }))
+  reg.close('s1', () => {})                        // 回收/手杀旧会话
+  const fresh = reg.ensure('s1', {}, () => ({ channel: 2 }))   // 同 sid 立即重连 → 新会话
+  const reaped = []
+  reg.closeIf('s1', old, s => reaped.push(s))      // 旧 channel 延迟 close 到达:身份不符 → 新会话毫发无损
+  assert.equal(reg.get('s1'), fresh)
+  assert.deepEqual(reaped, [])
+  reg.closeIf('s1', fresh, s => reaped.push(s))    // 新会话自己的关闭 → 正常回收
+  assert.equal(reg.get('s1'), null)
+  assert.deepEqual(reaped, [fresh])
+  assert.equal(reg.closeIf('s1', old, () => {}), null)   // sid 已无会话:静默
+})

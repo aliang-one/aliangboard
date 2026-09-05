@@ -2230,6 +2230,9 @@ async function handleSshTerminal(ws, ps, url) {
         channel.on('data', d => { sshTerminals.markOutput(sid); session.ring.push(d); broadcastToSockets(session, wsSend, CH_STDOUT, d) })
         channel.stderr?.on?.('data', d => { sshTerminals.markOutput(sid); session.ring.push(d); broadcastToSockets(session, wsSend, CH_STDOUT, d) })
         channel.on('close', () => {
+          // 复审三 P1:channel close 事件可能晚到——期间同 sid 已被重连者重建新会话时,
+          // 旧回调按 sid 裸删会误删新会话。身份不符(或已撤)则与新会话无涉,直接返回。
+          if (sshTerminals.get(sid) !== session) return
           broadcastToSockets(session, wsSend, CH_ERROR, 'channel closed')
           for (const s of session.extra.sockets) { try { s.close() } catch {} }
           session.extra.sockets.clear()
@@ -2241,7 +2244,7 @@ async function handleSshTerminal(ws, ps, url) {
       try { await ready } catch (shellErr) {
         // 首连失败清理:ensure 已登记、release 已挂,须撤登记+还池句柄,防泄漏
         // (窗口期进来的第二个连接 await 同一个 ready 被拒,自然收 ERROR,不动已删会话)
-        sshTerminals.close(sid, s => s.extra.release?.())
+        sshTerminals.closeIf(sid, session, s => s.extra.release?.())
         throw shellErr
       }
       if (sentinel.gone) {
@@ -2252,7 +2255,7 @@ async function handleSshTerminal(ws, ps, url) {
           return
         }
         try { session.extra.channel?.close?.() } catch { /* noop */ }
-        sshTerminals.close(sid, s2 => s2.extra.release?.())
+        sshTerminals.closeIf(sid, session, s2 => s2.extra.release?.())
         writeAudit(db, { owner: ps.username, verb: 'open', tool: 'ssh_terminal', result: 'ok', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
         writeAudit(db, { owner: ps.username, verb: 'close', tool: 'ssh_terminal', result: 'ok', reason: 'client-gone-during-setup', requestSummary: `server=${serverId} sid=${sid}`, source: 'platform' })
         return
