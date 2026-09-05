@@ -31,17 +31,24 @@ test('消双重淡入:根节点不再带 animate-fade-in(AppLayout 转场接管)
   expect(w.find('section').classes()).not.toContain('animate-fade-in')
 })
 
-test('staggered 入场:头部 wb-rise 立即/tab 条 40ms 延迟;pane 挂 wb-rise 且随 tab 切换重播', async () => {
+test('staggered 入场:门面标题栏立即/tabs 40ms;pane 挂 wb-rise 且随 tab 切换重播;门面瓷砖+一次性 sheen 在案', async () => {
   const w = mountShell('admin')
-  const sections = w.findAll('section .animate-wb-rise')
-  expect(sections.length).toBeGreaterThanOrEqual(3)
-  expect(sections[0].classes().join(' ')).not.toContain('animation-delay')
-  expect(sections[1].classes().join(' ')).toContain('[animation-delay:40ms]')
-  // 初始 pane(projects)在带 wb-rise 的包装层里
+  const rises = w.findAll('section .animate-wb-rise')
+  expect(rises.length).toBeGreaterThanOrEqual(3)
+  expect(rises[0].classes().join(' ')).not.toContain('animation-delay')
+  expect(rises[1].classes().join(' ')).toContain('[animation-delay:40ms]')
   expect(w.find('[data-test-stub="projects"]').element.closest('.animate-wb-rise')).toBeTruthy()
-  // 切 tab:pane 重挂后仍带 wb-rise(class 在 :key 重播机制上)
   await w.findAll('button').find(b => b.text().includes('知识')).trigger('click')
   expect(w.find('[data-test-stub="ledger"]').element.closest('.animate-wb-rise')).toBeTruthy()
+  // 门面:32px 品牌瓷砖(与顶栏 pill 瓷砖同配方)+ 挂载即播的一次性 sheen(入口→模块 logo 握手)
+  const tile = w.find('[data-test="wb-facade-tile"]')
+  expect(tile.exists()).toBe(true)
+  expect(tile.classes()).toContain('bg-gradient-to-br')
+  expect(tile.classes()).toContain('from-primary')
+  expect(tile.classes()).toContain('to-primary-container')
+  expect(tile.find('.material-symbols-outlined').text()).toBe('workspaces')
+  expect(w.find('[data-test="wb-facade-sheen"]').classes()).toContain('animate-sheen')
+  expect(w.find('[data-test="wb-facade-sheen"]').classes()).toContain('bg-no-repeat')
 })
 
 test('动效 token 在案:wb-pulse(舷板激活辉光脉冲)与 wb-rise(both fill 防延迟闪现)', () => {
