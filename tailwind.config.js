@@ -74,6 +74,11 @@ export default {
         'breathe': 'breathe 2s ease-in-out infinite',
         'sheen': 'sheen 1.1s ease-out 1 both',
         'panel-in': 'panel-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 1',
+        // 转场批次(2026-09-05):舷板激活辉光脉冲(一次性,首末帧=激活基础阴影,animate-none
+        // 兜底安全)——若改激活阴影值,这里首末帧须同步;/ wb-rise 分层上浮(both fill:延迟期
+        // 保持 0% 帧,无延迟闪现)
+        'wb-pulse': 'wb-pulse 0.5s ease-out 1',
+        'wb-rise': 'wb-rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
       },
       keyframes: {
         'pulse-status': {
@@ -103,6 +108,15 @@ export default {
         'panel-in': {
           '0%': { opacity: '0', transform: 'translateX(14px)' },
           '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+        // 首末帧与舷板激活基础阴影一致(0 0 22px / 0.18):脉冲只是「泛起 40% → 回落」
+        'wb-pulse': {
+          '0%, 100%': { boxShadow: '0 0 22px rgb(var(--md-sys-color-primary) / 0.18)' },
+          '40%': { boxShadow: '0 0 34px rgb(var(--md-sys-color-primary) / 0.32)' },
+        },
+        'wb-rise': {
+          '0%': { opacity: '0', transform: 'translateY(6px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         'dash-flow': {
           to: { strokeDashoffset: '0' },
