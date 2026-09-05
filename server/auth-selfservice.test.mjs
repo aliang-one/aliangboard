@@ -325,15 +325,20 @@ test('GET /api/my/activity:只回本 username 行;90 天窗口强制;分页透�
   writeAudit(db, { owner: 'bob', tool: 'platform_login', verb: 'login', result: 'ok', ts: now, source: 'platform' })
   // 91 天前的本用户旧行:writeAudit 恒取 Date.now(),须直接 INSERT(writeAudit 只能写「现在」)
   db.prepare(`INSERT INTO audit_log (ts, status, tool, verb, result, owner, source, prevHash, hash) VALUES (?, 'finalized', 'platform_login', 'login', 'ok', 'alice', 'platform', 'prev-x', 'hash-x')`).run(now - 91 * 86400000)
+  // 'started' 行(reserveAudit 每次调用都会先写一条)默认不进列表(queryAuditLog status 默认 'finalized')
+  db.prepare(`INSERT INTO audit_log (ts, status, tool, verb, result, owner, source, prevHash, hash) VALUES (?, 'started', 'platform_login', 'login', NULL, 'alice', 'platform', 'prev-x', 'hash-x')`).run(now)
   const { routes, sent } = makeRoutes(db)
   await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity'))
-  assert.equal(sent[0].status, 200)
   assert.equal(sent[0].status, 200)
   const out = sent[0].payload
   assert.equal(out.total, 1)
   assert.equal(out.items[0].owner, 'alice')
   assert.equal(out.windowDays, 90)
+  // 安全校约钉死:query 里的 owner/since 覆盖企图无效(服务端钳制)——bob 的行和 91 天旧行仍被排除
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity?owner=bob&since=0'))
+  assert.equal(sent[1].payload.total, 1)
+  assert.equal(sent[1].payload.items[0].owner, 'alice')
   // result 过滤透传
   await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity?result=denied'))
-  assert.equal(sent[1].payload.total, 0)
+  assert.equal(sent[2].payload.total, 0)
 })
