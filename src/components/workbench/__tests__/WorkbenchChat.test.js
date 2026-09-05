@@ -1,5 +1,5 @@
-import { test, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { test, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 
 // vi.mock factories are hoisted to the top of the file — they can't reference
@@ -66,15 +66,23 @@ async function mountChat(props = {}) {
 
 // Reset call history between tests so create/append assertions are scoped to one test.
 // (approve/deny 同清:审批链测试断言调用次数,前序测试的计数会泄漏——2026-08-26 踩到)
+// mockReset(非 mockClear):clear 只清调用记录,**不清 mockResolvedValueOnce 队列与旧 impl**——
+// 残留 Once 会被下一测试的首次 get 意外消费(2026-09-05 CAS flaky 取证确认)。
 beforeEach(() => {
-  api.conversations.create.mockClear()
-  api.conversations.append.mockClear()
-  api.conversations.get.mockClear()
-  api.conversations.approve.mockClear()
-  api.conversations.deny.mockClear()
-  api.conversations.compact.mockClear()
-  api.conversations.edit.mockClear()
+  api.conversations.create.mockReset()
+  api.conversations.append.mockReset()
+  api.conversations.get.mockReset()
+  api.conversations.approve.mockReset()
+  api.conversations.deny.mockReset()
+  api.conversations.compact.mockReset()
+  api.conversations.edit.mockReset()
 })
+
+// 根修(2026-09-05 CAS flaky 取证):组件带真实轮询定时器(pollTimer 2s/加载重试/续命 revive),
+// 测试不 unmount 就在整个文件生命周期里持续调 get——吃掉后续测试排队的 Once 响应
+// (探针实录:foreign id conv-recon/conv-loadfail 插进本测试两次 get 之间,running 响应被偷走)。
+// afterEach 自动 unmount → onUnmounted 清掉全部定时器,泄漏源消失。
+enableAutoUnmount(afterEach)
 
 test('send() calls conversations.create when no activeConversationId', async () => {
   const w = await mountChat()
@@ -346,8 +354,10 @@ test('SSE mid-run drop: CONNECTING keeps ES for auto-reconnect; CLOSED degrades 
 
 // 草稿保持:切换对话不丢未发送输入;发送后清
 test('draft preserved across conversation switch, cleared on send', async () => {
-  const w = await mountChat({ conversationId: 'conv-a' })
+  // stub 必须先于挂载:mount 即触发首载 get,mockReset 后若依赖前序测试的遗留 impl,
+  // 首载拿到 undefined 会进 500ms 真实定时器重试,测试窗口内状态错乱(2026-09-05 mockReset 取证)
   api.conversations.get.mockResolvedValue({ id: 'conv-a', status: 'done', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'ok' }], trace: '[]', steps: 0, recap: '' })
+  const w = await mountChat({ conversationId: 'conv-a' })
   await flushPromises()
   await w.find('textarea').setValue('写了一半的长问题')
   // 切到对话 B
@@ -361,7 +371,10 @@ test('draft preserved across conversation switch, cleared on send', async () => 
   await flushPromises()
   expect(w.find('textarea').element.value).toBe('写了一半的长问题', '切回恢复草稿')
   // 发送 → 草稿清
-  api.conversations.append.mockResolvedValue({ status: 'running' })
+  // 本测试挂载用 conversationId(无 activeConversationId)→ send 走 create 分支。
+  // 旧写法只 stub append,create 靠 mockClear 不清 impl 的前序遗留侥幸 resolved——
+  // mockReset 后 create 返回 undefined,解构抛错走 catch 回滚草稿,断言确定性挂(2026-09-05 取证)。
+  api.conversations.create.mockResolvedValue({ id: 'conv-a', status: 'running' })
   await w.find('button.bg-primary').trigger('click')
   await flushPromises()
   expect(w.find('textarea').element.value).toBe('', '发送后清空')

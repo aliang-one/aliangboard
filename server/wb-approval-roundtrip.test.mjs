@@ -50,6 +50,12 @@ test('审批链:wb_exec 待审批 → approve → 续跑 → done;消息 trace �
   })
   await new Promise(r => k8s.listen(K8S_PORT, '127.0.0.1', r))
   await new Promise(r => llm.listen(LLM_PORT, '127.0.0.1', r))
+  // keep-alive 竞态根修(2026-09-05 flaky 取证):Node http mock 默认 keepAliveTimeout=5s,
+  // 网关侧 undici 连接池 4s 回收空闲连接——全量并跑的 CPU 饥饿会延迟网关的 4s 定时器,
+  // 复用到 mock 已在 5s 关闭的 socket → fetch failed → 对话被打成 failed(批准后应跑完断言挂)。
+  // 服务端 keep-alive 拉到 30s(≫客户端 4s 回收,且 ≪ headersTimeout 60s 默认),复用必落在活 socket 上。
+  k8s.keepAliveTimeout = 30_000
+  llm.keepAliveTimeout = 30_000
   const gw = spawn(process.execPath, ['server/index.mjs'], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(GW_PORT), ALIANG_DB: join(DIR, 'wb.db'), ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'x'.repeat(12), ALIANG_STATIC_DIR: DIR, ALIANG_WORKBENCH_DIR: join(DIR, 'wb') },
@@ -86,7 +92,13 @@ test('审批链:wb_exec 待审批 → approve → 续跑 → done;消息 trace �
     const ap = await fetch(`${BASE}/api/workbench/conversations/${cv.id}/approve`, { method: 'POST', headers: H, body: '{}' })
     assert.equal(ap.status, 200)
     st = await waitStatus(cv.id, ['done', 'failed'])
-    assert.equal(st, 'done', `批准后应跑完,实际 ${st}`)
+    if (st !== 'done') {
+      // flaky 取证(2026-09-05):failed 时对话里有网关记录的 error,不打出来永远只能猜
+      const bad = await (await fetch(`${BASE}/api/workbench/conversations/${cv.id}`, { headers: H })).json()
+      const msgs = (bad.messages || []).map(m => `${m.role}:${String(m.content).slice(0, 80)}`).join(' | ')
+      throw new Error(`批准后应跑完,实际 ${st};error=${bad.conversation?.error || bad.error || '(无)'};messages=[${msgs}]`)
+    }
+    assert.equal(st, 'done')
 
     // ③ 数据完整性:消息级 trace 含 tool(wb_exec)与瘦身 assistant(中间文本+终答,交错渲染数据)
     const conv = await (await fetch(`${BASE}/api/workbench/conversations/${cv.id}`, { headers: H })).json()
