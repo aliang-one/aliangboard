@@ -3260,6 +3260,7 @@
       "backToList": "Back to IngressClasses",
       "exposedHosts": "Hosts",
       "exposedBackends": "Backend services",
+      "viewAll": "View all {n} Ingresses",
       "searchRelated": "Search namespace / name / host / service",
       "showAll": "Show all {n}",
       "showLess": "Show less",
