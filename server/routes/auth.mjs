@@ -102,6 +102,8 @@ export function createAuthRoutes(deps) {
       const cluster = db.prepare('SELECT nsAuthMode FROM clusters WHERE id=?').get(clusterId)
       if (!cluster) { sendJson(res, 403, { message: msg(req, 'auth.clusterForbidden') }); return true }
       if ((cluster.nsAuthMode || 'open') === 'open') { sendJson(res, 409, { message: msg(req, 'auth.grantableOpenCluster') }); return true }
+      // admin 不受 ns 级限制(spec §6.1);effectiveGrants 对 admin 返回 clusters:'ALL' 无 Map 可 .get,须短路
+      if (ps.role === 'admin') { sendJson(res, 200, { namespaces: [], mode: 'admin' }); return true }
       const az = effectiveGrants(db, { userId: ps.userId, role: ps.role })
       const entry = az.clusters.get(clusterId)
       sendJson(res, 200, { namespaces: entry ? [...entry.ns.entries()].map(([namespace, level]) => ({ namespace, level })) : [] })

@@ -45,6 +45,20 @@ beforeEach(() => {
   for (const m of [groupsList, groupsCreate, groupsMembersList, groupsMembers, clustersList, grantsList, grantsSave, usersList]) m.mockClear()
 })
 
+// 终审 Finding 1:nsAuthMode 必须来自 API 白名单回传——响应缺该字段时不得误报 open 提示
+test('clusters 响应无 nsAuthMode 字段(生产白名单遗漏形态)→ 无 open 提示条', async () => {
+  setActivePinia(createPinia())
+  clustersList.mockImplementationOnce(async () => ({ clusters: [
+    { id: 'c1', name: 'allow-one' },
+    { id: 'c2', name: 'open-one' },
+  ] }))
+  const w = mountView()
+  await flushPromises()
+  expect(w.find('[data-testid="open-mode-notice"]').exists()).toBe(false)
+  // 下拉选项也不得标 (open)
+  expect(w.text()).not.toContain('(open)')
+})
+
 test('挂载:拉 groups + clusters;open 集群提示条渲染', async () => {
   setActivePinia(createPinia())
   const w = mountView()

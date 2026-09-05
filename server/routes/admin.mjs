@@ -255,7 +255,7 @@ export function createAdminRoutes(deps) {
     if (url.pathname === '/api/admin/clusters' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true
       // 取凭据列(authHeader/ca/cert/key/insecure)仅用于探测,绝不回传前端(见下方白名单 map)。
-      const rows = db.prepare('SELECT id,name,apiServer,authMethod,version,insecure,createdBy,createdAt,authHeader,ca,cert,key FROM clusters ORDER BY createdAt DESC').all()
+      const rows = db.prepare('SELECT id,name,apiServer,authMethod,version,insecure,nsAuthMode,createdBy,createdAt,authHeader,ca,cert,key FROM clusters ORDER BY createdAt DESC').all()
       const force = url.searchParams.get('refresh') === '1'
       const probed = await clusterProber.probeAll(
         rows,
@@ -263,7 +263,7 @@ export function createAdminRoutes(deps) {
         { force },
       )
       // 白名单回传:前端需要的字段 + 实时探测的 status/nodeCount/podCount(凭据不入列)。
-      const clusters = probed.map(c => ({ id: c.id, name: c.name, apiServer: c.apiServer, authMethod: c.authMethod, version: c.version, insecure: c.insecure, createdBy: c.createdBy, createdAt: c.createdAt, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount }))
+      const clusters = probed.map(c => ({ id: c.id, name: c.name, apiServer: c.apiServer, authMethod: c.authMethod, version: c.version, insecure: c.insecure, nsAuthMode: c.nsAuthMode, createdBy: c.createdBy, createdAt: c.createdAt, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount }))
       sendJson(res, 200, { clusters })
       return true
     }
@@ -649,6 +649,9 @@ export function createAdminRoutes(deps) {
       const revokedKeys = db.prepare('UPDATE api_keys SET revokedAt=? WHERE ownerUserId=? AND revokedAt IS NULL').run(Date.now(), id).changes
       db.prepare('DELETE FROM platform_users WHERE id=?').run(id)
       db.prepare('DELETE FROM user_clusters WHERE userId=?').run(id)
+      // W2 Phase A(spec §3):删户级联清组员行与 user 侧 ns_grants(孤儿授权残留 = 阴魂授权)
+      db.prepare('DELETE FROM group_members WHERE userId=?').run(id)
+      db.prepare("DELETE FROM ns_grants WHERE subjectType='user' AND subjectId=?").run(id)
       writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_user_delete', result: 'ok', requestSummary: `id=${id} revokedKeys=${revokedKeys}`, source: 'platform' })
       sendJson(res, 200, { ok: true })
       return true

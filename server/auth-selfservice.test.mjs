@@ -475,6 +475,17 @@ test('GET /api/my/grantable-ns:allowlist 返回本人该集群 ns;open 集群 40
   assert.equal(sent[2].status, 403)
 })
 
+// 终审 Finding 2:admin 的 effectiveGrants 是 clusters:'ALL' 无 Map 可 .get,须短路 sentinel(否则 500)
+test('GET /api/my/grantable-ns:admin → 200 + mode=admin sentinel(ns 不受限, spec §6.1)', async () => {
+  const db = makeAuthzDb()
+  db.prepare("UPDATE platform_users SET role='admin' WHERE id='u1'").run()
+  db.prepare("UPDATE platform_sessions SET role='admin' WHERE token='t-me'").run()
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'GET', '/api/my/grantable-ns?clusterId=c1')
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload, { namespaces: [], mode: 'admin' })
+})
+
 test('my-keys POST:allowlist 集群签发未授权 ns → 403;授权 ns → 走到供给链', async () => {
   const db = makeAuthzDb()
   const provisioned = []

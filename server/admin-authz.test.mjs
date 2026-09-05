@@ -14,6 +14,7 @@ function makeHarness() {
   db.exec(`CREATE TABLE groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, createdAt INTEGER NOT NULL, createdBy TEXT)`)
   db.exec(`CREATE TABLE group_members (groupId TEXT NOT NULL, userId TEXT NOT NULL, addedBy TEXT, createdAt INTEGER NOT NULL, PRIMARY KEY (groupId, userId))`)
   db.exec(`CREATE TABLE ns_grants (id TEXT PRIMARY KEY, subjectType TEXT NOT NULL, subjectId TEXT NOT NULL, clusterId TEXT NOT NULL, namespace TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'view', grantedBy TEXT, grantedAt INTEGER NOT NULL, UNIQUE(subjectType,subjectId,clusterId,namespace))`)
+  db.exec(`CREATE TABLE api_keys (id TEXT PRIMARY KEY, ownerUserId TEXT, revokedAt INTEGER)`)
   db.prepare("INSERT INTO platform_users (id,username,passwordHash,role,createdAt) VALUES ('u1','alice','x','user',1)").run()
   db.prepare("INSERT INTO platform_users (id,username,passwordHash,role,createdAt) VALUES ('adm','admin','x','admin',1)").run()
   db.prepare("INSERT INTO clusters (id,name,nsAuthMode) VALUES ('c1','cluster-one','open')").run()
@@ -176,6 +177,23 @@ test('DELETE group:COMMIT 抛错 → 500 且组/成员/授权行均未被删(事
   assert.equal(h.db.prepare('SELECT COUNT(*) c FROM groups').get().c, 1)
   assert.equal(h.db.prepare('SELECT COUNT(*) c FROM group_members').get().c, 1)
   assert.equal(h.db.prepare('SELECT COUNT(*) c FROM ns_grants').get().c, 1)
+})
+
+// 终审 Finding 3a:删户级联清 group_members + user 侧 ns_grants(spec §3)
+test('DELETE user:级联清 group_members 与 user ns_grants', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/admin/groups', { name: 'devs' })
+  const gid = h.sent[0].json.group.id
+  await h.call('POST', `/api/admin/groups/${gid}/members`, { userIds: ['u1'] })
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'user', subjectId: 'u1', clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'view' }] })
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [{ namespace: 'team', level: 'view' }] })
+  assert.equal(h.db.prepare('SELECT COUNT(*) c FROM group_members WHERE userId=?').get('u1').c, 1)
+  await h.call('DELETE', '/api/admin/users/u1')
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.equal(h.db.prepare('SELECT COUNT(*) c FROM group_members WHERE userId=?').get('u1').c, 0)
+  assert.equal(h.db.prepare("SELECT COUNT(*) c FROM ns_grants WHERE subjectType='user' AND subjectId='u1'").get().c, 0)
+  // 组侧授权不受牵连
+  assert.equal(h.db.prepare("SELECT COUNT(*) c FROM ns_grants WHERE subjectType='group' AND subjectId=?").get(gid).c, 1)
 })
 
 test('POST groups:空名 → 400 admin.groupNameRequired(不再借用 groupOrUserNotFound)', async () => {

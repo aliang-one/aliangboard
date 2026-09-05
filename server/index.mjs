@@ -12,6 +12,7 @@ import { sessionOwnerValid } from './session-guard.mjs'
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
+import { sweepOrphanGrants } from './authz.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
@@ -202,6 +203,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS ns_grants (
   grantedAt INTEGER NOT NULL,
   UNIQUE (subjectType, subjectId, clusterId, namespace)
 )`)
+// W2 Phase A(spec §3):启动期孤儿授权清扫(存量库删户/删组漏清的历史残留),best-effort 不阻断启动。
+try {
+  const swept = sweepOrphanGrants(db)
+  if (swept.members || swept.grants) console.log(`[authz] orphan grant sweep: removed ${swept.members} group_members, ${swept.grants} ns_grants`)
+} catch (e) { console.error('[authz] orphan grant sweep failed:', e?.message || e) }
 db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
   token TEXT PRIMARY KEY,
   userId TEXT NOT NULL,
