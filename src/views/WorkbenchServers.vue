@@ -16,6 +16,7 @@ import ToggleSwitch from '@/components/ssh/ToggleSwitch.vue'
 import ServerLedgerPanel from '@/components/ssh/ServerLedgerPanel.vue'
 import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { useAuthStore } from '@/stores/auth'
+import { Z } from '@/styles/zScale'
 
 const { t } = useI18n()
 const qc = useQueryClient()
@@ -225,27 +226,36 @@ defineExpose({ servers })
       <p v-if="testResult" data-test="testResult" class="text-body-sm" :class="testResult.ok ? 'text-primary' : 'text-error'">
         [{{ testResult.name }}] {{ testResult.message }}</p>
 
-      <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40" @click.self="showForm = false">
-        <div class="bg-surface-container-low rounded-xl p-lg w-[720px] max-h-[90vh] overflow-y-auto">
-          <h4 class="text-title-md font-bold mb-md">{{ editing ? t('ssh.editServer') : t('ssh.addServer') }}</h4>
-          <SshServerForm :server="editing" :busy="busy" @submit="onSubmit" @cancel="showForm = false" />
+      <!-- 弹窗 Teleport body(2026-09-05):wb-rise fill 事故前 pane 带常驻 transform 会把
+           position:fixed 变相降级为「相对 pane 定位+被 stage 裁切」;即便根因已修(backwards),
+           入场动画进行中的 0.28s 窗口内 transform 仍在——传送型浮层一律挂 body 走 Z 阶梯(issue#4 配方) -->
+      <teleport to="body">
+        <div v-if="showForm" class="fixed inset-0 flex items-center justify-center bg-on-surface/40" :style="{ zIndex: Z.modal }" @click.self="showForm = false">
+          <div class="bg-surface-container-low rounded-xl p-lg w-[720px] max-h-[90vh] overflow-y-auto">
+            <h4 class="text-title-md font-bold mb-md">{{ editing ? t('ssh.editServer') : t('ssh.addServer') }}</h4>
+            <SshServerForm :server="editing" :busy="busy" @submit="onSubmit" @cancel="showForm = false" />
+          </div>
         </div>
-      </div>
+      </teleport>
     </template>
     <p v-else class="text-body-sm text-on-surface-variant">{{ t('ssh.readonlyNotice') }}</p>
-    <!-- 台账弹窗:内容为 ServerLedgerPanel(结构层只读+自由层编辑,与知识 tab 服务器区同源) -->
-    <div v-if="showLedger" data-test="ledgerModal" class="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40" @click.self="showLedger = false">
-      <div class="bg-surface-container-low rounded-xl p-lg w-[860px] max-h-[90vh] overflow-y-auto flex flex-col gap-md">
-        <h4 class="text-title-md font-bold">{{ t('ssh.ledger') }}</h4>
-        <ServerLedgerPanel />
-        <div class="flex justify-end">
-          <button @click="showLedger = false" class="px-lg py-sm rounded-lg border text-body-sm">{{ t('common.close') }}</button>
+    <!-- 台账弹窗:内容为 ServerLedgerPanel(结构层只读+自由层编辑,与知识 tab 服务器区同源);Teleport body 同上 -->
+    <teleport to="body">
+      <div v-if="showLedger" data-test="ledgerModal" class="fixed inset-0 flex items-center justify-center bg-on-surface/40" :style="{ zIndex: Z.modal }" @click.self="showLedger = false">
+        <div class="bg-surface-container-low rounded-xl p-lg w-[860px] max-h-[90vh] overflow-y-auto flex flex-col gap-md">
+          <h4 class="text-title-md font-bold">{{ t('ssh.ledger') }}</h4>
+          <ServerLedgerPanel />
+          <div class="flex justify-end">
+            <button @click="showLedger = false" class="px-lg py-sm rounded-lg border text-body-sm">{{ t('common.close') }}</button>
+          </div>
         </div>
       </div>
-    </div>
+    </teleport>
     <!-- SSH 终端浮窗已迁 AppLayout 全局宿主:切页/刷新不丢,进任务栏 SSH 分区 -->
-    <!-- SSH 文件浏览浮窗:同机去重,close 即销毁 -->
-    <SshFileBrowserWindow v-for="(b, i) in sshBrowsers" :key="b.serverId" :server-id="b.serverId" :name="b.name"
-      :cascade-index="i" @close="closeBrowser(b.serverId)" />
+    <!-- SSH 文件浏览浮窗:同机去重,close 即销毁;Teleport body(浮窗坐标是视口系,受困同上) -->
+    <teleport to="body">
+      <SshFileBrowserWindow v-for="(b, i) in sshBrowsers" :key="b.serverId" :server-id="b.serverId" :name="b.name"
+        :cascade-index="i" @close="closeBrowser(b.serverId)" />
+    </teleport>
   </section>
 </template>

@@ -4,6 +4,10 @@
 //   V1:module 值白名单——防乱标(未登记模块名静默不上氛围、语义漂移);
 //   V2:凡声明 module 的路由 meta 必须含 fullHeight:true——氛围画布仅在 overflow-hidden 的
 //      fullHeight main 上稳定(文档式滚动会把伪元素滚走),漏标 = 画布破碎。
+//   V3(2026-09-05 浮层受困事故):带 transform 的 keyframes 禁用 both fill——both 会在动画
+//      结束后永久保留末帧 transform,使挂它的元素成为 position:fixed 后代的包含块,pane 内
+//      弹窗/浮窗被困进 stage 裁切。wb-rise 等必须用 backwards(延迟期仍保持 0% 帧,结束后
+//      释放 transform);纯 opacity/backgroundPosition 动画(如 sheen)不受限。
 // 新 W 轨模块接入:白名单加名即可,流程见宪章 §6。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -49,4 +53,21 @@ test('守卫自检:检测逻辑对合成坏样本必须真红(防空洞地绿)',
       (/module:\s*'[^']+'/.test(sample) && !/fullHeight:\s*true/.test(sample)), true, `应判红: ${sample}`)
   }
   assert.equal(MODULE_WHITELIST.includes(good.match(/module:\s*'([^']+)'/)[1]) && /fullHeight:\s*true/.test(good), true, '合法样本应判绿')
+})
+
+test('V3: tailwind 动画含 transform 的 keyframes 不得用 both fill(防 fixed 浮层受困回潮)', () => {
+  const src = readFileSync(join(ROOT, 'tailwind.config.js'), 'utf8')
+  // 逐条目抓 keyframes 条目(单层平衡:{} 内不再嵌 {}),条目体含 transform 即「含 transform 动画」
+  const kfEntries = [...src.matchAll(/'([\w-]+)':\s*\{(?:[^{}]|\{[^{}]*\})*\},/g)]
+    .filter(m => /\btransform\b/.test(m[0])).map(m => m[1])
+  assert.ok(kfEntries.includes('wb-rise'), '前提自检:wb-rise 应被识别为含 transform 的动画')
+  const offenders = []
+  for (const name of kfEntries) {
+    const decl = new RegExp("'(" + name + ")':\\s*'([^']+)',", 'g')
+    for (const m of src.matchAll(decl)) {
+      if (/\bboth\b/.test(m[2])) offenders.push(name + ": '" + m[2] + "'")
+    }
+  }
+  assert.deepEqual(offenders, [],
+    '以下动画用 both fill 且 keyframes 含 transform,会把 fixed 后代困进包含块(改用 backwards): ' + offenders.join('; '))
 })
