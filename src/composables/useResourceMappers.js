@@ -332,6 +332,8 @@ export const mapIngress = item => {
     defaultBackend,
     tls: Boolean(spec.tls?.length),
     tlsSecret: spec.tls?.[0]?.secretName || '',
+    // host 级端口判定(IngressClass 详情暴露摘要:host ∈ tlsHosts → 443,否则 80)
+    tlsHosts: (spec.tls || []).flatMap(t => t.hosts || []),
     age: ageOf(item.metadata?.creationTimestamp),
     labels: item.metadata?.labels || {},
     annotations: item.metadata?.annotations || {},
