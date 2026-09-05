@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody } from './call-context.mjs'
+import { sessionOwnerValid } from './session-guard.mjs'
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
@@ -462,10 +463,16 @@ const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
 
 function sessionFromRequest(req) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
-  const session = token ? sessions.get(token) : null
+  let session = token ? sessions.get(token) : null
   if (session && Date.now() - session.createdAt > sessionTtl) {
     sessions.delete(token)
     removePersistedSession(token) // 过期：从库中清除
+    return null
+  }
+  // W2-0 §0.4:逐请求归属复检——用户被禁用/删除或失去集群分配即刻失效(三处同清:内存+库)。
+  if (session && !sessionOwnerValid(db, session)) {
+    sessions.delete(token)
+    removePersistedSession(token)
     return null
   }
   return session
