@@ -85,16 +85,44 @@ export function createAuthRoutes(deps) {
       return true
     }
 
-    // PATCH /api/auth/me — 自助改显示名(2026-08-29 用户中心设计)
-    // 白名单:仅 displayName 可改;username/role/passwordHash 等字段静默忽略(防穿越)。
+    // PATCH /api/auth/me — 自助资料(2026-08-29 设计;Wave1 §3.5 扩头像)。
+    // 白名单:displayName / avatar(data URL) / avatarClear;username/role/passwordHash 静默忽略(防穿越)。
+    // 头像:仅 png/jpeg/webp,解码后 ≤200KB,存 SQLite blob(单库不变式);响应 user 恒不含 avatar 本体。
+    const AVATAR_MIMES = ['image/png', 'image/jpeg', 'image/webp']
+    const AVATAR_MAX_BYTES = 200 * 1024
     if (url.pathname === '/api/auth/me' && req.method === 'PATCH') {
       const ps = requirePlatform(req, res); if (!ps) return true
       const input = await readBody(req)
-      if (input.displayName == null) { sendJson(res, 400, { message: msg(req, 'auth.noUpdateFields') }); return true }
-      const displayName = String(input.displayName).trim().slice(0, 64)
-      db.prepare('UPDATE platform_users SET displayName=? WHERE id=?').run(displayName || null, ps.userId)
+      if (input.displayName == null && input.avatar == null && !input.avatarClear) {
+        sendJson(res, 400, { message: msg(req, 'auth.noUpdateFields') }); return true
+      }
+      if (input.displayName != null) {
+        const displayName = String(input.displayName).trim().slice(0, 64)
+        db.prepare('UPDATE platform_users SET displayName=? WHERE id=?').run(displayName || null, ps.userId)
+      }
+      if (input.avatarClear) {
+        db.prepare('UPDATE platform_users SET avatar=NULL, avatarMime=NULL WHERE id=?').run(ps.userId)
+      }
+      if (input.avatar != null) {
+        const m = typeof input.avatar === 'string' ? input.avatar.match(/^data:([^;,]+);base64,(.*)$/s) : null
+        const buf = m ? Buffer.from(m[2], 'base64') : null
+        if (!m || !AVATAR_MIMES.includes(m[1]) || !buf.length || buf.length > AVATAR_MAX_BYTES) {
+          sendJson(res, 400, { message: msg(req, 'auth.avatarInvalid') }); return true
+        }
+        db.prepare('UPDATE platform_users SET avatar=?, avatarMime=? WHERE id=?').run(buf, m[1], ps.userId)
+      }
       const user = db.prepare('SELECT id,username,role,displayName,createdAt FROM platform_users WHERE id=?').get(ps.userId)
       sendJson(res, 200, { user })
+      return true
+    }
+
+    // GET /api/auth/me/avatar — 头像读取(JSON dataUrl;header 鉴权,不走 <img> 裸链,Wave1 §3.5 裁决)
+    if (url.pathname === '/api/auth/me/avatar' && req.method === 'GET') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      const row = db.prepare('SELECT avatar, avatarMime FROM platform_users WHERE id=?').get(ps.userId)
+      if (!row || !row.avatar) { sendJson(res, 404, { message: msg(req, 'auth.avatarNotFound') }); return true }
+      const buf = Buffer.isBuffer(row.avatar) ? row.avatar : Buffer.from(row.avatar)
+      sendJson(res, 200, { dataUrl: `data:${row.avatarMime || 'image/png'};base64,${buf.toString('base64')}` })
       return true
     }
 
@@ -108,9 +136,19 @@ export function createAuthRoutes(deps) {
       const input = await readBody(req)
       if (input.language != null && !PREF_LANGS.includes(input.language)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
       if (input.theme != null && !PREF_THEMES.includes(input.theme)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      const PREF_LANDINGS = ['cluster', 'workbench', 'last']
+      const PREF_ROWS = [10, 20, 50, 100]
+      if (input.landingView !== undefined && input.landingView !== null && !PREF_LANDINGS.includes(input.landingView)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      if (input.defaultClusterId !== undefined && input.defaultClusterId !== null && (typeof input.defaultClusterId !== 'string' || input.defaultClusterId.length > 64)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      if (input.defaultNamespace !== undefined && input.defaultNamespace !== null && (typeof input.defaultNamespace !== 'string' || !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(input.defaultNamespace))) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      if (input.rowsPerPage !== undefined && input.rowsPerPage !== null && !PREF_ROWS.includes(input.rowsPerPage)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
       const prefs = readPrefs(db, ps.userId)
       if (input.language != null) prefs.language = input.language
       if (input.theme != null) prefs.theme = input.theme
+      if (input.landingView !== undefined) prefs.landingView = input.landingView
+      if (input.defaultClusterId !== undefined) prefs.defaultClusterId = input.defaultClusterId
+      if (input.defaultNamespace !== undefined) prefs.defaultNamespace = input.defaultNamespace
+      if (input.rowsPerPage !== undefined) prefs.rowsPerPage = input.rowsPerPage
       db.prepare('UPDATE platform_users SET prefs=? WHERE id=?').run(JSON.stringify(prefs), ps.userId)
       sendJson(res, 200, { prefs })
       return true

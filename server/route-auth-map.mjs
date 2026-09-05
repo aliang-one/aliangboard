@@ -23,6 +23,7 @@ export const ROUTE_AUTH = [
   { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204(POST /api/session 已下线:CSO #1 未认证 SSRF 链)
   // --- 平台 ---
   { method: 'GET',  pattern: '/api/auth/me',            auth: 'platform' },
+  { method: 'GET', pattern: '/api/auth/me/avatar', auth: 'platform' }, // 头像读取(JSON dataUrl,本人)
   { method: 'PATCH', pattern: '/api/auth/me',              auth: 'platform' }, // 自助改 displayName
   { method: 'PUT',   pattern: '/api/auth/preferences',     auth: 'platform' }, // 自助偏好(language/theme)
   { method: 'POST',   pattern: '/api/auth/change-password',     auth: 'platform' }, // 自助改密(踢其他会话)

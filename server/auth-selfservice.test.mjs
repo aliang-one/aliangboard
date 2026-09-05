@@ -15,7 +15,7 @@ function makeDb() {
   db.exec(`CREATE TABLE platform_users (
     id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, passwordHash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user', displayName TEXT, createdAt INTEGER NOT NULL,
-    disabled INTEGER DEFAULT 0, prefs TEXT)`)
+    disabled INTEGER DEFAULT 0, prefs TEXT, avatar BLOB, avatarMime TEXT)`)
   db.exec(`CREATE TABLE platform_sessions (
     token TEXT PRIMARY KEY, userId TEXT NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL,
     createdAt INTEGER NOT NULL, k8sSessionToken TEXT, lastSeenAt INTEGER, ip TEXT, userAgent TEXT)`)
@@ -341,4 +341,52 @@ test('GET /api/my/activity:只回本 username 行;90 天窗口强制;分页透�
   // result 过滤透传
   await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/activity?result=denied'))
   assert.equal(sent[2].payload.total, 0)
+})
+
+test('PATCH me 头像:合法 data URL 落库;超 200KB 400;坏 mime 400;avatarClear 清空;user 响应不含 avatar', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  const tinyPng = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
+  routes._body = { avatar: tinyPng }
+  await routes.routes.handle({ method: 'PATCH', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.ok(sent.at(-1).payload.user.avatar === undefined)
+  assert.ok(db.prepare('SELECT avatar FROM platform_users WHERE id=?').get('u1').avatar.length > 0)
+  const big = 'data:image/png;base64,' + Buffer.alloc(200 * 1024 + 1, 7).toString('base64')
+  routes._body = { avatar: big }
+  await routes.routes.handle({ method: 'PATCH', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me'))
+  assert.equal(sent.at(-1).status, 400)
+  routes._body = { avatar: 'data:text/html;base64,PGI+' }
+  await routes.routes.handle({ method: 'PATCH', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me'))
+  assert.equal(sent.at(-1).status, 400)
+  routes._body = { avatarClear: true }
+  await routes.routes.handle({ method: 'PATCH', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.equal(db.prepare('SELECT avatar FROM platform_users WHERE id=?').get('u1').avatar, null)
+})
+
+test('GET avatar:有则回 dataUrl;无则 404', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me/avatar'))
+  assert.equal(sent.at(-1).status, 404)
+  db.prepare('UPDATE platform_users SET avatar=?, avatarMime=? WHERE id=?').run(Buffer.from([1, 2, 3]), 'image/png', 'u1')
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/me/avatar'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.ok(sent.at(-1).payload.dataUrl.startsWith('data:image/png;base64,'))
+})
+
+test('PUT preferences 新键:合法落库,非法 400', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  routes._body = { landingView: 'workbench', rowsPerPage: 50, defaultNamespace: 'team-a', defaultClusterId: 'c1' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.equal(JSON.parse(db.prepare('SELECT prefs FROM platform_users WHERE id=?').get('u1').prefs).landingView, 'workbench')
+  routes._body = { landingView: 'evil' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 400)
+  routes._body = { rowsPerPage: 33 }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 400)
 })

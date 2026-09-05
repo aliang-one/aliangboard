@@ -9,6 +9,8 @@ export const TABLE = {
   'auth.connectFailed': { zh: '连接集群失败', en: 'Failed to connect to the cluster' },
   'auth.noUpdateFields': { zh: '没有可更新的字段', en: 'No fields to update' },
   'auth.preferenceInvalid': { zh: '偏好取值非法', en: 'Invalid preference value' },
+  'auth.avatarInvalid': { zh: '头像仅支持 png/jpeg/webp 且不超过 200KB', en: 'Avatar must be png/jpeg/webp under 200KB' },
+  'auth.avatarNotFound': { zh: '尚未设置头像', en: 'No avatar set' },
   'auth.currentPasswordWrong': { zh: '当前密码错误', en: 'Current password is incorrect' },
   'auth.passwordTooShort': { zh: '新密码至少 8 位', en: 'New password must be at least 8 characters' },
   'auth.changePasswordFailed': { zh: '修改密码失败', en: 'Failed to change password' },
