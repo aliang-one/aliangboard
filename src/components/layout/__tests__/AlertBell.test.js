@@ -18,6 +18,7 @@ const { pushMock, fetchEventsMock, _routeObj, storeMock } = await vi.hoisted(asy
     storeMock: reactive({
       currentCluster: 'prod',
       fetchEvents: vi.fn(async () => []),
+      fetchClusterCerts: vi.fn(async () => null),
       clusterList: [],
       clusterHealth: { severity: 'ok', reasons: [] },
       getCurrentCluster: () => ({ name: 'prod' }),
@@ -36,25 +37,31 @@ vi.mock('@/stores/cluster', () => ({
 }))
 // 真实契约:useResourceList 返回的 data 是 ref(非响应性普通对象——getter 桩会让
 // computed 失去追踪,红点永不刷新)。工厂内建 ref 并导出,测试逐例注入;
-// 同时捕获 options,供轮询门控(eventWatchLive → 停自轮询)断言。
+// 按查询第三键分流 events/certs(2026-09-06 证书告警共用铃铛);
+// capturedOpts 仍只记 events 查询(既有轮询门控断言不动)。
 vi.mock('@/composables/useK8sQuery', () => {
-  const data = ref(null)
+  const eventsData = ref(null)
+  const certsData = ref(null)
   const capturedOpts = {}
   return {
-    useResourceList: (opts) => { capturedOpts.value = opts; return { data } },
-    __eventsData: data,
+    useResourceList: (opts) => {
+      if (opts.key[2] === 'events') capturedOpts.value = opts
+      return { data: opts.key[2] === 'certs' ? certsData : eventsData }
+    },
+    __eventsData: eventsData,
+    __certsData: certsData,
     __queryOpts: capturedOpts,
   }
 })
 import AlertBell from '@/components/layout/AlertBell.vue'
-import { __eventsData, __queryOpts } from '@/composables/useK8sQuery'
+import { __eventsData, __certsData, __queryOpts } from '@/composables/useK8sQuery'
 import { Z } from '@/styles/zScale'
 
 // color 用 eventIconColor 的真实产出(裸 token,非 tailwind 类)——上一版夹具
 // 伪造成 'text-error' 恰好把「裸 token 直绑 class 是死代码」的真 bug 盖住了
 const W = (uid, reason, extra = {}) => ({ uid, type: 'warning', reason, message: 'msg', namespace: 'api', relatedKind: 'Job', relatedName: 'etl-nightly', relatedNamespace: 'api', age: '5m', count: 1, icon: 'error', color: 'error', _ts: 1, ...extra })
 
-beforeEach(() => { localStorage.clear(); pushMock.mockClear(); fetchEventsMock.mockClear(); __eventsData.value = []; storeMock.eventWatchLive = false; storeMock.fetchEvents = fetchEventsMock })
+beforeEach(() => { localStorage.clear(); pushMock.mockClear(); fetchEventsMock.mockClear(); __eventsData.value = []; __certsData.value = null; storeMock.eventWatchLive = false; storeMock.fetchEvents = fetchEventsMock })
 afterEach(() => { document.body.innerHTML = ''; routeRef.path = '/cluster'; routeRef.fullPath = '/cluster' })
 
 function mountBell() {
@@ -215,5 +222,41 @@ test('面板遮罩盖过侧栏(Z.popover-1);路由变化自动关面板', async 
   routeRef.path = '/nodes'
   await flushPromises()
   expect(panel()).toBeFalsy()
+  w.unmount()
+})
+
+// ---- 证书到期告警合并(2026-09-06 证书可观测)----
+const CERT_REPORT = { secrets: { items: [
+  { name: 'tls-web', namespace: 'api', daysLeft: 12, fingerprint256: 'AA:BB' },
+  { name: 'tls-dead', namespace: 'api', daysLeft: -3, fingerprint256: 'CC:DD' },
+  { name: 'tls-far', namespace: 'api', daysLeft: 200, fingerprint256: 'EE:FF' },
+], error: null } }
+
+test('证书告警合并:≤30d/过期进面板(200d 不进),全部已读落 uid 稳定账目', async () => {
+  __eventsData.value = [W('u1', 'BackoffLimitExceeded')]
+  __certsData.value = CERT_REPORT
+  const w = mountBell(); await flushPromises()
+  expect(w.find('[data-test="alert-dot"]').exists()).toBe(true)
+  await w.find('[data-test="alert-bell"]').trigger('click'); await flushPromises()
+  const rows = panel().querySelectorAll('[data-test="alert-row"]')
+  expect(rows).toHaveLength(3) // 1 event + 2 cert(12d warn + -3d expired)
+  expect(panel().textContent).toContain('tls-web')
+  expect(panel().textContent).not.toContain('tls-far')
+  document.querySelector('[data-test="alert-mark-read"]').click(); await flushPromises()
+  const saved = JSON.parse(localStorage.getItem('ab.alertsRead.prod'))
+  expect(saved).toContain('cert:AA:BB')
+  expect(saved).toContain('cert:CC:DD')
+  w.unmount()
+})
+
+test('证书行点击 → ClusterCerts 页;伪事件图标 key', async () => {
+  __certsData.value = CERT_REPORT
+  const w = mountBell(); await flushPromises()
+  await w.find('[data-test="alert-bell"]').trigger('click'); await flushPromises()
+  const icons = panel().querySelectorAll('[data-test="alert-row"] .material-symbols-outlined')
+  expect(icons[0].textContent.trim()).toBe('key') // 先验图标(点击会关面板)
+  const rows = panel().querySelectorAll('[data-test="alert-row"]')
+  rows[0].click(); await flushPromises() // 无 events 时 cert 排最前
+  expect(pushMock).toHaveBeenCalledWith({ name: 'ClusterCerts' })
   w.unmount()
 })
