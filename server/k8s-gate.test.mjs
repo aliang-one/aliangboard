@@ -59,6 +59,7 @@ test('allowlist + view grant → GET ok, POST denied + audit', () => {
   assert.equal(rows[0].namespace, 'team-a')
   assert.equal(rows[0].owner, 'u1')
   assert.equal(rows[0].clusterId, 'c-allow')
+  assert.equal(rows[0].source, 'platform') // controller 裁决:平台侧审计口径
 })
 
 test('view session requesting operate level → false + audit', () => {
@@ -137,38 +138,79 @@ test('hoisted prepares: gate-owned SQL prepared exactly once across calls', () =
   assert.equal(afterThird, 1) // never re-prepared
 })
 
-test('equivalence matrix: hoisted decision == canAccessNs on allowlist clusters', () => {
-  // 追加用户/授权,覆盖矩阵:admin、disabled、无分配、有分配无授权、view、operate、组授权
+test('unknown/missing level → deny + audit reason=bad-level (fail-closed, incl. admin)', () => {
   const db = makeGateDb()
-  db.prepare(`INSERT INTO platform_users (id, username, role, disabled, createdAt) VALUES (?,?,?,?,?)`)
-    .run('u3', 'carol', 'user', 0, Date.now())
-  db.prepare(`INSERT INTO platform_users (id, username, role, disabled, createdAt) VALUES (?,?,?,?,?)`)
-    .run('u4', 'dan', 'user', 0, Date.now())
-  db.prepare(`INSERT INTO user_clusters (userId, clusterId) VALUES (?,?)`).run('u3', 'c-allow')
-  db.prepare(`INSERT INTO user_clusters (userId, clusterId) VALUES (?,?)`).run('u4', 'c-allow')
+  const audits = []
+  const gate = createK8sGate({ db, writeAudit: (d, e) => audits.push(e) })
+  const s = { userId: 'u1', clusterId: 'c-allow' }
+  assert.equal(gate.gateK8sSession(s, { namespace: 'team-a', level: 'admin' }), false)
+  assert.equal(gate.gateK8sSession(s, { namespace: 'team-a' }), false) // level 缺失
+  // fail-closed 先于 admin 短路:调用方契约坏了宁可全拒
+  assert.equal(gate.gateK8sSession({ userId: 'admin1', clusterId: 'c-allow' }, { namespace: 'team-a', level: 'write' }), false)
+  assert.equal(gate.gateK8sSession({ userId: 'admin1', clusterId: 'c-allow' }, { namespace: 'team-a', level: 'view' }), true)
+  assert.equal(audits.length, 3)
+  assert.ok(audits.every(e => e.reason === 'bad-level'))
+  // open/legacy 路径在 mode 检查即返回,level 校验不参与(ruling ② 顺序)
+  assert.equal(gate.gateK8sSession({ userId: 'u1', clusterId: 'c-open' }, { namespace: 'x', level: 'nope' }), true)
+  assert.equal(audits.length, 3)
+})
+
+test('equivalence matrix: hoisted decision == canAccessNs on allowlist clusters', () => {
+  // 矩阵用户:授权覆盖 admin、disabled、无分配、有分配无授权、direct view、group operate、
+  // direct view + group operate 同 ns 取高档(merge-takes-higher pin)。
+  const db = makeGateDb()
+  const insertUser = (id, name, disabled = 0) =>
+    db.prepare(`INSERT INTO platform_users (id, username, role, disabled, createdAt) VALUES (?,?,?,?,?)`)
+      .run(id, name, 'user', disabled, Date.now())
+  insertUser('u3', 'carol')
+  insertUser('u4', 'dan')
+  insertUser('u5', 'eve') // 有授权但无 user_clusters 分配 → 两实现都必须 false
+  insertUser('u6', 'fred', 1) // 禁用但有分配+授权 → 两实现都必须 false
+  for (const [u, c] of [['u3', 'c-allow'], ['u4', 'c-allow'], ['u6', 'c-allow'], ['u2', 'c-open'], ['u3', 'c-open'], ['u4', 'c-open'], ['u5', 'c-open']]) {
+    db.prepare(`INSERT INTO user_clusters (userId, clusterId) VALUES (?,?)`).run(u, c)
+  }
   db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
     .run('g2', 'user', 'u3', 'c-allow', 'team-a', 'operate', Date.now())
+  db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
+    .run('g5', 'user', 'u5', 'c-allow', 'team-a', 'operate', Date.now()) // 无分配:不抬权
+  db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
+    .run('g6', 'user', 'u6', 'c-allow', 'team-a', 'operate', Date.now()) // 禁用:全拒
   db.prepare(`INSERT INTO groups (id, name, createdAt, createdBy) VALUES (?,?,?,?)`).run('grp1', 'g1', Date.now(), 'admin1')
   db.prepare(`INSERT INTO group_members (groupId, userId, addedBy, createdAt) VALUES (?,?,?,?)`).run('grp1', 'u4', 'admin1', Date.now())
+  // u4 同 ns 双源:direct view + group operate → merge 取高档 operate(两实现一致)
   db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
-    .run('g3', 'group', 'grp1', 'c-allow', 'team-b', 'view', Date.now())
+    .run('g3', 'group', 'grp1', 'c-allow', 'team-b', 'operate', Date.now())
+  db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
+    .run('g4', 'user', 'u4', 'c-allow', 'team-b', 'view', Date.now())
   const gate = createK8sGate({ db, writeAudit })
-  const cases = []
-  for (const userId of ['u1', 'u2', 'u3', 'u4', 'admin1', 'ghost', 'u1-disabled']) {
-    if (userId === 'u1-disabled') {
-      db.prepare('UPDATE platform_users SET disabled=1 WHERE id=?').run('u1')
-    }
+  const enabledAssignedOpen = ['u1', 'u2', 'u3', 'u4', 'admin1'] // open 集群上与 canAccessNs 等价的集合
+
+  for (const userId of ['u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'admin1', 'ghost']) {
     for (const ns of ['team-a', 'team-b', 'team-c', null]) {
       for (const level of ['view', 'operate']) {
-        cases.push([userId, 'c-allow', ns, level])
+        // (a) allowlist 集群:逐点等价(含 null-ns 的 admin-only gate 语义)
+        const expected = ns == null
+          ? (canAccessNs(db, { userId, role: undefined }, 'c-allow', 'team-a', level) && userId === 'admin1')
+          : canAccessNs(db, { userId, role: undefined }, 'c-allow', ns, level)
+        const got = gate.gateK8sSession({ userId, clusterId: 'c-allow' }, { namespace: ns, level })
+        assert.equal(got, expected, `allowlist ${userId}/${ns}/${level}: gate=${got} canAccessNs=${expected}`)
+        // (c) open 集群行:enabled+assigned 用户两实现同为 true;u5/u6/ghost 是裁决②的
+        //     有意分歧(gate 在 mode 检查即 true,不看用户;open 集群的用户筛选归上游会话有效性)
+        const gateOpen = gate.gateK8sSession({ userId, clusterId: 'c-open' }, { namespace: ns, level })
+        assert.equal(gateOpen, true, `open ${userId}/${ns}/${level} 必须恒 true(ruling ②)`)
+        if (enabledAssignedOpen.includes(userId)) {
+          const expectedOpen = ns == null
+            ? canAccessNs(db, { userId, role: undefined }, 'c-open', 'team-a', level)
+            : canAccessNs(db, { userId, role: undefined }, 'c-open', ns, level)
+          assert.equal(expectedOpen, true, `open 等价前提:canAccessNs(${userId}) 应为 true`)
+        }
       }
     }
   }
-  for (const [userId, clusterId, ns, level] of cases) {
-    // canAccessNs 无 namespace=null 语义(等价矩阵只比 ns 非空情形;null 分支由 gate 独有语义覆盖)
-    const expected = ns == null ? (canAccessNs(db, { userId, role: undefined }, clusterId, 'team-a', level) && userId === 'admin1')
-      : canAccessNs(db, { userId, role: undefined }, clusterId, ns, level)
-    const got = gate.gateK8sSession({ userId, clusterId }, { namespace: ns, level })
-    assert.equal(got, expected, `${userId}/${ns}/${level}: gate=${got} canAccessNs=${expected}`)
-  }
+  // merge-takes-higher 显式钉点:u4 在 team-b 是 direct view + group operate → operate 通过
+  assert.equal(gate.gateK8sSession({ userId: 'u4', clusterId: 'c-allow' }, { namespace: 'team-b', level: 'operate' }), true)
+  assert.equal(canAccessNs(db, { userId: 'u4', role: undefined }, 'c-allow', 'team-b', 'operate'), true)
+  // 无分配的授权不抬权(两实现一致 false)
+  assert.equal(gate.gateK8sSession({ userId: 'u5', clusterId: 'c-allow' }, { namespace: 'team-a', level: 'operate' }), false)
+  assert.equal(canAccessNs(db, { userId: 'u5', role: undefined }, 'c-allow', 'team-a', 'operate'), false)
 })

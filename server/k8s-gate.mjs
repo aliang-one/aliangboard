@@ -3,15 +3,18 @@
 // 语义(controller rulings):
 //   ① !session.userId(legacy 会话)→ true(零审计);
 //   ② clusters 行不存在或 nsAuthMode!=='allowlist' → true(零审计);
-//   ③ namespace=null(集群级出口)在 allowlist 集群上 → false + 审计(集群级操作需 admin,
-//      admin 短路通过);open/legacy → true;
+//   ③ namespace=null(集群级出口)在 allowlist 集群上 → 非 admin 拒 + 审计;admin 短路通过
+//      (裁决 2026-09-06:admin 是平台操作者,canAccessNs 全路径 admin 短路,集群级出口同口径放行);
+//      open/legacy → true;
 //   ④ allowlist ns 决策:与 canAccessNs(authz.mjs)语义逐点一致——admin 短路 true;
 //      禁用/不存在用户 false;须有 user_clusters 分配;直接授权 ∪ 组授权 取高档 ≥ 需求档。
 //      热路径上全部查询用提升语句(equivalence 由 k8s-gate.test.mjs 对 canAccessNs 矩阵钉住)。
-//   ⑤ db 抛异常 → false + 审计 reason='db-error'(fail-closed——控制器裁决:网关拒绝路径
+//   ⑤ level 不在 {view,operate}(未知/缺失)→ 拒 + reason='bad-level'(fail-closed,先于
+//      admin 短路——调用方契约坏了宁可全拒);
+//   ⑥ db 抛异常 → false + 审计 reason='db-error'(fail-closed——控制器裁决:网关拒绝路径
 //      fail-open 等于放行,与 sessionOwnerValid 口径一致)。
-// 拒绝审计 shape:tool='k8s_gate', result='denied', owner/clusterId/namespace/verb/resource/path。
-import { canAccessNs } from './authz.mjs' // 语义参考(等价测试对照实现)
+// 拒绝审计 shape:tool='k8s_gate', result='denied', source='platform'(平台侧会话口径),
+// owner/clusterId/namespace/verb/resource/path。
 
 const LEVEL_RANK = { view: 0, operate: 1 }
 
@@ -36,6 +39,7 @@ export function createK8sGate({ db, writeAudit }) {
       writeAudit(db, {
         tool: 'k8s_gate',
         result: 'denied',
+        source: 'platform', // 平台会话口径(controller 裁决:与 platform 侧审计约定对齐)
         reason,
         owner: session?.userId ?? null,
         clusterId: session?.clusterId ?? null,
@@ -48,14 +52,14 @@ export function createK8sGate({ db, writeAudit }) {
     return false
   }
 
-  // allowlist 集群上的 ns/集群级决策(与 canAccessNs 语义一致;namespace=null 仅 admin 过)。
+  // allowlist 集群上的 ns/集群级决策(与 canAccessNs 语义一致)。
   function allow(session, clusterId, namespace, level) {
     const u = stmts.user.get(session.userId)
     if (!u) return false // 不存在/禁用用户
-    if (u.role === 'admin') return true
+    if (u.role === 'admin') return true // admin 是平台操作者:全路径短路,含 namespace=null 集群级出口(裁决)
     if (namespace == null) return false // 集群级出口:非 admin 一律拒
     if (!stmts.assignment.get(session.userId, clusterId)) return false
-    const need = LEVEL_RANK[level] ?? LEVEL_RANK.view
+    const need = LEVEL_RANK[level] // bad-level 已在 gateK8sSession 前置拒绝,这里无需兜底
     let best
     for (const { ns, level: lv } of stmts.grants.all(session.userId, clusterId, session.userId, clusterId)) {
       if (ns === namespace && (best === undefined || LEVEL_RANK[lv] > LEVEL_RANK[best])) best = lv
@@ -68,7 +72,11 @@ export function createK8sGate({ db, writeAudit }) {
     try {
       const cluster = stmts.clusterMode.get(session.clusterId)
       if (!cluster || cluster.nsAuthMode !== 'allowlist') return true
-      return allow(session, session.clusterId, namespace, level || 'view')
+      // 调用方契约:level 必须是 {view,operate} 之一;未知/缺失 → 拒(先于 admin 短路,fail-closed)。
+      if (level !== 'view' && level !== 'operate') {
+        return deny(session, { namespace, level, path, method }, 'bad-level')
+      }
+      return allow(session, session.clusterId, namespace, level)
         || deny(session, { namespace, level, path, method },
           namespace == null ? 'cluster-level-op' : 'ns-denied')
     } catch {
