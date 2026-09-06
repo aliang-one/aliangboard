@@ -221,7 +221,10 @@ const CK_TIME_MS = 500
         return
       }
       busEmit(convId, { type: 'status', status: 'running' })
-      const { ctx } = buildWbCtx(project)
+      // principal(W2 Phase C Task 5):actor 由路由线程({userId, username, role}),
+      // 供 buildWbCtx 工具执行面授权门执法——detached runner 无法依赖请求上下文。
+      const principal = { userId: actor?.userId, role: actor?.role }
+      const { ctx } = buildWbCtx(project, principal)
       // SSH 接线(Task 11,2026-08-28):动态审批按服务器策略(needsApproval 纯函数,checkpoint/resume 两处
       // 都会被咨询,不得有副作用);零暴露服务器时直接隐藏 wb_ssh_* 两工具。
       const sshBridge = ctx.ssh || null
@@ -302,7 +305,8 @@ const CK_TIME_MS = 500
       }
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
       busEmit(convId, { type: 'status', status: 'running' })
-      const { ctx } = buildWbCtx(project)
+      const principal = { userId: actor?.userId, role: actor?.role } // Phase C:同 run,审批续跑同样过门
+      const { ctx } = buildWbCtx(project, principal)
       // SSH 接线同 runConversation(resume 侧同样咨询 needsApproval——必须纯/幂等)。
       const sshBridge = ctx.ssh || null
       const sshJobs = ctx.sshJobs || null

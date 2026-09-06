@@ -14,7 +14,7 @@ import { createK8sGate, gateParsedPath, filterNamespaceList, gateWatchResources 
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
-import { sweepOrphanGrants, effectiveGrants, levelForRequest } from './authz.mjs'
+import { sweepOrphanGrants, effectiveGrants, levelForRequest, wbToolGate } from './authz.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
@@ -33,7 +33,7 @@ import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
 import { scrubSecrets } from './secret-scrub.mjs'
 import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted, projectRepoPath, learningLedgerPath } from './workbench-projects.mjs'
-import { listApiPath, getApiPath } from './kind-paths.mjs'
+import { listApiPath, getApiPath, KIND_API } from './kind-paths.mjs'
 import { createRefContextFetcher } from './ref-fetch.mjs'
 import { ensureGitAvailable, initRepo, hasRepo, writeFile as wbWriteFile, readFile as wbReadFile, listFiles as wbListFiles, commit as wbCommit, readManifests as wbReadManifests } from './workbench-repos.mjs'
 import { formatIndexMd, verifiedAt } from './workbench-ledger.mjs'
@@ -1282,7 +1282,9 @@ async function handle(req, res) {
   // ====== 工作台:有状态对话(P5)——5 端点 + 后台执行(detached Promise) ======
 
   // 构建 workbench context(复用现有 agent chat 的 projectId 分支逻辑)
-  function buildWbCtx(project) {
+  // principal(W2 Phase C Task 5):{ userId, role } 由 run/resume 的 actor 线程传入——
+  // detached runner 无法依赖请求上下文,授权必须在每次工具调用点执法。
+  function buildWbCtx(project, principal = null) {
     const repo = projectRepoPath(WORKBENCH_DIR, project)
     const learn = learningLedgerPath(WORKBENCH_DIR, project)
     const ledgerRepo = project.clusterId ? join(WORKBENCH_DIR, project.clusterId, 'cluster-context') : learn.dir
@@ -1292,6 +1294,12 @@ async function handle(req, res) {
     // kind→路径统一从 kind-paths.mjs 派生(listApiPath/getApiPath)——本函数曾持两份私有路径表,已删。
     const enc = encodeURIComponent
     const LOG_TAIL = 200, LOG_MAX = 16384
+    // W2 Phase C(Task 5):ns 级授权门——每个 ns 型工具在 K8s 出站前 check;读=view、写/exec=operate。
+    // clusterId 空(未绑定项目)→ 零门(下方 k8sSession 守卫已 natural fail)。拒绝 →
+    // PermissionDeniedError,agent 工具错误面统一 {error} 形状,AI 可读 reason=rbac 不再无脑重试。
+    const gate = wbToolGate(db, principal, project.clusterId)
+    // kind 感知门:ns-scoped kind → check(ns);集群级 kind(nodes/PV/…)→ clusterWide。
+    const gateKind = (ns, k, level, tool) => (KIND_API[k] && !KIND_API[k].ns ? gate.clusterWide(tool) : gate.check(ns, level, tool))
     const ctx = {
         readLedger: async () => {
           if (!project.clusterId) return '(项目未绑定集群:可写 manifests 草稿、SSH 服务器运维;绑定集群后此处为集群能力台账)'
@@ -1315,14 +1323,23 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
           if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
+          const nsArg = namespace && namespace !== '_' ? String(namespace) : ''
+          // 授权门(W2 Phase C):显式 ns → check;无 ns 的 ns-scoped kind → 结果按授权 ns 过滤;
+          // 集群级 kind(nodes/PV/…)→ allowlist 非 admin 拒(集群级列表会绕过全部 ns 授权面)。
+          if (nsArg) gate.check(nsArg, 'view', 'wb_list')
+          else if (!KIND_API[k].ns) gate.clusterWide('wb_list')
           // ns-scoped kind 给 ns 收窄;集群级 kind(nodes/PV/…)或未给 ns → 集群级列表(语义同旧 replace 链)
-          const path = listApiPath(k, namespace && namespace !== '_' ? String(namespace) : '')
+          const path = listApiPath(k, nsArg)
           const resp = await requestKubernetes(k8sSession, path)
-          const items = (resp?.body?.items || []).slice(0, 50).map(it => ({ name: it.metadata?.name, namespace: it.metadata?.namespace || '', kind: k }))
-          return { kind: k, count: resp?.body?.items?.length || 0, returned: items.length, items }
+          const allowed = gate.namespaces()
+          let raw = resp?.body?.items || []
+          if (allowed) raw = raw.filter(it => allowed.has(it.metadata?.namespace || ''))
+          const items = raw.slice(0, 50).map(it => ({ name: it.metadata?.name, namespace: it.metadata?.namespace || '', kind: k }))
+          return { kind: k, count: raw.length, returned: items.length, items }
         },
         getPodLogs: async (args) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(args.namespace, 'view', 'wb_get_pod_logs') // Phase C 裁决:读面=view(logs 子资源 operate 档只约束直连 API 面)
           const tailN = Math.min(Math.max(Number(args.tail) || LOG_TAIL, 1), LOG_TAIL)
           const q = new URLSearchParams({ tailLines: String(tailN) })
           if (args.container) q.set('container', args.container)
@@ -1345,6 +1362,7 @@ async function handle(req, res) {
         // 命令不可注入,只读语义 → 免人审。ConfigMap/Secret 看不到的容器内落盘文件用它。
         readPodFile: async (args) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(args.namespace, 'view', 'wb_read_pod_file')
           if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
           const p = safePodPath(args.path)
           // CSO #4:免审读文件的敏感面拒绝清单(/proc /sys /dev /run/secrets)——SA token 等
@@ -1360,6 +1378,7 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
           if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
+          gateKind(namespace, k, 'view', 'wb_describe')
           const getter = getApiPath(k, namespace, name)
           const resResp = await requestKubernetes(k8sSession, getter)
           const resBody = resResp?.body
@@ -1373,6 +1392,7 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           const k = kind && String(kind).trim() ? normalizeKind(kind) : 'pods'
           if (!k) throw new Error(msg(req, 'api.unsupportedKind', { k: `${String(kind)}(支持:${CANONICAL_KINDS.join('/')},单数/缩写自动归一)` }))
+          gateKind(namespace, k, 'view', 'wb_get')
           const getter = getApiPath(k, namespace, name)
           const resp = await requestKubernetes(k8sSession, getter)
           const body = resp?.body
@@ -1381,6 +1401,7 @@ async function handle(req, res) {
         },
         getEvents: async (namespace, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(namespace, 'view', 'wb_get_events')
           const path = name ? `/api/v1/namespaces/${enc(namespace)}/events?fieldSelector=${enc('involvedObject.name=' + name)}` : `/api/v1/namespaces/${enc(namespace)}/events`
           const resp = await requestKubernetes(k8sSession, path)
           const items = (resp?.body?.items || []).slice(0, 50).map(e => ({ reason: e.reason, type: e.type, message: String(e.message || '').slice(0, 300), last: e.lastTimestamp }))
@@ -1388,6 +1409,7 @@ async function handle(req, res) {
         },
         rolloutStatus: async (namespace, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(namespace, 'view', 'wb_rollout_status')
           const resp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`)
           const body = resp?.body
           if (!body) throw new Error(msg(req, 'api.deploymentNotFound', { name }))
@@ -1405,6 +1427,7 @@ async function handle(req, res) {
           try {
             const scope = String(args.scope || 'pods').toLowerCase()
             if (scope === 'nodes') {
+              gate.clusterWide('wb_top') // nodes/metrics 是集群级面:allowlist 非 admin 拒
               const mResp = await requestKubernetes(k8sSession, '/apis/metrics.k8s.io/v1beta1/nodes')
               const caps = {}
               try {
@@ -1424,6 +1447,7 @@ async function handle(req, res) {
             // 默认 pods(ns 必填;pod 可选 → 单 pod 精查)
             const ns = args.namespace
             if (!ns) throw new Error(msg(req, 'api.topNeedsNamespace'))
+            gate.check(ns, 'view', 'wb_top')
             const mResp = await requestKubernetes(k8sSession, args.pod
               ? `/apis/metrics.k8s.io/v1beta1/namespaces/${enc(ns)}/pods/${enc(args.pod)}`
               : `/apis/metrics.k8s.io/v1beta1/namespaces/${enc(ns)}/pods`)
@@ -1457,6 +1481,7 @@ async function handle(req, res) {
         // === K8s 运维(scale/restart,用项目绑定集群凭据,需人审) ===
         scale: async (namespace, kind, name, replicas) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(namespace, 'operate', 'wb_scale')
           const k = normalizeKind(kind) || String(kind || '').toLowerCase()
           if (!['deployments', 'statefulsets'].includes(k)) throw new Error(msg(req, 'api.scaleUnsupported', { k }))
           const n = Math.min(Math.max(Number(replicas) | 0, 1), 20) // 钳到 1..20
@@ -1465,6 +1490,7 @@ async function handle(req, res) {
         },
         restart: async (namespace, kind, name) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(namespace, 'operate', 'wb_restart')
           const k = normalizeKind(kind) || String(kind || '').toLowerCase()
           if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(msg(req, 'api.restartUnsupported', { k }))
           const ts = new Date().toISOString()
@@ -1473,6 +1499,7 @@ async function handle(req, res) {
         },
         updateImage: async (namespace, kind, name, image, container) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(namespace, 'operate', 'wb_update_image')
           const k = normalizeKind(kind) || String(kind || '').toLowerCase()
           if (!['deployments', 'statefulsets', 'daemonsets'].includes(k)) throw new Error(msg(req, 'api.updateImageUnsupported', { k }))
           if (!image) throw new Error(msg(req, 'api.imageRequired'))
@@ -1493,6 +1520,7 @@ async function handle(req, res) {
         },
         rolloutUndo: async (namespace, name, toRevision) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(namespace, 'operate', 'wb_rollout_undo')
           // apps/v1 已移除 deployments/rollback 子资源,kubectl rollout undo 实为客户端行为:
           // 取目标 revision 的 ReplicaSet 完整 template,merge-patch 回 Deployment(与前端 rollbackWorkload 同源)。
           const depResp = await requestKubernetes(k8sSession, `/apis/apps/v1/namespaces/${enc(namespace)}/deployments/${enc(name)}`)
@@ -1518,6 +1546,7 @@ async function handle(req, res) {
         // 复用 execCapture(超时 + 流式上限 + ANSI 清洗);非交互一次性。命令原文进审批弹窗,人看到才跑。
         execInPod: async (args) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          gate.check(args.namespace, 'operate', 'wb_exec') // Phase C 裁决:exec 恒 operate
           if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
           const command = Array.isArray(args.command) ? args.command.join(' ') : String(args.command || '')
           if (!command.trim()) throw new Error(msg(req, 'api.missingCommand'))

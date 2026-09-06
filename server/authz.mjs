@@ -8,6 +8,8 @@
 //     open → 任意 ns 全通;allowlist → 直接授权 ∪ 组授权 取高档,不足即拒。
 //   - levelForRequest(method, subresource):GET/HEAD → view,写 → operate;
 //     exec/logs/portforward/attach/log 子资源恒 operate(交互/流式面;spec §4,log 是 pod-log 真实形态)。
+import { PermissionDeniedError } from './authorize.mjs'
+
 const SUBRESOURCE_OPERATE = new Set(['exec', 'logs', 'portforward', 'attach', 'log'])
 const LEVEL_RANK = { view: 0, operate: 1 }
 
@@ -64,6 +66,39 @@ export function canAccessNs(db, principal, clusterId, namespace, needLevel = 'vi
   if (mode === 'open') return true
   const best = effectiveGrants(db, principal).clusters.get(clusterId)?.ns.get(namespace)
   return best !== undefined && LEVEL_RANK[best] >= LEVEL_RANK[needLevel]
+}
+
+// W2 Phase C (Task 5): wb 工具执行面门(factory)。buildWbCtx 在每个 ns 型工具的
+// K8s 出站前调 gate.check;集群级 kind 用 clusterWide;无 ns 列表用 namespaces() 过滤。
+//   - clusterId 空(未绑定项目)→ 零门(K8s 工具本就 natural fail,不放大也不收紧)。
+//   - check:拒 → throw PermissionDeniedError('rbac')(wb 工具错误面走 {error} 形状)。
+//   - clusterWide:open 集群或 admin 放行;allowlist 非 admin 拒(集群级 kind 会绕过 ns 授权面)。
+//   - namespaces:null = 不受限(open/admin);Set = 仅这些 ns 可见(结果过滤用);空 Set = 全拒。
+export function wbToolGate(db, principal, clusterId) {
+  if (!clusterId) {
+    return { check() {}, clusterWide() {}, namespaces: () => null }
+  }
+  return {
+    check(ns, level, tool) {
+      if (!canAccessNs(db, principal, clusterId, ns, level)) {
+        throw new PermissionDeniedError('rbac', { tool, ns, level })
+      }
+    },
+    clusterWide(tool) {
+      if (effectiveGrants(db, principal).role === 'admin') return
+      const cluster = db.prepare('SELECT nsAuthMode FROM clusters WHERE id=?').get(clusterId)
+      if ((cluster?.nsAuthMode || 'open') === 'open') return
+      throw new PermissionDeniedError('rbac', { tool, ns: null, level: 'view' })
+    },
+    namespaces() {
+      const g = effectiveGrants(db, principal)
+      if (g.role === 'admin') return null
+      const entry = g.clusters.get(clusterId)
+      if (!entry) return new Set()
+      if (entry.mode === 'open') return null
+      return new Set(entry.ns.keys())
+    },
+  }
 }
 
 // 删 subject 已不存在的残留行(用户删除漏清 group_members;组删除/用户删除漏清 ns_grants)。

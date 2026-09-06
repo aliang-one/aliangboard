@@ -60,7 +60,7 @@ test('owner approve → 200;approverId/approvedAt 落 pendingApproval;CAS 置 ru
   assert.ok(typeof pa.approvedAt === 'number' && pa.approvedAt > 0)
   assert.equal(pa.toolCallId, 'tc1') // 原审批载荷不丢
   assert.equal(h.resumeCalls.length, 1)
-  assert.deepEqual(h.resumeCalls[0].actor, { userId: 'u1', username: 'u1' }) // 审计 actor 照旧
+  assert.deepEqual(h.resumeCalls[0].actor, { userId: 'u1', username: 'u1', role: 'user' }) // 审计 actor 照旧(+Phase C 补 role,供工具执行面授权门)
 })
 
 test('owner approve 落 durable 审计:wb_approval 带 approverId(resume 前)', async () => {
