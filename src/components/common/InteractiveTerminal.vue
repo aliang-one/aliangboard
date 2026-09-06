@@ -168,7 +168,9 @@ onUnmounted(teardown)
 
 // 从最小化恢复时重新 fit xterm（display:none→block 后尺寸可能未更新）
 function refit() { try { fit?.fit() } catch { /* noop */ } }
-defineExpose({ refit })
+// 恢复按需建连（minimized 挂载不自动连；任务栏恢复 open 时若从未连接则补连）
+function connectIfIdle() { if (status.value === 'idle') connect() }
+defineExpose({ refit, connectIfIdle })
 // 已连接时切换容器 / 模式 → 重连
 watch(() => props.container, () => { if (stream || status.value === 'open') connect() })
 watch(() => props.attach, () => { if (stream || status.value === 'open') connect() })
