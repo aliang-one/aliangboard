@@ -83,6 +83,14 @@ test('wbToolGate.clusterWide: allowlist 非 admin 拒 / open 与 admin 放行', 
   wbToolGate(db, { userId: 'a1', role: 'admin' }, 'c1').clusterWide('wb_top') // admin
 })
 
+// 终审 2026-09-06 修复:clusterWide 也须过集群分配门(canAccessCluster)——
+// 未分配 principal 即便在 open 集群上也拿不到集群级清单(wb_top nodes 等)。
+test('wbToolGate.clusterWide:未分配 user_clusters 的 principal 在 open 集群也拒', () => {
+  const db = fixture()
+  // u2 未分配 c2(夹具只给 u1 分配了 c2)
+  assert.throws(() => wbToolGate(db, { userId: 'u2', role: 'user' }, 'c2').clusterWide('wb_top'), /PERMISSION_DENIED/)
+})
+
 test('wbToolGate.namespaces: open/admin → null(不限);allowlist → 授权 ns 集合;未分配 → 空集', () => {
   const db = fixture()
   assert.equal(wbToolGate(db, { userId: 'u1', role: 'user' }, 'c2').namespaces(), null)

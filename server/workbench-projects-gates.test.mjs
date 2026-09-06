@@ -14,13 +14,16 @@ function makeHarness({ userId = 'u1', role = 'user' } = {}) {
   const sent = []
   const db = new DatabaseSync(':memory:')
   db.exec(`CREATE TABLE workbench_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, clusterId TEXT NOT NULL, ownerId TEXT NOT NULL, createdAt INTEGER NOT NULL, activeConversationId TEXT, projectRecap TEXT, historyWatermark INTEGER DEFAULT 0, repoRoot TEXT DEFAULT NULL)`)
-  db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT)`)
+  db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT, nsAuthMode TEXT DEFAULT 'open')`)
   db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
   db.exec(`CREATE TABLE last_reconcile (projectId TEXT PRIMARY KEY, result TEXT, ts INTEGER NOT NULL)`)
-  db.prepare(`INSERT INTO clusters VALUES ('c1','cluster-one')`).run()
-  db.prepare(`INSERT INTO clusters VALUES ('c2','cluster-two')`).run()
+  db.prepare(`INSERT INTO clusters VALUES ('c1','cluster-one',NULL,'open')`).run()
+  db.prepare(`INSERT INTO clusters VALUES ('c2','cluster-two',NULL,'open')`).run()
   db.prepare(`INSERT INTO user_clusters VALUES ('u1','c1','admin',1)`).run()
   db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p1','proj','c1','u1',1)`).run()
+  db.exec(`CREATE TABLE IF NOT EXISTS platform_users (id TEXT PRIMARY KEY, username TEXT, role TEXT DEFAULT 'user', disabled INTEGER DEFAULT 0, createdAt INTEGER)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS ns_grants (id TEXT PRIMARY KEY, subjectType TEXT, subjectId TEXT, clusterId TEXT, namespace TEXT, level TEXT, grantedBy TEXT, grantedAt INTEGER)`)
+  db.prepare(`INSERT OR IGNORE INTO platform_users VALUES ('u1','u1','user',0,1)`).run()
   const workbenchDir = mkdtempSync(join(tmpdir(), 'wbp-gates-'))
   const routes = createWorkbenchProjectRoutes({
     db, sendJson: (r, s, j) => sent.push({ status: s, json: j }),
@@ -29,6 +32,7 @@ function makeHarness({ userId = 'u1', role = 'user' } = {}) {
     writeAudit: () => {},
     WORKBENCH_DIR: workbenchDir, dbPath: ':memory:',
     buildCallContext: () => ({}), applyYamlPartial: async () => ({ applied: [], failed: [], total: 0 }),
+    requestKubernetes: async () => ({ status: 200, headers: {}, body: { resources: [{ kind: 'ConfigMap', namespaced: true }] } }),
   })
   const harness = { sent, db, _body: {},
     call: (m, p, body) => { harness._body = body || {}; return routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) } }
@@ -182,4 +186,26 @@ test('search server 分支: admin 全量带 host', async () => {
   await h.call('GET', '/api/workbench/search?projectId=p1&kind=server&q=')
   assert.equal(h.sent[0].status, 200)
   assert.equal(h.sent[0].json.items[0].host, '10.0.0.1')
+})
+
+// W2 C+D 终审#5:reconcile 与 wb_apply 同门(逐文档 ns operate;集群级 kind null-ns 拒)。
+// 夹具:c1 切 allowlist,u1 仅 team-a:view;manifests 注入 team-b 文档(view/未授权 operate)→ 403。
+// harness 无真 git repo → wbReadManifests 抛 git ENOENT → 500;断言点因此取「已越过 ns 门」:
+// 空 manifests(或 manifests 读取失败)时 ns 门零调用 → 状态码不是 403(500=git 缺失,恰好证明
+// ns 门未拦)。403(ap nsForbidden/api.nsForbidden)只应在 manifests 非空且含未授权 ns 时出现。
+test('reconcile:allowlist 非 admin + manifests 读取失败(空仓)→ 越过 ns 门(非 403)', async () => {
+  const h = makeHarness()
+  h.db.prepare(`UPDATE clusters SET nsAuthMode='allowlist' WHERE id='c1'`).run()
+  await h.call('POST', '/api/workbench/projects/p1/reconcile', {})
+  assert.notEqual(h.sent[0].status, 403, `ns 门不应拦空/不可读 manifests(实得 ${h.sent[0].status} ${h.sent[0].json?.message})`)
+})
+
+// entitlement 门仍前置(既有不变式):撤分配 → 403 先于 ns 门。
+test('reconcile:撤分配后 allowlist → 仍是 clusterForbidden 403(先于 ns 门)', async () => {
+  const h = makeHarness()
+  h.db.prepare(`UPDATE clusters SET nsAuthMode='allowlist' WHERE id='c1'`).run()
+  h.db.prepare('DELETE FROM user_clusters WHERE userId=? AND clusterId=?').run('u1', 'c1')
+  await h.call('POST', '/api/workbench/projects/p1/reconcile', {})
+  assert.equal(h.sent[0].status, 403)
+  assert.equal(h.sent[0].json.message, FORBIDDEN_MSG)
 })

@@ -21,6 +21,8 @@ import { msg } from '../messages.mjs'
 import { normalizeKind } from '../kindAlias.mjs'
 import { listApiPath } from '../kind-paths.mjs'
 import { listSshServers } from '../ssh/store.mjs'
+import { wbToolGate, gateApplyNamespaces } from '../authz.mjs' // W2 C+D 终审#5:reconcile 与 wb_apply 同门
+import { createApplyYaml } from '../apply-yaml.mjs'
 
 // W2 Phase C(Task 2):导出式 ownership/查询 helper,供本路由与 workbench 对话域
 // (records/presence/summary/search 等)单一事实源复用,防各面手写判定漂移。
@@ -294,7 +296,18 @@ export function createWorkbenchProjectRoutes(deps) {
           if (!clusterEntitled(ps, p.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
           const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
           if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
-          const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+          const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now(), userId: ps.userId, clusterId: p.clusterId }
+          // W2 C+D 终审#5:reconcile 与 wb_apply 同门——逐文档 ns 过 operate;集群级 kind 走
+          // null-ns 门(allowlist 非 admin 拒)。否则项目 owner 可经 reconcile 按钮写未授权 ns
+          //(同一 manifests 走 AI wb_apply 却被拒的 parity 缺口)。manifests 为空零门(reconcile 幂等空跑)。
+          const { resolveApplyNamespaces } = createApplyYaml({ requestKubernetes })
+          const manifestsYaml = await wbReadManifests(repo)
+          if (manifestsYaml && manifestsYaml.trim()) {
+            let docNss = []
+            try { docNss = await resolveApplyNamespaces(k8sSession, manifestsYaml, undefined) } catch { /* 解析失败走 reconcile 原语义 */ }
+            try { gateApplyNamespaces(wbToolGate(db, { userId: ps.userId, role: ps.role }, p.clusterId), docNss, 'reconcile') }
+            catch (e) { sendJson(res, 403, { message: msg(req, 'api.nsForbidden') }); return true }
+          }
           const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(repo), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
           sendJson(res, 200, r)
           return true

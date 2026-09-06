@@ -97,7 +97,13 @@ export function wbToolGate(db, principal, clusterId) {
       }
     },
     clusterWide(tool) {
-      if (effectiveGrants(db, principal).role === 'admin') return
+      // 终审 2026-09-06 修复:集群级面也须过集群分配门(canAccessCluster 单一事实源)——
+      // 否则失去 user_clusters 行的 principal 在 open 集群上仍可读全集群清单(wb_top nodes 等)。
+      // canAccessCluster 对 admin 恒 true(db 角色短路);allowlist 集群上 admin 亦放行
+      //(平台运维语义,与 check/namespaces 的 admin 短路一致)。
+      if (!canAccessCluster(db, principal, clusterId)) throw new PermissionDeniedError('rbac', { tool, ns: null, level: 'view' })
+      const roleRow = db.prepare('SELECT role FROM platform_users WHERE id=? AND disabled=0').get(principal?.userId)
+      if (roleRow?.role === 'admin') return
       const cluster = db.prepare('SELECT nsAuthMode FROM clusters WHERE id=?').get(clusterId)
       if ((cluster?.nsAuthMode || 'open') === 'open') return
       throw new PermissionDeniedError('rbac', { tool, ns: null, level: 'view' })
