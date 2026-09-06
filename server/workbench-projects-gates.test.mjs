@@ -74,3 +74,34 @@ test('admin 三操作豁免 → 全 200;解绑(clusterId 空)任何用户 200', 
   await h2.call('PUT', '/api/workbench/projects/p1/cluster', { clusterId: '' })
   assert.equal(h2.sent[0].status, 200)
 })
+
+// ===== W2 Phase C Task 2: 导出式 ownership/查询 helper =====
+import { assertProjectOwnership, listConversationsByOwner } from './routes/workbench-projects.mjs'
+
+test('assertProjectOwnership:owner true;admin true;他人 false;缺参 false', () => {
+  const p = { ownerId: 'u1' }
+  assert.equal(assertProjectOwnership({ userId: 'u1', role: 'user' }, p), true)
+  assert.equal(assertProjectOwnership({ userId: 'zz', role: 'admin' }, p), true)
+  assert.equal(assertProjectOwnership({ userId: 'u2', role: 'user' }, p), false)
+  assert.equal(assertProjectOwnership(null, p), false)
+  assert.equal(assertProjectOwnership({ userId: 'u1', role: 'user' }, null), false)
+})
+
+test('listConversationsByOwner:只回该用户名下项目对话,倒序,含项目名/消息数', () => {
+  const h = makeHarness()
+  h.db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`)
+  h.db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER)`)
+  h.db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p2','other','c1','u2',2)`).run()
+  const ins = h.db.prepare(`INSERT INTO workbench_conversations (id,projectId,status,createdAt,updatedAt) VALUES (?,?,?,?,?)`)
+  ins.run('cA', 'p1', 'running', 10, 20)
+  ins.run('cB', 'p1', 'done', 5, 30)
+  ins.run('cC', 'p2', 'done', 1, 40) // 他人项目,不回
+  h.db.prepare(`INSERT INTO workbench_messages VALUES ('cA',1)`).run()
+  h.db.prepare(`INSERT INTO workbench_messages VALUES ('cA',2)`).run()
+  const rows = listConversationsByOwner(h.db, 'u1')
+  assert.deepEqual(rows.map(r => r.id), ['cB', 'cA']) // updatedAt DESC
+  const a = rows.find(r => r.id === 'cA')
+  assert.equal(a.projectName, 'proj')
+  assert.equal(a.messageCount, 2)
+  assert.equal(rows.find(r => r.id === 'cB').messageCount, 0)
+})

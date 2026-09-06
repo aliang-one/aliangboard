@@ -22,6 +22,26 @@ import { normalizeKind } from '../kindAlias.mjs'
 import { listApiPath } from '../kind-paths.mjs'
 import { listSshServers } from '../ssh/store.mjs'
 
+// W2 Phase C(Task 2):导出式 ownership/查询 helper,供本路由与 workbench 对话域
+// (records/presence/summary/search 等)单一事实源复用,防各面手写判定漂移。
+// 归属判定:项目 owner 或平台 admin。
+export function assertProjectOwnership(ps, project) {
+  if (!ps?.userId || !project?.ownerId) return false
+  return project.ownerId === ps.userId || ps.role === 'admin'
+}
+
+// 按 owner 跨项目列对话(JOIN projects WHERE ownerId),updatedAt 倒序。
+// 消费方:records(限定 owner 非 admin 全量)/ summary / search 等后续接线。
+export function listConversationsByOwner(db, userId) {
+  return db.prepare(`
+    SELECT c.id, c.projectId, c.status, c.steps, c.title, c.userMessage, c.error, c.createdAt, c.updatedAt,
+           p.name AS projectName,
+           (SELECT count(*) FROM workbench_messages m WHERE m.conversationId = c.id) AS messageCount
+    FROM workbench_conversations c JOIN workbench_projects p ON c.projectId = p.id
+    WHERE p.ownerId = ?
+    ORDER BY c.updatedAt DESC`).all(userId)
+}
+
 export function createWorkbenchProjectRoutes(deps) {
   const {
     db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit,
