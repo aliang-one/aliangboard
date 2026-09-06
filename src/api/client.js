@@ -156,6 +156,8 @@ export const api = {
   health: () => k8sHttp.request('/api/health'),
   applyYaml: (yaml, defaultNs) => k8sHttp.request('/api/apply', { method: 'POST', body: JSON.stringify({ yaml, defaultNs }) }),
   k8s: (path, options) => k8sHttp.request(`/api/k8s${path}`, options),
+  // 集群证书报告(2026-09-06):连接证书/CA 锚/TLS Secret 扫描(session 鉴权,集群级读)
+  clusterCerts: () => k8sHttp.request('/api/cluster-certs'),
   ingressControllers: {
     catalog: () => k8sHttp.request('/api/ingress-controllers/catalog'),
     manifest: id => k8sHttp.request(`/api/ingress-controllers/manifest/${encodeURIComponent(id)}`),

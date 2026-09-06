@@ -13,6 +13,8 @@ import { parseApiPath } from './k8s-path.mjs'
 import { createK8sGate, gateParsedPath, filterNamespaceList, gateWatchResources } from './k8s-gate.mjs'
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
+import { createClusterCerts } from './cluster-certs.mjs'
+import { createClusterCertsRoutes } from './routes/cluster-certs.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { sweepOrphanGrants, effectiveGrants, levelForRequest } from './authz.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
@@ -630,6 +632,8 @@ const WB_EXEC_STREAM_MAX = 262144 // 256KB 流式缓冲(最终 stdout 仍截 32K
 // 集群列表实时探测(/api/admin/clusters GET 用):注入 requestKubernetes → 并行探每个集群
 // 的健康度 + nodes/pods 计数,带 TTL 缓存与单集群超时降级。语义见 ./cluster-probe.mjs。
 const clusterProber = createClusterProber({ requestFn: requestKubernetes })
+// 集群证书可观测(2026-09-06):/api/cluster-certs 报告(session 级)+ admin 断连归因复用 classifyFromRow。
+const clusterCerts = createClusterCerts({ requestFn: requestKubernetes })
 // MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
 const mcpHandler = createMcpServer({ db, apiKeyTools, cryptKey: sshCryptKey, sshPool, getSetting, setSetting, getJobPolicy: getSshJobPolicy })
 
@@ -1585,7 +1589,7 @@ async function handle(req, res) {
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
-    clusterProber, randomUUID,
+    clusterProber, clusterCerts, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
@@ -1627,6 +1631,7 @@ async function handle(req, res) {
     listSshSessions: () => terminalService.list(),
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
+  const clusterCertsRoutes = createClusterCertsRoutes({ sendJson, msg, clusterCerts, k8sGate, levelForRequest })
 const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting,
   evictSshServer: id => sshPool.evictServer(id),
   closeSshServerSessions: id => terminalService.closeByServer(id, 'server-deleted'),
@@ -1646,6 +1651,7 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
   if (await versionRoutes.handle(req, res, url)) return
+  if (await clusterCertsRoutes.handle(req, res, url)) return
   if (await projectRoutes.handle(req, res, url)) return
   if (await ingressControllerRoutes.handle(req, res, url)) return
 

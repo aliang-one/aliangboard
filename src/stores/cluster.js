@@ -492,6 +492,10 @@ export const useClusterStore = defineStore('cluster', () => {
   }
   async function fetchEvents() { const d = await api.k8s('/api/v1/events?limit=1000'); recordListRv('/api/v1/events', d?.metadata?.resourceVersion); return ((d?.items || []).map(mapEvent)).sort((a, b) => (b._ts || 0) - (a._ts || 0)) }
 
+  // 集群证书报告(2026-09-06 证书可观测):网关 session 端点(非 /api/k8s 代理);铃铛与
+  // /cluster/certs 页共用同一 queryKey(['cluster',cid,'certs']),Vue Query 去重。
+  async function fetchClusterCerts() { return await api.clusterCerts() }
+
   // 集群级 CPU/内存汇总（按 nodeList 的 used/alloc）+ 与上次对比的趋势 + cluster.value 更新。
   // 入参 metricsAvailable：调用前 nodeList 的 metric 字段须已就绪
   // （hydrate 经 mapNode/mapPod 设置；refreshMetrics 就地更新）。hydrate 与 refreshMetrics 共用本函数。
@@ -617,7 +621,7 @@ export const useClusterStore = defineStore('cluster', () => {
     fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding,
     fetchCRDs, fetchCRD, fetchCRInstances,
     fetchNamespaces, fetchNamespace,
-    fetchPods, fetchPod, fetchEvents,
+    fetchPods, fetchPod, fetchEvents, fetchClusterCerts,
     refreshMetrics,
     // 全局指标采样(引用计数 + localStorage 持久化)
     cpuSamples, memSamples, metricsSampling, metricsLastRefresh,

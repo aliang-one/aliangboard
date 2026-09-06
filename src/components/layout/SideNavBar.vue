@@ -91,6 +91,7 @@ const clusterResourcesNav = [
   { icon: 'rule', label: 'Validating Webhooks', route: '/admin/webhooks-validating' },
   { icon: 'dynamic_feed', label: 'ReplicaSets', route: '/admin/replicasets' },
   { icon: 'hard_drive', label: 'CSINodes', route: '/admin/csinodes' },
+  { icon: 'verified', labelKey: 'nav.certs', route: '/cluster/certs' },
 ]
 const clusterOtherNav = [
   { icon: 'hub', labelKey: 'nav.clusters', route: '/clusters' },

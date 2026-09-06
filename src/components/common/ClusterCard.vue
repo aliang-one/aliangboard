@@ -27,6 +27,15 @@ function mapStatus(status) {
   if (status === 'Degraded' || status === 'Disconnected') return 'Failed'
   return status || 'Unknown'
 }
+// 断连归因(2026-09-06 证书可观测):CA 失配/过期/主机名/网络;tls-ok=证书链无碍(凭据/上游层)。
+// unknown-insecure/error 不出徽标(无行动价值);缺字段向后兼容不渲染。
+const DISCONNECT_LABEL = {
+  'ca-mismatch': 'component.clusterCard.reasonCaMismatch',
+  'cert-expired': 'component.clusterCard.reasonCertExpired',
+  'hostname-mismatch': 'component.clusterCard.reasonHostnameMismatch',
+  'unreachable': 'component.clusterCard.reasonUnreachable',
+  'tls-ok': 'component.clusterCard.reasonTlsOk',
+}
 async function open() {
   if (c.value.apiServer && c.value.apiServer !== store.cluster?.apiServer) await store.switchCluster(c.value.apiServer)
   router.push('/cluster')
@@ -63,6 +72,11 @@ async function switchOnly() {
     <div class="flex flex-wrap items-center gap-xs">
       <span v-if="active" class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-primary text-on-primary text-xs font-bold">
         <span class="material-symbols-outlined text-xs">check_circle</span> {{ t('component.clusterCard.current') }}
+      </span>
+      <span v-if="c.status === 'Disconnected' && DISCONNECT_LABEL[c.disconnectReason]"
+        class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-error-container/30 text-error text-xs font-medium"
+        :title="c.apiServer">
+        <span class="material-symbols-outlined text-xs">key_off</span> {{ t(DISCONNECT_LABEL[c.disconnectReason]) }}
       </span>
       <span v-if="c.distribution" class="inline-flex items-center gap-1 px-sm py-0.5 rounded-full bg-tertiary-container/20 text-tertiary-container text-xs font-medium">
         <span class="material-symbols-outlined text-xs">dns</span>{{ c.distribution }}

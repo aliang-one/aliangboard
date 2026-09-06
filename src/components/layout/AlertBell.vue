@@ -1,12 +1,14 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { getSession } from '@/api/client'
 import { useDropdownPanel } from '@/composables/useDropdownPanel'
 import { useAlertReadState, unreadWarnings, eventKey } from '@/composables/useAlertReadState'
 import { routeForResource } from '@/logic/resourceNavigation'
+import { buildCertAlerts } from '@/logic/certExpiry'
 import { Z } from '@/styles/zScale'
 
 // 全局告警铃铛(2026-09-04 顶栏改版):吃既有全局 events 查询(键与监控/ns 事件页共享)。
@@ -16,6 +18,7 @@ import { Z } from '@/styles/zScale'
 const router = useRouter()
 const route = useRoute()
 const store = useClusterStore()
+const { t } = useI18n()
 const cid = computed(() => (store.currentCluster || 'cluster'))
 // 无 K8s session(首装 admin 在平台管理页)不拉 events——拉了必 401(与顶栏 ns 选择器同门槛)
 const enabled = computed(() => !!getSession())
@@ -26,11 +29,20 @@ const eventsQ = useResourceList({
 })
 
 const warningEvents = computed(() => (eventsQ.data.value || []).filter(e => e.type === 'warning'))
+// 证书到期告警(2026-09-06):与 /cluster/certs 页共用 ['cluster',cid,'certs'] 缓存,零额外请求;
+// 证书变化慢 → 独立 5min 慢轮询,不与 events 的 60s/watch 互斥逻辑耦合。伪事件 uid=证书指纹。
+const certsQ = useResourceList({
+  key: ['cluster', cid, 'certs'],
+  fetcher: () => store.fetchClusterCerts(),
+  options: { enabled, refetchInterval: 300_000, refetchOnWindowFocus: false },
+})
+const certAlerts = computed(() => buildCertAlerts(certsQ.data.value, { t }))
+const allWarnings = computed(() => [...warningEvents.value, ...certAlerts.value])
 const { readUids, markAllRead } = useAlertReadState(cid)
-const unread = computed(() => unreadWarnings(warningEvents.value, readUids.value))
+const unread = computed(() => unreadWarnings(allWarnings.value, readUids.value))
 const unreadKeys = computed(() => new Set(unread.value.map(eventKey)))
 const isUnread = e => unreadKeys.value.has(eventKey(e))
-const panelRows = computed(() => warningEvents.value.slice(0, 30))
+const panelRows = computed(() => allWarnings.value.slice(0, 30))
 
 // eventIconColor 返回裸 token(primary/tertiary/error/surface),非 tailwind 类,需显式映射
 const COLOR_CLASS = { primary: 'text-primary', tertiary: 'text-tertiary', error: 'text-error', surface: 'text-on-surface-variant' }
@@ -51,7 +63,7 @@ function onRowClick(e) {
   else if (e.namespace) router.push({ name: 'NsEvents', params: { namespace: e.namespace } })
   else router.push('/monitoring') // 无 ns 无详情路由(如未知 kind 的系统事件)
 }
-function onMarkAllRead() { markAllRead(warningEvents.value) }
+function onMarkAllRead() { markAllRead(allWarnings.value) }
 </script>
 
 <template>

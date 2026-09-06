@@ -19,7 +19,7 @@ export function createAdminRoutes(deps) {
   const {
     db, sendJson, readBody, requireAdmin,
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
-    clusterProber, randomUUID,
+    clusterProber, clusterCerts, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
   } = deps
@@ -263,8 +263,15 @@ export function createAdminRoutes(deps) {
         r => buildCallContext({ apiServer: r.apiServer, authHeader: r.authHeader, ca: r.ca, cert: r.cert, key: r.key, insecure: !!r.insecure }),
         { force },
       )
-      // 白名单回传:前端需要的字段 + 实时探测的 status/nodeCount/podCount(凭据不入列)。
-      const clusters = probed.map(c => ({ id: c.id, name: c.name, apiServer: c.apiServer, authMethod: c.authMethod, version: c.version, insecure: c.insecure, nsAuthMode: c.nsAuthMode, createdBy: c.createdBy, createdAt: c.createdAt, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount }))
+      // 断连归因(2026-09-06 证书可观测):仅 Disconnected 行做 TLS 层诊断(CA 失配/过期/主机名/网络),
+      // Healthy 零开销;服务层 60s 缓存,列表刷新不重复拨号。'tls-ok'=证书链无碍,断连在凭据/上游层;
+      // 单行归因失败降级为无归因,不拖垮整个列表。
+      const enriched = await Promise.all(probed.map(async c => {
+        if (c.status !== 'Disconnected') return c
+        try { return { ...c, disconnectReason: await clusterCerts.classifyFromRow(c) } } catch { return c }
+      }))
+      // 白名单回传:前端需要的字段 + 实时探测的 status/nodeCount/podCount + 断连归因(凭据不入列)。
+      const clusters = enriched.map(c => ({ id: c.id, name: c.name, apiServer: c.apiServer, authMethod: c.authMethod, version: c.version, insecure: c.insecure, nsAuthMode: c.nsAuthMode, createdBy: c.createdBy, createdAt: c.createdAt, status: c.status, nodeCount: c.nodeCount, podCount: c.podCount, disconnectReason: c.disconnectReason }))
       sendJson(res, 200, { clusters })
       return true
     }
