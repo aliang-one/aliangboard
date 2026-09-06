@@ -16,6 +16,7 @@ import { maybeSummarize, maybeSummarizeProject, compactConversation } from '../w
 import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
 import { maskSecretResource } from '../secret-mask.mjs'
 import { msg } from '../messages.mjs'
+import { assertProjectOwnership } from './workbench-projects.mjs' // W2 CB-B:归属判定单一事实源(导出式 helper)
 
 // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
 // 取 project → k8s session → 逐 ref requestKubernetes .body → 拼 "Referenced resources" context 块。
@@ -25,10 +26,20 @@ import { normalizeKind } from '../kindAlias.mjs'
 
 export function createWorkbenchConvRoutes(deps) {
   const {
-    db, sendJson, readBody, requireAdmin, wbAgent,
+    db, sendJson, readBody, requireAdmin, requirePlatform, wbAgent,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
     busSubscribe, busUnsubscribe, busDispose,
   } = deps
+
+  // 审批归属留痕(CB-B Task 4):approverId/approvedAt 并入 pendingApproval JSON(载荷原样保留)。
+  // 只在 approve/deny 的 CAS 命中后调用——resumeConversation 清 pendingApproval 前,归属写入先落。
+  function stampApprover(db_, id, approverId) {
+    const conv = getConversation(db_, id)
+    if (!conv?.pendingApproval) return
+    let pa; try { pa = JSON.parse(conv.pendingApproval) } catch { pa = {} }
+    db_.prepare('UPDATE workbench_conversations SET pendingApproval=? WHERE id=?')
+      .run(JSON.stringify({ ...pa, approverId, approvedAt: Date.now() }), id)
+  }
 
   // P0(E):审批准入 = 原子 CAS——UPDATE..WHERE status='paused' 命中 0 行即拒绝。
   // 迟到审批(done/failed 后)与双击并发都挡在门外;命中即置 running,
@@ -474,12 +485,19 @@ export function createWorkbenchConvRoutes(deps) {
 
     // POST /api/workbench/conversations/:id/approve — resume(detached)
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/approve$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      // W2 Phase D(CB-B Task 4):requirePlatform + 会话所属项目 owner 或 admin。
+      const ps = requirePlatform(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/approve
+      const convForGate = getConversation(db, id)
+      if (!convForGate) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      const projectForGate = getProject(db, convForGate.projectId)
+      if (!projectForGate || !assertProjectOwnership(ps, projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
       // P0(E):仅 paused 可审批。迟到审批(done/failed 后)此前会让 resume 的
       // JSON.parse(conv.pendingApproval=null) 抛错 → 把终态改写成 failed(吞掉已完成答案)。
       const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
+      // 审批归属留痕:approverId/approvedAt 并入 pendingApproval(载荷原样保留)。
+      stampApprover(db, id, ps.userId)
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const llmClient = createLlmClient(cfg)
@@ -488,12 +506,17 @@ export function createWorkbenchConvRoutes(deps) {
       return true
     }
 
-    // POST /api/workbench/conversations/:id/deny — resume(detached)
+    // POST /api/workbench/conversations/:id/deny — resume(detached)。同 approve 权限与归属留痕。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/deny$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/deny
+      const convForGate = getConversation(db, id)
+      if (!convForGate) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      const projectForGate = getProject(db, convForGate.projectId)
+      if (!projectForGate || !assertProjectOwnership(ps, projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
       const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
+      stampApprover(db, id, ps.userId)
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const llmClient = createLlmClient(cfg)

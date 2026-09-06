@@ -31,6 +31,7 @@ function makeHarness() {
     sendJson: (r, status, json) => { sent.push({ status, json }) },
     readBody: async () => body,
     requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    requirePlatform: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
     wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
@@ -203,6 +204,7 @@ test('E2: paused 双击 approve——第二次被 CAS 挡住,只 resume 一次',
   const routes2 = createWorkbenchConvRoutes({
     db: h.db, sendJson: (r, s, j) => { sent2.push({ status: s, json: j }) }, readBody: async () => ({}),
     requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    requirePlatform: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
     wbAgent: { runConversation: () => {}, resumeConversation: async () => { resumed++ }, cancelConversation: () => ({ ok: true }) },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
@@ -227,6 +229,7 @@ test('F: 删除运行中对话——先取消(结果不回写)再事务删除,bu
   const routes2 = createWorkbenchConvRoutes({
     db: h.db, sendJson: (r, s, j) => { sent2.push({ status: s, json: j }) }, readBody: async () => ({}),
     requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    requirePlatform: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
     wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: id => { cancelled.push(id); h.db.prepare("UPDATE workbench_conversations SET status='cancelled' WHERE id=?").run(id); return { ok: true } } },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),

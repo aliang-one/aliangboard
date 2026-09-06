@@ -1550,7 +1550,7 @@ async function handle(req, res) {
   // SP3: 7 个工作台对话 HTTP 端点 + buildRefsContext 抽到 routes/workbench-conversations.mjs(handler/dispatcher)。
   // 零行为变更:端点块逐字搬迁,仅依赖引用改走 deps 注入。
   const convRoutes = createWorkbenchConvRoutes({
-    db, sendJson, readBody, requireAdmin, wbAgent,
+    db, sendJson, readBody, requireAdmin, requirePlatform, wbAgent,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
     busSubscribe, busUnsubscribe, busSnapshot, busDispose,
   })
