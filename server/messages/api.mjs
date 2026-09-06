@@ -77,6 +77,7 @@ export const TABLE = {
   'api.watchMuxNoResources': { zh: '缺少 resources 参数', en: 'Missing resources parameter' },
   'api.watchMuxBadResource': { zh: '不支持的 watch 资源: {names}', en: 'Unsupported watch resource(s): {names}' },
   'api.k8sRequestFailed': { zh: 'Kubernetes API 请求失败', en: 'Kubernetes API request failed' },
+  'api.nsForbidden': { zh: '无权访问该 namespace', en: 'Namespace not allowed' },
   'api.serverError': { zh: '服务器错误', en: 'Server error' },
   'api.missingNsPodParams': { zh: '缺少 namespace / pod 参数', en: 'Missing namespace / pod parameters' },
   'api.unknownPvcfileAction': { zh: '未知 pvcfile 操作：{action}（只读浏览，仅支持 list / read）', en: 'Unknown pvcfile action: {action} (read-only browsing; only list / read are supported)' },

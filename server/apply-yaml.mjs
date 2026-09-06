@@ -4,6 +4,24 @@
 // (namespaced 来自集群 discovery,权威且对 CRD 正确)。
 import { loadAll as yamlLoadAll } from 'js-yaml'
 
+// ns 解析单一事实源(applyYaml/applyYamlPartial 与 /api/apply 授权门共用;禁止各自内联 || 链,防漂移):
+// 显式 metadata.namespace > defaultNs > 'default';集群级 kind(discovery namespaced=false)返回 undefined。
+export function resolveApplyNamespace(object, resource, defaultNs) {
+  if (!resource.namespaced) return undefined
+  return object.metadata.namespace || defaultNs || 'default'
+}
+
+// 逐文档解析 ns(/api/apply 授权门用;resolveApplyNamespace 的批量形态,单一同源):
+// resourceFor(object, index) 回 discovery 资源项(namespaced 字段)或 null(不可发现)。
+// 返回逐文档:string=该 ns 需 operate 门;undefined=集群级 kind(null-ns 门);null=不可发现
+// (缺 kind/apiVersion 或集群未收录)→ 调用方跳过,applyYaml 以原语义失败。
+export function applyDocNamespaces(objects, defaultNs, resourceFor) {
+  return (objects || []).map((object, i) => {
+    const resource = resourceFor(object, i)
+    return resource ? resolveApplyNamespace(object, resource, defaultNs) : null
+  })
+}
+
 export function createApplyYaml({ requestKubernetes }) {
   const discoveryCache = new Map() // apiServer:apiVersion → resources[]
 
@@ -21,12 +39,6 @@ export function createApplyYaml({ requestKubernetes }) {
     const resource = resources.find(item => item.kind === object.kind && !item.name.includes('/'))
     if (!resource) throw new Error(`集群未发现资源类型 ${object.kind} (${apiVersion})`)
     return { group, version, resource }
-  }
-
-  // 两 apply 函数单点共享的 ns 解析(禁止各自内联 || 链,防漂移);集群级返回 undefined。
-  function resolveApplyNamespace(object, resource, defaultNs) {
-    if (!resource.namespaced) return undefined
-    return object.metadata.namespace || defaultNs || 'default'
   }
 
   async function applyObjects(session, yaml, defaultNs, { keepBody }) {
@@ -67,5 +79,19 @@ export function createApplyYaml({ requestKubernetes }) {
     return applyObjects(session, yaml, defaultNs, { keepBody: false })
   }
 
-  return { applyYaml, applyYamlPartial }
+  // /api/apply 授权门(评审 R1)预检:每个 doc 走同一 discovery + resolveApplyNamespace,
+  // 回每文档解析 ns(undefined=集群级 kind,null=不可发现——apply 时按原语义失败,门不拦)。
+  // discovery 结果进 instance 缓存,紧随的 applyYaml 不重复上游调用。
+  async function resolveApplyNamespaces(session, yaml, defaultNs) {
+    const objects = []
+    yamlLoadAll(yaml, object => { if (object) objects.push(object) })
+    const resources = []
+    for (const object of objects) {
+      try { resources.push((await discoverResource(session, object)).resource) }
+      catch { resources.push(null) } // 不可发现:applyYaml 会以原语义报错
+    }
+    return applyDocNamespaces(objects, defaultNs, (_o, i) => resources[i])
+  }
+
+  return { applyYaml, applyYamlPartial, resolveApplyNamespaces }
 }
