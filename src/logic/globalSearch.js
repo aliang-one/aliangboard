@@ -10,6 +10,7 @@ export const PAGE_ENTRIES = [
   { path: '/storage', labelKey: 'nav.storage', icon: 'storage', keywords: ['storage'] },
   { path: '/monitoring', labelKey: 'nav.monitoring', icon: 'monitoring', keywords: ['monitor', 'monitoring'] },
   { path: '/crds', labelKey: 'nav.crds', icon: 'extension', keywords: ['crd', 'crds'] },
+  { path: '/cluster/certs', labelKey: 'nav.certs', icon: 'verified', keywords: ['cert', 'certificate', 'tls', 'x509', 'ca'] },
   { path: '/clusters', labelKey: 'nav.clusters', icon: 'hub', keywords: ['clusters', 'multi-cluster'] },
   { path: '/workloads', labelKey: 'nav.workloads', icon: 'work', keywords: ['workload', 'workloads'] },
   { path: '/network', labelKey: 'nav.network', icon: 'share', keywords: ['network'] },

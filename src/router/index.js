@@ -68,6 +68,13 @@ const routes = [
         meta: { titleKey: 'nav.events', icon: 'notifications_active', scope: 'global' }
       },
       {
+        // 集群证书可观测(2026-09-06):API server 证书/CA 锚/TLS Secret 到期总览;铃铛证书告警落点
+        path: 'cluster/certs',
+        name: 'ClusterCerts',
+        component: () => import('@/views/ClusterCerts.vue'),
+        meta: { titleKey: 'nav.certs', icon: 'verified', scope: 'global' }
+      },
+      {
         path: 'monitoring',
         name: 'MonitoringCenter',
         component: () => import('@/views/MonitoringCenter.vue'),
