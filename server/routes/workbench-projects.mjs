@@ -21,6 +21,28 @@ import { msg } from '../messages.mjs'
 import { normalizeKind } from '../kindAlias.mjs'
 import { listApiPath } from '../kind-paths.mjs'
 import { listSshServers } from '../ssh/store.mjs'
+import { wbToolGate, gateApplyNamespaces } from '../authz.mjs' // W2 C+D 终审#5:reconcile 与 wb_apply 同门
+import { createApplyYaml } from '../apply-yaml.mjs'
+
+// W2 Phase C(Task 2):导出式 ownership/查询 helper,供本路由与 workbench 对话域
+// (records/presence/summary/search 等)单一事实源复用,防各面手写判定漂移。
+// 归属判定:项目 owner 或平台 admin。
+export function assertProjectOwnership(ps, project) {
+  if (!ps?.userId || !project?.ownerId) return false
+  return project.ownerId === ps.userId || ps.role === 'admin'
+}
+
+// 按 owner 跨项目列对话(JOIN projects WHERE ownerId),updatedAt 倒序。
+// 消费方:records(限定 owner 非 admin 全量)/ summary / search 等后续接线。
+export function listConversationsByOwner(db, userId) {
+  return db.prepare(`
+    SELECT c.id, c.projectId, c.status, c.steps, c.title, c.userMessage, c.error, c.createdAt, c.updatedAt,
+           p.name AS projectName,
+           (SELECT count(*) FROM workbench_messages m WHERE m.conversationId = c.id) AS messageCount
+    FROM workbench_conversations c JOIN workbench_projects p ON c.projectId = p.id
+    WHERE p.ownerId = ?
+    ORDER BY c.updatedAt DESC`).all(userId)
+}
 
 export function createWorkbenchProjectRoutes(deps) {
   const {
@@ -38,21 +60,31 @@ export function createWorkbenchProjectRoutes(deps) {
     // 对话/消息在 SQLite;项目文件与台账是 git 仓库;AI 工具调用在审计链(audit_log
     // source=workbench,明细由前端经 /api/admin/audit-log?source=workbench 取,此处只给计数)。
     if (url.pathname === '/api/workbench/records' && req.method === 'GET') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      // W2 Phase D(CB-B Task 3):requirePlatform + owner 收口——非 admin 只见自己项目
+      // 的对话/计数;全局 storage 统计与 aiToolCalls(审计计数)维持 admin,非 admin 响应
+      // 保留形状键但置 null(前端已有 isAdmin 分支)。admin 行为逐字不变。
+      const ps = requirePlatform(req, res); if (!ps) return true
       try {
-        const conversations = db.prepare(`
+        const isAdmin = ps.role === 'admin'
+        const conversations = isAdmin ? db.prepare(`
           SELECT c.id, c.status, c.steps, c.title, c.userMessage, c.error, c.createdAt, c.updatedAt,
                  p.id AS projectId, p.name AS projectName,
                  (SELECT count(*) FROM workbench_messages m WHERE m.conversationId = c.id) AS messageCount
           FROM workbench_conversations c JOIN workbench_projects p ON c.projectId = p.id
           ORDER BY c.updatedAt DESC LIMIT 200`).all()
-        const counts = {
+          : listConversationsByOwner(db, ps.userId).slice(0, 200)
+        const counts = isAdmin ? {
           projects: db.prepare('SELECT count(*) c FROM workbench_projects').get().c,
           conversations: db.prepare('SELECT count(*) c FROM workbench_conversations').get().c,
           messages: db.prepare('SELECT count(*) c FROM workbench_messages').get().c,
           aiToolCalls: db.prepare("SELECT count(*) c FROM audit_log WHERE source='workbench'").get().c,
+        } : {
+          projects: db.prepare('SELECT count(*) c FROM workbench_projects WHERE ownerId=?').get(ps.userId).c,
+          conversations: db.prepare('SELECT count(*) c FROM workbench_conversations c JOIN workbench_projects p ON c.projectId=p.id WHERE p.ownerId=?').get(ps.userId).c,
+          messages: db.prepare('SELECT count(*) c FROM workbench_messages m JOIN workbench_conversations c ON m.conversationId=c.id JOIN workbench_projects p ON c.projectId=p.id WHERE p.ownerId=?').get(ps.userId).c,
+          aiToolCalls: null, // 审计明细是平台全局域,owner 收口下不下发
         }
-        const storage = await computeStorageInfo({ dbPath, workbenchDir: WORKBENCH_DIR, db })
+        const storage = isAdmin ? await computeStorageInfo({ dbPath, workbenchDir: WORKBENCH_DIR, db }) : null
         sendJson(res, 200, { conversations, counts, storage })
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'wbp.recordsReadFailed') }); return true }
       return true
@@ -264,7 +296,18 @@ export function createWorkbenchProjectRoutes(deps) {
           if (!clusterEntitled(ps, p.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
           const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
           if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
-          const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+          const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now(), userId: ps.userId, clusterId: p.clusterId }
+          // W2 C+D 终审#5:reconcile 与 wb_apply 同门——逐文档 ns 过 operate;集群级 kind 走
+          // null-ns 门(allowlist 非 admin 拒)。否则项目 owner 可经 reconcile 按钮写未授权 ns
+          //(同一 manifests 走 AI wb_apply 却被拒的 parity 缺口)。manifests 为空零门(reconcile 幂等空跑)。
+          const { resolveApplyNamespaces } = createApplyYaml({ requestKubernetes })
+          const manifestsYaml = await wbReadManifests(repo)
+          if (manifestsYaml && manifestsYaml.trim()) {
+            let docNss = []
+            try { docNss = await resolveApplyNamespaces(k8sSession, manifestsYaml, undefined) } catch { /* 解析失败走 reconcile 原语义 */ }
+            try { gateApplyNamespaces(wbToolGate(db, { userId: ps.userId, role: ps.role }, p.clusterId), docNss, 'reconcile') }
+            catch (e) { sendJson(res, 403, { message: msg(req, 'api.nsForbidden') }); return true }
+          }
           const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(repo), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
           sendJson(res, 200, r)
           return true
@@ -284,14 +327,12 @@ export function createWorkbenchProjectRoutes(deps) {
       if (!projectId) { sendJson(res, 400, { message: msg(req, 'wbp.projectIdRequired') }); return true }
       const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
       if (!p) { sendJson(res, 404, { message: msg(req, 'wbp.projectNotFound') }); return true }
-      // server 分支(2026-08-30 @server spec §3;2026-09-06 审计#7 收紧 admin):与集群无关;
-      // exposedOnly 单一事实源。门槛=requireAdmin,与 K8s 分支及 SSH 管理页一致——server 清单是
-      // 平台级 exposed 配置(非项目数据),且 @server 搜索只服务 AI 对话(对话域恒 admin 专属,
-      // 见 workbench-conversations.mjs 顶部契约);放开普通用户聊天前须先做 ns 隔离 ADR。
-      // (此前只过 requirePlatform+项目存在,普通平台用户可枚举 exposed 服务器元数据;
-      // 「非 admin 200 无 host」仍泄露清单本身。进入分支即 admin,host 恒携带。)
+      // server 分支(2026-08-30 @server spec §3):与集群无关;exposedOnly 单一事实源。
+      // W2 Phase D(CB-B Task 3 + merge 2026-09-06 裁决):Phase D 已把对话域降门为 platform+owner,
+      // main 审计#7 的「对话域恒 admin」前提随之失效——取 ownership 语义(项目须为发起者所有,
+      // admin 豁免),替代审计#7 的 requireAdmin 收紧;host 仅 admin 响应携带(下方既有语义)。
       if (kindRaw === 'server') {
-        const psAdmin = requireAdmin(req, res); if (!psAdmin) return true
+        if (!assertProjectOwnership(ps, p)) { sendJson(res, 403, { message: msg(req, 'wbp.noProjectAccess') }); return true }
         const items = listSshServers(db, { exposedOnly: true })
           .filter(s => !q || s.name.toLowerCase().includes(q) || String(s.host || '').toLowerCase().includes(q) || String(s.description || '').toLowerCase().includes(q))
           .slice(0, 50)

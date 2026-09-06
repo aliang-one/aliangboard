@@ -3,6 +3,7 @@
 // callTool 是 T12(MCP server)的复用点:MCP tools/call → callTool;tools/list → listTools()。
 import { lookupKey, isActive } from './auth-keys.mjs'
 import { authorize, PermissionDeniedError, effectiveNamespaces } from './authorize.mjs'
+import { effectiveGrants } from './authz.mjs'
 import { createSaBinding } from './sa-binding.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { buildCallContext } from './call-context.mjs'
@@ -37,6 +38,18 @@ export function resolveApiKey(db, req) {
     if (u.role !== 'admin') {
       const assigned = db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(row.ownerUserId, row.clusterId)
       if (!assigned) return null
+      // W2 Phase C(Task 1):owner 非 admin 且集群 nsAuthMode='allowlist' 时,key 的有效 ns
+      // 被请求时收权为 key effectiveNamespaces ∩ owner effectiveGrants 该集群 ns。
+      // 交集空 → key 即刻失效(null);否则挂 row._nsScope(消费方 Phase C+ 接入)。
+      let mode = 'open'
+      try { mode = db.prepare('SELECT nsAuthMode FROM clusters WHERE id=?').get(row.clusterId)?.nsAuthMode || 'open' } catch { /* 旧库无 clusters 表 → 视作 open */ }
+      if (mode === 'allowlist') {
+        const ownerNs = effectiveGrants(db, { userId: row.ownerUserId }).clusters.get(row.clusterId)?.ns
+        const intersect = new Set()
+        if (ownerNs) for (const ns of effectiveNamespaces(row)) if (ownerNs.has(ns)) intersect.add(ns)
+        if (intersect.size === 0) return null
+        row._nsScope = intersect
+      }
     }
   }
   return row

@@ -22,19 +22,55 @@ import { maybeSummarize, maybeSummarizeProject, compactConversation } from '../w
 import { stripRefsContext, REFS_CTX_HEADER, REFS_GUARD_NOTE } from '../refs-context.mjs'
 import { maskSecretResource } from '../secret-mask.mjs'
 import { msg } from '../messages.mjs'
+import { assertProjectOwnership } from './workbench-projects.mjs' // W2 CB-B:归属判定单一事实源(导出式 helper)
 
 // @-ref 资源拉取(T4 抽出,POST /conversations 与 POST /:id/messages 复用):
 // 取 project → k8s session → 逐 ref requestKubernetes .body → 拼 "Referenced resources" context 块。
 // 无 references / 无绑定集群 → 返回 ''(调用方据此决定是否 prepend)。
 import { getApiPath } from '../kind-paths.mjs'
 import { normalizeKind } from '../kindAlias.mjs'
+import { refAllowed } from '../ref-fetch.mjs' // Phase C Task 6:@mention 引用门单一事实源
+import { canAccessCluster } from '../authz.mjs' // Phase D Task 7:集群分配 entitlement(单一事实源,admin 短路)
 
 export function createWorkbenchConvRoutes(deps) {
   const {
-    db, sendJson, readBody, requireAdmin, wbAgent,
+    db, sendJson, readBody, requireAdmin, wbAgent, writeAudit,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
     busSubscribe, busUnsubscribe, busDispose,
+    // W2 Phase D(Task 7)降门:端点地板从 admin 放到 platform。requirePlatform 缺省回退
+    // requireAdmin(更严=fail-closed;index.mjs 装配两参齐传,旧测试桩只注入 requireAdmin 也能跑)。
+    requirePlatform = requireAdmin,
   } = deps
+
+  // 审批归属留痕(CB-B Task 4):approverId/approvedAt 并入 pendingApproval JSON(载荷原样保留)。
+  // 只在 approve/deny 的 CAS 命中后调用——resumeConversation 清 pendingApproval 前,归属写入先落。
+  function stampApprover(db_, id, approverId) {
+    const conv = getConversation(db_, id)
+    if (!conv?.pendingApproval) return
+    let pa; try { pa = JSON.parse(conv.pendingApproval) } catch { pa = {} }
+    db_.prepare('UPDATE workbench_conversations SET pendingApproval=? WHERE id=?')
+      .run(JSON.stringify({ ...pa, approverId, approvedAt: Date.now() }), id)
+  }
+
+  // W2 Phase D(Task 7):单对话端点所有权链单一事实源——对话 → 项目 → owner/admin。
+  // 降门(requirePlatform)后每个单对话面都必须过此链;失败 send 403(wbc.noProjectAccess,
+  // 与写面同键)并返回 null,调用方 `if (!project) return true`。
+  function resolveConvProject(req, res, ps, conv) {
+    const project = conv?.projectId ? getProject(db, conv.projectId) : null
+    if (!project || !assertProjectOwnership(ps, project)) {
+      sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') })
+      return null
+    }
+    return project
+  }
+
+  // W2 Phase D(Task 7):集群分配 entitlement——canAccessCluster 单一事实源(admin 短路
+  // true;其余须 user_clusters 分配行)。施加于触发对话运行的面(续接消息 / regenerate);
+  // 未绑定集群('')不在此门(对话自然降级为无集群面,不放大也不收紧)。
+  function clusterEntitled(ps, clusterId) {
+    if (!clusterId) return true
+    return canAccessCluster(db, { userId: ps.userId }, clusterId)
+  }
 
   // P0(E):审批准入 = 原子 CAS——UPDATE..WHERE status='paused' 命中 0 行即拒绝。
   // 迟到审批(done/failed 后)与双击并发都挡在门外;命中即置 running,
@@ -82,7 +118,10 @@ export function createWorkbenchConvRoutes(deps) {
     return { estTokens: est, windowTokens, budgetTokens, recapUpTo: conv.summarizedUpTo ?? 0, willTrim: est > budgetTokens }
   }
 
-  async function buildRefsContext(project, references) {
+  // principal(Phase C Task 6):{ userId, role }——逐 ref 过 refAllowed(ref-fetch.mjs 单一
+  // 事实源,与 run/resume 的 fetchRefContext 同门);无权 ref 静默跳过(零注入不中断),
+  // resources 对应位 push null 保下标对齐(不变式见循环内注释)。
+  async function buildRefsContext(project, references, principal = null) {
     if (!Array.isArray(references) || !references.length) return { ctx: '', resources: [] }
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
     if (!cluster) return { ctx: '', resources: [] } // 项目绑定的集群不存在 → 无 @-ref 可拉
@@ -90,6 +129,7 @@ export function createWorkbenchConvRoutes(deps) {
     const blocks = []
     const resources = [] // 原始资源 body(供前端 ResourceCard),与 ctx 同源单次拉取
     for (const ref of references) {
+      if (!refAllowed(db, principal, ref, project.clusterId)) { resources.push(null); continue } // 无授权:零注入,null 占位保对齐
       const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
       // @server 引用(spec §5):原始值比较(normalizeKind 不识别 server);不入 k8s 拉取序列,
       // resources 对应位置 push null 占位——保持 fetchedResources 与 references 下标一一对应
@@ -159,8 +199,10 @@ export function createWorkbenchConvRoutes(deps) {
       return true
     }
     // POST /api/workbench/conversations — 创建对话 + 后台执行(detached)
+    // W2 Phase D(Task 7):降门 requirePlatform——普通用户可在**自己的项目**上建对话(降门红利);
+    // owner/admin 链见 assertProjectOwnership(单一事实源)。
     if (url.pathname === '/api/workbench/conversations' && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true
       try {
         const input = await readBody(req)
         // 消息校验(2026-09-06 审计#10):旧 String(input.message) 会把 undefined 存成字面
@@ -170,7 +212,11 @@ export function createWorkbenchConvRoutes(deps) {
         }
         const project = getProject(db, input.projectId)
         if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
-        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
+        if (!assertProjectOwnership(ps, project)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
+        // W2 Phase D(spec §6.2/§2.6):项目绑定集群时,创建者也须有集群分配 entitlement(admin 短路)
+        // ——与 messages/regenerate 同门(clusterEntitled 单源),否则未分配用户可在自己项目上对
+        // 未分配集群起对话(detached run 前的绕道)。未绑定集群('')不设门。
+        if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         const llmClient = createLlmClient(cfg)
@@ -178,7 +224,7 @@ export function createWorkbenchConvRoutes(deps) {
         // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
         // system 只存工作台 prompt 原文(不含 refContext——每轮 chat 前由 run/resumeConversation 内部
         // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
-        const { resources: fetchedResources } = await buildRefsContext(project, input.references)
+        const { resources: fetchedResources } = await buildRefsContext(project, input.references, { userId: ps.userId, role: ps.role })
 
         // system 创建时烘焙入库(2026-08-25 设计决策):admin 改配置只影响新对话;
         // conv.system 即逐对话审计证据,透明面板据此展示"本对话实际用的提示词"。
@@ -190,7 +236,7 @@ export function createWorkbenchConvRoutes(deps) {
         setActiveConversation(db, input.projectId, conv.id)
         // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
         appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
-        wbAgent.runConversation(conv.id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程(k8sSession 由 runConversation 内部按 conv.projectId 重建)
+        wbAgent.runConversation(conv.id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程(k8sSession 由 runConversation 内部按 conv.projectId 重建)
         sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, conv.id)) })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.createFailed') }); return true }
@@ -199,7 +245,7 @@ export function createWorkbenchConvRoutes(deps) {
     // POST /api/workbench/conversations/:id/messages — 续接对话(多轮核心,T4)。
     // 必须在 GET /:id 之前注册(路径更具体,先匹配)。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/messages$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       try {
         const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/messages
         const input = await readBody(req)
@@ -214,24 +260,25 @@ export function createWorkbenchConvRoutes(deps) {
         if (conv.status === 'running' || conv.status === 'paused') {
           sendJson(res, 400, { message: msg(req, 'wbc.busyNoResume') }); return true
         }
-        const project = getProject(db, conv.projectId)
-        if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
-        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noAccess') }); return true }
+        // Phase D(Task 7):owner/admin 链 + 集群分配 entitlement(续接触发 run)。
+        const project = resolveConvProject(req, res, ps, conv)
+        if (!project) return true
+        if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         // 续接的线程持久化为活跃对话(刷新后回到该线程,而非之前持久化的线程)。
         setActiveConversation(db, conv.projectId, id)
         // 1) @-ref 资源拉取(先拉,enrich refs 存完整资源 → 刷新后 ResourceCard 不丢)
         const cleanMessage = String(input.message ?? '')
-        const { resources: fetchedResources } = await buildRefsContext(project, input.references)
-        // 2) 并发双跑收口(2026-09-06 审计#1):首查 status 与此处之间隔了 await buildRefsContext
-        //    (K8s 往返),另一请求可先赢——node:sqlite 同步执行,「重读状态 → 落消息 → 置 running」
-        //    零 await 同步块内原子,TOCTOU 关闭(前提=网关单进程不变式)。败者不落任何行。
+        const { resources: fetchedResources } = await buildRefsContext(project, input.references, { userId: ps.userId, role: ps.role })
+        // 并发双跑收口(2026-09-06 审计#1):首查 status 与此处之间隔了 await buildRefsContext
+        // (K8s 往返),另一请求可先赢——node:sqlite 同步执行,「重读状态 → 落消息 → 置 running」
+        // 零 await 同步块内原子,TOCTOU 关闭(前提=网关单进程不变式)。败者不落任何行。
         const nowConv = getConversation(db, id)
         if (!nowConv || nowConv.status === 'running' || nowConv.status === 'paused') {
           sendJson(res, 400, { message: msg(req, 'wbc.busyNoResume') }); return true
         }
-        // 3) append user 消息:content 只存干净正文(曾把 refsCtx 烤进 content → 刷新后整段
+        // 2) append user 消息:content 只存干净正文(曾把 refsCtx 烤进 content → 刷新后整段
         //    JSON 当消息显示;agent 上下文改由 references 走 system,见下)
         appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
         // 4) 新 refs 并入对话级 "references"(去重 kind/namespace/name):runConversation 的
@@ -254,7 +301,7 @@ export function createWorkbenchConvRoutes(deps) {
         //    不再复读对话首问污染项目记忆(projectRecap)输入。
         updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null, userMessage: cleanMessage })
         const llmClient = createLlmClient(cfg)
-        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
+        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
         maybeSummarizeProject(db, conv.projectId, llmClient).catch(() => {}) // 项目记忆滚动摘要(spec §3.2,fire-and-forget)
         sendJson(res, 200, { status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, id)) })
@@ -266,15 +313,16 @@ export function createWorkbenchConvRoutes(deps) {
     // 截掉最后 user 消息之后的 assistant 回复 → 复位 conv 运行态字段 → runConversation
     // 以剩余消息(buildHistory)重跑,即"原问题重答",不重复计 user 轮。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/regenerate$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       try {
         const id = url.pathname.split('/')[4]
         const conv = getConversation(db, id)
         if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
         if (conv.status === 'running' || conv.status === 'paused') { sendJson(res, 400, { message: msg(req, 'wbc.busyNoRegen') }); return true }
-        const project = getProject(db, conv.projectId)
-        if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
-        if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noAccess') }); return true }
+        // Phase D(Task 7):owner/admin 链 + 集群分配 entitlement(regenerate 触发 run)。
+        const project = resolveConvProject(req, res, ps, conv)
+        if (!project) return true
+        if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         const { removed, lastUserSeq } = truncateAfterLastUser(db, id)
@@ -283,7 +331,7 @@ export function createWorkbenchConvRoutes(deps) {
         // 水位钳制(dev29):seq 复用 × summarizedUpTo 互踩——不钳的话原问题会被当"已进 recap"跳过,重答偏题
         updateConversation(db, id, { status: 'running', content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, summarizedUpTo: regenWatermark(conv.summarizedUpTo, lastUserSeq) })
         const llmClient = createLlmClient(cfg)
-        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached;.catch 防未捕获 rejection 杀进程
+        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached;.catch 防未捕获 rejection 杀进程
         sendJson(res, 200, { status: 'running' })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.regenFailed') }); return true }
@@ -292,14 +340,12 @@ export function createWorkbenchConvRoutes(deps) {
     // POST /api/workbench/conversations/:id/compact — 手动压缩上下文(全量重摘要,spec §4.4)
     // 必须在 GET /:id 之前注册(路径更具体,先匹配)。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/compact$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       const id = url.pathname.split('/')[4]
       const conv = getConversation(db, id)
       if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
-      if (conv.projectId) {
-        const project = getProject(db, conv.projectId)
-        if (project && project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noAccess') }); return true }
-      }
+      // Phase D(Task 7):owner/admin 链(压缩是项目数据面的写操作;项目缺失 → 403)
+      if (!resolveConvProject(req, res, ps, conv)) return true
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const input = await readBody(req)
@@ -312,14 +358,14 @@ export function createWorkbenchConvRoutes(deps) {
     // POST /api/workbench/conversations/:id/edit — 编辑已发消息重发(spec 2026-08-28 §3.1):
     // 截断锚消息及其后全部 → 以新内容 append(refs 缺省沿用)→ 复位运行态 → 重跑。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/edit$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       const id = url.pathname.split('/')[4]
       const conv = getConversation(db, id)
       if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
       if (conv.status === 'running' || conv.status === 'paused') { sendJson(res, 400, { message: msg(req, 'wbc.busyNoResume') }); return true }
-      const project = getProject(db, conv.projectId)
-      if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
-      if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noAccess') }); return true }
+      // Phase D(Task 7):owner/admin 链(单一事实源;项目缺失 → 403)
+      const project = resolveConvProject(req, res, ps, conv)
+      if (!project) return true
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       try {
@@ -333,7 +379,7 @@ export function createWorkbenchConvRoutes(deps) {
         if (!refsValue && anchor.refs) { try { const p = JSON.parse(anchor.refs); if (Array.isArray(p)) refsValue = p } catch { refsValue = null } }
         // 2026-08-31 审计修复⑧:与 create/messages 路径同款 enrich——沿用锚 refs 保留其已存的
         // resource 载荷,新 references 补拉(buildRefsContext 单次拉取);刷新后 ResourceCard 不丢。
-        const { resources: fetchedResources } = await buildRefsContext(project, refsValue)
+        const { resources: fetchedResources } = await buildRefsContext(project, refsValue, { userId: ps.userId, role: ps.role })
         // 并发双跑收口(2026-09-06 审计#1):此前 truncateFromMessage 在 await 之前就截了消息——
         // 输了竞态也会白截。截断挪到 await 之后,与重读状态/落消息/置 running 组成零 await
         // 同步块(node:sqlite 同步执行即原子;前提=网关单进程不变式)。败者零副作用。
@@ -363,7 +409,7 @@ export function createWorkbenchConvRoutes(deps) {
           summarizedUpTo: Math.min(nowConv.summarizedUpTo ?? 0, t.fromSeq - 1),
         })
         const llmClient = createLlmClient(cfg)
-        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached
+        wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached
         // 2026-09-01 锚 id 失联修复:截断已删旧锚行,响应必须回带新 user 行 id——
         // 前端乐观 turn 据此回填,否则同视图内第二次编辑仍发被删旧 id → 「编辑目标无效」。
         sendJson(res, 200, { status: 'running', anchorMessageId: appendedAnchor?.id || null, context: contextInfo(getConversation(db, id)) })
@@ -375,18 +421,28 @@ export function createWorkbenchConvRoutes(deps) {
     // 终态窗口内有动态,Top-N;窗口/条数由 presence.* 配置驱动,2026-08-17)。
     // 必须放在 GET /:id 之前:/[^/]+$/ 同样匹配 'active',放后面会被当 :id 查 → 404。
     if (url.pathname === '/api/workbench/conversations/active' && req.method === 'GET') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       const cfg = getPresenceConfig(db)
-      sendJson(res, 200, { conversations: listActiveConversations(db, { windowMs: cfg.windowMs, cap: cfg.maxItems }) })
+      let actives = listActiveConversations(db, { windowMs: cfg.windowMs, cap: cfg.maxItems })
+      // Phase D(Task 7):owner 过滤——非 admin 只见自己项目的活跃(admin 全量);
+      // 逐行 assertProjectOwnership(与单对话面同一判定源)。
+      if (ps.role !== 'admin') {
+        actives = actives.filter(row => {
+          const p = row.projectId ? getProject(db, row.projectId) : null
+          return !!p && assertProjectOwnership(ps, p)
+        })
+      }
+      sendJson(res, 200, { conversations: actives })
       return true
     }
 
     // GET /api/workbench/conversations/:id — 单条对话状态(轮询用)
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+$/) && req.method === 'GET') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       const id = url.pathname.split('/').pop()
       const conv = getConversation(db, id)
       if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      if (!resolveConvProject(req, res, ps, conv)) return true // Phase D:owner/admin 链
       sendJson(res, 200, {
         id: conv.id, status: conv.status, steps: conv.steps,
         content: conv.content, reasoning: conv.reasoning, error: conv.error,
@@ -405,10 +461,11 @@ export function createWorkbenchConvRoutes(deps) {
 
     // DELETE /api/workbench/conversations/:id — 删除对话(+ 关联 messages;清 activeConversationId 若匹配)
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+$/) && req.method === 'DELETE') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       const id = url.pathname.split('/')[4]
       const conv = getConversation(db, id)
       if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      if (!resolveConvProject(req, res, ps, conv)) return true // Phase D:owner/admin 链先于取消/删除
       // P0(F):运行中先取消(cancelled 守卫让 in-flight run 的结果不再回写已删对话,
       // 避免 appendTrace 抛错 → salvagePartial 给已删对话落孤儿 assistant 行);再 dispose
       // bus 让挂在 SSE 上的客户端收到终结,而不是靠 keepalive 干等。
@@ -435,13 +492,14 @@ export function createWorkbenchConvRoutes(deps) {
 
     // PATCH /api/workbench/conversations/:id — 重命名对话(title 字段)
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+$/) && req.method === 'PATCH') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       const id = url.pathname.split('/')[4]
       const input = await readBody(req)
       const title = String(input.title || '').slice(0, 100).trim()
       if (!title) { sendJson(res, 400, { message: msg(req, 'wbc.titleRequired') }); return true }
       const conv = getConversation(db, id)
       if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      if (!resolveConvProject(req, res, ps, conv)) return true // Phase D:owner/admin 链(改名此前无归属检查,降门后必须补)
       // 重命名是元数据编辑,不 bump updatedAt——悬浮入口以 updatedAt 判「新动态」,
       // 用户自己的改名不应让对话小点复活/跳顶。
       db.prepare('UPDATE workbench_conversations SET title=? WHERE id=?').run(title, id)
@@ -452,10 +510,11 @@ export function createWorkbenchConvRoutes(deps) {
     // GET /api/workbench/conversations/:id/stream — SSE 实时事件流(T7)。
     // 推 hello | status | step | delta | approval | end 事件(spec §4.1.4)。Task 8 前端消费。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/stream$/) && req.method === 'GET') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/stream
       const conv = getConversation(db, id)
       if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      if (!resolveConvProject(req, res, ps, conv)) return true // Phase D:owner/admin 链先于 SSE 建连
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
@@ -499,17 +558,27 @@ export function createWorkbenchConvRoutes(deps) {
 
     // GET /api/workbench/conversations?projectId=X — 列表(slim)
     if (url.pathname === '/api/workbench/conversations' && req.method === 'GET') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       const projectId = url.searchParams.get('projectId')
       if (!projectId) { sendJson(res, 400, { message: msg(req, 'wbc.projectIdRequired') }); return true }
+      // Phase D(Task 7):项目维度查询 = 单项目面,非 owner/admin 直接 403
+      // (与建对话/续接同一判定源;项目缺失同 403,不泄漏存在性)。
+      const project = getProject(db, projectId)
+      if (!project || !assertProjectOwnership(ps, project)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
       sendJson(res, 200, { conversations: listConversations(db, projectId) })
       return true
     }
 
     // POST /api/workbench/conversations/:id/approve — resume(detached)
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/approve$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      // W2 Phase D(CB-B Task 4):requirePlatform + 会话所属项目 owner 或 admin。
+      const ps = requirePlatform(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/approve
+      // W2 Phase D ownership gate(conv→project→owner/admin)
+      const convForGate = getConversation(db, id)
+      if (!convForGate) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      const projectForGate = getProject(db, convForGate.projectId)
+      if (!projectForGate || !assertProjectOwnership(ps, projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
       // LLM 配置检查先于 CAS(2026-09-06 审计#2):配置缺失 400 时状态未动,对话保持 paused
       // 可配置恢复后直接重试;旧顺序 CAS 先翻 running,失败即永久卡死(只能重启网关抢救)。
       const cfg = getLlmConfig()
@@ -518,23 +587,35 @@ export function createWorkbenchConvRoutes(deps) {
       // JSON.parse(conv.pendingApproval=null) 抛错 → 把终态改写成 failed(吞掉已完成答案)。
       const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
+      // 审批归属留痕:approverId/approvedAt 并入 pendingApproval(载荷原样保留)。
+      stampApprover(db, id, ps.userId)
+      // 审批归属持久留痕(CB-B 控制器裁决):pendingApproval 的归属戳会在 resume 时被清,
+      // 审计链才是 durable 权威源——resume 前落一条 wb_approval。
+      writeAudit?.(db, { owner: ps.username, verb: 'approve', tool: 'wb_approval', result: 'ok', requestSummary: `conv=${id} approverId=${ps.userId}`, source: 'platform' })
       const llmClient = createLlmClient(cfg)
-      wbAgent.resumeConversation(id, true, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached resume 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
+      wbAgent.resumeConversation(id, true, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached resume 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
       sendJson(res, 200, { status: 'running' })
       return true
     }
 
-    // POST /api/workbench/conversations/:id/deny — resume(detached)
+    // POST /api/workbench/conversations/:id/deny — resume(detached)。同 approve 权限与归属留痕。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/deny$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/deny
+      // W2 Phase D ownership gate(conv→project→owner/admin)
+      const convForGate = getConversation(db, id)
+      if (!convForGate) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+      const projectForGate = getProject(db, convForGate.projectId)
+      if (!projectForGate || !assertProjectOwnership(ps, projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
       // 配置先于 CAS(同 approve,2026-09-06 审计#2)
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
+      stampApprover(db, id, ps.userId)
+      writeAudit?.(db, { owner: ps.username, verb: 'deny', tool: 'wb_approval', result: 'ok', requestSummary: `conv=${id} approverId=${ps.userId}`, source: 'platform' })
       const llmClient = createLlmClient(cfg)
-      wbAgent.resumeConversation(id, false, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached resume 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
+      wbAgent.resumeConversation(id, false, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached resume 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
       sendJson(res, 200, { status: 'running' })
       return true
     }
@@ -542,9 +623,12 @@ export function createWorkbenchConvRoutes(deps) {
     // POST /api/workbench/conversations/:id/cancel — 用户主动停止(输错内容→停止→修改重发)。
     // 后台 LLM 调用不可中断,但 agent 落库前的 cancelled 守卫会丢弃其结果。
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/cancel$/) && req.method === 'POST') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      const ps = requirePlatform(req, res); if (!ps) return true // Phase D 降门
       try {
         const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/cancel
+        const conv = getConversation(db, id)
+        if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+        if (!resolveConvProject(req, res, ps, conv)) return true // Phase D:owner/admin 链先于取消
         const r = wbAgent.cancelConversation(id)
         if (!r.ok) { sendJson(res, 400, { message: r.message }); return true }
         sendJson(res, 200, { status: 'cancelled' })

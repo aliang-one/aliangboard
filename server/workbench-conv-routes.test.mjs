@@ -23,6 +23,11 @@ function makeHarness({ overrides = {} } = {}) {
     ca TEXT, cert TEXT, key TEXT, insecure INTEGER, version TEXT, createdBy TEXT, createdAt INTEGER)`)
   db.prepare("INSERT INTO clusters (id,name,apiServer,createdAt) VALUES ('c1','c1','http://k8s',?)").run(Date.now())
   const pid = createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' }).id
+  // W2 Phase C Task 6:@ref 门(refAllowed→canAccessNs)要读授权表——夹具补齐并把 u1 置
+  // admin(短路全通,本文件的 @ref 断言保持原语义零变化)。
+  db.exec(`CREATE TABLE IF NOT EXISTS platform_users (id TEXT PRIMARY KEY, username TEXT, role TEXT DEFAULT 'user', disabled INTEGER DEFAULT 0, createdAt INTEGER)`)
+  db.exec("ALTER TABLE clusters ADD COLUMN nsAuthMode TEXT DEFAULT 'open'")
+  db.prepare("INSERT INTO platform_users (id,username,role,createdAt) VALUES ('u1','u','admin',1)").run()
   const sent = []
   const runs = []
   let body = {}
@@ -32,6 +37,7 @@ function makeHarness({ overrides = {} } = {}) {
     sendJson: (r, status, json) => { sent.push({ status, json }) },
     readBody: async () => body,
     requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    requirePlatform: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
     wbAgent: { runConversation: async (...a) => { runs.push(a[0]) }, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
@@ -227,6 +233,7 @@ test('E2: paused 双击 approve——第二次被 CAS 挡住,只 resume 一次',
   const routes2 = createWorkbenchConvRoutes({
     db: h.db, sendJson: (r, s, j) => { sent2.push({ status: s, json: j }) }, readBody: async () => ({}),
     requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    requirePlatform: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
     wbAgent: { runConversation: () => {}, resumeConversation: async () => { resumed++ }, cancelConversation: () => ({ ok: true }) },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
@@ -251,6 +258,7 @@ test('F: 删除运行中对话——先取消(结果不回写)再事务删除,bu
   const routes2 = createWorkbenchConvRoutes({
     db: h.db, sendJson: (r, s, j) => { sent2.push({ status: s, json: j }) }, readBody: async () => ({}),
     requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    requirePlatform: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
     wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: id => { cancelled.push(id); h.db.prepare("UPDATE workbench_conversations SET status='cancelled' WHERE id=?").run(id); return { ok: true } } },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),

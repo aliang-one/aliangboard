@@ -10,6 +10,18 @@ import { maskSecretResource } from './secret-mask.mjs'
 import { formatRefBlock, createRefContextBudget } from './ref-context.mjs'
 import { REFS_CTX_HEADER, REFS_GUARD_NOTE } from './refs-context.mjs'
 import { buildServerRefBlock } from './ssh/ref-block.mjs'
+import { canAccessNs } from './authz.mjs'
+
+// W2 Phase C(Task 6):@mention 引用门单一事实源。fetchRefContext(system 每轮注入)与
+// buildRefsContext(首屏 ResourceCard)两份实现逐 ref 调用;不过 → 静默跳过(零注入,不中断)。
+//   - @server ref 恒放行(服务器暴露面维持 exposeToAi 闸,此处不再叠门);
+//   - k8s ref → canAccessNs(view)(open 集群/admin 全通,allowlist 按授权);
+//   - projectClusterId 空(未绑定项目)→ 放行(K8s ref 后续自然标注无集群,不放大也不收紧)。
+export function refAllowed(db, principal, ref, projectClusterId) {
+  if (!ref || ref.kind === 'server') return true
+  if (!projectClusterId) return true
+  return canAccessNs(db, principal, projectClusterId, ref.namespace || '', 'view')
+}
 
 // 竞速辅助:超时 rejects 带 isTimeout 标记。race 迟到 rejection 被内部 handler 吞掉
 // (Promise.race 对两输入都挂 .then),无 unhandledRejection 风险(2026-08-31 实测探针)。
@@ -27,12 +39,15 @@ export function createRefContextFetcher({ requestKubernetes, listSshServers, ref
   // 并发 fetch 所有 references 的最新资源,拼成 refContext 块。单个 refTimeoutMs 超时;
   // 失败/404 → 标 not found(漂移感知)。CSO #14:每块过 formatRefBlock(围栏头+16KB 截断);
   // budget 每次调用新建 = 每轮对话单轮全部 ref 合计 ≤48KB,超预算的 ref 跳过。
-  async function fetchRefContext(references, k8sSession) {
+  // gate(Phase C Task 6,可选):{ db, principal, clusterId }——给了则逐 ref 过 refAllowed,
+  // 无权 ref 静默跳过(空注入);缺省零过滤(向后兼容旧调用形状)。
+  async function fetchRefContext(references, k8sSession, gate = null) {
     if (!Array.isArray(references) || !references.length) return ''
     const budget = createRefContextBudget()
     // 服务器清单与单个 ref 无关——提到 map 之外取一次,循环内复用
     const sshServerRows = references.some(r => r?.kind === 'server') ? listSshServers({ exposedOnly: true }) : []
     const tasks = references.map(async ref => {
+      if (gate && !refAllowed(gate.db, gate.principal, ref, gate.clusterId)) return ''
       const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
       // @server 引用(spec §5):原始值比较(normalizeKind 不识别 server);不依赖 k8sSession——无集群项目可用
       if (ref.kind === 'server') {

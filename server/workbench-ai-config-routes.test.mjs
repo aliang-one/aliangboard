@@ -69,6 +69,12 @@ test('admin PUT:未知名 → 400;非数组 → 400', async () => {
 function userHarness({ settings, body } = {}) {
   const db = baseDb(settings)
   createWorkbenchSchema(db)
+  // create-conversation 集群 entitlement 门(spec §6.2/§2.6)依赖 platform_users/user_clusters
+  // (canAccessCluster 单一事实源);桩齐表 + u1 已分配 c1,保持本文件只测烘焙/回显不测门。
+  db.exec(`CREATE TABLE platform_users (id TEXT PRIMARY KEY, username TEXT, role TEXT DEFAULT 'user', disabled INTEGER DEFAULT 0, createdAt INTEGER)`)
+  db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, PRIMARY KEY(userId, clusterId))`)
+  db.prepare(`INSERT INTO platform_users (id,username,role,createdAt) VALUES ('u1','t','user',1)`).run()
+  db.prepare(`INSERT INTO user_clusters VALUES ('u1','c1')`).run()
   const sent = []
   const routes = createWorkbenchConvRoutes({
     db,
