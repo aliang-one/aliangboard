@@ -7,6 +7,7 @@ import { workbenchApi, authApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
+import { useAuthStore } from '@/stores/auth'
 import { relTime as relTimeFmt } from '@/logic/relTime'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import WorkbenchChat from '@/components/workbench/WorkbenchChat.vue'
@@ -16,6 +17,10 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const clusterStore = useClusterStore()
+// 审计#7(2026-09-06):Agent 模式=对话域,恒 admin 专属(对话路由族 requireAdmin,
+// 见 server/routes/workbench-conversations.mjs 顶部契约)。非 admin 只用项目协作域
+// (Edit 文件/commit,requirePlatform+ownership),AI 对话入口整体隐藏。
+const auth = useAuthStore()
 const id = route.params.id
 const project = ref(null)
 const files = ref([])
@@ -37,7 +42,8 @@ const dirty = computed(() => currentContent.value !== savedContent.value)
 // Mode: agent | edit (persisted)
 // SP4: 切模式不再静默丢改动——离开 Edit 有未保存内容先 confirm;
 // 切回 Edit 时重拉文件树/commits(Agent 模式里 AI 可能已 write_project_file)。
-const mode = ref(localStorage.getItem('aliangboard.workbench.mode') || 'agent')
+// 审计#7:非 admin 不读持久化偏好(admin 会话留下的 'agent' 不复活),固定落 Edit。
+const mode = ref(auth.isAdmin ? (localStorage.getItem('aliangboard.workbench.mode') || 'agent') : 'edit')
 async function refreshFiles() {
   try {
     const res = await workbenchApi.getProject(id)
@@ -47,6 +53,7 @@ async function refreshFiles() {
 }
 function setMode(m) {
   if (mode.value === m) return
+  if (m === 'agent' && !auth.isAdmin) return // 审计#7:非 admin 无对话域入口(按钮已隐藏,纵深防御)
   if (mode.value === 'edit' && dirty.value && !confirm(t('workbench.detail.unsavedChangesWarning'))) return
   mode.value = m
   localStorage.setItem('aliangboard.workbench.mode', m)
@@ -192,7 +199,7 @@ async function reconcile() {
   } catch (e) { notify('error', e.message || t('workbench.detail.reconcileFailed')) }
   finally { reconciling.value = false }
 }
-onMounted(async () => { await load(); loadConversations() })
+onMounted(async () => { await load(); if (auth.isAdmin) loadConversations() }) // 审计#7:conversations 端点恒 admin,非 admin 不发必 403 请求
 
 // ── 无集群项目(2026-08-30):能力提示条 + 就地绑定 ──
 // 未绑定也能写 manifests 草稿/SSH 运维;绑定后解锁资源调查与 apply。
@@ -334,9 +341,9 @@ const treeRows = computed(() => {
         <span class="hidden lg:inline">{{ t('workbench.detail.backgroundChat') }}</span>
       </button>
 
-      <!-- Mode switcher (segmented control) -->
+      <!-- Mode switcher (segmented control)。Agent(admin 专属,审计#7)对非 admin 隐藏 -->
       <div class="ml-auto flex items-center gap-xs bg-surface-container-low rounded-lg p-0.5">
-        <button @click="setMode('agent')" class="flex items-center gap-xs px-md py-xs rounded-md text-body-sm font-medium transition-all"
+        <button v-if="auth.isAdmin" @click="setMode('agent')" class="flex items-center gap-xs px-md py-xs rounded-md text-body-sm font-medium transition-all"
           :class="mode === 'agent' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'">
           <span class="material-symbols-outlined text-sm">smart_toy</span> Agent
         </button>

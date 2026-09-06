@@ -645,3 +645,69 @@ test('trimMessages 第二阶段:末条为 tool 时与其 assistant 配对保留(
   assert.deepEqual(messages[1].tool_calls.map(t => t.id), ['c2'], '配对完整:assistant 携带 tool_call')
   assert.equal(messages[2].tool_call_id, 'c2', '配对完整:tool 回执指向该 assistant')
 })
+
+// ── 2026-09-06 审计#3 轻量取消中止:agent 循环 shouldAbort 检查点 ──
+// 用户点「停止」后 cancelConversation 只置 DB cancelled+发 SSE,agent 循环原本无人查它
+// ——队列里剩余工具与后续 LLM 轮照跑(在途 LLM 流不可中断属已知边界,但工具副作用
+// 不该继续发生)。契约:createAgent 可选 shouldAbort(async () => bool);检查点两处
+// (工具队列每个工具开头 + 主循环每轮 chat 前),取消即抛错 run() reject;缺省零行为变化
+// (既有测试即证)。上层(workbench-agent)注入「读对话状态 === cancelled」的闭包。
+test('shouldAbort:第一个工具执行后取消 → 队列第二个工具不执行且 run reject(/取消/)', async () => {
+  const calls = []
+  let aborted = false
+  const run = createAgent({
+    chat: mockChat([{
+      role: 'assistant', content: null,
+      tool_calls: [
+        { id: '1', type: 'function', function: { name: 'list_pods', arguments: '{}' } },
+        { id: '2', type: 'function', function: { name: 'delete_pod', arguments: '{}' } },
+      ],
+    }]),
+    execTool: async (n) => { calls.push(n); aborted = true; return 'ok' },
+    shouldAbort: async () => aborted,
+  }).run
+  await assert.rejects(() => run({ history: [{ role: 'user', content: 'q' }] }), /取消/)
+  assert.deepEqual(calls, ['list_pods'], '副作用止步:队列第二个工具不再执行')
+})
+
+test('shouldAbort:工具排空后下一轮 chat 前取消 → 不再发起后续 LLM 轮', async () => {
+  let chatCalls = 0
+  let toolDone = false
+  const run = createAgent({
+    chat: async () => { chatCalls++; return toolCall('1', 'list_pods', {}) },
+    execTool: async () => { toolDone = true; return 'ok' },
+    shouldAbort: async () => toolDone,
+  }).run
+  await assert.rejects(() => run({ history: [{ role: 'user', content: 'q' }] }), /取消/)
+  assert.equal(chatCalls, 1, '取消后不再发起后续 LLM 轮')
+})
+
+test('shouldAbort 检查点先于 needsApproval 咨询(取消后连审批 checkpoint 都不发生)', async () => {
+  let approvals = 0
+  const run = createAgent({
+    chat: mockChat([toolCall('1', 'scale', {})]),
+    execTool: async () => 'ok',
+    needsApproval: () => { approvals++; return true },
+    shouldAbort: async () => true,
+  }).run
+  await assert.rejects(() => run({
+    resume: { messages: [], queue: [{ id: '1', type: 'function', function: { name: 'scale', arguments: '{}' } }], denied: [], steps: 1 },
+  }), /取消/)
+  assert.equal(approvals, 0, '检查点在 needsApproval 之前:取消不产生 pending_approval')
+})
+
+test('shouldAbort 检查点在收尾轮之前:取消后不再发起收尾生成(纯生成无工具也省一次调用)', async () => {
+  let chats = 0
+  const chat = async () => {
+    chats++
+    if (chats <= 3) return toolCall(String(chats), 'list_resources', {})
+    if (chats === 4) return { role: 'assistant', content: '第4轮工具', tool_calls: [{ id: 'c4', type: 'function', function: { name: 'list_resources', arguments: '{}' } }] }
+    return { role: 'assistant', content: '收尾答案' } // chats===5 = 收尾轮
+  }
+  let abort = false, toolRuns = 0
+  const out = await createAgent({ chat, execTool: async () => { if (++toolRuns === 4) abort = true; return 'x' }, maxSteps: 4, shouldAbort: async () => abort })
+    .run({ history: [{ role: 'user', content: 'hi' }] }).catch(e => e)
+  // 在第 4 个工具执行前取消 → 队列检查点抛错,不应走到 maxSteps 收尾轮(chats 停在 4,第 5 次 chat 不发起)
+  assert.ok(out instanceof Error, '取消即抛错')
+  assert.equal(chats, 4, '收尾轮 chat 不发起(检查点先于收尾分支)')
+})

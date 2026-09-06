@@ -284,12 +284,18 @@ export function createWorkbenchProjectRoutes(deps) {
       if (!projectId) { sendJson(res, 400, { message: msg(req, 'wbp.projectIdRequired') }); return true }
       const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
       if (!p) { sendJson(res, 404, { message: msg(req, 'wbp.projectNotFound') }); return true }
-      // server 分支(2026-08-30 @server spec §3):与集群无关;exposedOnly 单一事实源;host 仅 admin 响应携带
+      // server 分支(2026-08-30 @server spec §3;2026-09-06 审计#7 收紧 admin):与集群无关;
+      // exposedOnly 单一事实源。门槛=requireAdmin,与 K8s 分支及 SSH 管理页一致——server 清单是
+      // 平台级 exposed 配置(非项目数据),且 @server 搜索只服务 AI 对话(对话域恒 admin 专属,
+      // 见 workbench-conversations.mjs 顶部契约);放开普通用户聊天前须先做 ns 隔离 ADR。
+      // (此前只过 requirePlatform+项目存在,普通平台用户可枚举 exposed 服务器元数据;
+      // 「非 admin 200 无 host」仍泄露清单本身。进入分支即 admin,host 恒携带。)
       if (kindRaw === 'server') {
+        const psAdmin = requireAdmin(req, res); if (!psAdmin) return true
         const items = listSshServers(db, { exposedOnly: true })
           .filter(s => !q || s.name.toLowerCase().includes(q) || String(s.host || '').toLowerCase().includes(q) || String(s.description || '').toLowerCase().includes(q))
           .slice(0, 50)
-          .map(s => ({ kind: 'server', name: s.name, description: s.description || '', clusterRef: s.clusterRef || '', ...(ps.role === 'admin' ? { host: s.host } : {}) }))
+          .map(s => ({ kind: 'server', name: s.name, description: s.description || '', clusterRef: s.clusterRef || '', host: s.host }))
         sendJson(res, 200, { items })
         return true
       }

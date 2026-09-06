@@ -1,5 +1,6 @@
 // SP1-T7: 验证 WorkbenchDetail 的 sidebar 生命周期——
 // activeConversationId 从 project 初始化、New → null、selectConversation → id。
+// 审计#7(2026-09-06)补:Agent 模式(对话域)admin 专属——非 admin 隐藏入口(文件末两测)。
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
@@ -9,6 +10,11 @@ const workbenchApi = vi.hoisted(() => ({
   getProject: vi.fn(),
   conversations: { list: vi.fn() },
 }))
+
+// Agent 模式/对话域是 admin 专属(审计#7):本文件既有用例全部是 admin 视角(可见性零变化),
+// isAdmin 默认 true;非 admin 用例就地翻转 authState.isAdmin。
+const authState = vi.hoisted(() => ({ isAdmin: true }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: authState.isAdmin }) }))
 
 // getSavedClusters/activeApiServer:组件实例化 useClusterStore()(挂到后台按钮)→
 // store 初始化即调这两个,须在 mock 里提供
@@ -36,6 +42,7 @@ const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: {} } })
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  authState.isAdmin = true
   localStorage.removeItem('aliangboard.workbench.mode')
   workbenchApi.getProject.mockReset()
   workbenchApi.conversations.list.mockReset()
@@ -217,6 +224,31 @@ test('文件树 dirty 圆点:当前文件未保存时树行渲染 unsaved 标记
   w.vm.currentContent = 'x: 2'
   await flushPromises()
   expect(w.html()).toContain('bg-status-warning')
+})
+
+// ═══ 审计#7(2026-09-06):Agent 模式(对话域)恒 admin 专属——非 admin 隐藏入口 ═══
+// 对话路由族(全部 conversations 端点)requireAdmin;非 admin 平台用户可用项目协作域
+// (文件/Edit/commit),但不得看到 AI 对话入口:Agent 模式按钮隐藏、WorkbenchChat 不挂载、
+// 持久化偏好里 admin 会话留下的 'agent' 不复活(落 Edit)。
+test('审计#7:非 admin 无 Agent 按钮/无 WorkbenchChat/不读持久化 agent 偏好,落 Edit 且协作域照常', async () => {
+  authState.isAdmin = false
+  localStorage.setItem('aliangboard.workbench.mode', 'agent') // admin 会话留下的偏好不得复活
+  workbenchApi.getProject.mockResolvedValue({ project: { id: 'proj-1', name: 'demo' }, files: ['a.yaml'], commits: [] })
+  const w = await mountDetail()
+  expect(w.vm.mode).toBe('edit')
+  expect(w.findComponent({ name: 'WorkbenchChat' }).exists()).toBe(false)
+  expect(w.findAll('button').some(b => b.text().includes('Agent'))).toBe(false)
+  expect(w.find('[data-testid="background-chat-btn"]').exists()).toBe(false)
+  // Edit(项目协作域:requirePlatform+ownership)照常可用
+  expect(w.text()).toContain('a.yaml')
+  expect(w.findAll('button').some(b => b.text().includes('Edit'))).toBe(true)
+})
+
+test('审计#7:admin 零变化——Agent 按钮在,默认 Agent 模式,WorkbenchChat 挂载', async () => {
+  const w = await mountDetail()
+  expect(w.vm.mode).toBe('agent')
+  expect(w.findComponent({ name: 'WorkbenchChat' }).exists()).toBe(true)
+  expect(w.findAll('button').some(b => b.text().includes('Agent'))).toBe(true)
 })
 
 // 2026-08-25「历史消失」排查修复:项目 GET 瞬时失败(网关重启/网络抖动)曾被渲染成

@@ -1,6 +1,12 @@
 // SP3: 工作台对话 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // 7 端点 + buildRefsContext 辅助逐字搬迁,仅依赖引用改走 deps 注入。
 // SP2 已抽出 agent loop → workbench-agent.mjs(wbAgent.runConversation / resumeConversation)。
+//
+// 权限契约(2026-09-06 审计#7 显式化):对话域(本文件全部 conversations 路由)恒 admin 专属
+// (requireAdmin)——agent 用项目绑定集群的全权凭据直连且无 ns 隔离。这是前后端一致的显式契约,
+// 不是待修的不一致;放开非 admin 使用前必须先做授权 ADR(W2 Phase A 授权内核 authz.mjs 为前置,
+// 参见 server/authz.mjs),同文件域的 @server 搜索分支(workbench-projects.mjs)已同门槛收紧。
+// 前端侧入口(AppLayout 悬浮 ChatPresence / WorkbenchDetail Agent 模式)对非 admin 隐藏。
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from '../workbench-ai-config.mjs'
 import { registry, SSH_HIDDEN_TOOLS } from '../tool-registry.mjs'
@@ -13,7 +19,7 @@ import {
 } from '../workbench-projects.mjs'
 import { contextWindowFor, estTokens } from '../model-context.mjs'
 import { maybeSummarize, maybeSummarizeProject, compactConversation } from '../workbench-summarize.mjs'
-import { stripRefsContext, REFS_CTX_HEADER } from '../refs-context.mjs'
+import { stripRefsContext, REFS_CTX_HEADER, REFS_GUARD_NOTE } from '../refs-context.mjs'
 import { maskSecretResource } from '../secret-mask.mjs'
 import { msg } from '../messages.mjs'
 
@@ -113,7 +119,8 @@ export function createWorkbenchConvRoutes(deps) {
         resources.push(null) // 修复①:失败也要占位,保下标对齐
       }
     }
-    return { ctx: `${REFS_CTX_HEADER}${blocks.join('\n\n')}`, resources }
+    // 审计#9:与 fetchRefContext 同构——header 后随抗声明段再接块(ctx 当前无消费方,保持同构防将来接线漏声明)
+    return { ctx: `${REFS_CTX_HEADER}${REFS_GUARD_NOTE}${blocks.join('\n\n')}`, resources }
   }
 
   // 提示词可用的 SSH 清单(仅 id/name/description/clusterRef,凭据不进 prompt)。

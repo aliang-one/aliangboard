@@ -1,6 +1,7 @@
 // @server 搜索端点集成测试:spawn 真网关(骨架逐字照 wb-project-cluster.test.mjs)。
-// 覆盖:server 分支 exposedOnly + name/host/description 三路命中 + host 仅 admin;
-// 未绑集群项目可用;K8s 分支 admin 门不回退。
+// 覆盖:server 分支 exposedOnly + name/host/description 三路命中;未绑集群项目可用;
+// K8s 分支 admin 门不回退。2026-09-06 审计#7:server 分支本身也收紧 admin(对话域 admin
+// 专属,非 admin 403 不可枚举 exposed 清单)——此前「平台用户 200+无 host」仍泄露清单本身。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { spawn } from 'node:child_process'
@@ -29,7 +30,7 @@ async function waitUp() {
   throw new Error('gateway 未启动')
 }
 
-test('@server 搜索:exposedOnly+三路命中+host 仅 admin;未绑集群可用;K8s 分支门不回退', { timeout: 60000 }, async () => {
+test('@server 搜索:admin 门槛+exposedOnly+三路命中;未绑集群可用;K8s 分支门不回退', { timeout: 60000 }, async () => {
   await waitUp()
   const login = await (await fetch(`${BASE}/api/auth/login`, { method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -54,18 +55,16 @@ test('@server 搜索:exposedOnly+三路命中+host 仅 admin;未绑集群可用;
   const byDesc = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=${encodeURIComponent('入口')}`, { headers: H })).json()
   assert.equal(byDesc.items.length, 1)
 
-  // 平台用户:可见 exposed;命中同样工作;响应无 host 字段
+  // 平台用户(审计#7):server 分支收紧 admin——非 admin 403,exposed 服务器元数据
+  // (name/description/clusterRef/host)整体不可枚举;旧「200+无 host」仍泄露清单本身
   const mk = await fetch(`${BASE}/api/admin/users`, { method: 'POST', headers: H, body: JSON.stringify({ username: 'peon', password: 'p'.repeat(12) }) })
   assert.ok([200, 201].includes(mk.status))
   const plogin = await (await fetch(`${BASE}/api/auth/login`, { method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ username: 'peon', password: 'p'.repeat(12) }) })).json()
   const PH = { 'content-type': 'application/json', 'x-platform-token': plogin.token }
-  const pRes = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=10.0.0.1`, { headers: PH })).json()
-  assert.equal(pRes.items.length, 1)
-  assert.equal('host' in pRes.items[0], false, '非 admin 响应不得携带 host')
-  const pHidden = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=${encodeURIComponent('隐藏')}`, { headers: PH })).json()
-  assert.equal(pHidden.items.length, 0, '未暴露服务器不可见')
+  const pRes = await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=10.0.0.1`, { headers: PH })
+  assert.equal(pRes.status, 403, '非 admin 平台用户查 kind=server 必须 403')
 
   // K8s 分支回归:非 admin → 401/403(requireAdmin 仍在);server 分支放行不等于 K8s 分支放行
   const k8sGate = await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=pod&q=x`, { headers: PH })

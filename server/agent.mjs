@@ -98,12 +98,17 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
   return { messages: out, truncated: true }
 }
 
-export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS }) {
+export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, shouldAbort, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS }) {
   // chat: async (messages, toolDefs) => assistantMessage {role, content, tool_calls?}
   // toolDefs: LLM 工具定义(OpenAI tools 格式)
   // execTool: async (name, args) => 结果(string 或对象,转字符串喂回 LLM)
   // needsApproval(name, args) => bool | Promise<bool>:写工具遇 checkpoint(不自动执行,交人审);
   //   可异步(runner 注入 dynamicApproval 按运行时策略裁决,如 SSH 按服务器放宽)
+  // shouldAbort(2026-09-06 审计#3)(可选)async () => bool:轻量取消检查点——用户点「停止」
+  //   后 cancelConversation 只置 DB 状态,agent 循环原本无人查它,队列剩余工具与后续 LLM 轮
+  //   照跑(在途 LLM 流不可中断属已知边界,但工具副作用不该继续发生)。检查点两处:工具
+  //   队列每个工具开头(needsApproval 咨询之前)与主循环每轮 chat 前;取消即抛错 run() reject。
+  //   缺省(undefined)时行为零变化。
   // run({ system, history, onStep, resume }):
   //   resume = { messages, queue, denied, steps, toolCallId, approved } —— 续跑某个 pending 写工具
 
@@ -156,6 +161,9 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
     while (true) {
       // 1) 排空待处理工具队列(上一轮 chat 的 tool_calls,或 resume 带回的 queue)
       while (queue.length) {
+        // 取消检查点①(2026-09-06 审计#3):每个工具开头(needsApproval 咨询之前)——
+        // 取消即抛错中止,队列剩余工具的副作用不再发生;run() reject 交上层 catch 处置。
+        if (shouldAbort && await shouldAbort()) throw new Error('对话已取消,中止工具执行')
         const tc = queue[0]
         const id = callId(tc)
         const name = tc.function?.name
@@ -201,6 +209,10 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       }
 
       // 2) 队列空 → 下一轮 chat(受 maxSteps 约束;0/负数 = 不设限,仅上下文预算兜底)
+      // 取消检查点②(2026-09-06 审计#3;对抗审查后置于 maxSteps 分支之前):取消后不再发起
+      // 任何后续 chat——含收尾轮(纯生成无工具,虽无副作用但结果注定被丢弃,省一次调用)。
+      // 在途 LLM 流本身不可中断属已知边界,此处拦的是「下一轮」。
+      if (shouldAbort && await shouldAbort()) throw new Error('对话已取消,中止工具执行')
       if (maxSteps > 0 && steps >= maxSteps) {
         // 收尾轮(2026-09-03):到上限不再硬断——注入系统收尾指令、不带工具,强制基于已有信息终答。
         // truncated 仍 true:前端据此亮「已达步数上限」标;每 run 至多一次(极端二次到顶走旧兜底文案)。

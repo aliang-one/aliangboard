@@ -44,6 +44,24 @@ export function ensureFinalTraceBlock(content, trace = []) {
 export function createWorkbenchAgent(deps) {
   const { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose } = deps
 
+  // ── per-run epoch(2026-09-06 审计#3 对抗审查收口)──
+  // 「停止→修改重发」是取消的主流程,而重发路由放行 cancelled 并置回 running——以共享
+  // status 做取消信号会被新 run 击穿:旧 run 的检查点/落库前守卫读到 running 即放行,继续
+  // 执行剩余工具、发起后续 LLM 轮、把终态与 bus 事件覆写到新 run 头上(路由 P0 守卫注释
+  // 警告的「并发双 run 交错写」,'cancelled' 恰是那只守卫的盲区)。修法=每次 run 启动与
+  // cancelConversation 都 bump epoch;旧 run 的 shouldAbort/落库前守卫/catch 分支一律先比
+  // epoch,被取代(stale)即静默丢弃一切产出(不写库、不发事件、不 dispose——新 run 在用)。
+  // 内存 Map 依网关单进程不变式;重启清空=无在途 run,天然无害。
+  const runEpoch = new Map()
+  function claimRunEpoch(convId) { const n = (runEpoch.get(convId) || 0) + 1; runEpoch.set(convId, n); return n }
+  function isSuperseded(convId, myEpoch) { return (runEpoch.get(convId) || 0) !== myEpoch }
+  // 取消中止信号(shouldAbort 装配用):epoch 过期(被取消 bump 或被重发取代)或 DB 显式
+  // cancelled(直改库兜底;读失败视为非取消,不误杀正常对话)。
+  function cancelSignal(convId, myEpoch) {
+    if (isSuperseded(convId, myEpoch)) return true
+    try { return getConversation(db, convId)?.status === 'cancelled' } catch { return false }
+  }
+
 // trackPartial 检查点触发阈值:字数维度(防写放大)或时间维度(压中途刷新滞后)任一过线即落库
 const CK_CHARS = 200
 const CK_TIME_MS = 500
@@ -204,11 +222,38 @@ const CK_TIME_MS = 500
       .map(e => e?.type === 'assistant' ? { type: 'assistant', content: e.message?.content ?? e.content ?? '', ts: e.ts } : e)
   }
 
+  // 取消中止 catch 分支(2026-09-06 审计#3):agent 循环的 shouldAbort 检查点抛错(用户在 run
+  // 期间点「停止」,DB 已被 cancelConversation 置 cancelled)落此——与 run/resume 落库前
+  // cancelled 守卫完全同款的保留逻辑:已流出的 partial/reasoning 落 assistant 消息(trace 用
+  // currentTurnTrace 本轮切片 + 终答兜底块,交错模式可见),end+dispose 收尾(cancelConversation
+  // 已发过 status cancelled+end,重复 end 幂等无害);不发 failed 事件、不 safeSalvage。
+  // 返回 true=已处置(调用方 return);对话不存在(EXISTENCE 语义)或库挂读失败视为非取消 →
+  // 返回 false,调用方维持旧 safeSalvage 路径。
+  function cancelledCatchGuard(convId, tracker) {
+    try {
+      let cancelled = false
+      try { cancelled = getConversation(db, convId)?.status === 'cancelled' } catch { cancelled = false }
+      if (!cancelled) return false
+      if (tracker && (tracker.partial() || tracker.reasoning())) {
+        appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(ensureFinalTraceBlock(tracker.partial(), currentTurnTrace(convId))) })
+      }
+      busEmit(convId, { type: 'end' })
+      busDispose(convId)
+      return true
+    } catch (e) {
+      // 落库自身抛错(同 safeSalvage 2026-08-27 契约):吞错保事件序列——但取消处置已尽力,
+      // 返回 true 走静默退出,不再落 failed(取消语义下 failed 是误导)。
+      console.error('[workbench-agent] cancelled 落库失败:', e?.message || e)
+      return true
+    }
+  }
+
   // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。k8sSession 内部按 conv.projectId 重建(T5)。
   // T7:全程把事件透到 conv-bus(status/delta/step/end/approval),供 SSE 订阅。
   async function runConversation(convId, llmClient, actor) {
     let tracker = null // 中断保全:catch 需读累计内容,须在 try 外声明
     let turnTrace = [] // 本段事件累积(失败 salvage 落消息级 trace 用,同在 try 外)
+    const myEpoch = claimRunEpoch(convId) // per-run 令牌(对抗审查收口,见模块头注释)
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -236,6 +281,9 @@ const CK_TIME_MS = 500
         // 动态审批复合路由(2026-08-30):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
         dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
+        // 轻量取消检查点(2026-09-06 审计#3):agent 循环按 DB 取消态中止队列剩余工具与
+        // 后续 LLM 轮(读库失败视为非取消,不误杀正常对话)。
+        shouldAbort: () => cancelSignal(convId, myEpoch),
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -266,6 +314,7 @@ const CK_TIME_MS = 500
       // 用户已取消(cancelConversation 置 cancelled):终态结果丢弃——不覆盖状态、不追加项目历史;
       // 但已流出的部分内容+思考落 assistant 消息(用户裁决 2026-08-19,与 failed 抢救对称——
       // 此前全弃,刷新后用户看着流出来的答案蒸发)。无流出内容则不追加。
+      if (isSuperseded(convId, myEpoch)) return // 被新 run 取代(停止→改→重发):产出静默丢弃,不覆写新 run(对抗审查收口)
       if (getConversation(db, convId)?.status === 'cancelled') {
         if (tracker && (tracker.partial() || tracker.reasoning())) {
           appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(ensureFinalTraceBlock(tracker.partial(), turnTrace)) })
@@ -278,6 +327,10 @@ const CK_TIME_MS = 500
       finalizeConvEmit(convId, out)
       maybeSummarizeProject(db, conv.projectId, llmClient).catch(() => {}) // 项目记忆:done 后补 fire(A2;append 处保留兜底,水位幂等)
     } catch (err) {
+      // 取消中止分支(2026-09-06 审计#3,先于 safeSalvage):shouldAbort 检查点抛错 = run 期间
+      // 用户点了「停止」——保留已流出内容后收尾,不写 failed(详见 cancelledCatchGuard 注释)。
+      if (isSuperseded(convId, myEpoch)) return // 被新 run 取代:静默退出——不 safeSalvage(会把新 run 标 failed)、不发事件(bus 属新 run)(对抗审查收口)
+      if (cancelledCatchGuard(convId, tracker)) return
       safeSalvage(convId, err, tracker, turnTrace)
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
@@ -289,6 +342,7 @@ const CK_TIME_MS = 500
   // T7:全程把事件透到 conv-bus,与 runConversation 对称。
   async function resumeConversation(convId, approved, llmClient, actor) {
     let tracker = null // 中断保全:catch 需读累计内容,须在 try 外声明
+    const myEpoch = claimRunEpoch(convId) // per-run 令牌(对抗审查收口,见模块头注释)
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -316,6 +370,8 @@ const CK_TIME_MS = 500
         // 动态审批复合路由(2026-08-30):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
         dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
+        // 轻量取消检查点(2026-09-06 审计#3):与 run 路径同款(convId 闭包可用)。
+        shouldAbort: () => cancelSignal(convId, myEpoch),
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -344,6 +400,7 @@ const CK_TIME_MS = 500
         onStep: makeOnStep(convId, [], tracker),
       })
       // 同 runConversation:取消后终态丢弃,但保留已流出的部分内容+思考(见 runConversation 注释)
+      if (isSuperseded(convId, myEpoch)) return // 被新 run 取代(停止→改→重发):产出静默丢弃,不覆写新 run(对抗审查收口)
       if (getConversation(db, convId)?.status === 'cancelled') {
         if (tracker && (tracker.partial() || tracker.reasoning())) {
           appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(ensureFinalTraceBlock(tracker.partial(), currentTurnTrace(convId))) })
@@ -358,6 +415,9 @@ const CK_TIME_MS = 500
       finalizeConvEmit(convId, out)
       maybeSummarizeProject(db, project.id, llmClient).catch(() => {}) // 项目记忆:resume done 后补 fire(A2;水位幂等)
     } catch (err) {
+      // 取消中止分支(2026-09-06 审计#3,先于 safeSalvage,与 run 路径对称)。
+      if (isSuperseded(convId, myEpoch)) return // 被新 run 取代:静默退出——不 safeSalvage(会把新 run 标 failed)、不发事件(bus 属新 run)(对抗审查收口)
+      if (cancelledCatchGuard(convId, tracker)) return
       safeSalvage(convId, err, tracker, currentTurnTrace(convId))
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
@@ -366,9 +426,13 @@ const CK_TIME_MS = 500
   }
 
   // 用户主动停止运行中的对话(输错内容→停止→修改重发)。
-  // 标记 cancelled + SSE 通知终结;后台 LLM 调用无法中断,run/resume 落库前的
-  // cancelled 守卫会丢弃其结果(状态/历史不被覆盖)。
+  // 标记 cancelled + SSE 通知终结;在途 LLM 流不可中断(已知边界),但 shouldAbort
+  // 检查点(2026-09-06 审计#3,装配见 run/resume)会让 agent 循环在「下一个工具/下一轮
+  // chat 前」抛错中止;run/resume 落库前的 cancelled 守卫仍兜底丢弃迟到结果(状态/历史不被覆盖)。
   function cancelConversation(convId) {
+    // 不 bump epoch:纯取消(未被重发)须走「保留 partial」分支(status=cancelled 判定);
+    // 若用户随后重发,新 run 的 claimRunEpoch 自然使本 run 过期 → 静默丢弃。bump 放这里会把
+    // 所有取消都误判成 superseded,perserve 分支永不可达(既有取消测试逮住)。
     const conv = getConversation(db, convId)
     if (!conv) return { ok: false, message: '对话不存在' }
     if (conv.status !== 'running' && conv.status !== 'paused') return { ok: false, message: '对话不在运行中' }
