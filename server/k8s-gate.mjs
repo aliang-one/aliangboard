@@ -123,7 +123,15 @@ export function createK8sGate({ db, writeAudit }) {
 //     levelForRequest(method, subresource)):admin/open/legacy 过,allowlist 非 admin 拒。
 //   - ns 型(含 allNamespaces=true 的 null-ns 全 ns list,spec §2.4)→
 //     gateK8sSession(namespace, levelForRequest(method, subresource))。
+// server-root 健康端点白名单(2026-09-06 集成断裂修复,外评裁决规格):前端在透传面真实使用
+// GET /readyz(Settings 健康徽标)与 GET /version(终端探针);/healthz /livez 为防御性兼容。
+// 这些不是资源路径,parseApiPath 刻意不认(返 null)——在此按精确路径+仅 GET 放行,不进
+// gateK8sSession(allowlist 普通用户「集群级出口一律拒」的裁决不适用:非资源健康端点无信息
+// 面外溢)。调用点(index.mjs 透传分支)已过 session 路由鉴权门,本分支因此处于 session
+// 鉴权之后。POST/PUT/DELETE 与一切未列名根路径照旧 fail-closed + unparseable-path 审计。
+const SERVER_ROOT_GET = new Set(['/version', '/readyz', '/healthz', '/livez'])
 export function gateParsedPath(gate, session, parsed, { path, method } = {}) {
+  if (!parsed && method === 'GET' && SERVER_ROOT_GET.has(path)) return true
   if (!parsed) {
     gate.noteUnparseable?.(session, { path, method })
     return false

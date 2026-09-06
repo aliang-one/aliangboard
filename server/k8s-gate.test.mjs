@@ -427,3 +427,38 @@ test('apply gate C: operate on team-a + doc ns=team-a + no defaultNs → allowed
   assert.deepEqual(nss, ['team-a'])
   assert.equal(gate.gateK8sSession({ userId: 'u2', clusterId: 'c-allow' }, { namespace: nss[0], level: 'operate' }), true)
 })
+
+// server-root 健康端点(2026-09-06 集成断裂修复,外评裁决规格):前端在透传面真实使用
+// GET /readyz(Settings 健康徽标)与 GET /version(终端探针)——parseApiPath 对非 /api|/apis
+// 前缀返回 null,gateParsedPath 曾对所有 session 类先拒+审计。修复=精确 GET 白名单
+// (/version /readyz /healthz /livez),在 session 鉴权之后的透传分支放行,不进 gateK8sSession
+// (allowlist 普通用户的集群级出口裁决不适用:非资源健康端点)。
+test('gateParsedPath: server-root GET 白名单对四类 session 全放行,零审计', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  const sessions = [
+    ['admin', { userId: 'admin1', clusterId: 'c-allow' }],
+    ['open', { userId: 'u1', clusterId: 'c-open' }],
+    ['legacy', { clusterId: 'c-allow' }],
+    ['allowlist 普通用户', { userId: 'u1', clusterId: 'c-allow' }],   // 仅有 team-a view 授权,无集群级
+  ]
+  for (const [label, sess] of sessions) {
+    for (const p of ['/version', '/readyz', '/healthz', '/livez']) {
+      assert.equal(gateParsedPath(gate, sess, parseApiPath(p), { path: p, method: 'GET' }), true, `${label} GET ${p} 应放行`)
+    }
+  }
+  assert.equal(auditRows(db).length, 0, '放行不写审计(与资源放行同口径)')
+})
+
+test('gateParsedPath: server-root 白名单仅精确 GET——POST 拒/未知根路径拒/非精确路径拒,均审计', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  const sess = { userId: 'u1', clusterId: 'c-allow' }
+  assert.equal(gateParsedPath(gate, sess, parseApiPath('/version'), { path: '/version', method: 'POST' }), false, 'POST /version 拒')
+  assert.equal(gateParsedPath(gate, sess, parseApiPath('/metrics'), { path: '/metrics', method: 'GET' }), false, '未列名根路径拒')
+  assert.equal(gateParsedPath(gate, sess, parseApiPath('/version/extra'), { path: '/version/extra', method: 'GET' }), false, '非精确路径拒')
+  assert.equal(gateParsedPath(gate, sess, parseApiPath('/'), { path: '/', method: 'GET' }), false, '根本身拒')
+  const rows = auditRows(db)
+  assert.equal(rows.length, 4)
+  assert.ok(rows.every(r => r.reason === 'unparseable-path' && r.result === 'denied'))
+})
