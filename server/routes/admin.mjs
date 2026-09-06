@@ -1,7 +1,7 @@
 // 管理 HTTP 端点从 server/index.mjs 抽出(handler/dispatcher 模式)。零行为变更。
 // LLM/MCP 配置、集群 CRUD、API keys、审计日志、用户管理 逐字搬迁,仅依赖引用改走 deps 注入。
 import { listKeys, mintKey, revokeKey, setKeySaBinding, setKeySshAccess } from '../auth-keys.mjs'
-import { managedSaName, rbacTier } from '../sa-provision.mjs'
+import { managedSaName, rbacTier, groupBindingPlan } from '../sa-provision.mjs'
 import { randomUUID as cryptoRandomUUID } from 'node:crypto'
 import { limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB } from '../podfile-stream.mjs'
 import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize.mjs'
@@ -23,6 +23,37 @@ export function createAdminRoutes(deps) {
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
   } = deps
+
+  // ===== W2 Phase E(Task 3):组 RoleBinding 驱动(grants 变更 → 集群侧绑定收敛)=====
+  // 双写门:仅 allowlist 集群(open 不隔离,绑定无意义=spec 非目标)。fire-and-forget:失败仅
+  // console.warn 不影响响应;漂移由启动期 sweepGroupBindings 兜底删、下次 PUT 自愈(SSA 幂等)。
+  // provisionGroupCluster/teardownGroupCluster 为 index.mjs 注入的 per-cluster 包装(requestFn+callCtx)。
+  const allowlistRow = (clusterId) => {
+    if (!deps.getCluster) return null
+    const row = deps.getCluster(clusterId)
+    return row && row.nsAuthMode === 'allowlist' ? row : null
+  }
+  const fireGroupDrive = (clusterId, task) => {
+    const row = allowlistRow(clusterId)
+    if (!row) return
+    Promise.resolve(task(row)).catch(e => console.warn('[admin] group binding drive failed:', e?.message || e))
+  }
+  // PUT grants 全量替换后的收敛:teardown scope = prev ∪ next(降档旧名/被收 ns 全清)→ 重建当前档。
+  // prevRows 由调用方在事务 DELETE 前捕获(提交后旧行已蒸发)。
+  function driveGroupAfterReplace(clusterId, subjectId, prevRows) {
+    if (!deps.provisionGroupCluster && !deps.teardownGroupCluster) return
+    const prev = groupBindingPlan((prevRows || []).map(r => ({ ...r, subjectId }))).get(subjectId)
+    const nextRows = db.prepare("SELECT namespace, level FROM ns_grants WHERE subjectType='group' AND subjectId=? AND clusterId=?").all(subjectId, clusterId)
+    const next = groupBindingPlan(nextRows.map(r => ({ ...r, subjectId }))).get(subjectId)
+    fireGroupDrive(clusterId, async row => {
+      const tierChanged = prev && next && prev.tier !== next.tier
+      const removedNs = prev && next ? prev.namespaces.filter(ns => !next.namespaces.includes(ns)) : []
+      if (prev && deps.teardownGroupCluster && (!next || tierChanged || removedNs.length)) {
+        await deps.teardownGroupCluster(row, { groupId: subjectId, namespaces: [...new Set([...prev.namespaces, ...(next?.namespaces || [])])] })
+      }
+      if (next && deps.provisionGroupCluster) await deps.provisionGroupCluster(row, { groupId: subjectId, tier: next.tier, namespaces: next.namespaces })
+    })
+  }
 
   // 匹配 admin 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
   async function handle(req, res, url) {
@@ -756,6 +787,10 @@ export function createAdminRoutes(deps) {
       const id = decodeURIComponent(url.pathname.slice('/api/admin/groups/'.length))
       const group = db.prepare('SELECT id FROM groups WHERE id=?').get(id)
       if (!group) { sendJson(res, 404, { message: msg(req, 'admin.groupOrUserNotFound') }); return true }
+      // W2 Phase E:组 grants 行在事务蒸发前捕获(删组 → 集群侧组绑定须随之回收)。
+      const grantClusters = deps.teardownGroupCluster
+        ? db.prepare("SELECT clusterId, namespace FROM ns_grants WHERE subjectType='group' AND subjectId=?").all(id)
+        : []
       // 三表级联(groups/members/该组 grants)单事务:任一失败整体回滚,不留半删组
       db.exec('BEGIN')
       try {
@@ -767,6 +802,11 @@ export function createAdminRoutes(deps) {
         try { db.exec('ROLLBACK') } catch { /* 事务已不在 */ }
         console.error('[admin] group delete transaction failed:', e?.message || e)
         sendJson(res, 500, { message: msg(req, 'admin.saveFailed') }); return true
+      }
+      // 集群侧回收(fire-and-forget,失败仅 warn——启动 sweep 兜底):每集群全量两档 teardown。
+      for (const clusterId of new Set(grantClusters.map(r => r.clusterId))) {
+        const namespaces = grantClusters.filter(r => r.clusterId === clusterId).map(r => r.namespace)
+        fireGroupDrive(clusterId, row => deps.teardownGroupCluster(row, { groupId: id, namespaces }))
       }
       writeAudit?.(db, { owner: ps.username, verb: 'delete', tool: 'admin_group_delete', result: 'ok', requestSummary: `id=${id}`, source: 'platform' })
       sendJson(res, 200, { ok: true }); return true
@@ -831,6 +871,11 @@ export function createAdminRoutes(deps) {
         const nsSet = new Set(rows.map(r => r.namespace))
         if (nsSet.size !== rows.length) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
         // 全量替换该 subject+cluster 的 grants(单事务:删+插原子,COMMIT 失败整体回滚)
+        // W2 Phase E:组 grants 的替换前行在 DELETE 前捕获——提交后旧行蒸发,组绑定驱动要靠它算
+        // teardown scope(降档旧名/被收 ns);仅 subjectType='group' 有集群侧绑定。
+        const prevRows = subjectType === 'group'
+          ? db.prepare("SELECT namespace, level FROM ns_grants WHERE subjectType='group' AND subjectId=? AND clusterId=?").all(subjectId, clusterId)
+          : []
         db.exec('BEGIN')
         try {
           db.prepare('DELETE FROM ns_grants WHERE subjectType=? AND subjectId=? AND clusterId=?').run(subjectType, subjectId, clusterId)
@@ -842,6 +887,7 @@ export function createAdminRoutes(deps) {
           console.error('[admin] grants save transaction failed:', e?.message || e)
           sendJson(res, 500, { message: msg(req, 'admin.saveFailed') }); return true
         }
+        if (subjectType === 'group') driveGroupAfterReplace(clusterId, subjectId, prevRows) // fire-and-forget,失败仅 warn
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_grant_save', result: 'ok', requestSummary: `${subjectType}=${subjectId} cluster=${clusterId} ns=${rows.length}`, source: 'platform' })
         sendJson(res, 200, { ok: true }); return true
       } catch (e) { sendJson(res, 400, { message: msg(req, 'admin.grantInvalid') }); return true }
@@ -854,6 +900,13 @@ export function createAdminRoutes(deps) {
       const cluster = db.prepare('SELECT id FROM clusters WHERE id=?').get(id)
       if (!cluster) { sendJson(res, 404, { message: msg(req, 'admin.clusterNotFound') }); return true }
       db.prepare('UPDATE clusters SET nsAuthMode=? WHERE id=?').run(mode, id)
+      // W2 Phase E:切到 allowlist 即对该集群全部组 grants 逐组供给(fire-and-forget)——
+      // impersonation 生效前提是组身份在集群侧有 RoleBinding。切回 open 不回收(绑定惰性无害,启动 sweep 清)。
+      if (mode === 'allowlist' && deps.provisionGroupCluster) {
+        for (const [subjectId, plan] of groupBindingPlan(db.prepare("SELECT subjectId, namespace, level FROM ns_grants WHERE subjectType='group' AND clusterId=?").all(id))) {
+          fireGroupDrive(id, row => deps.provisionGroupCluster(row, { groupId: subjectId, tier: plan.tier, namespaces: plan.namespaces }))
+        }
+      }
       writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_cluster_nsmode', result: 'ok', requestSummary: `id=${id} mode=${mode}`, source: 'platform' })
       sendJson(res, 200, { ok: true, mode }); return true
     }

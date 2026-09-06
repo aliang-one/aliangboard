@@ -17,7 +17,8 @@ import { createClusterCerts } from './cluster-certs.mjs'
 import { createClusterCertsRoutes } from './routes/cluster-certs.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { sweepOrphanGrants, effectiveGrants, levelForRequest, wbToolGate, gateApplyNamespaces } from './authz.mjs'
-import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
+import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings,
+  provisionGroupBindings, teardownGroupBindings, sweepGroupBindings, groupBindingKeepSet } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
 import { createAuditSchema, writeAudit } from './audit.mjs'
@@ -213,6 +214,27 @@ try {
   const swept = sweepOrphanGrants(db)
   if (swept.members || swept.grants) console.log(`[authz] orphan grant sweep: removed ${swept.members} group_members, ${swept.grants} ns_grants`)
 } catch (e) { console.error('[authz] orphan grant sweep failed:', e?.message || e) }
+// W2 Phase E(Task 3):组 RoleBinding 漂移清扫(启动一次,best-effort)——allowlist 集群上按
+// ns_grants 推导 keep 集,删掉带组标签但不在 keep 集的 Role/RoleBinding(降档/收 ns/删组/驱动失败
+// 的残留)。网络面延迟 3s 发起(不阻塞启动、避开启动探测窗口);失败仅告警,下轮启动重试。
+setTimeout(() => {
+  ;(async () => {
+    const clusterIds = db.prepare("SELECT DISTINCT clusterId FROM ns_grants WHERE subjectType='group'").all().map(r => r.clusterId)
+    for (const clusterId of clusterIds) {
+      try {
+        const row = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+        if (!row || row.nsAuthMode !== 'allowlist') continue // open 集群不双写 RBAC(非目标)
+        const rows = db.prepare("SELECT subjectId, namespace, level FROM ns_grants WHERE subjectType='group' AND clusterId=?").all(clusterId)
+        const out = await sweepGroupBindings(
+          { requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) },
+          { keep: groupBindingKeepSet(rows) },
+        )
+        if (out.deleted.length) console.log(`[authz] group binding sweep: cluster=${clusterId} removed ${out.deleted.length} stale group Role/RoleBinding`)
+        if (out.errors.length) console.warn(`[authz] group binding sweep: cluster=${clusterId} ${out.errors.length} namespace(s) skipped (list failed)`)
+      } catch (e) { console.warn('[authz] group binding sweep failed:', `cluster=${clusterId}`, e?.message || e) }
+    }
+  })().catch(() => { /* per-cluster try/catch 已兜底 */ })
+}, 3000)
 db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
   token TEXT PRIMARY KEY,
   userId TEXT NOT NULL,
@@ -1683,6 +1705,15 @@ async function handle(req, res) {
     sweepNamespacesCluster: async (row, spec) => {
       if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
       return sweepNsBindings({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
+    // W2 Phase E(Task 3):组级绑定驱动(admin.mjs grants/ns-auth-mode/删组 → 集群侧 Role/RoleBinding)
+    provisionGroupCluster: async (row, spec) => {
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
+      return provisionGroupBindings({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
+    teardownGroupCluster: async (row, spec) => {
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
+      return teardownGroupBindings({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
     },
     probeSa: async (row, ns, name) => {
       if (!row) return { ok: false, detail: msg(req, 'api.clusterNotFound') }
