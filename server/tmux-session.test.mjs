@@ -269,3 +269,13 @@ test('pickStaleSids: attached>0 豁免——正在看的终端不被「30min 无
   ])
   assert.deepEqual(pickStaleSids(now, tracker, 5_000), ['ab1-idle', 'ab1-noflag'])
 })
+
+// 评审#2(2026-09-06):清道夫杀会话前先 list-clients——有附着客户端的会话不得杀
+// (异步窗口内用户重连,内存守卫拦不住 tmux 侧的时序,原子前置条件才是硬防线)
+test('tmuxListClientsCommand: tmux -L <label> list-clients -t <name>', async () => {
+  const { tmuxListClientsCommand } = await import('./tmux-session.mjs')
+  assert.deepEqual(tmuxListClientsCommand('abDEADBEEF', 'abDEADBEEF-term-1'),
+    ['tmux', '-L', 'abDEADBEEF', 'list-clients', '-t', 'abDEADBEEF-term-1'])
+  assert.deepEqual(tmuxListClientsCommand('abX', 'abX-s1', '/usr/bin/tmux'),
+    ['/usr/bin/tmux', '-L', 'abX', 'list-clients', '-t', 'abX-s1'])
+})
