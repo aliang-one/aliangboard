@@ -51,6 +51,7 @@ export const ROUTE_AUTH = [
   { method: 'POST', pattern: '/api/cronjob/trigger', auth: 'session' },
   { method: 'POST', pattern: '/api/registry/tags',    auth: 'session' }, // CSO 审计 #2(2026-08-28 修):曾漏挂
   { method: 'GET',  pattern: '/api/resource/tree',    auth: 'session' },
+  { method: 'GET',  pattern: '/api/cluster-certs',    auth: 'session' }, // 证书可观测(2026-09-06):连接证书 + TLS Secret 扫描
   { method: 'GET',  pattern: '/api/k8s-watch',        auth: 'session' },
   { prefix: '/api/k8s/',         auth: 'session' },
   { prefix: '/api/portforward',  auth: 'session' },   // 精确 + /:id 子路径

@@ -83,4 +83,5 @@ export const TABLE = {
   'api.unknownPvcfileAction': { zh: '未知 pvcfile 操作：{action}（只读浏览，仅支持 list / read）', en: 'Unknown pvcfile action: {action} (read-only browsing; only list / read are supported)' },
   'api.unknownPodfileAction': { zh: '未知 podfile 操作：{action}', en: 'Unknown podfile action: {action}' },
   'api.execSessionFailed': { zh: '{mode} 会话建立失败（容器可能未就绪或镜像内无 shell）', en: 'Failed to establish {mode} session (container may not be ready or the image has no shell)' },
+  'api.clusterCertsFailed': { zh: '证书探测失败', en: 'Certificate probe failed' },
 }
