@@ -14,7 +14,7 @@ import { createK8sGate, gateParsedPath, filterNamespaceList, gateWatchResources 
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
-import { sweepOrphanGrants, effectiveGrants, levelForRequest, wbToolGate } from './authz.mjs'
+import { sweepOrphanGrants, effectiveGrants, levelForRequest, wbToolGate, gateApplyNamespaces } from './authz.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
@@ -1311,7 +1311,16 @@ async function handle(req, res) {
         readFile: (p) => wbReadFile(repo, p),
         writeFile: (p, c) => wbWriteFile(repo, p, c),
         readManifests: async () => { const files = await wbListFiles(repo); const yamls = files.filter(f => f.startsWith('manifests/') && /\.ya?ml$/.test(f)); const cs = await Promise.all(yamls.map(f => wbReadFile(repo, f).catch(() => ''))); return cs.join('\n---\n') },
-        applyManifests: async (yaml) => { if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProjectApply')); return applyYamlPartial(k8sSession, yaml) },
+        // wb_apply 门(Job 2):与 /api/apply HTTP 门同源——resolveApplyNamespaces 解析逐文档
+        // ns(集群 discovery 对 CRD 权威)→ 每文档 operate;集群级 kind(undefined)→ null-ns
+        // 裁决(allowlist 非 admin 拒);不可发现(null)→ 不拦。拒绝走 {error} 形状(agent 面)。
+        applyManifests: async (yaml) => {
+          if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProjectApply'))
+          let docNss = []
+          try { docNss = await resolveApplyNamespaces(k8sSession, String(yaml || '')) } catch { /* 无效 YAML:后续 apply 以同因报错,门不拦 */ }
+          gateApplyNamespaces(gate, docNss)
+          return applyYamlPartial(k8sSession, yaml)
+        },
         appendLearning: async (content) => {
           const learn = learningLedgerPath(WORKBENCH_DIR, project)
           let prev = ''; try { prev = await wbReadFile(learn.dir, learn.file) } catch {}

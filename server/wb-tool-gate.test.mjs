@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { wbToolGate, canAccessNs } from './authz.mjs'
+import { wbToolGate, gateApplyNamespaces, canAccessNs } from './authz.mjs'
 import { makeAuthzDb } from './authz.test.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -99,6 +99,41 @@ test('wbToolGate: clusterId 空(未绑定项目)→ 零门(工具自然失败)',
   g.check('team-b', 'operate', 'wb_exec')
   g.clusterWide('wb_top')
   g.check(undefined, 'view', 'wb_list')
+})
+
+// ===== Job 2(wb_apply 门):applyManifests 的逐文档 ns 决策 =====
+// docNss 元素语义与 /api/apply 门同源(resolveApplyNamespaces):string=namespaced ns、
+// undefined=集群级 kind、null=不可发现(不拦,applyYaml 以原语义失败)。
+
+test('gateApplyNamespaces:string→check operate;undefined→clusterWide;null→跳过', () => {
+  const seen = []
+  const fakeGate = {
+    check: (ns, level, tool) => seen.push(['check', ns, level, tool]),
+    clusterWide: tool => seen.push(['clusterWide', tool]),
+  }
+  gateApplyNamespaces(fakeGate, ['team-a', undefined, null, 'team-b'])
+  assert.deepEqual(seen, [
+    ['check', 'team-a', 'operate', 'wb_apply'],
+    ['clusterWide', 'wb_apply'],
+    ['check', 'team-b', 'operate', 'wb_apply'],
+  ])
+})
+
+test('gateApplyNamespaces:拒绝透传(check 抛即停)+ 空文档清单零调用', () => {
+  const fakeGate = { check: () => { throw new Error('PERMISSION_DENIED: rbac') }, clusterWide: () => {} }
+  assert.throws(() => gateApplyNamespaces(fakeGate, ['team-a', 'team-b']), /PERMISSION_DENIED/)
+  const seen = []
+  const okGate = { check: (...a) => seen.push(a), clusterWide: () => seen.push('cw') }
+  gateApplyNamespaces(okGate, [])
+  assert.equal(seen.length, 0)
+})
+
+test('接线守卫:applyManifests 实现体内先 resolveApplyNamespaces 过门再 apply', () => {
+  const m = region.match(/applyManifests: async \(yaml\)[\s\S]*?\n {8}},/)
+  assert.ok(m, '未截取到 applyManifests 实现体')
+  assert.match(m[0], /resolveApplyNamespaces\(/, 'applyManifests 必须先解析逐文档 ns(与 /api/apply 门同源)')
+  assert.match(m[0], /gateApplyNamespaces\(gate,/, 'applyManifests 必须经 gateApplyNamespaces 逐文档 operate 门')
+  assert.ok(m[0].indexOf('gateApplyNamespaces') < m[0].indexOf('applyYamlPartial'), '门必须在 applyYamlPartial 之前')
 })
 
 // ============ ② 接线层:静态源码守卫(index.mjs buildWbCtx 必须接门) ============

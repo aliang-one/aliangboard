@@ -68,6 +68,18 @@ export function canAccessNs(db, principal, clusterId, namespace, needLevel = 'vi
   return best !== undefined && LEVEL_RANK[best] >= LEVEL_RANK[needLevel]
 }
 
+// Job 2(wb_apply 门):applyManifests 的逐文档决策(纯函数,gate 鸭子类型 {check,clusterWide})。
+// docNss 元素语义与 /api/apply HTTP 门同源(resolveApplyNamespaces 单一事实源):
+//   string = namespaced ns → operate;undefined = 集群级 kind → clusterWide(null-ns 裁决:
+//   allowlist 非 admin 拒);null = 不可发现 kind → 不拦(applyYaml 以原语义失败,无法 apply 即无绕过)。
+export function gateApplyNamespaces(gate, docNss, tool = 'wb_apply') {
+  for (const ns of (docNss || [])) {
+    if (ns === null) continue
+    if (ns === undefined) gate.clusterWide(tool)
+    else gate.check(ns, 'operate', tool)
+  }
+}
+
 // W2 Phase C (Task 5): wb 工具执行面门(factory)。buildWbCtx 在每个 ns 型工具的
 // K8s 出站前调 gate.check;集群级 kind 用 clusterWide;无 ns 列表用 namespaces() 过滤。
 //   - clusterId 空(未绑定项目)→ 零门(K8s 工具本就 natural fail,不放大也不收紧)。
