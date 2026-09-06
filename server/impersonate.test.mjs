@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { buildImpersonation, impersonateDisplaynameFor, impersonateHeadersFor, createImpersonationProbe } from './impersonate.mjs'
+import { buildImpersonation, impersonateDisplaynameFor, impersonateHeadersFor, createImpersonationProbe, mergeImpersonate } from './impersonate.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 
 function makeDb() {
@@ -240,4 +240,62 @@ test('connect-cluster:legacy 无归属 ps(userId 空)→ impersonate 空数组,�
   assert.equal(sent[0].status, 200)
   assert.deepEqual(persisted[0].session.impersonate, [])
   assert.equal(probed.length, 0, '无身份即无探测')
+})
+
+// ===== Task 2:mergeImpersonate(egress 注入纯函数,requestOnce 形状) =====
+
+test('mergeImpersonate:probed=true + 有身份 → 注入(就地 mutate 并返回同一对象)', () => {
+  const headers = { accept: 'application/json' }
+  const out = mergeImpersonate(headers, sess(), true)
+  assert.equal(out, headers, '返回同一 headers 对象(requestOnce 单点调用)')
+  assert.equal(headers['impersonate-user'], 'aliangboard:u-u1')
+  assert.deepEqual(headers['impersonate-group'], ['aliangboard:team-g1'])
+  assert.equal(headers['impersonate-extra-displayname'], 'Alice')
+})
+
+test('mergeImpersonate:probed=false/undefined → 不注(探测未过/未知一律保守不注)', () => {
+  for (const probed of [false, undefined]) {
+    const headers = { accept: 'application/json' }
+    mergeImpersonate(headers, sess(), probed)
+    assert.deepEqual(headers, { accept: 'application/json' })
+  }
+})
+
+test('mergeImpersonate:无身份(空数组/undefined/缺字段)→ 恒不注', () => {
+  for (const session of [{}, { impersonate: [] }, { impersonate: undefined }]) {
+    const headers = {}
+    mergeImpersonate(headers, session, true)
+    assert.deepEqual(headers, {})
+  }
+})
+
+test('mergeImpersonate:显式已有 impersonate 头不被覆盖(调用方显式语义优先)', () => {
+  const headers = { 'impersonate-user': 'explicit' }
+  mergeImpersonate(headers, sess(), true)
+  assert.equal(headers['impersonate-user'], 'explicit', '探测请求自带 impersonate 头时不能被覆盖')
+})
+
+// ===== Task 2:probe.kick(egress 懒探测,fire-and-forget) =====
+
+test('kick:cache 无条目 → 发起;在途/已决 → 不重复;无身份/无 clusterId → 不发', async () => {
+  const calls = []
+  let release
+  const probe = createImpersonationProbe({ requestKubernetes: () => { calls.push(1); return new Promise(r => { release = r }) } })
+  probe.kick(sess())                          // cache 无条目 → 发起
+  probe.kick(sess())                          // 在途 → 去重
+  assert.equal(calls.length, 1)
+  release({ status: 200 })
+  assert.equal(await probe.ensureProbed(sess()), true)
+  probe.kick(sess())                          // 已决 → 不再发
+  assert.equal(calls.length, 1)
+  probe.kick(sess({ clusterId: undefined }))  // 无 clusterId → 不发
+  probe.kick(sess({ impersonate: [] }))       // 无身份 → 不发
+  assert.equal(calls.length, 1)
+})
+
+test('kick:fire-and-forget 恒不抛,失败静默落 false 缓存', async () => {
+  const probe = createImpersonationProbe({ requestKubernetes: async () => { throw new Error('boom') } })
+  probe.kick(sess())
+  await new Promise(r => setImmediate(r))
+  assert.equal(probe.isProbed('c1'), false)
 })

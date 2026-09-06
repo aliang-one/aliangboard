@@ -75,6 +75,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
+import { buildImpersonation, impersonateDisplaynameFor, mergeImpersonate, createImpersonationProbe, IMPERSONATE_USER_PREFIX } from './impersonate.mjs'
 import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, tmuxListClientsCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
@@ -466,6 +467,12 @@ function loadPersistedSessions() {
       }
       session.endpoints = r.endpoints ? JSON.parse(r.endpoints).map(s => new URL(s)) : [session.apiServer]
       session.insecureDispatcher = getDispatcher({ ca: r.ca, cert: r.cert, key: r.key, insecure: true })
+      // W2 Phase E:重启重建 impersonation 身份(sessions 表无 impersonate 列——身份只在内存 session
+      // 对象;从 userId 重新 build,组员关系变化在重启后生效)。legacy 行(无 userId)→ 无字段,不注入。
+      if (r.userId) {
+        session.impersonate = buildImpersonation(db, r.userId)
+        session.impersonateDisplayname = impersonateDisplaynameFor(db, r.userId)
+      }
       sessions.set(r.token, session)
     } catch { /* 单条损坏跳过，不影响其他 */ }
   }
@@ -573,6 +580,9 @@ async function requestOnce(session, endpoint, path, init = {}) {
   const headers = { accept: 'application/json', ...(init.headers || {}) }
   if (session.authHeader) headers.authorization = session.authHeader
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
+  // W2 Phase E:impersonation 注入(缓冲出站唯一收口;probe-gated——探测通过才注,未探测/在途/
+  // 未过一律保守不注;懒探测:有身份且 cache 无条目 → 后台 kick,本请求先不注,落缓存后生效)。
+  injectImpersonation(headers, session)
   const dispatcher = (endpoint.origin === session.apiServer.origin) ? session.dispatcher : (session.insecureDispatcher || session.dispatcher)
   const response = await kubeFetch(target, {
     ...init, headers, dispatcher,
@@ -616,6 +626,20 @@ async function requestKubernetes(session, path, init = {}) {
       throw e
     }
   }
+}
+
+// W2 Phase E:impersonation 能力探测器(每 cluster 一次,内存缓存,在途去重;重启清零可接受)。
+// 凭据未必有 impersonate 权(自管 SA 常没有)——盲目注入 = 全站 403,故探测通过(=== true)才注。
+// 探测语义见 ./impersonate.mjs(POST SelfSubjectRulesReview 自带 impersonate 头;403/网络错误→false)。
+const impersonationProbe = createImpersonationProbe({ requestKubernetes })
+
+// egress 注入收口助手(requestOnce / 流式透传分支 / watch-mux fetchUpstream 三处 kubeFetch 共用):
+// 有身份才动作——懒 kick(cache 无条目→后台探测,本请求不注)+ 探测已决 true 才 merge。
+// exec/portforward 走 @kubernetes/client-node,注入点在 buildKubeConfig(user.impersonateUser)。
+function injectImpersonation(headers, session) {
+  if (session?.clusterId == null || !Array.isArray(session.impersonate) || !session.impersonate.length) return headers
+  impersonationProbe.kick(session)
+  return mergeImpersonate(headers, session, impersonationProbe.isProbed(session.clusterId) === true)
 }
 
 // YAML apply 内核已抽至 ./apply-yaml.mjs(deps 注入便于单测,ns 缺省补齐见该模块)。
@@ -862,6 +886,15 @@ function buildKubeConfig(KubeConfig, session) {
   // 客户端证书（kubeconfig client-cert/key）：client-node 的 *Data 期望 base64
   if (session.cert) user.certData = b64(session.cert)
   if (session.key) user.keyData = b64(session.key)
+  // W2 Phase E:exec/portforward 的 impersonation。client-node 1.4 的 kubeconfig user 仅支持
+  // as → Impersonate-User 单头(applyHTTPSOptions → WebSocketHandler.connect 的 WS upgrade 头);
+  // impersonate-group / Impersonate-Extra 无通道 —— R4 裁决:该路径跳过组注入,记录于此,不阻断
+  // (exec 走 v1 ns 门已足够;组归真由 requestOnce 注入面承载)。probe-gated:探测未过不注。
+  if (session.clusterId != null && Array.isArray(session.impersonate) && session.impersonate.length) {
+    if (impersonationProbe.isProbed(session.clusterId) === true) {
+      user.impersonateUser = session.impersonate.find(x => x.startsWith(IMPERSONATE_USER_PREFIX))
+    }
+  }
   kc.loadFromClusterAndUser(cluster, user)
   return kc
 }
@@ -1623,6 +1656,7 @@ async function handle(req, res) {
     getSetting,
     removeSessionRecord,
     hashPassword, extractPlatformToken,
+    impersonationProbe, // W2 Phase E:connect-cluster 成功后 fire-and-forget 探测该集群 impersonate 能力
   })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
@@ -2233,7 +2267,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     // 上游凭据/dispatcher 复用既有流式透传分支同一机制（session.authHeader + currentDispatcher）
     const fetchUpstream = (path, { signal }) => kubeFetch(new URL(path, currentEndpoint(session)), {
       method: 'GET',
-      headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
+      // W2 Phase E:watch 上游同样注入 impersonation(probe-gated,与缓冲出站同语义)
+      headers: injectImpersonation({ accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) }, session),
       dispatcher: currentDispatcher(session),
       signal: AbortSignal.any([signal, AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000))]),
     })
@@ -2276,7 +2311,9 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       const target = assertSameOrigin(new URL(kubernetesPath, ep), ep)
       const upstream = await kubeFetch(target, {
         method: 'GET',
-        headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
+        // W2 Phase E:流式透传(?watch/?follow)同样注入 impersonation(probe-gated;此处与 requestOnce
+        // 是仅有的两处自建 kubeFetch 头,第三处为 watch-mux fetchUpstream——三处同收口于 injectImpersonation)
+        headers: injectImpersonation({ accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) }, session),
         dispatcher: currentDispatcher(session),
         signal: AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000)),
       })

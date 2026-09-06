@@ -66,3 +66,41 @@ test('coverage: M1 — unparseable-path denial is audited in gateParsedPath', ()
 test('coverage: I1 — gateParsedPath has no clusterScope GET-pass bypass (all shapes go through gateK8sSession)', () => {
   assert.ok(!gateSrc.includes("method === 'GET' || method === 'HEAD'"), 'gateParsedPath must not bypass clusterScope GETs (spec §2.4)')
 })
+
+// ===== W2 Phase E(PE-A Task 2):impersonation egress 注入结构防线 =====
+// 身份归真的收口形状:requestOnce(缓冲出站唯一收口)+ 流式透传分支 + watch-mux fetchUpstream
+// 三处 kubeFetch 必须走 injectImpersonation(probe-gated);exec/portforward 走 client-node,
+// 唯一头通道是 kubeconfig user.impersonateUser(buildKubeConfig,applyHTTPSOptions→WS upgrade)。
+// 行为矩阵由 impersonate.test.mjs 钉住;此处只锁「网关 K8s 出口全接线」不回退。
+
+function assertNear(anchor, needle, desc, window = 40) {
+  const idx = lines.findIndex(l => l.includes(anchor))
+  assert.ok(idx >= 0, `anchor not found in server/index.mjs: ${anchor} (${desc})`)
+  assert.ok(
+    lines.slice(idx, idx + window).some(l => l.includes(needle)),
+    `${desc}: '${needle}' not found within ${window} lines of '${anchor}'`,
+  )
+}
+
+test('coverage: requestOnce injects probe-gated impersonation (W2 Phase E single egress point)', () => {
+  assertNear('async function requestOnce(', 'injectImpersonation(', 'requestOnce injection')
+  assert.ok(src.includes('const impersonationProbe = createImpersonationProbe('), 'probe not constructed at module scope')
+  assert.ok(src.includes('impersonationProbe.isProbed('), 'probe gate (isProbed) not wired')
+})
+
+test('coverage: streaming passthrough and watch-mux upstream carry impersonation injection', () => {
+  assertNear('const isStreaming = req.method ===', 'injectImpersonation(', 'streaming (?watch/?follow) passthrough')
+  assertNear('const fetchUpstream = ', 'injectImpersonation(', 'watch-mux fetchUpstream', 16)
+})
+
+test('coverage: exec/portforward k8s clients impersonate via kubeconfig user.impersonateUser', () => {
+  assertNear('function buildKubeConfig(', 'impersonateUser', 'client-node impersonate user (Impersonate-User on WS upgrade)', 35)
+})
+
+test('coverage: loadPersistedSessions rebuilds impersonation identity from userId', () => {
+  assert.ok(src.includes('buildImpersonation(db, r.userId)'), 'startup rebuild of session.impersonate missing')
+})
+
+test('coverage: connect-cluster probe wiring passes the shared probe into auth routes', () => {
+  assertNear('const authRoutes = createAuthRoutes({', 'impersonationProbe', 'auth routes deps', 20)
+})
