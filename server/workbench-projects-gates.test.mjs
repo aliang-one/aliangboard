@@ -89,8 +89,9 @@ test('assertProjectOwnership:owner true;admin true;他人 false;缺参 false', (
 
 test('listConversationsByOwner:只回该用户名下项目对话,倒序,含项目名/消息数', () => {
   const h = makeHarness()
-  h.db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`)
+  h.db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT)`)
   h.db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER)`)
+  h.db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id TEXT, source TEXT)`)
   h.db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p2','other','c1','u2',2)`).run()
   const ins = h.db.prepare(`INSERT INTO workbench_conversations (id,projectId,status,createdAt,updatedAt) VALUES (?,?,?,?,?)`)
   ins.run('cA', 'p1', 'running', 10, 20)
@@ -104,4 +105,81 @@ test('listConversationsByOwner:只回该用户名下项目对话,倒序,含项�
   assert.equal(a.projectName, 'proj')
   assert.equal(a.messageCount, 2)
   assert.equal(rows.find(r => r.id === 'cB').messageCount, 0)
+})
+
+// ===== W2 Phase C/D Batch CB-B Task 3: records/summary/search owner 收口 =====
+// 改造 harness:requireAdmin 语义化(非 admin 返 null),补对话/消息/ssh_servers 表。
+function makeOwnedHarness({ userId = 'u1', role = 'user' } = {}) {
+  const h = makeHarness({ userId, role })
+  h.db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT)`)
+  h.db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER)`)
+  h.db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id TEXT, source TEXT)`)
+  h.db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p2','other-proj','c1','u2',2)`).run()
+  const ins = h.db.prepare(`INSERT INTO workbench_conversations (id,projectId,status,createdAt,updatedAt) VALUES (?,?,?,?,?)`)
+  ins.run('cA', 'p1', 'running', 10, 20) // u1 的
+  ins.run('cB', 'p2', 'done', 5, 30)     // u2 的
+  h.db.prepare(`INSERT INTO workbench_messages VALUES ('cA',1)`).run()
+  h.db.prepare(`INSERT INTO workbench_messages VALUES ('cA',2)`).run()
+  h.db.prepare(`INSERT INTO workbench_messages VALUES ('cB',1)`).run()
+  h._ssh = (rows) => {
+    h.db.exec(`CREATE TABLE IF NOT EXISTS ssh_servers (id TEXT PRIMARY KEY, name TEXT, host TEXT, port INTEGER, username TEXT, authMethod TEXT, description TEXT, clusterRef TEXT, exposeToAi INTEGER DEFAULT 1, aiApprovalPolicy TEXT, tags TEXT, hostKeyFingerprint TEXT, status TEXT, osId TEXT, osName TEXT, lastTestedAt INTEGER, notes TEXT, encPassword TEXT, encPrivateKey TEXT, encPassphrase TEXT, encSudoPassword TEXT, createdBy TEXT, createdAt INTEGER, updatedAt INTEGER)`)
+    for (const r of rows) h.db.prepare(`INSERT INTO ssh_servers (id,name,host,exposeToAi) VALUES (?,?,?,1)`).run(r.id, r.name, r.host)
+  }
+  return h
+}
+
+test('records: 非 admin 只见自己项目对话+counts 按 owner 过滤;storage/aiToolCalls 为 null', async () => {
+  const h = makeOwnedHarness({ userId: 'u1' })
+  await h.call('GET', '/api/workbench/records')
+  const r = h.sent[0]
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.json.conversations.map(c => c.id), ['cA'])
+  assert.equal(r.json.counts.projects, 1)
+  assert.equal(r.json.counts.conversations, 1)
+  assert.equal(r.json.counts.messages, 2)
+  assert.equal(r.json.counts.aiToolCalls, null)
+  assert.equal(r.json.storage, null)
+})
+
+test('records: admin 全量(对话/计数/storage 齐全)', async () => {
+  const h = makeOwnedHarness({ userId: 'admin', role: 'admin' })
+  await h.call('GET', '/api/workbench/records')
+  const r = h.sent[0]
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.json.conversations.map(c => c.id).sort(), ['cA', 'cB'])
+  assert.equal(r.json.counts.conversations, 2)
+  assert.equal(r.json.counts.messages, 3)
+  assert.equal(typeof r.json.counts.aiToolCalls, 'number')
+  assert.ok(r.json.storage)
+})
+
+test('summary: 非 admin totals 只计自己项目(admin 全量)', async () => {
+  const h = makeOwnedHarness({ userId: 'u1' })
+  await h.call('GET', '/api/workbench/summary')
+  assert.equal(h.sent[0].json.totals.projects, 1)
+  const ha = makeOwnedHarness({ userId: 'admin', role: 'admin' })
+  await ha.call('GET', '/api/workbench/summary')
+  assert.equal(ha.sent[0].json.totals.projects, 2)
+})
+
+test('search server 分支: owner 200;非 owner 403 wbp.noProjectAccess', async () => {
+  const h = makeOwnedHarness({ userId: 'u1' })
+  h._ssh([{ id: 's1', name: 'srv-a', host: '10.0.0.1' }])
+  await h.call('GET', '/api/workbench/search?projectId=p1&kind=server&q=')
+  assert.equal(h.sent[0].status, 200)
+  assert.equal(h.sent[0].json.items.length, 1)
+  assert.equal(h.sent[0].json.items[0].host, undefined) // 非 admin 不带 host
+  const h2 = makeOwnedHarness({ userId: 'u2' })
+  h2._ssh([{ id: 's1', name: 'srv-a', host: '10.0.0.1' }])
+  await h2.call('GET', '/api/workbench/search?projectId=p1&kind=server&q=')
+  assert.equal(h2.sent[0].status, 403)
+  assert.equal(h2.sent[0].json.message, '无权访问该项目')
+})
+
+test('search server 分支: admin 全量带 host', async () => {
+  const h = makeOwnedHarness({ userId: 'admin', role: 'admin' })
+  h._ssh([{ id: 's1', name: 'srv-a', host: '10.0.0.1' }])
+  await h.call('GET', '/api/workbench/search?projectId=p1&kind=server&q=')
+  assert.equal(h.sent[0].status, 200)
+  assert.equal(h.sent[0].json.items[0].host, '10.0.0.1')
 })

@@ -61,11 +61,12 @@ test('@server 搜索:exposedOnly+三路命中+host 仅 admin;未绑集群可用;
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ username: 'peon', password: 'p'.repeat(12) }) })).json()
   const PH = { 'content-type': 'application/json', 'x-platform-token': plogin.token }
-  const pRes = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=10.0.0.1`, { headers: PH })).json()
-  assert.equal(pRes.items.length, 1)
-  assert.equal('host' in pRes.items[0], false, '非 admin 响应不得携带 host')
-  const pHidden = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=${encodeURIComponent('隐藏')}`, { headers: PH })).json()
-  assert.equal(pHidden.items.length, 0, '未暴露服务器不可见')
+  // W2 Phase D(CB-B Task 3):server 分支收口 ownership——非 owner 平台用户 403(项目归 admin);
+  // host 脱敏与 exposedOnly 过滤语义由 owner 路径的 admin 用例守住(上方三路命中 host 在)。
+  const pForbidden = await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=10.0.0.1`, { headers: PH })
+  assert.equal(pForbidden.status, 403, '非 owner 访问 server 搜索 → 403')
+  const pForbiddenBody = await pForbidden.json()
+  assert.equal(pForbiddenBody.message, '无权访问该项目')
 
   // K8s 分支回归:非 admin → 401/403(requireAdmin 仍在);server 分支放行不等于 K8s 分支放行
   const k8sGate = await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=pod&q=x`, { headers: PH })

@@ -58,21 +58,31 @@ export function createWorkbenchProjectRoutes(deps) {
     // 对话/消息在 SQLite;项目文件与台账是 git 仓库;AI 工具调用在审计链(audit_log
     // source=workbench,明细由前端经 /api/admin/audit-log?source=workbench 取,此处只给计数)。
     if (url.pathname === '/api/workbench/records' && req.method === 'GET') {
-      const ps = requireAdmin(req, res); if (!ps) return true
+      // W2 Phase D(CB-B Task 3):requirePlatform + owner 收口——非 admin 只见自己项目
+      // 的对话/计数;全局 storage 统计与 aiToolCalls(审计计数)维持 admin,非 admin 响应
+      // 保留形状键但置 null(前端已有 isAdmin 分支)。admin 行为逐字不变。
+      const ps = requirePlatform(req, res); if (!ps) return true
       try {
-        const conversations = db.prepare(`
+        const isAdmin = ps.role === 'admin'
+        const conversations = isAdmin ? db.prepare(`
           SELECT c.id, c.status, c.steps, c.title, c.userMessage, c.error, c.createdAt, c.updatedAt,
                  p.id AS projectId, p.name AS projectName,
                  (SELECT count(*) FROM workbench_messages m WHERE m.conversationId = c.id) AS messageCount
           FROM workbench_conversations c JOIN workbench_projects p ON c.projectId = p.id
           ORDER BY c.updatedAt DESC LIMIT 200`).all()
-        const counts = {
+          : listConversationsByOwner(db, ps.userId).slice(0, 200)
+        const counts = isAdmin ? {
           projects: db.prepare('SELECT count(*) c FROM workbench_projects').get().c,
           conversations: db.prepare('SELECT count(*) c FROM workbench_conversations').get().c,
           messages: db.prepare('SELECT count(*) c FROM workbench_messages').get().c,
           aiToolCalls: db.prepare("SELECT count(*) c FROM audit_log WHERE source='workbench'").get().c,
+        } : {
+          projects: db.prepare('SELECT count(*) c FROM workbench_projects WHERE ownerId=?').get(ps.userId).c,
+          conversations: db.prepare('SELECT count(*) c FROM workbench_conversations c JOIN workbench_projects p ON c.projectId=p.id WHERE p.ownerId=?').get(ps.userId).c,
+          messages: db.prepare('SELECT count(*) c FROM workbench_messages m JOIN workbench_conversations c ON m.conversationId=c.id JOIN workbench_projects p ON c.projectId=p.id WHERE p.ownerId=?').get(ps.userId).c,
+          aiToolCalls: null, // 审计明细是平台全局域,owner 收口下不下发
         }
-        const storage = await computeStorageInfo({ dbPath, workbenchDir: WORKBENCH_DIR, db })
+        const storage = isAdmin ? await computeStorageInfo({ dbPath, workbenchDir: WORKBENCH_DIR, db }) : null
         sendJson(res, 200, { conversations, counts, storage })
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'wbp.recordsReadFailed') }); return true }
       return true
@@ -304,8 +314,10 @@ export function createWorkbenchProjectRoutes(deps) {
       if (!projectId) { sendJson(res, 400, { message: msg(req, 'wbp.projectIdRequired') }); return true }
       const p = db.prepare('SELECT * FROM workbench_projects WHERE id=?').get(projectId)
       if (!p) { sendJson(res, 404, { message: msg(req, 'wbp.projectNotFound') }); return true }
-      // server 分支(2026-08-30 @server spec §3):与集群无关;exposedOnly 单一事实源;host 仅 admin 响应携带
+      // server 分支(2026-08-30 @server spec §3):与集群无关;exposedOnly 单一事实源;host 仅 admin 响应携带。
+      // W2 Phase D(CB-B Task 3):server 分支补 ownership——项目须为发起者所有(admin 豁免)。
       if (kindRaw === 'server') {
+        if (!assertProjectOwnership(ps, p)) { sendJson(res, 403, { message: msg(req, 'wbp.noProjectAccess') }); return true }
         const items = listSshServers(db, { exposedOnly: true })
           .filter(s => !q || s.name.toLowerCase().includes(q) || String(s.host || '').toLowerCase().includes(q) || String(s.description || '').toLowerCase().includes(q))
           .slice(0, 50)
