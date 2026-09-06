@@ -279,3 +279,16 @@ test('tmuxListClientsCommand: tmux -L <label> list-clients -t <name>', async () 
   assert.deepEqual(tmuxListClientsCommand('abX', 'abX-s1', '/usr/bin/tmux'),
     ['/usr/bin/tmux', '-L', 'abX', 'list-clients', '-t', 'abX-s1'])
 })
+
+// ===== 2026-09-06 身份去 token 化(spec 2026-09-06-pod-tmux-identity-detokenize):锚=平台 userId =====
+test('锚语义:同锚确定性且跨 token 上下文稳定;不同锚互异;名字内嵌 label 前缀', async () => {
+  const m = await import('./tmux-session.mjs')
+  // 同一 userId,无论当前 K8s token 是什么(token 不再入参)——轮换前后名不变
+  assert.equal(m.tmuxLabel('user-uuid-1'), m.tmuxLabel('user-uuid-1'))
+  assert.equal(m.tmuxSessionName('user-uuid-1', 'term-1'), m.tmuxSessionName('user-uuid-1', 'term-1'))
+  // 不同用户互异(socket 隔离语义保持)
+  assert.notEqual(m.tmuxLabel('user-uuid-1'), m.tmuxLabel('user-uuid-2'))
+  assert.notEqual(m.tmuxSessionName('user-uuid-1', 'term-1'), m.tmuxSessionName('user-uuid-2', 'term-1'))
+  // 名字形状:label 前缀 + '-' + sid(tracker 全局键唯一性依赖)
+  assert.ok(m.tmuxSessionName('user-uuid-1', 'term-1').startsWith(m.tmuxLabel('user-uuid-1') + '-term-1'))
+})

@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS rotated_sessions (
 
 ## 5. 升级语义(一次性损失,已裁决接受)
 
-升级(拉新镜像/重启网关)后,存量 pod 的 tmux 会话活在旧 `ab{hash8(token)}` socket 里,新锚下 `has-session` miss → 各终端首次重连得全新 shell 一次。跨 socket 物理不可迁移(tmux 会话无法跨 socket 搬运);此后该 pod 在整个生命周期内身份稳定,直至 pod 重启(丢失=既有已知限制,非本设计引入)。
+升级(拉新镜像/重启网关)后,存量 pod 的 tmux 会话活在旧 `ab{hash8(token)}` socket 里,新锚下 `has-session` miss → 各终端首次重连得全新 shell 一次。跨 socket 物理不可迁移(tmux 会话无法跨 socket 搬运);此后该 pod 在整个生命周期内身份稳定,直至 pod 重启(丢失=既有已知限制,非本设计引入)。另注:升级也会把旧 socket 里的 tmux server+shell 留在 pod 内持续运行,直至 pod 重启前无清理通路(接受的一次性成本)。
 
 ## 6. 测试计划
 
