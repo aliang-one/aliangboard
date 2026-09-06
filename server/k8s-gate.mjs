@@ -128,6 +128,10 @@ export function gateParsedPath(gate, session, parsed, { path, method } = {}) {
     gate.noteUnparseable?.(session, { path, method })
     return false
   }
+  // 复审修订(2026-09-06):namespace 对象生命周期写(DELETE/PATCH /api/v1/namespaces/<name>)
+  // = 集群级操作 → 改走 null-ns 门(allowlist 非 admin 拒;K8s 惯例 ns 生命周期归 cluster-admin,
+  // ns 型 operate 授权不应外溢到 Namespace 对象本身)。GET 仍按 namespace=<name> 的 ns view 门。
+  if (parsed.resource === 'namespaces' && parsed.name && method !== 'GET') parsed = { ...parsed, namespace: null }
   return gate.gateK8sSession(session, {
     namespace: parsed.namespace ?? null,
     level: levelForRequest(method, parsed.subresource),

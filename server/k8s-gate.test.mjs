@@ -278,6 +278,26 @@ test('gateParsedPath: I2 — namespaces collection GET (buffered list & watch st
   assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces/team-b'), { path: '/api/v1/namespaces/team-b', method: 'GET' }), false)
 })
 
+test('gateParsedPath: namespace-object writes (DELETE/PATCH) are cluster-level → null-ns gate, ns operate grant does NOT reach them', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  // u2 = team-a operate grantee:K8s 惯例 ns 生命周期归 cluster-admin,operate 授权不外溢到 Namespace 对象
+  db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
+    .run('g-nsop', 'user', 'u2', 'c-allow', 'team-a', 'operate', Date.now())
+  const s = { userId: 'u2', clusterId: 'c-allow' }
+  assert.equal(gateParsedPath(gate, s, parseApiPath('/api/v1/namespaces/team-a'), { path: '/api/v1/namespaces/team-a', method: 'DELETE' }), false)
+  assert.equal(gateParsedPath(gate, s, parseApiPath('/api/v1/namespaces/team-a'), { path: '/api/v1/namespaces/team-a', method: 'PATCH' }), false)
+  // 同 grant 对 ns 内资源写仍照常(封的只是 Namespace 对象本身)
+  assert.equal(gateParsedPath(gate, s, parseApiPath('/api/v1/namespaces/team-a/pods'), { path: '/api/v1/namespaces/team-a/pods', method: 'POST' }), true)
+  const rows = auditRows(db)
+  assert.equal(rows.length, 2)
+  assert.ok(rows.every(r => r.reason === 'cluster-level-op' && r.namespace === null))
+  // admin / open 恒过(字节兼容)
+  db.prepare(`INSERT INTO user_clusters (userId, clusterId) VALUES (?,?)`).run('admin1', 'c-allow')
+  assert.equal(gateParsedPath(gate, { userId: 'admin1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces/team-a'), { path: '/api/v1/namespaces/team-a', method: 'DELETE' }), true)
+  assert.equal(gateParsedPath(gate, { userId: 'u2', clusterId: 'c-open' }, parseApiPath('/api/v1/namespaces/team-a'), { path: '/api/v1/namespaces/team-a', method: 'DELETE' }), true)
+})
+
 test('gateParsedPath: C1 — all-ns list (allNamespaces) flows to null-ns gate: allowlist non-admin denied + audit; open/legacy/admin pass', () => {
   const db = makeGateDb()
   const gate = createK8sGate({ db, writeAudit })
