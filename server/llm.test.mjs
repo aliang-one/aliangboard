@@ -254,3 +254,38 @@ test('chatStream: finish_reason 透传为 finishReason', async () => {
   assert.equal(msg.content, '答案前半')
   assert.equal(msg.finishReason, 'length')
 })
+
+// ── SSE 行尾 CRLF 兼容(2026-09-06):事件终结符只认 '\n\n' 时,CRLF 风格代理
+// (\r\n\r\n 分隔)的流永不切出事件,整流瘫痪(内容恒空、finishReason 恒丢)。
+// 契约:事件终结符按 SSE 规范认 CR/LF/CRLF 三种行尾(/\r\n\r\n|\r\r|\n\n/),
+// 按 match[0].length 从 buf 切除;事件内部行按三种行尾分割后逐行 trim + data: 处理。
+test('chatStream: CRLF 行尾事件流正确解析', async () => {
+  const deltas = []
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":"你"}}]}\r\n\r\n',
+    'data: {"choices":[{"delta":{"content":"好"}}]}\r\n\r\n',
+    'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] }) + '\r\n\r\n',
+    'data: [DONE]\r\n\r\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] }, { onDelta: t => deltas.push(t) })
+  assert.equal(msg.content, '你好')
+  assert.equal(deltas.length, 2, 'onDelta 恰好两次,无假事件无丢失')
+  assert.deepEqual(deltas, ['你', '好'])
+  assert.equal(msg.finishReason, 'length')
+})
+
+test('chatStream: \\r\\n 跨 chunk 断裂不产生假事件/不丢事件', async () => {
+  const deltas = []
+  // 完整流 = 'data:{...甲...}\r\n\r\n data:{...乙...}\r\n\r\n data:[DONE]\r\n\r\n',
+  // 把事件终结符的 '\r' 与 '\n\r\n...' 拆进相邻 chunk——拼齐前不得切成"半事件"。
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":"甲"}}]}\r',
+    '\n\r\ndata: {"choices":[{"delta":{"content":"乙"}}]}\r',
+    '\n\r\ndata: [DONE]\r\n\r\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] }, { onDelta: t => deltas.push(t) })
+  assert.deepEqual(deltas, ['甲', '乙'], '断在行尾中间不产出假 delta、拼齐后不丢 delta')
+  assert.equal(msg.content, '甲乙')
+})

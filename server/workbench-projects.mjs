@@ -155,14 +155,43 @@ export function listActiveConversations(db, { now = Date.now(), windowMs = 30 * 
     ORDER BY c.updatedAt DESC LIMIT ?`).all(now - windowMs, cap)
 }
 
+// conv.trace 滚动上限(2026-09-06 审计#12a;对抗审查修订):防长对话无界增长(生产实测
+// 328KB)。截断只许丢【旧轮】事件(ts ≤ lastMsgTs)——resume 路径的消息级 trace(done/
+// salvage/cancelled 落库)与降级轮询/SSE 重连的 live 视图都从 conv.trace 按 ts>lastMsgTs
+// 切片派生,丢当前轮头部事件 = workbench_messages.trace 持久缺早期工具事件,不可恢复
+// (「消息级 trace 才是持久完整记录」在 resume 路径恰不成立——它派生自本字段)。
+// 当前轮超限时接受软上限:单事件体积已被 clampTraceStep 32KB 钳制,且 done 落库后
+// append/regenerate/edit 三入口均复位 trace——单轮大体积只在轮内存在。
+const TRACE_CAP_BYTES = 256 * 1024
 export function appendTrace(db, id, step) {
   const row = db.prepare('SELECT trace FROM workbench_conversations WHERE id=?').get(id)
   if (!row) throw new Error(`appendTrace: conversation ${id} not found`)
   let trace = []
   try { trace = JSON.parse(row.trace || '[]') } catch { trace = [] }
   trace.push(step)
+  // 收缩单遍完成(对抗审查性能发现):逐条丢弃×全量重序列化是 O(drops×cap),存量数千
+  // 事件超限行(无上限时代遗留)首 append 实测 2-4s 同步停摆——单进程不变式下全进程冻结。
+  // 前缀和一次定位丢弃下标:JSON 数组序列化 = '[' + join(',') + ']',各元素序列化字节
+  // 精确可加,无需反复试序列化。
+  let json = JSON.stringify(trace)
+  if (Buffer.byteLength(json) > TRACE_CAP_BYTES && trace.length > 1) {
+    let lastMsgTs = 0
+    try { lastMsgTs = db.prepare('SELECT MAX(createdAt) AS m FROM workbench_messages WHERE conversationId=?').get(id)?.m || 0 } catch { lastMsgTs = 0 }
+    const sizes = trace.map(e => Buffer.byteLength(JSON.stringify(e)))
+    let acc = 2 + Math.max(0, trace.length - 1) + sizes.reduce((a, b) => a + b, 0) // 括号 + 逗号
+    let start = 0
+    while (acc > TRACE_CAP_BYTES && start < trace.length - 1 && (trace[start].ts || 0) <= lastMsgTs) {
+      acc -= sizes[start] + 1
+      start++
+    }
+    if (start > 0) {
+      trace = trace.slice(start)
+      json = JSON.stringify(trace)
+    }
+    // 头部已是当前轮:接受软上限(见上);至少保留最后一条(=本次 append 的事件)
+  }
   db.prepare('UPDATE workbench_conversations SET trace=?, updatedAt=? WHERE id=?')
-    .run(JSON.stringify(trace), Date.now(), id)
+    .run(json, Date.now(), id)
   return trace
 }
 
