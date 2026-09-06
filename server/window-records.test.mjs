@@ -114,6 +114,8 @@ test('tombstoneExpiredSessions:过期行逐行落墓碑(无 userId 的旧行跳�
   tombstoneExpiredSessions(db, now - 8 * DAY, now)
   assert.equal(sessionTokenOwner(db, 'exp-1'), 'user-1')
   assert.equal(sessionTokenOwner(db, 'exp-legacy'), null)   // 旧行无 userId:不落墓碑
+  // exp-legacy 的 sessionTokenOwner 断言被 live 行优先掩蔽(live 行仍在)——直查墓碑表钉住「确未落」
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM rotated_sessions WHERE token = ?').get('exp-legacy').n, 0)
   // fresh 的 live 行仍在(sessionTokenOwner live 优先),改验墓碑表确未落
   assert.equal(db.prepare('SELECT COUNT(*) n FROM rotated_sessions WHERE token = ?').get('fresh').n, 0)
 })

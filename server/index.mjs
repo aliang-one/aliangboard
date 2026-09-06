@@ -24,7 +24,7 @@ import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { fetchRegistryTags } from './registry-tags.mjs'
-import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneExpiredSessions, purgeRotatedSessions, sessionTokenOwner } from './window-records.mjs'
+import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneSession, tombstoneExpiredSessions, purgeRotatedSessions, sessionTokenOwner } from './window-records.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
@@ -509,6 +509,7 @@ function sessionFromRequest(req) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
   let session = token ? sessions.get(token) : null
   if (session && Date.now() - session.createdAt > sessionTtl) {
+    try { tombstoneSession(db, token, session.userId, Date.now()) } catch { /* noop */ } // 落墓碑再删(TTL/级联路径,spec §3;显式吊销不落——吊销粘性)
     sessions.delete(token)
     removePersistedSession(token) // 过期：从库中清除
     return null
@@ -678,7 +679,7 @@ const tmuxProbeCache = new Map()
 const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
 const TMUX_SCROLLBACK_LINES = Number(process.env.TMUX_SCROLLBACK_LINES || 2000)
 
-// idle reaper tracker: tmuxSessionName -> { token, ns, pod, container, terminalId, lastActiveAt, attached }
+// idle reaper tracker: tmuxSessionName -> { token, userId, ns, pod, container, terminalId, lastActiveAt, attached }
 const idleTracker = new Map()
 
 // 空闲回收：超过阈值未活动的 tmux 会话 best-effort 杀掉并删行。
@@ -713,7 +714,8 @@ const idleSweeper = setInterval(() => {
         } catch { /* pod 不在 / token 已过期 —— 忽略 */ }
       }
       // 只按 id 删(2026-09-04 S9):id 是主键唯一定位;带 sessionToken 条件在记录 rekey 后
-      // 永远 miss → 已迁移记录脱离空闲回收(meta.token 仍须保留旧值:tmux socket 按 label(token) 命名)
+      // 永远 miss → 已迁移记录脱离空闲回收(meta.token 须保留建连时值:空闲清扫杀会话的 exec 凭据
+      // 按 sessions.get(meta.token) 取(socket label 已由 meta.userId 派生))
       try { db.prepare('DELETE FROM terminals WHERE id = ?').run(meta.terminalId) } catch { /* noop */ }
     }
   })().catch(() => {})
@@ -936,7 +938,13 @@ async function handleExec(ws, session, url, req) {
       // 附着计数(2026-09-04):attached>0 的会话被空闲回收豁免;ws 关闭时递减。
       // get-or-create:重连不重置计数,只续时间。
       const idleMeta = idleTracker.get(sessionName)
-      if (idleMeta) { idleMeta.lastActiveAt = Date.now(); idleMeta.attached = (idleMeta.attached || 0) + 1 }
+      if (idleMeta) {
+        // 轮换使存档 token 变陈旧:不刷新的话空闲清扫 sessions.get(meta.token) 永远 miss,
+        // 该 pod tmux 再无人能杀(meta.token 须恒为活凭据,而非建连时值)
+        idleMeta.token = token
+        idleMeta.lastActiveAt = Date.now()
+        idleMeta.attached = (idleMeta.attached || 0) + 1
+      }
       else idleTracker.set(sessionName, { token, userId: identity, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now(), attached: 1 })
       attachedMeta = idleMeta || idleTracker.get(sessionName)
     } catch {
@@ -1967,13 +1975,16 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
       const input = await readBody(req)
       if (!isKnownSessionToken(db, input.from)) {
+        writeAudit(db, { owner: 'k8s-session', verb: 'update', tool: 'terminal_rekey', result: 'denied', reason: 'unknown-token', source: 'session' })
         return sendJson(res, 403, { message: msg(req, 'api.rekeySourceUnknown') })
       }
       // 属主校验(2026-09-06 spec §3):墓碑化后旧 token 可被出示,须防「猜 token 吸收他人记录」。
-      // 双方均无 userId(WS2-0 前遗留)放行=保持旧可迁;任一方有 userId 则必须相等。
+      // 双方均有 userId 则必须相等;仅单侧有属主(理论上不可达的遗留形态)不放行;
+      // 双方均无 userId(WS2-0 前遗留)放行=保持旧可迁。
       const fromOwner = sessionTokenOwner(db, input.from)
       const myId = session.userId || null
-      if (fromOwner && myId && fromOwner !== myId) {
+      if ((fromOwner || myId) && fromOwner !== myId) {
+        writeAudit(db, { owner: 'k8s-session', verb: 'update', tool: 'terminal_rekey', result: 'denied', reason: 'owner-mismatch', source: 'session' })
         return sendJson(res, 403, { message: msg(req, 'api.rekeySourceUnknown') })
       }
       const moved = rekeyWindowRecords(db, input.from, token)

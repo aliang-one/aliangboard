@@ -27,7 +27,7 @@ export function sessionTokenOwner(db, token) {
     const live = db.prepare('SELECT userId FROM sessions WHERE token = ?').get(t)
     if (live) return live.userId ?? null
     const tomb = db.prepare('SELECT userId FROM rotated_sessions WHERE token = ?').get(t)
-    return tomb?.userId ?? null
+    return tomb?.userId || null   // 空串墓碑 userId(无属主)归一为 null
   } catch { return null }
 }
 
