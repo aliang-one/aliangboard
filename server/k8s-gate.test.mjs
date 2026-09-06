@@ -214,3 +214,80 @@ test('equivalence matrix: hoisted decision == canAccessNs on allowlist clusters'
   assert.equal(gate.gateK8sSession({ userId: 'u5', clusterId: 'c-allow' }, { namespace: 'team-a', level: 'operate' }), false)
   assert.equal(canAccessNs(db, { userId: 'u5', role: undefined }, 'c-allow', 'team-a', 'operate'), false)
 })
+
+// ===== W2 Phase B Batch B (Task 3/4): 接线辅助纯函数 =====
+import { gateParsedPath, filterNamespaceList, gateWatchResources } from './k8s-gate.mjs'
+import { levelForRequest as lfr } from './authz.mjs'
+import { parseApiPath } from './k8s-path.mjs'
+
+test('gateParsedPath: unparseable path → false for ALL session users (fail-closed)', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  // admin session 也拒:admin console 走专用端点,透传面 session-only 裁决
+  assert.equal(gateParsedPath(gate, { userId: 'admin1', clusterId: 'c-allow' }, parseApiPath('/api/v1/../pods'), { path: '/api/v1/../pods', method: 'GET' }), false)
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-open' }, parseApiPath('/api/v1/%2e%2e/x'), { path: 'x', method: 'GET' }), false)
+})
+
+test('gateParsedPath: ns-type view GET granted → true; operate with view grant → false + audit', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  const sess = { userId: 'u1', clusterId: 'c-allow' }
+  assert.equal(gateParsedPath(gate, sess, parseApiPath('/api/v1/namespaces/team-a/pods'), { path: '/api/v1/namespaces/team-a/pods', method: 'GET' }), true)
+  assert.equal(gateParsedPath(gate, sess, parseApiPath('/api/v1/namespaces/team-a/pods'), { path: '/x', method: 'POST' }), false)
+  assert.equal(auditRows(db).length, 1)
+})
+
+test('gateParsedPath: exec subresource on GET method still operate', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  // u1 只有 view → exec(GET 语义上是读,但交互面恒 operate)拒
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces/team-a/pods/foo/exec'), { path: '/x', method: 'GET' }), false)
+})
+
+test('gateParsedPath: clusterScope GET passes; clusterScope non-GET → admin ok / allowlist user denied', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'GET' }), true)
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'POST' }), false)
+  db.prepare(`INSERT INTO user_clusters (userId, clusterId) VALUES (?,?)`).run('admin1', 'c-allow')
+  assert.equal(gateParsedPath(gate, { userId: 'admin1', clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'POST' }), true)
+})
+
+test('gateParsedPath: namespaces collection GET → true (response filtered separately)', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces'), { path: '/api/v1/namespaces', method: 'GET' }), true)
+})
+
+test('filterNamespaceList: keeps granted ns, drops others; null grants → unchanged', () => {
+  const items = [
+    { metadata: { namespace: 'team-a', name: 'a' } },
+    { metadata: { namespace: 'team-b', name: 'b' } },
+    { metadata: { name: 'no-ns' } },
+  ]
+  const out = filterNamespaceList(items, new Set(['team-a']))
+  assert.deepEqual(out.map(i => i.metadata.name || null), ['a'])
+  assert.equal(filterNamespaceList(items, null), items) // admin/非 allowlist:不滤
+})
+
+test('gateWatchResources: any ungranted (cluster-wide watch = null ns) → false; legacy session → true; open cluster → true', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  const list = [{ resource: 'pods', path: '/api/v1/pods' }, { resource: 'events', path: '/api/v1/events' }]
+  // watch 白名单路径都是集群级 list(ns 过滤靠 fieldSelector)→ parse 出 namespace=null → allowlist 非 admin 拒
+  assert.equal(gateWatchResources(gate, { userId: 'u1', clusterId: 'c-allow' }, list), false)
+  assert.equal(gateWatchResources(gate, { clusterId: 'c-allow' }, list), true) // legacy 会话
+  assert.equal(gateWatchResources(gate, { userId: 'u1', clusterId: 'c-open' }, list), true)
+})
+
+test('levelForRequest: outlet method mapping (terminals/podfile/pvcfile 按 method 分档)', () => {
+  assert.equal(lfr('GET'), 'view')
+  assert.equal(lfr('HEAD'), 'view')
+  assert.equal(lfr('POST'), 'operate')
+  assert.equal(lfr('PATCH'), 'operate')
+  assert.equal(lfr('DELETE'), 'operate')
+  assert.equal(lfr('GET', 'exec'), 'operate')
+  assert.equal(lfr('GET', 'logs'), 'operate')
+  assert.equal(lfr('GET', 'portforward'), 'operate')
+  assert.equal(lfr('GET', 'attach'), 'operate')
+})

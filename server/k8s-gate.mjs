@@ -16,6 +16,9 @@
 // 拒绝审计 shape:tool='k8s_gate', result='denied', source='platform'(平台侧会话口径),
 // owner/clusterId/namespace/verb/resource/path。
 
+import { parseApiPath } from './k8s-path.mjs'
+import { levelForRequest } from './authz.mjs'
+
 const LEVEL_RANK = { view: 0, operate: 1 }
 
 export function createK8sGate({ db, writeAudit }) {
@@ -85,4 +88,43 @@ export function createK8sGate({ db, writeAudit }) {
   }
 
   return { gateK8sSession }
+}
+
+// ===== Batch B (Task 3) 接线辅助纯函数:index.mjs 透传/watch 的判定收口 =====
+
+// 透传判定:parsed = parseApiPath(path)。规则(controller 裁决 2026-09-06):
+//   - parsed === null(无法解析)→ false,**对所有 session 用户一律拒**(含 admin:
+//     admin console 走专用端点,透传面是 session-only 面;调用方返回 403)。
+//   - clusterScope:GET/HEAD 放行(响应面由 filterNamespaceList 单独滤 namespaces 列表);
+//     非 GET → gateK8sSession(namespace=null, operate):admin/open/legacy 过,allowlist 非 admin 拒。
+//   - ns 型 → gateK8sSession(namespace, levelForRequest(method, subresource))。
+export function gateParsedPath(gate, session, parsed, { path, method } = {}) {
+  if (!parsed) return false
+  if (parsed.clusterScope) {
+    if (method === 'GET' || method === 'HEAD') return true
+    return gate.gateK8sSession(session, { namespace: null, level: 'operate', path, method })
+  }
+  return gate.gateK8sSession(session, {
+    namespace: parsed.namespace,
+    level: levelForRequest(method, parsed.subresource),
+    path, method,
+  })
+}
+
+// namespaces 集合列表的响应面过滤:grantedNs = Set<namespace>(null/undefined = 不过滤,
+// 即 admin 会话或非 allowlist 集群——是否滤由调用方按 effectiveGrants+cluster mode 决定)。
+export function filterNamespaceList(items, grantedNs) {
+  if (!Array.isArray(items) || grantedNs == null) return items
+  return items.filter(it => grantedNs.has(it?.metadata?.namespace))
+}
+
+// watch 多路复用通道:每条资源 watch 建流前逐项过 view 门。WATCH_RESOURCES 白名单路径都是
+// 集群级 list(ns 过滤由前端 fieldSelector 追加)→ stream 内容覆盖全集群 → namespace=null 口径:
+// allowlist 非 admin 拒(admin 短路;open/legacy 集群照常放行)。任一项不过 → 整流拒。
+export function gateWatchResources(gate, session, list) {
+  for (const item of list) {
+    const p = parseApiPath(String(item?.path || '').split('?')[0])
+    if (!gate.gateK8sSession(session, { namespace: p?.namespace ?? null, level: 'view', path: item?.path, method: 'GET' })) return false
+  }
+  return true
 }

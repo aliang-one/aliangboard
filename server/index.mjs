@@ -5,14 +5,16 @@ import { WebSocketServer } from 'ws'
 import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto'
 import { URL, fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { load as yamlLoad } from 'js-yaml'
+import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody } from './call-context.mjs'
 import { sessionOwnerValid } from './session-guard.mjs'
+import { parseApiPath } from './k8s-path.mjs'
+import { createK8sGate, gateParsedPath, filterNamespaceList, gateWatchResources } from './k8s-gate.mjs'
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
-import { sweepOrphanGrants } from './authz.mjs'
+import { sweepOrphanGrants, effectiveGrants, levelForRequest } from './authz.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
@@ -423,6 +425,9 @@ const authGate = createAuthGate({
     mcp: () => true, // 门放行:JSON-RPC 错误 shape 与 mcp_enabled=off 的 503 优先级都在 mcp.mjs 内层
   },
 })
+
+// W2 Phase B:K8s 会话执行门(单一实例,全出口共用;denied 审计在 gate 内部完成)。
+const k8sGate = createK8sGate({ db, writeAudit })
 // 持久化一个会话（仅存可序列化字段；dispatcher 是运行期对象，重载时重建）
 function persistSession(token, session) {
   try {
@@ -1248,6 +1253,10 @@ function buildK8sSession(clusterId) {
 async function handle(req, res) {
   if (req.method === 'OPTIONS') return sendJson(res, 204, {})
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+
+  // W2 Phase B:伪造头剥离——客户端不得借网关向上游 K8s 注入 impersonate-*/x-remote-* 头
+  // (网关凭据是集群级,impersonation 会绕过全部 ns 授权面)。node headers 已小写化,直接删。
+  for (const k of Object.keys(req.headers)) if (k.startsWith('impersonate-') || k.startsWith('x-remote-')) delete req.headers[k]
 
   // 路由鉴权门:未登记的 /api/* 或 /mcp 一律 404(新路由必须先在 ROUTE_AUTH 声明鉴权 class;
   // 守卫测试 route-auth-map.test.mjs 静态扫源码路径字面量交叉强制)。非 /api 非 /mcp 路径走静态服务,不进门。
@@ -2099,6 +2108,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     const { list, invalid } = parseResources(url)
     if (list.length === 0) return sendJson(res, 400, { message: msg(req, 'api.watchMuxNoResources') })
     if (invalid.length) return sendJson(res, 400, { message: msg(req, 'api.watchMuxBadResource', { names: invalid.join(', ') }) })
+    // W2 Phase B:建流前逐资源过 view 门(watch 白名单路径均为集群级 list → namespace=null 口径)。
+    if (!gateWatchResources(k8sGate, session, list)) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
     res.writeHead(200, {
       'content-type': 'application/x-ndjson',
       'cache-control': 'no-cache',
@@ -2130,6 +2141,17 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   const session = req.abSession // 路由鉴权门已预检并缓存
 
   const kubernetesPath = decodeURIComponent(url.pathname.slice('/api/k8s'.length)) + (url.search || '')
+
+  // W2 Phase B:透传面 ns 授权门(流式+缓冲两分支共用,在任何上游连接之前)。
+  // 解析失败 → 403 对所有 session 用户(admin console 走专用端点,透传面 session-only);
+  // ns 型 → 按 levelForRequest(method, subresource) 分档;clusterScope → GET 放行 / 非 GET 过
+  // namespace=null 门(allowlist 非 admin 拒)。denied 审计在 gate 内部完成。
+  const subPath = kubernetesPath.split('?')[0]
+  const parsedK8s = parseApiPath(subPath)
+  const isNamespacesList = !!parsedK8s && parsedK8s.resource === 'namespaces' && !parsedK8s.namespace && req.method === 'GET'
+  if (!gateParsedPath(k8sGate, session, parsedK8s, { path: subPath, method: req.method })) {
+    return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
+  }
 
   // 流式透传：watch=true（资源监听）与 follow=true（日志跟随）需要长连接，
   // 不能走缓冲式 requestKubernetes（它会 await 全文）。这里直接 pipe 上游字节流。
@@ -2180,6 +2202,13 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     })
     // list GET 响应剥冗余(managedFields/last-applied);单对象 GET 与写操作不动
     if (req.method === 'GET' && Array.isArray(result.body?.items)) slimListBody(result.body)
+    // W2 Phase B:GET namespaces 集合 → 响应面按授权过滤(allowlist 集群的非 admin 会话只留
+    // granted ns;admin/open/legacy 不滤)。metadata.namespace 缺失的条目(不应出现在 ns 列表)被剔除。
+    if (isNamespacesList) {
+      const g = effectiveGrants(db, { userId: session.userId })
+      const ce = g.clusters.get?.(session.clusterId)
+      if (ce?.mode === 'allowlist') result.body.items = filterNamespaceList(result.body.items, new Set(ce.ns.keys()))
+    }
     return sendJson(res, result.status, result.body ?? {})
   } catch (error) {
     return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sRequestFailed'), details: error.details })
@@ -2289,6 +2318,13 @@ httpServer.on('upgrade', (req, socket, head) => {
   const token = url.searchParams.get('session')
   const session = token ? sessions.get(token) : null
   if (!session || Date.now() - session.createdAt > sessionTtl || !sessionOwnerValid(db, session)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+    socket.destroy()
+    return
+  }
+  // W2 Phase B:ns 授权门(会话归属守卫之后;exec 是交互面 → 恒 operate)。沿用 401+close
+  // 形状与既有升级拒绝一致,denied 审计在 gate 内部完成。
+  if (!k8sGate.gateK8sSession(session, { namespace: url.searchParams.get('namespace'), level: 'operate', path: url.pathname, method: req.method })) {
     socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
     socket.destroy()
     return
