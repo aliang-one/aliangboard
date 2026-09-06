@@ -121,9 +121,14 @@ export async function maybeSummarizeProject(db, projectId, llmClient) {
     if (!recap) return false
     // 长度硬钳(prompt 的「不超过 500 字」只是请求,LLM 不服从时不能无界落库+每轮注入)
     const capped = recap.length > 2000 ? recap.slice(0, 2000) + '…(截断)' : recap
-    // 落库前防并发回退:只推进水位(取 pending 最大 ts 与现值较大者)
+    // 落库为条件写(竞态防线):pending 读取后 await LLM 期间,另一任务可能已完成同批/更新
+    // 摘要的写入——无条件 UPDATE 会把新 recap 覆写回旧内容(内容回退,水位因 MAX 不回退,
+    // 无法自愈)。守卫 COALESCE(historyWatermark,0) < maxTs:不满足则 changes=0 → 本次丢弃。
     const maxTs = pending[pending.length - 1].ts
-    db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=MAX(COALESCE(historyWatermark,0),?) WHERE id=?').run(capped, maxTs, projectId)
+    const res = db.prepare(
+      'UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=? AND COALESCE(historyWatermark,0) < ?'
+    ).run(capped, maxTs, projectId, maxTs)
+    if (res.changes === 0) return false // 已有同批或更新的摘要落库,不覆盖
     return true
   } catch { return false }
 }

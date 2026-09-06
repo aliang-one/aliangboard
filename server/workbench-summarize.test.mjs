@@ -332,3 +332,42 @@ test('maybeSummarizeProject:超长摘要硬钳 ≤2000+截断标记', async () =
   assert.ok(row.projectRecap.includes('…(截断)'), '截断标记')
   assert.equal(row.historyWatermark, 5007, '截断不影响水位推进')
 })
+
+// 摘要竞态覆写(2026-09-06):pending 读取后 await llmClient.chat(...) 期间,另一
+// maybeSummarizeProject 可完成并写入更新的 recap+水位;旧任务完成后无条件 UPDATE 会把新
+// recap 覆写回旧内容(内容回退;水位因 MAX 不回退,丢失的增量被跳过,无法自愈)。
+// 契约:落库为条件写(WHERE COALESCE(historyWatermark,0) < maxTs),changes=0 → 本次丢弃 return false。
+test('maybeSummarizeProject:摘要竞态——旧任务后完成不覆写新摘要', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=?').run('旧摘要', 0, id)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `m${i}`, 7000 + i)
+
+  // 任务A:先读到 pending,chat 挂起(受控 Promise),其产出是旧内容
+  let releaseA
+  const gateA = new Promise(resolve => { releaseA = resolve })
+  let aEnteredChat = false
+  const llmA = { chat: async () => {
+    aEnteredChat = true
+    await gateA
+    return { content: '旧任务产的旧摘要' }
+  } }
+  const taskA = maybeSummarizeProject(db, id, llmA)
+  // maybeSummarizeProject 同步跑到首个 await(chat 调用本身同步执行)——此刻 A 的 pending 已固化
+  assert.ok(aEnteredChat, '任务A已读到 pending 并挂在其 chat 上')
+
+  // 任务B:同批内容先完成写入(水位=本批最大 ts 7007,recap=新)
+  const llmB = { chat: async () => ({ content: '新任务产的新摘要' }) }
+  assert.equal(await maybeSummarizeProject(db, id, llmB), true)
+  let row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
+  assert.equal(row.projectRecap, '新任务产的新摘要')
+  assert.equal(row.historyWatermark, 7007)
+
+  // 放行任务A(其 chat 返回旧内容)→ 条件写拒绝:不覆写新摘要,返回 false
+  releaseA()
+  assert.equal(await taskA, false, '旧任务后完成:已有同批或更新的摘要落库,本次丢弃')
+
+  row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
+  assert.equal(row.projectRecap, '新任务产的新摘要', 'recap 不被旧任务覆写回旧内容')
+  assert.equal(row.historyWatermark, 7007, '水位不回退')
+})
