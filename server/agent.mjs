@@ -100,6 +100,23 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   // 拿 {} 照跑工具,而是把「参数非合法 JSON + 原文截断」作为工具回执喂回 LLM(可自纠)。
   function parseArgs(tc) { try { return JSON.parse(tc.function?.arguments || '{}') } catch { return undefined } }
 
+  // chat 容错(2026-09-06「对话尾巴不展示」排查):首 token 前(未吐任何 delta/reasoning)失败
+  // 自动重试一次——sub2api/litellm 类代理的瞬时 400/502 多发生在建连/首 token,一次重试成本低、
+  // 常能救活整轮(final 轮一死,跑完全部工具的成果对用户就「不展示」)。已吐 delta 后失败不重试:
+  // 流式重试从头再吐,前端已拼接的内容会重复。chat 是纯生成调用(无副作用),重试安全。
+  async function chatWithRetry(messages, tools, opts = {}) {
+    let sawDelta = false
+    const wrapped = {}
+    if (opts?.onDelta) wrapped.onDelta = t => { sawDelta = true; opts.onDelta(t) }
+    if (opts?.onReasoning) wrapped.onReasoning = t => { sawDelta = true; opts.onReasoning(t) }
+    try {
+      return await chat(messages, tools, wrapped)
+    } catch (e) {
+      if (sawDelta) throw e
+      return await chat(messages, tools, wrapped)
+    }
+  }
+
   async function run({ system, history = [], onStep, onDelta, onReasoning, refreshSystem, resume } = {}) {
     // 初始化:resume 从回传状态续跑;否则从 system + history 起
     let messages, queue = [], denied = [], steps = 0
@@ -176,10 +193,10 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
           messages = t.messages
           messages.push({ role: 'user', content: `(系统提示:已达到最大执行步数 ${maxSteps},请立即基于以上已获得的信息给出最终回答,不要再调用任何工具。)` })
           steps++
-          const assistant = await chat(messages, [], (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
+          const assistant = await chatWithRetry(messages, [], (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
           messages.push(assistant)
           onStep?.({ type: 'assistant', message: assistant, ts: Date.now() })
-          return { content: assistant.content, steps, denied, truncated: true }
+          return { content: assistant.content, steps, denied, truncated: true, cutByLength: assistant.finishReason === 'length' }
         }
         return { content: '(达到最大步数,未给出终答)', steps, denied, truncated: true }
       }
@@ -194,11 +211,13 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       if (refreshSystem && messages[0]?.role === 'system') {
         messages[0] = { role: 'system', content: await refreshSystem() }
       }
-      const assistant = await chat(messages, toolDefs, (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
+      const assistant = await chatWithRetry(messages, toolDefs, (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
       messages.push(assistant)
       onStep?.({ type: 'assistant', message: assistant, ts: Date.now() })
       const toolCalls = assistant.tool_calls || []
-      if (!toolCalls.length) return { content: assistant.content, steps, denied, truncated: false }   // 终答(正常完成,不携带步数上限旗标)
+      // 终答(正常完成,不携带步数上限旗标);cutByLength(2026-09-06):finish_reason=length
+      // = provider 输出上限掐断,前端亮标,不再静默截断。
+      if (!toolCalls.length) return { content: assistant.content, steps, denied, truncated: false, cutByLength: assistant.finishReason === 'length' }
       queue = [...toolCalls]
       resumeToolCallId = null // 新 turn,旧 resume 标记失效
     }

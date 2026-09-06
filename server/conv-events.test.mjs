@@ -18,7 +18,7 @@ test('done → status:done + end,dispose', () => {
   const { events, dispose } = eventsForResult({ status: 'done', content: 'hello' })
   assert.equal(dispose, true)
   assert.equal(events.length, 2)
-  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: false })
+  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: false, cutByLength: false })
   assert.deepEqual(events[1], { type: 'end' })
 })
 
@@ -27,12 +27,12 @@ test('无 status 字段默认走 done 路径(兜底)', () => {
   const { events, dispose } = eventsForResult({ content: 'ans' })
   assert.equal(dispose, true)
   assert.equal(events.length, 2)
-  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: false })
+  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: false, cutByLength: false })
 })
 
 test('done + truncated → status 事件透传 truncated(2026-09-03 收尾轮标识)', () => {
   const { events } = eventsForResult({ status: 'done', content: 'ans', truncated: true })
-  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: true })
+  assert.deepEqual(events[0], { type: 'status', status: 'done', truncated: true, cutByLength: false })
 })
 
 test('null/undefined 入参 → 空事件 + 不 dispose(防御)', () => {
@@ -50,4 +50,12 @@ test('pending=null 时透传(显式空)', () => {
   const { events, dispose } = eventsForResult({ status: 'pending_approval', pending: null })
   assert.equal(dispose, false)
   assert.deepEqual(events[0], { type: 'approval', pending: null })
+})
+
+// cutByLength 透传(2026-09-06):provider 输出上限截断不再静默
+test('done:cutByLength 透传到 status 事件', () => {
+  const { events } = eventsForResult({ status: 'done', content: 'x', cutByLength: true })
+  assert.equal(events.find(e => e.type === 'status').cutByLength, true)
+  const { events: e2 } = eventsForResult({ status: 'done', content: 'x' })
+  assert.equal(e2.find(e => e.type === 'status').cutByLength, false)
 })
