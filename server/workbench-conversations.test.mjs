@@ -280,6 +280,11 @@ function makeHttpHarness() {
     ca TEXT, cert TEXT, key TEXT, insecure INTEGER, version TEXT, createdBy TEXT, createdAt INTEGER)`)
   db.prepare("INSERT INTO clusters (id,name,apiServer,createdAt) VALUES ('c1','c1','http://k8s',?)").run(Date.now())
   const pid = createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' }).id
+  // W2 Phase C Task 6:@ref 门(refAllowed→canAccessNs)要读授权表——夹具补齐并把 u1 置
+  // admin(短路全通,本文件的 @ref 断言保持原语义零变化)。
+  db.exec(`CREATE TABLE IF NOT EXISTS platform_users (id TEXT PRIMARY KEY, username TEXT, role TEXT DEFAULT 'user', disabled INTEGER DEFAULT 0, createdAt INTEGER)`)
+  db.exec("ALTER TABLE clusters ADD COLUMN nsAuthMode TEXT DEFAULT 'open'")
+  db.prepare("INSERT INTO platform_users (id,username,role,createdAt) VALUES ('u1','u','admin',1)").run()
   const sent = []
   const res = { writeHead: () => {}, end: () => {} }
   const routes = createWorkbenchConvRoutes({

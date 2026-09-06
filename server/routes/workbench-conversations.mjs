@@ -23,6 +23,7 @@ import { assertProjectOwnership } from './workbench-projects.mjs' // W2 CB-B:归
 // 无 references / 无绑定集群 → 返回 ''(调用方据此决定是否 prepend)。
 import { getApiPath } from '../kind-paths.mjs'
 import { normalizeKind } from '../kindAlias.mjs'
+import { refAllowed } from '../ref-fetch.mjs' // Phase C Task 6:@mention 引用门单一事实源
 
 export function createWorkbenchConvRoutes(deps) {
   const {
@@ -87,7 +88,10 @@ export function createWorkbenchConvRoutes(deps) {
     return { estTokens: est, windowTokens, budgetTokens, recapUpTo: conv.summarizedUpTo ?? 0, willTrim: est > budgetTokens }
   }
 
-  async function buildRefsContext(project, references) {
+  // principal(Phase C Task 6):{ userId, role }——逐 ref 过 refAllowed(ref-fetch.mjs 单一
+  // 事实源,与 run/resume 的 fetchRefContext 同门);无权 ref 静默跳过(零注入不中断),
+  // resources 对应位 push null 保下标对齐(不变式见循环内注释)。
+  async function buildRefsContext(project, references, principal = null) {
     if (!Array.isArray(references) || !references.length) return { ctx: '', resources: [] }
     const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(project.clusterId)
     if (!cluster) return { ctx: '', resources: [] } // 项目绑定的集群不存在 → 无 @-ref 可拉
@@ -95,6 +99,7 @@ export function createWorkbenchConvRoutes(deps) {
     const blocks = []
     const resources = [] // 原始资源 body(供前端 ResourceCard),与 ctx 同源单次拉取
     for (const ref of references) {
+      if (!refAllowed(db, principal, ref, project.clusterId)) { resources.push(null); continue } // 无授权:零注入,null 占位保对齐
       const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
       // @server 引用(spec §5):原始值比较(normalizeKind 不识别 server);不入 k8s 拉取序列,
       // resources 对应位置 push null 占位——保持 fetchedResources 与 references 下标一一对应
@@ -177,7 +182,7 @@ export function createWorkbenchConvRoutes(deps) {
         // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
         // system 只存工作台 prompt 原文(不含 refContext——每轮 chat 前由 run/resumeConversation 内部
         // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
-        const { resources: fetchedResources } = await buildRefsContext(project, input.references)
+        const { resources: fetchedResources } = await buildRefsContext(project, input.references, { userId: ps.userId, role: ps.role })
 
         // system 创建时烘焙入库(2026-08-25 设计决策):admin 改配置只影响新对话;
         // conv.system 即逐对话审计证据,透明面板据此展示"本对话实际用的提示词"。
@@ -218,7 +223,7 @@ export function createWorkbenchConvRoutes(deps) {
         setActiveConversation(db, conv.projectId, id)
         // 1) @-ref 资源拉取(先拉,enrich refs 存完整资源 → 刷新后 ResourceCard 不丢)
         const cleanMessage = String(input.message ?? '')
-        const { resources: fetchedResources } = await buildRefsContext(project, input.references)
+        const { resources: fetchedResources } = await buildRefsContext(project, input.references, { userId: ps.userId, role: ps.role })
         // 2) append user 消息:content 只存干净正文(曾把 refsCtx 烤进 content → 刷新后整段
         //    JSON 当消息显示;agent 上下文改由 references 走 system,见下)
         appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
@@ -321,7 +326,7 @@ export function createWorkbenchConvRoutes(deps) {
         if (!refsValue && anchor.refs) { try { const p = JSON.parse(anchor.refs); if (Array.isArray(p)) refsValue = p } catch { refsValue = null } }
         // 2026-08-31 审计修复⑧:与 create/messages 路径同款 enrich——沿用锚 refs 保留其已存的
         // resource 载荷,新 references 补拉(buildRefsContext 单次拉取);刷新后 ResourceCard 不丢。
-        const { resources: fetchedResources } = await buildRefsContext(project, refsValue)
+        const { resources: fetchedResources } = await buildRefsContext(project, refsValue, { userId: ps.userId, role: ps.role })
         setActiveConversation(db, conv.projectId, id)
         // 新 refs 并入对话级 references(与 append 的 mergeRefs 同款)
         let mergedRefs = []

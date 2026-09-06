@@ -249,7 +249,7 @@ const CK_TIME_MS = 500
       const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
       const refreshSystem = async () => conv.system
         + buildProjectMemoryInjection(projectRecap)
-        + await fetchRefContext(refs, k8sSession)
+        + await fetchRefContext(refs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:逐 ref 过 refAllowed
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv)
       // 本段事件累积(tool/denied + 瘦身 assistant 文本)——done/salvage 时随 assistant 消息落库,
@@ -328,7 +328,7 @@ const CK_TIME_MS = 500
       const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
       const refreshSystem = async () => conv.system
         + buildProjectMemoryInjection(projectRecap)
-        + await fetchRefContext(refs, k8sSession)
+        + await fetchRefContext(refs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:同 run
       const pending = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
       // 以免把终态改写成 failed 吞掉已完成答案)。
