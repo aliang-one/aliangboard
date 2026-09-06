@@ -201,6 +201,10 @@ export function createWorkbenchConvRoutes(deps) {
         const project = getProject(db, input.projectId)
         if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
         if (!assertProjectOwnership(ps, project)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
+        // W2 Phase D(spec §6.2/§2.6):项目绑定集群时,创建者也须有集群分配 entitlement(admin 短路)
+        // ——与 messages/regenerate 同门(clusterEntitled 单源),否则未分配用户可在自己项目上对
+        // 未分配集群起对话(detached run 前的绕道)。未绑定集群('')不设门。
+        if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         const llmClient = createLlmClient(cfg)

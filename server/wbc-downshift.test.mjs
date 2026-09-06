@@ -176,6 +176,19 @@ test('集群 entitlement:messages/regenerate 须项目集群已分配(有行 200
   assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.done}/messages`, { message: 'hi' })).status, 200)
 })
 
+test('集群 entitlement:创建对话也须项目集群已分配(未分配 403;已分配 200)', async () => {
+  // u1 未分配 c1 → 在自己项目上建对话也被拒(spec §6.2/§2.6:detached run 前的绕道封死)
+  const h2 = makeHarness({ userId: 'u1', role: 'user', assignedCluster: false })
+  const r2 = await h2.call('POST', '/api/workbench/conversations', { projectId: h2.pid, message: 'x' })
+  assert.equal(r2.status, 403)
+  assert.match(String(r2.json?.message), /未分配|not assigned/)
+  assert.equal(h2.runCalls.length, 0, '被拒后不得触发 run')
+  // 已分配(夹具默认)→ 200(独立夹具,防状态互扰)
+  const h = makeHarness({ userId: 'u1', role: 'user' })
+  const r = await h.call('POST', '/api/workbench/conversations', { projectId: h.pid, message: '第一问' })
+  assert.equal(r.status, 200, JSON.stringify(r.json))
+})
+
 test('列表面:GET ?projectId 非owner 403/owner 200;/active 非 admin 只见自己项目的活跃', async () => {
   const h = makeHarness({ userId: 'u2', role: 'user' })
   assert.equal((await h.call('GET', '/api/workbench/conversations?projectId=' + h.pid)).status, 403)
