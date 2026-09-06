@@ -112,3 +112,86 @@ export async function probeConnection(tlsConnect, { apiServer, ca, insecure, tim
   if (strict.ok) return { trust: 'trusted', reachable: true, reasonCode: null, reason: '', peerChain }
   return { trust: classifyTlsError(strict.code), reachable: true, reasonCode: strict.code || null, reason: strict.message || '', peerChain }
 }
+
+// TLS Secret 扫描 + cert-manager 合并。Secret 的 tls.key 永不触碰;上游 403 → error='forbidden'
+// (连接段不受影响);cert-manager 404 = 未安装,静默降级。
+async function scanSecrets(requestFn, session, now) {
+  const out = { items: [], error: null, certManagerInstalled: false }
+  let body = null
+  try {
+    const r = await requestFn(session, `/api/v1/secrets?fieldSelector=${encodeURIComponent('type=kubernetes.io/tls')}&limit=500`)
+    body = r?.body
+  } catch (e) {
+    out.error = e?.status === 403 ? 'forbidden' : 'error'
+    return out
+  }
+  const cmMap = new Map()
+  try {
+    const cm = await requestFn(session, '/apis/cert-manager.io/v1/certificates?limit=500')
+    out.certManagerInstalled = true
+    for (const it of (cm?.body?.items || [])) {
+      cmMap.set(`${it.metadata?.namespace || 'default'}/${it.spec?.secretName || ''}`, {
+        ready: (it.status?.conditions || []).some(c => c.type === 'Ready' && c.status === 'True'),
+        renewalTime: it.status?.renewalTime || null,
+      })
+    }
+  } catch { /* 404/403 一律视为未安装,不细究 */ }
+  for (const it of (body?.items || [])) {
+    const crt = it?.data?.['tls.crt']
+    if (!crt) continue
+    let chain = []
+    try { chain = parseCertChain(Buffer.from(crt, 'base64').toString('utf8'), now) } catch { continue }
+    if (!chain.length) continue
+    const leaf = chain[0]
+    const cm = cmMap.get(`${it.metadata?.namespace || 'default'}/${it.metadata?.name || ''}`) || null
+    out.items.push({
+      name: it.metadata?.name || '', namespace: it.metadata?.namespace || '',
+      cn: leaf.subject, issuer: leaf.issuer, sans: leaf.sans,
+      expires: leaf.validTo, daysLeft: leaf.daysLeft, fingerprint256: leaf.fingerprint256,
+      chainCount: chain.length, managedBy: cm ? 'cert-manager' : null, certManager: cm,
+    })
+  }
+  out.items.sort((a, b) => (a.daysLeft ?? Infinity) - (b.daysLeft ?? Infinity))
+  return out
+}
+
+export function createClusterCerts({ tlsConnect = nodeTls.connect, requestFn, now = Date.now, ttl = DEFAULT_TTL, timeout = DEFAULT_TIMEOUT } = {}) {
+  if (typeof requestFn !== 'function') throw new Error('createClusterCerts: requestFn 必传')
+  const cache = new Map()
+  // 缓存键含信任材料指纹:同集群不同 CA 的会话(如 admin 已换新 CA、旧会话仍持旧 CA)不串缓存。
+  const cacheKeyOf = s => {
+    const origin = s?.apiServer instanceof URL ? s.apiServer.origin : String(s?.apiServer || '')
+    if (s?.insecure) return `${origin}|insecure`
+    if (!s?.ca) return `${origin}|noca`
+    return `${origin}|${createHash('sha256').update(s.ca).digest('hex').slice(0, 16)}`
+  }
+  async function getCertsReport(session) {
+    const key = cacheKeyOf(session)
+    const hit = cache.get(key)
+    if (hit && now() - hit.at < ttl) return hit.data
+    const [connection, caAnchors, scanned] = await Promise.all([
+      probeConnection(tlsConnect, { apiServer: session.apiServer, ca: session.ca || null, insecure: !!session.insecure, timeout, now }),
+      parseCertChain(session.ca || '', now),
+      scanSecrets(requestFn, session, now),
+    ])
+    const data = {
+      connection: { apiServer: (session.apiServer instanceof URL ? session.apiServer.origin : String(session.apiServer || '')), ...connection },
+      caAnchors,
+      secrets: { items: scanned.items, error: scanned.error },
+      certManagerInstalled: scanned.certManagerInstalled,
+      fetchedAt: now(),
+    }
+    cache.set(key, { data, at: now() })
+    return data
+  }
+  // admin 断连归因:TLS 层结论;'tls-ok' = 断连但证书链无碍(凭据/上游层);insecure 无法裁决。
+  async function classifyFromRow(row) {
+    try {
+      const r = await probeConnection(tlsConnect, { apiServer: row.apiServer, ca: row.ca || null, insecure: !!row.insecure, timeout, now })
+      if (r.trust === 'trusted') return 'tls-ok'
+      if (r.trust === 'unverified') return 'unknown-insecure'
+      return r.trust
+    } catch { return 'error' }
+  }
+  return { getCertsReport, classifyFromRow, invalidate: () => cache.clear(), _cacheSizeForTest: () => cache.size }
+}
