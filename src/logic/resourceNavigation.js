@@ -19,6 +19,7 @@ export function routeForResource(kind, name, namespace) {
   if (kind === 'Node') return `/nodes/${name}`
   if (kind === 'Namespace') return { name: 'NamespaceDetail', params: { name } }
   if (kind === 'CRD') return { name: 'CrdDetail', params: { name } }
+  if (kind === 'Certificate') return { name: 'ClusterCerts' } // 证书告警伪事件落点(2026-09-06)
   if (CLUSTER_DETAIL_ROUTES.includes(kind)) return { name: `${kind}Detail`, params: { name } }
   return null
 }

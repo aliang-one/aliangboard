@@ -13,6 +13,8 @@ import { parseApiPath } from './k8s-path.mjs'
 import { createK8sGate, gateParsedPath, filterNamespaceList, gateWatchResources } from './k8s-gate.mjs'
 import { readBody } from './body.mjs'
 import { createClusterProber } from './cluster-probe.mjs'
+import { createClusterCerts } from './cluster-certs.mjs'
+import { createClusterCertsRoutes } from './routes/cluster-certs.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { sweepOrphanGrants, effectiveGrants, levelForRequest } from './authz.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
@@ -24,7 +26,7 @@ import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { fetchRegistryTags } from './registry-tags.mjs'
-import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken } from './window-records.mjs'
+import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneSession, tombstoneExpiredSessions, purgeRotatedSessions, sessionTokenOwner } from './window-records.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
@@ -258,6 +260,7 @@ setTimeout(() => {
 }, 2000)
 // === 平台设置(LLM 配置等,key/value 通用)===
 db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
+try { db.exec('CREATE TABLE IF NOT EXISTS rotated_sessions (token TEXT PRIMARY KEY, userId TEXT NOT NULL, rotatedAt INTEGER NOT NULL)') } catch { /* 已存在 */ }
 function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
 function setSetting(key, value) { db.prepare('INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES (?,?,?)').run(key, String(value ?? ''), Date.now()) }
 // Pod 文件传输限额(单文件,上传下载共用):默认 1GB,admin 可经 /api/admin/podfile-config 调整
@@ -508,6 +511,7 @@ function sessionFromRequest(req) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
   let session = token ? sessions.get(token) : null
   if (session && Date.now() - session.createdAt > sessionTtl) {
+    try { tombstoneSession(db, token, session.userId, Date.now()) } catch { /* noop */ } // 落墓碑再删(TTL/级联路径,spec §3;显式吊销不落——吊销粘性)
     sessions.delete(token)
     removePersistedSession(token) // 过期：从库中清除
     return null
@@ -628,6 +632,8 @@ const WB_EXEC_STREAM_MAX = 262144 // 256KB 流式缓冲(最终 stdout 仍截 32K
 // 集群列表实时探测(/api/admin/clusters GET 用):注入 requestKubernetes → 并行探每个集群
 // 的健康度 + nodes/pods 计数,带 TTL 缓存与单集群超时降级。语义见 ./cluster-probe.mjs。
 const clusterProber = createClusterProber({ requestFn: requestKubernetes })
+// 集群证书可观测(2026-09-06):/api/cluster-certs 报告(session 级)+ admin 断连归因复用 classifyFromRow。
+const clusterCerts = createClusterCerts({ requestFn: requestKubernetes })
 // MCP server(T12):/mcp,API key 鉴权,包 callTool;外部 AI(Claude Code)连。
 const mcpHandler = createMcpServer({ db, apiKeyTools, cryptKey: sshCryptKey, sshPool, getSetting, setSetting, getJobPolicy: getSshJobPolicy })
 
@@ -677,7 +683,7 @@ const tmuxProbeCache = new Map()
 const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
 const TMUX_SCROLLBACK_LINES = Number(process.env.TMUX_SCROLLBACK_LINES || 2000)
 
-// idle reaper tracker: tmuxSessionName -> { token, ns, pod, container, terminalId, lastActiveAt, attached }
+// idle reaper tracker: tmuxSessionName -> { token, userId, ns, pod, container, terminalId, lastActiveAt, attached }
 const idleTracker = new Map()
 
 // 空闲回收：超过阈值未活动的 tmux 会话 best-effort 杀掉并删行。
@@ -706,13 +712,14 @@ const idleSweeper = setInterval(() => {
           // 重建(用户已回来),本轮回收作废——否则旧清道夫会杀掉刚恢复的 tmux 并删活记录。
           if (idleTracker.has(name)) continue
           // tmux 侧原子守卫:会话已有附着客户端=有人在看,不杀(兜住 tracker 之外的重建时序)
-          const clients = await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxListClientsCommand(tmuxLabel(meta.token), name, bin))
+          const clients = await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxListClientsCommand(tmuxLabel(meta.userId || meta.token), name, bin))
           if (String(clients?.stdout || '').trim() !== '') continue
-          await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.token), name, bin))
+          await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.userId || meta.token), name, bin))
         } catch { /* pod 不在 / token 已过期 —— 忽略 */ }
       }
       // 只按 id 删(2026-09-04 S9):id 是主键唯一定位;带 sessionToken 条件在记录 rekey 后
-      // 永远 miss → 已迁移记录脱离空闲回收(meta.token 仍须保留旧值:tmux socket 按 label(token) 命名)
+      // 永远 miss → 已迁移记录脱离空闲回收(meta.token 须保留建连时值:空闲清扫杀会话的 exec 凭据
+      // 按 sessions.get(meta.token) 取(socket label 已由 meta.userId 派生))
       try { db.prepare('DELETE FROM terminals WHERE id = ?').run(meta.terminalId) } catch { /* noop */ }
     }
   })().catch(() => {})
@@ -905,9 +912,12 @@ async function handleExec(ws, session, url, req) {
   // 刷新不保留但 shell 不挂(planExec 只用于持久性判定)。
   const resolved = mode === 'attach' ? { kind: 'none', bin: 'tmux', terminfoDir: '' } : await resolveTmux(session, namespace, pod, container)
   const present = resolved.kind === 'system' || resolved.kind === 'injected'
-  const planned = planExec({ mode, tmuxPresent: present, sid })
-  const label = tmuxLabel(token)
-  const sessionName = tmuxSessionName(token, sid)
+  // 身份锚(2026-09-06 去 token 化):平台 userId 稳定,token 轮换不再撕裂 tmux 身份。
+  // 遗留会话(WS2-0 前落库)无 userId → 回退 token(行为等同旧版,重连集群后自愈为新锚)。
+  const identity = session.userId || token
+  const planned = planExec({ mode, tmuxPresent: present, sid, token: identity })
+  const label = tmuxLabel(identity)
+  const sessionName = tmuxSessionName(identity, sid)
   let execCommand = command   // 默认:一次性 shell(降级 / 非 tmux 路径)
   let persistent = false
   let attachedMeta = null     // 持久路径下本 exec 在 idleTracker 中的 meta(ws 关闭时递减 attached)
@@ -932,8 +942,14 @@ async function handleExec(ws, session, url, req) {
       // 附着计数(2026-09-04):attached>0 的会话被空闲回收豁免;ws 关闭时递减。
       // get-or-create:重连不重置计数,只续时间。
       const idleMeta = idleTracker.get(sessionName)
-      if (idleMeta) { idleMeta.lastActiveAt = Date.now(); idleMeta.attached = (idleMeta.attached || 0) + 1 }
-      else idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now(), attached: 1 })
+      if (idleMeta) {
+        // 轮换使存档 token 变陈旧:不刷新的话空闲清扫 sessions.get(meta.token) 永远 miss,
+        // 该 pod tmux 再无人能杀(meta.token 须恒为活凭据,而非建连时值)
+        idleMeta.token = token
+        idleMeta.lastActiveAt = Date.now()
+        idleMeta.attached = (idleMeta.attached || 0) + 1
+      }
+      else idleTracker.set(sessionName, { token, userId: identity, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now(), attached: 1 })
       attachedMeta = idleMeta || idleTracker.get(sessionName)
     } catch {
       // tmux 起不来 → 降级一次性 exec(刷新不保留),shell 仍可用
@@ -1573,7 +1589,7 @@ async function handle(req, res) {
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
     getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
-    clusterProber, randomUUID,
+    clusterProber, clusterCerts, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
@@ -1615,6 +1631,7 @@ async function handle(req, res) {
     listSshSessions: () => terminalService.list(),
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
+  const clusterCertsRoutes = createClusterCertsRoutes({ sendJson, msg, clusterCerts, k8sGate, levelForRequest })
 const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting,
   evictSshServer: id => sshPool.evictServer(id),
   closeSshServerSessions: id => terminalService.closeByServer(id, 'server-deleted'),
@@ -1634,6 +1651,7 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   if (await authRoutes.handle(req, res, url)) return
   if (await adminRoutes.handle(req, res, url)) return
   if (await versionRoutes.handle(req, res, url)) return
+  if (await clusterCertsRoutes.handle(req, res, url)) return
   if (await projectRoutes.handle(req, res, url)) return
   if (await ingressControllerRoutes.handle(req, res, url)) return
 
@@ -1963,6 +1981,16 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
       const input = await readBody(req)
       if (!isKnownSessionToken(db, input.from)) {
+        writeAudit(db, { owner: 'k8s-session', verb: 'update', tool: 'terminal_rekey', result: 'denied', reason: 'unknown-token', source: 'session' })
+        return sendJson(res, 403, { message: msg(req, 'api.rekeySourceUnknown') })
+      }
+      // 属主校验(2026-09-06 spec §3):墓碑化后旧 token 可被出示,须防「猜 token 吸收他人记录」。
+      // 双方均有 userId 则必须相等;仅单侧有属主(理论上不可达的遗留形态)不放行;
+      // 双方均无 userId(WS2-0 前遗留)放行=保持旧可迁。
+      const fromOwner = sessionTokenOwner(db, input.from)
+      const myId = session.userId || null
+      if ((fromOwner || myId) && fromOwner !== myId) {
+        writeAudit(db, { owner: 'k8s-session', verb: 'update', tool: 'terminal_rekey', result: 'denied', reason: 'owner-mismatch', source: 'session' })
         return sendJson(res, 403, { message: msg(req, 'api.rekeySourceUnknown') })
       }
       const moved = rekeyWindowRecords(db, input.from, token)
@@ -1997,12 +2025,13 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
         // 取行（含 ns/pod/container）以便 best-effort 杀掉 pod 内的 tmux 会话
         const row = db.prepare('SELECT namespace, podName, container FROM terminals WHERE id = ? AND sessionToken = ?').get(id, token)
         db.prepare('DELETE FROM terminals WHERE id = ? AND sessionToken = ?').run(id, token)
-        idleTracker.delete(tmuxSessionName(token, id))
+        const identity = session.userId || token
+        idleTracker.delete(tmuxSessionName(identity, id))
         if (row) {
           try {
             const { bin } = await resolveTmux(session, row.namespace, row.podName, row.container || '')
             await execCapture(session, row.namespace, row.podName, row.container || '',
-              tmuxKillCommand(tmuxLabel(token), tmuxSessionName(token, id), bin))
+              tmuxKillCommand(tmuxLabel(identity), tmuxSessionName(identity, id), bin))
           } catch { /* pod 已不在 / 无 tmux —— 忽略 */ }
         }
         return sendJson(res, 200, { ok: true })
@@ -2320,8 +2349,10 @@ setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
 const sessionSweeper = setInterval(() => {
   try {
     const cutoff = Date.now() - sessionTtl
+    tombstoneExpiredSessions(db, cutoff, Date.now())          // 先墓碑(有 userId 的过期行)再删
     db.prepare('DELETE FROM sessions WHERE createdAt < ?').run(cutoff)
     db.prepare('DELETE FROM platform_sessions WHERE createdAt < ?').run(cutoff)
+    purgeRotatedSessions(db, Date.now())                      // 墓碑 7d 保留窗
     for (const [t, s] of sessions) if (s.createdAt < cutoff) sessions.delete(t)
     for (const [t, s] of platformSessions) if (s.createdAt < cutoff) platformSessions.delete(t)
     // 30d 孤儿窗口记录清理(2026-09-04 M2):此前只在启动时跑一次,长驻进程期间「防无界增长」

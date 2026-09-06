@@ -69,3 +69,8 @@ test('集群级扩容:StorageClass/PV/CRD/ClusterRole/ClusterRoleBinding → 命
     )
   }
 })
+
+// --- 2026-09-06 证书可观测:铃铛证书告警伪事件落点 ---
+test('Certificate → ClusterCerts 页(证书告警行点击落点,不带 params)', () => {
+  assert.deepEqual(routeForResource('Certificate', 'tls-web', 'api'), { name: 'ClusterCerts' })
+})

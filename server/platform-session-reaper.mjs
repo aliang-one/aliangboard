@@ -4,6 +4,8 @@
 
 // 单会话三处回收:内存 platformSessions + platform_sessions 表 + 该会话接入的 K8s 凭据。
 // 与改密/吊销路径同款;懒删除/登出路径也复用本函数。单条 DB 失败不抛(K8s 表 DELETE 失败时残留行由重启恢复后按 TTL 收敛)。
+import { tombstoneSession } from './window-records.mjs'
+
 export function removeSessionRecord(platformSessions, db, sessions, token) {
   const rec = platformSessions.get(token)
   platformSessions.delete(token)
@@ -11,6 +13,7 @@ export function removeSessionRecord(platformSessions, db, sessions, token) {
   const k8sTok = rec?.k8sSessionToken
   if (k8sTok) {
     sessions.delete(k8sTok)
+    try { tombstoneSession(db, k8sTok, rec?.userId, Date.now()) } catch { /* 同上 */ } // 落墓碑再删(TTL/级联路径,spec §3;显式吊销不落——吊销粘性)
     try { db.prepare('DELETE FROM sessions WHERE token=?').run(k8sTok) } catch { /* 同上 */ }
   }
 }

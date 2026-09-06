@@ -487,6 +487,19 @@ export const TABLE_CATALOG = [
       { key: 'actions', labelKey: 'common.actions', label: 'Actions', align: 'right' },
     ],
   },
+  {
+    key: 'clusterCerts', labelKey: 'certs.title', label: 'Cluster Certificates', icon: 'verified',
+    columns: [
+      { key: 'name', labelKey: 'certs.thName', label: 'Secret' },
+      { key: 'namespace', labelKey: 'cols._c.namespace', label: 'Namespace' },
+      { key: 'cn', labelKey: 'certs.thCn', label: 'Subject (CN)' },
+      { key: 'issuer', labelKey: 'certs.thIssuer', label: 'Issuer' },
+      { key: 'sans', labelKey: 'certs.thSans', label: 'SANs' },
+      { key: 'expires', labelKey: 'certs.thExpires', label: 'Expires' },
+      { key: 'daysLeft', labelKey: 'certs.thDaysLeft', label: 'Time left' },
+      { key: 'certManager', labelKey: 'certs.thCertManager', label: 'cert-manager' },
+    ],
+  },
 ]
 
 // v1: { [tableKey]: { [colKey]: false } } (false = 隐藏)
