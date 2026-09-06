@@ -54,3 +54,15 @@ test('coverage: k8s gate instantiated once near authGate', () => {
 test('coverage: namespaces list response filter wired in passthrough response path', () => {
   assert.ok(src.includes('filterNamespaceList(result.body.items'), 'filterNamespaceList not applied to namespaces list response')
 })
+
+// ===== final-review 修订(2026-09-06)结构防线 =====
+const gateSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'k8s-gate.mjs'), 'utf8')
+
+test('coverage: M1 — unparseable-path denial is audited in gateParsedPath', () => {
+  assert.ok(gateSrc.includes("'unparseable-path'"), 'k8s-gate.mjs must audit unparseable-path denials')
+  assert.ok(gateSrc.includes('gate.noteUnparseable?.(session'), 'gateParsedPath must call noteUnparseable on !parsed')
+})
+
+test('coverage: I1 — gateParsedPath has no clusterScope GET-pass bypass (all shapes go through gateK8sSession)', () => {
+  assert.ok(!gateSrc.includes("method === 'GET' || method === 'HEAD'"), 'gateParsedPath must not bypass clusterScope GETs (spec §2.4)')
+})

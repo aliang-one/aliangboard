@@ -89,25 +89,47 @@ export function createK8sGate({ db, writeAudit }) {
     }
   }
 
-  return { gateK8sSession }
+  // M1(final-review):透传面遇到无法解析的路径 → 拒绝 + 审计 reason='unparseable-path'。
+  // 与 gateK8sSession 的 deny 同 shape(含 legacy/open 会话也记:路径解析失败本身是异常信号)。
+  function noteUnparseable(session, { path, method } = {}) {
+    try {
+      writeAudit(db, {
+        tool: 'k8s_gate',
+        result: 'denied',
+        source: 'platform',
+        reason: 'unparseable-path',
+        owner: session?.userId ?? null,
+        clusterId: session?.clusterId ?? null,
+        namespace: null,
+        verb: method ?? null,
+        resource: path ?? null,
+        requestSummary: path ?? null,
+      })
+    } catch { /* 审计写失败不改变拒绝结论 */ }
+  }
+
+  return { gateK8sSession, noteUnparseable }
 }
 
 // ===== Batch B (Task 3) 接线辅助纯函数:index.mjs 透传/watch 的判定收口 =====
 
-// 透传判定:parsed = parseApiPath(path)。规则(controller 裁决 2026-09-06):
+// 透传判定:parsed = parseApiPath(path)。规则(controller 裁决 2026-09-06;final-review
+// I1 修订 2026-09-06:clusterScope GET 不再放行,GET/非 GET 一律过 null-ns 门 —— 修复
+// events/CRD 等集群级读泄漏,并与 k8s-watch 口径一致):
 //   - parsed === null(无法解析)→ false,**对所有 session 用户一律拒**(含 admin:
-//     admin console 走专用端点,透传面是 session-only 面;调用方返回 403)。
-//   - clusterScope:GET/HEAD 放行(响应面由 filterNamespaceList 单独滤 namespaces 列表);
-//     非 GET → gateK8sSession(namespace=null, operate):admin/open/legacy 过,allowlist 非 admin 拒。
-//   - ns 型 → gateK8sSession(namespace, levelForRequest(method, subresource))。
+//     admin console 走专用端点,透传面是 session-only 面;调用方返回 403)+ 审计
+//     reason='unparseable-path'(M1)。
+//   - clusterScope(namespace=null,allNamespaces=false)→ gateK8sSession(namespace=null,
+//     levelForRequest(method, subresource)):admin/open/legacy 过,allowlist 非 admin 拒。
+//   - ns 型(含 allNamespaces=true 的 null-ns 全 ns list,spec §2.4)→
+//     gateK8sSession(namespace, levelForRequest(method, subresource))。
 export function gateParsedPath(gate, session, parsed, { path, method } = {}) {
-  if (!parsed) return false
-  if (parsed.clusterScope) {
-    if (method === 'GET' || method === 'HEAD') return true
-    return gate.gateK8sSession(session, { namespace: null, level: 'operate', path, method })
+  if (!parsed) {
+    gate.noteUnparseable?.(session, { path, method })
+    return false
   }
   return gate.gateK8sSession(session, {
-    namespace: parsed.namespace,
+    namespace: parsed.namespace ?? null,
     level: levelForRequest(method, parsed.subresource),
     path, method,
   })

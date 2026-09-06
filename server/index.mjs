@@ -2182,10 +2182,11 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
 
   const kubernetesPath = decodeURIComponent(url.pathname.slice('/api/k8s'.length)) + (url.search || '')
 
-  // W2 Phase B:透传面 ns 授权门(流式+缓冲两分支共用,在任何上游连接之前)。
-  // 解析失败 → 403 对所有 session 用户(admin console 走专用端点,透传面 session-only);
-  // ns 型 → 按 levelForRequest(method, subresource) 分档;clusterScope → GET 放行 / 非 GET 过
-  // namespace=null 门(allowlist 非 admin 拒)。denied 审计在 gate 内部完成。
+  // W2 Phase B:透传面 ns 授权门(流式 watch=true/follow=true 与缓冲两分支共用,在任何上游连接之前;
+  // final-review I2a:?watch=true 的 namespaces 全流同样过 null-ns 门,allowlist 非 admin 整流拒)。
+  // 解析失败 → 403 对所有 session 用户 + 审计 unparseable-path(M1);ns 型/全 ns list(allNamespaces)
+  // → 按 levelForRequest(method, subresource) 分档(null namespace = null-ns 门,allowlist 非 admin 拒,
+  // spec §2.4);clusterScope 同过 null-ns 门(I1:GET 不再放行)。denied 审计在 gate 内部完成。
   const subPath = kubernetesPath.split('?')[0]
   const parsedK8s = parseApiPath(subPath)
   const isNamespacesList = !!parsedK8s && parsedK8s.resource === 'namespaces' && !parsedK8s.namespace && req.method === 'GET'

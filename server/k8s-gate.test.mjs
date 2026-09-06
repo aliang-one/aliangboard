@@ -220,12 +220,19 @@ import { gateParsedPath, filterNamespaceList, gateWatchResources, applyDocNamesp
 import { levelForRequest as lfr } from './authz.mjs'
 import { parseApiPath } from './k8s-path.mjs'
 
-test('gateParsedPath: unparseable path → false for ALL session users (fail-closed)', () => {
+test('gateParsedPath: unparseable path → false for ALL session users (fail-closed) + audit unparseable-path (M1)', () => {
   const db = makeGateDb()
   const gate = createK8sGate({ db, writeAudit })
   // admin session 也拒:admin console 走专用端点,透传面 session-only 裁决
   assert.equal(gateParsedPath(gate, { userId: 'admin1', clusterId: 'c-allow' }, parseApiPath('/api/v1/../pods'), { path: '/api/v1/../pods', method: 'GET' }), false)
   assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-open' }, parseApiPath('/api/v1/%2e%2e/x'), { path: 'x', method: 'GET' }), false)
+  // M1:拒绝写审计 reason='unparseable-path'(含 open 集群——解析失败本身是异常信号)
+  const rows = auditRows(db)
+  assert.equal(rows.length, 2)
+  assert.ok(rows.every(r => r.reason === 'unparseable-path'))
+  assert.equal(rows[0].result, 'denied')
+  assert.equal(rows[0].verb, 'GET')
+  assert.equal(rows[0].resource, '/api/v1/../pods')
 })
 
 test('gateParsedPath: ns-type view GET granted → true; operate with view grant → false + audit', () => {
@@ -244,19 +251,78 @@ test('gateParsedPath: exec subresource on GET method still operate', () => {
   assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces/team-a/pods/foo/exec'), { path: '/x', method: 'GET' }), false)
 })
 
-test('gateParsedPath: clusterScope GET passes; clusterScope non-GET → admin ok / allowlist user denied', () => {
+test('gateParsedPath: I1 — clusterScope GET also goes through null-ns gate (allowlist non-admin denied + audit; admin/open/legacy pass)', () => {
   const db = makeGateDb()
   const gate = createK8sGate({ db, writeAudit })
-  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'GET' }), true)
+  // I1 修订:clusterScope GET 不再放行(修复 events/CRD 集群级读泄漏,与 k8s-watch 口径一致)
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'GET' }), false)
   assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'POST' }), false)
+  assert.equal(auditRows(db).length, 2)
+  // open / legacy 恒过(字节兼容)
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-open' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'GET' }), true)
+  assert.equal(gateParsedPath(gate, { clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'GET' }), true)
+  // admin 短路通过
   db.prepare(`INSERT INTO user_clusters (userId, clusterId) VALUES (?,?)`).run('admin1', 'c-allow')
   assert.equal(gateParsedPath(gate, { userId: 'admin1', clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'POST' }), true)
+  assert.equal(gateParsedPath(gate, { userId: 'admin1', clusterId: 'c-allow' }, parseApiPath('/api/v1/nodes'), { path: '/api/v1/nodes', method: 'GET' }), true)
 })
 
-test('gateParsedPath: namespaces collection GET → true (response filtered separately)', () => {
+test('gateParsedPath: I2 — namespaces collection GET (buffered list & watch stream) gated null-ns; single namespace GET gated on that ns', () => {
   const db = makeGateDb()
   const gate = createK8sGate({ db, writeAudit })
-  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces'), { path: '/api/v1/namespaces', method: 'GET' }), true)
+  // a/b:整表 list(含 ?watch=true 流式,门在流式分支之前)对 allowlist 非 admin 拒
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces'), { path: '/api/v1/namespaces', method: 'GET' }), false)
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-open' }, parseApiPath('/api/v1/namespaces'), { path: '/api/v1/namespaces?watch=true', method: 'GET' }), true)
+  // b:单对象按 namespace=<name> view 门 → u1 在 team-a 有 view grant → 过;team-b 拒
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces/team-a'), { path: '/api/v1/namespaces/team-a', method: 'GET' }), true)
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-allow' }, parseApiPath('/api/v1/namespaces/team-b'), { path: '/api/v1/namespaces/team-b', method: 'GET' }), false)
+})
+
+test('gateParsedPath: C1 — all-ns list (allNamespaces) flows to null-ns gate: allowlist non-admin denied + audit; open/legacy/admin pass', () => {
+  const db = makeGateDb()
+  const gate = createK8sGate({ db, writeAudit })
+  const s = { userId: 'u1', clusterId: 'c-allow' }
+  assert.equal(gateParsedPath(gate, s, parseApiPath('/api/v1/pods'), { path: '/api/v1/pods', method: 'GET' }), false)
+  assert.equal(gateParsedPath(gate, s, parseApiPath('/apis/apps/v1/deployments'), { path: '/apis/apps/v1/deployments', method: 'GET' }), false)
+  const rows = auditRows(db)
+  assert.equal(rows.length, 2)
+  assert.ok(rows.every(r => r.reason === 'cluster-level-op'))
+  assert.equal(gateParsedPath(gate, { userId: 'u1', clusterId: 'c-open' }, parseApiPath('/api/v1/pods'), { path: '/api/v1/pods', method: 'GET' }), true)
+  assert.equal(gateParsedPath(gate, { clusterId: 'c-allow' }, parseApiPath('/api/v1/pods'), { path: '/api/v1/pods', method: 'GET' }), true)
+})
+
+test('gateParsedPath: C1/C2 byte-compat — every real frontend shape passes verbatim for open / legacy / allowlist-admin', () => {
+  const db = makeGateDb()
+  db.prepare(`INSERT INTO user_clusters (userId, clusterId) VALUES (?,?)`).run('admin1', 'c-allow')
+  const gate = createK8sGate({ db, writeAudit })
+  const SHAPES = [
+    // 读面(useFetchers.js / cluster.js 真实路径)
+    ['/apis/apps/v1/deployments', 'GET'], ['/apis/apps/v1/statefulsets', 'GET'], ['/apis/apps/v1/daemonsets', 'GET'],
+    ['/api/v1/pods', 'GET'], ['/apis/metrics.k8s.io/v1beta1/pods', 'GET'], ['/api/v1/events', 'GET'],
+    ['/api/v1/nodes', 'GET'], ['/api/v1/nodes/worker1', 'GET'], ['/apis/metrics.k8s.io/v1beta1/nodes', 'GET'],
+    ['/api/v1/services', 'GET'], ['/api/v1/configmaps', 'GET'], ['/api/v1/secrets', 'GET'],
+    ['/apis/networking.k8s.io/v1/ingresses', 'GET'], ['/apis/policy/v1/poddisruptionbudgets', 'GET'],
+    ['/apis/autoscaling/v2/horizontalpodautoscalers', 'GET'], ['/api/v1/persistentvolumes', 'GET'],
+    ['/apis/storage.k8s.io/v1/storageclasses', 'GET'], ['/apis/rbac.authorization.k8s.io/v1/roles', 'GET'],
+    ['/apis/rbac.authorization.k8s.io/v1/clusterroles', 'GET'], ['/apis/node.k8s.io/v1/runtimeclasses', 'GET'],
+    ['/apis/apiextensions.k8s.io/v1/customresourcedefinitions', 'GET'],
+    ['/apis/example.com/v1/things', 'GET'],
+    ['/api/v1/namespaces/team-a/services/web', 'GET'], ['/apis/apps/v1/namespaces/team-a/replicasets', 'GET'],
+    ['/api/v1/namespaces', 'GET'], ['/api/v1/namespaces/team-a', 'GET'],
+    // 变更面
+    ['/apis/apps/v1/namespaces/team-a/deployments/web/scale', 'PATCH'],
+    ['/api/v1/namespaces/team-a/pods/x/eviction', 'POST'],
+    ['/api/v1/namespaces/team-a/pods/x/exec', 'GET'],
+    ['/api/v1/namespaces/team-a/pods/x/log', 'GET'],
+    ['/api/v1/namespaces/team-a/pods/x/ephemeralcontainers', 'PATCH'],
+    ['/api/v1/nodes/worker1/proxy/api/v1/pods', 'GET'],
+  ]
+  for (const session of [{ userId: 'u1', clusterId: 'c-open' }, { clusterId: 'c-allow' }, { userId: 'admin1', clusterId: 'c-allow' }]) {
+    for (const [p, m] of SHAPES) {
+      const ok = gateParsedPath(gate, session, parseApiPath(p), { path: p, method: m })
+      assert.equal(ok, true, `${JSON.stringify(session)} ${m} ${p} must pass byte-compat`)
+    }
+  }
 })
 
 test('filterNamespaceList: keeps granted ns, drops others; null grants → unchanged', () => {
@@ -290,6 +356,7 @@ test('levelForRequest: outlet method mapping (terminals/podfile/pvcfile 按 meth
   assert.equal(lfr('GET', 'logs'), 'operate')
   assert.equal(lfr('GET', 'portforward'), 'operate')
   assert.equal(lfr('GET', 'attach'), 'operate')
+  assert.equal(lfr('GET', 'log'), 'operate') // M2:pod-log 真实形态(spec §4 logs→operate)
 })
 
 // ===== 评审 R1:/api/apply 门与 applyYaml 解析链同源(显式 ns > defaultNs > 'default';

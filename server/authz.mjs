@@ -7,8 +7,8 @@
 //   - canAccessNs:先过 canAccessCluster(分配/管理),再按集群 nsAuthMode:
 //     open → 任意 ns 全通;allowlist → 直接授权 ∪ 组授权 取高档,不足即拒。
 //   - levelForRequest(method, subresource):GET/HEAD → view,写 → operate;
-//     exec/logs/portforward/attach 子资源恒 operate(交互/流式面)。
-const SUBRESOURCE_OPERATE = new Set(['exec', 'logs', 'portforward', 'attach'])
+//     exec/logs/portforward/attach/log 子资源恒 operate(交互/流式面;spec §4,log 是 pod-log 真实形态)。
+const SUBRESOURCE_OPERATE = new Set(['exec', 'logs', 'portforward', 'attach', 'log'])
 const LEVEL_RANK = { view: 0, operate: 1 }
 
 export function levelForRequest(method, subresource) {
