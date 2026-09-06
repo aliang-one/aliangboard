@@ -901,7 +901,8 @@ export function createAdminRoutes(deps) {
       if (!cluster) { sendJson(res, 404, { message: msg(req, 'admin.clusterNotFound') }); return true }
       db.prepare('UPDATE clusters SET nsAuthMode=? WHERE id=?').run(mode, id)
       // W2 Phase E:切到 allowlist 即对该集群全部组 grants 逐组供给(fire-and-forget)——
-      // impersonation 生效前提是组身份在集群侧有 RoleBinding。切回 open 不回收(绑定惰性无害,启动 sweep 清)。
+      // impersonation 生效前提是组身份在集群侧有 RoleBinding。切回 open 不回收且启动 sweep 不清
+      // (其只扫 allowlist 集群)——残留绑定惰性无害(未被引用),下次切回 allowlist 由 sweep 收敛。
       if (mode === 'allowlist' && deps.provisionGroupCluster) {
         for (const [subjectId, plan] of groupBindingPlan(db.prepare("SELECT subjectId, namespace, level FROM ns_grants WHERE subjectType='group' AND clusterId=?").all(id))) {
           fireGroupDrive(id, row => deps.provisionGroupCluster(row, { groupId: subjectId, tier: plan.tier, namespaces: plan.namespaces }))

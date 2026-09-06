@@ -49,8 +49,10 @@ export function impersonateDisplaynameFor(db, userId) {
 // 纯函数:impersonate 为空数组/undefined/非数组 → {}(不注入)。group 恒数组形态(单值亦然)。
 // displayname 仅在确有 user 身份时携带(K8s 要求 impersonate group/extra 必须伴随 user)。
 // displayname 是唯一用户可控的头值 → 剥控制字符成空格(\r\n\t 等 = 头注入防线,review #3);
-// unicode 保留,但 undici 头编码是 latin1——非 latin1 字符(如中文 displayName)会 mojibake,
-// 已知限制,不阻断(值仅展示用,不影响鉴权)。
+// 且 undici 头值走 ByteString 转换——**>0xFF 的字符直接 TypeError**(final-review Critical 2:
+// 并非 mojibake,CJK displayName 会让探测通过后的每个缓冲请求 500)——故非 Latin-1 字符整字
+// 剔除(用户名仍在 impersonate-user,displayname 纯展示不影响鉴权)+ 截 64 上限 + 去首尾空白;
+// 清空则整个头省略(不发空值头)。
 export function impersonateHeadersFor(session) {
   const list = Array.isArray(session?.impersonate) ? session.impersonate.filter(x => typeof x === 'string' && x) : []
   const user = list.find(x => x.startsWith(IMPERSONATE_USER_PREFIX))
@@ -59,7 +61,12 @@ export function impersonateHeadersFor(session) {
   const headers = { 'impersonate-user': user }
   if (groups.length) headers['impersonate-group'] = groups
   if (session.impersonateDisplayname) {
-    headers['impersonate-extra-displayname'] = String(session.impersonateDisplayname).replace(/[\r\n\t\x00-\x1f]/g, ' ')
+    const dn = String(session.impersonateDisplayname)
+      .replace(/[\r\n\t\x00-\x1f]/g, ' ')          // 头注入防线:控制字符(含换行)成空格
+      .replace(/[^\x20-\x7e\xa0-\xff]/g, '')       // ByteString 界:>0xFF 剔除(Critical 2)
+      .slice(0, 64)                                // 头值长度上限
+      .trim()
+    if (dn) headers['impersonate-extra-displayname'] = dn
   }
   return headers
 }
@@ -79,8 +86,9 @@ export function mergeImpersonate(headers, session, probed) {
 // (err.status 携 HTTP 码),故「到达即 2xx」。getSetting 可选注入(kill-switch 读取;
 // 未注入 = 视为关,保守)。
 export function createImpersonationProbe({ requestKubernetes, getSetting } = {}) {
-  // clusterId → true/false(已决)| Promise<boolean>(在途)。在途条目同样算「已 kick」,
-  // 防探测器自身请求回流 requestOnce 懒探测时无限递归。
+  // clusterId → true/false(已决)| Promise<boolean>(在途占位)。占位在 runProbe 发出任何请求
+  // **之前**同步写入(final-review Critical 1)——探测器自身请求回流 requestOnce 懒探测时,
+  // 回流 kick 命中在途占位而非重入,杜绝同步自递归。
   const cache = new Map()
 
   async function runProbe(session) {
@@ -94,7 +102,9 @@ export function createImpersonationProbe({ requestKubernetes, getSetting } = {})
     // ——缺省会被 apiserver 400 拒(review #1:探测永远真不了=注入死在起点)。'default' 仅作
     // 探测载体命名空间,不承载语义(RBAC 评估任一 ns 都能证明凭据的 impersonate 通道)。
     const body = JSON.stringify({ apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectRulesReview', spec: { namespace: 'default' } })
-    await requestKubernetes(session, IMPERSONATION_PROBE_PATH, { method: 'POST', headers, body })
+    // __impersonationProbe 标记(final-review Critical 1 第二层防线):requestOnce 的
+    // injectImpersonation 见标记早退——探测器自身请求永不回流 kick,双保险防同步自递归。
+    await requestKubernetes(session, IMPERSONATION_PROBE_PATH, { method: 'POST', headers, body, __impersonationProbe: true })
     return true
   }
 
@@ -108,18 +118,25 @@ export function createImpersonationProbe({ requestKubernetes, getSetting } = {})
     if (!getSetting || getSetting('impersonation.enabled') !== '1') return Promise.resolve(false)
     const hit = cache.get(clusterId)
     if (hit !== undefined) return typeof hit === 'boolean' ? Promise.resolve(hit) : hit
-    const inflight = runProbe(session).then(
-      ok => { cache.set(clusterId, ok); return ok },
+    // 同步占位(final-review Critical 1 第一层防线):runProbe 的同步前置段会经 requestKubernetes
+    // → requestOnce → injectImpersonation 回流 kick——若先发请求再写缓存,回流看到空缓存 →
+    // 无限同步自递归(每次 enable 实测 ~1,148+ 发重复 SSRR 直到栈深截断)。占位 Promise 在任何
+    // 请求发出之前占据 clusterId 键;结果落定后原位换成 boolean(401/403 → false 缓存;瞬态 →
+    // 删键可重试),占位本身恒 resolve 不拒(ensureProbed 契约「恒不拒」保持)。
+    let settle
+    const placeholder = new Promise(r => { settle = r })
+    cache.set(clusterId, placeholder)
+    runProbe(session).then(
+      ok => { cache.set(clusterId, ok); settle(ok) },
       e => {
         // 401/403 = 确定性「凭据无 impersonate 权」→ 缓存 false(不再打扰 apiserver);
         // 其余(5xx/网络错误/无 status)= 瞬态 → 不缓存(isProbed 保持 undefined,下一请求重试)。
-        if (e?.status === 401 || e?.status === 403) { cache.set(clusterId, false); return false }
+        if (e?.status === 401 || e?.status === 403) { cache.set(clusterId, false); settle(false); return }
         cache.delete(clusterId)
-        return false
+        settle(false)
       },
     )
-    cache.set(clusterId, inflight)
-    return inflight
+    return placeholder
   }
 
   return {

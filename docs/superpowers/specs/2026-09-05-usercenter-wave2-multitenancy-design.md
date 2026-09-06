@@ -252,7 +252,7 @@ allowlist 集群上,组 A 成员 u1 对组 B 的 ns `team-b`(端到端):
 
 ## 附录 C:Impersonation 信任面与开关(2026-09-06,Phase E 落地增补)
 
-Phase E(§7)已落地:身份随会话携带(`impersonate.mjs` buildImpersonation:User=`aliangboard:u-<userId>`、Group=`aliangboard:team-<groupId>`、可读名走 `Impersonate-Extra-Displayname`)、probe-gated 单点注入(requestOnce/exec/watch/pf 出站路径)、组级 RoleBinding 供给与漂移清扫(`sa-provision.mjs` provisionGroupBindings/teardownGroupBindings/sweepGroupBindings,由 admin grants/ns-auth-mode/删组驱动 + 启动兜底)。本附录固化运维面事实。
+Phase E(§7)已落地:身份随会话携带(`impersonate.mjs` buildImpersonation:User=`aliangboard:u-<userId>`、Group=`aliangboard:team-<groupId>`、可读名走 `Impersonate-Extra-Displayname`)、probe-gated 单点注入(requestOnce/流式 watch 透传/watch-mux 出站路径;exec/pf 的 client-node 路径**不注入**,final-review Critical 3 裁决,见 C.5 归因缺口)、组级 RoleBinding 供给与漂移清扫(`sa-provision.mjs` provisionGroupBindings/teardownGroupBindings/sweepGroupBindings,由 admin grants/ns-auth-mode/删组驱动 + 启动兜底)。本附录固化运维面事实。
 
 ### C.1 总开关(kill-switch)语义
 
@@ -269,7 +269,7 @@ Phase E(§7)已落地:身份随会话携带(`impersonate.mjs` buildImpersonation
 - 探测请求:`POST /apis/authorization.k8s.io/v1/selfsubjectrulesreviews`,**显式自带本会话的 impersonate 头**——不带头的 2xx 证明不了 impersonate 通道;`spec.namespace: 'default'` 仅作探测载体(K8s 必填字段),不承载授权语义。
 - 结果按 clusterId 缓存(内存,重启清零,受网关单进程不变式保护;在途 Promise 去重):
   - **2xx** → 凭据可 impersonate,该集群后续 egress 注入身份;
-  - **401/403** → 确定性「凭据无 impersonate 权」,缓存 false 不再打扰 apiserver(直到重启);
+  - **401/403** → 确定性「凭据无 impersonate 权」,缓存 false 不再打扰 apiserver(直到重启)。注意 403 的归因有两义(凭据无 impersonate 权 ∥ 被代理身份缺 SSRR-create),首个发起探测的用户身份会影响该集群的缓存结果;
   - **5xx/网络错误** → 瞬态,不缓存,下一请求重试。
 - **凭据侧前提**:impersonate 权限不可 ns 限定(apiserver 的 impersonate 动词挂在 users/groups 上,需 ClusterRole 级),凭据录入者责任——平台不供给网关凭据自身的 impersonate 权(非目标)。
 - **身份侧前提(PE-A 终审关键项)**:探测以被代理身份发起,组身份必须能 `create selfsubjectrulesreviews`,否则探测恒 403、impersonation 永不激活——组 Role(view/operate 两档)均已内嵌 SSRR-create 规则;这也覆盖了硬化集群解除 `system:basic-user` 绑定的场景。
@@ -287,7 +287,7 @@ Phase E(§7)已落地:身份随会话携带(`impersonate.mjs` buildImpersonation
 ### C.4 启用前检查单(逐项过,缺一不启用)
 
 1. 目标集群已切 `allowlist`(open 集群无隔离语义,不启用);
-2. 组 RoleBinding 已供给:admin 保存一次组授权(PUT /api/admin/grants)或切换 ns-auth-mode 即触发;或重启网关由启动 sweep 验证无漂移;抽查 `kubectl get role,rolebinding -l aliangboard.io/group -n <ns>`;
+2. 组 RoleBinding 已供给:admin 保存一次组授权(PUT /api/admin/grants)或切换 ns-auth-mode 即触发;重启由启动 sweep **清理**漂移(仅删不补建;失败的供给须重新保存一次组授权自愈);抽查 `kubectl get role,rolebinding -l aliangboard.io/group -n <ns>`;
 3. 探测身份可过 SSRR-create:组 Role 规则已含 `selfsubjectrulesreviews create`(C.2);
 4. 网关凭据确有 impersonate 权(以 admin token 录入的凭据通常有;没有则保持关——探测会确定性 403 并缓存 false,零打扰);
 5. 置 `impersonation.enabled='1'`,任意列表请求后集群侧核验:`kubectl get clusterrolebindings` 无关,看 apiserver 审计日志/事件中出现 `aliangboard:u-<userId>`;伪造头复测(w2b 用例:入站 Impersonate-User 被剥离后正常判定)。
@@ -301,6 +301,6 @@ Phase E(§7)已落地:身份随会话携带(`impersonate.mjs` buildImpersonation
 | wb_* 工具执行(wb-ctx/buildWbCtx 直连) | 项目绑定集群的平台级凭据 | 未来:以发起用户(或 ownerUserId)构造 impersonated ctx |
 | @mention 引用注入(ref-fetch.mjs) | 同上,平台级凭据 | 同上 |
 | API-key / MCP 面 | key 绑定的 SA 自身凭据(托管或 BYO) | 不适用 impersonation——SA 即身份,审计已归 key(owner 维度在平台审计链) |
-| exec/portforward/watch WS(非会话路径) | 已注入(probe-gated) | 已覆盖 |
+| exec/portforward WS(client-node 路径;watch 的流式透传/watch-mux 是会话路径,仍 probe-gated 注入,无缺口) | 未注入(client-node 限 user-only,集群侧仅 Group 绑定——注入即 403;归因缺口,见 C.5) | 待 client-node 支持 Impersonate-Group 头,或集群侧供给 user-subject 绑定后恢复注入 |
 
 在这些路径归真前,**平台审计链仍是完整归因源**(writeAudit 按人记录),apiserver 侧归真是增量而非替代。

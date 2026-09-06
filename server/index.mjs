@@ -76,7 +76,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
-import { buildImpersonation, impersonateDisplaynameFor, mergeImpersonate, createImpersonationProbe, IMPERSONATE_USER_PREFIX } from './impersonate.mjs'
+import { buildImpersonation, impersonateDisplaynameFor, mergeImpersonate, createImpersonationProbe } from './impersonate.mjs'
 import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, tmuxListClientsCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
@@ -604,7 +604,9 @@ async function requestOnce(session, endpoint, path, init = {}) {
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
   // W2 Phase E:impersonation 注入(缓冲出站唯一收口;probe-gated——探测通过才注,未探测/在途/
   // 未过一律保守不注;懒探测:有身份且 cache 无条目 → 后台 kick,本请求先不注,落缓存后生效)。
-  injectImpersonation(headers, session)
+  // init 透传:探测器自身的 SSRR 请求带 __impersonationProbe 标记 → injectImpersonation 早退
+  // (final-review Critical 1 第二层防线,防同步自递归;占位 Promise 是第一层,见 impersonate.mjs)。
+  injectImpersonation(headers, session, init)
   const dispatcher = (endpoint.origin === session.apiServer.origin) ? session.dispatcher : (session.insecureDispatcher || session.dispatcher)
   const response = await kubeFetch(target, {
     ...init, headers, dispatcher,
@@ -660,8 +662,11 @@ const impersonationProbe = createImpersonationProbe({ requestKubernetes, getSett
 
 // egress 注入收口助手(requestOnce / 流式透传分支 / watch-mux fetchUpstream 三处 kubeFetch 共用):
 // 有身份才动作——懒 kick(cache 无条目→后台探测,本请求不注)+ 探测已决 true 才 merge。
-// exec/portforward 走 @kubernetes/client-node,注入点在 buildKubeConfig(user.impersonateUser)。
-function injectImpersonation(headers, session) {
+// 探测器自身的请求(init.__impersonationProbe)早退——回流 kick 防线的第二层
+// (final-review Critical 1:防 runProbe 同步前置段回流 injectImpersonation → kick 自递归)。
+// exec/portforward 走 @kubernetes/client-node,**不注入**(见 buildKubeConfig 归因缺口注释)。
+function injectImpersonation(headers, session, init) {
+  if (init?.__impersonationProbe) return headers
   if (session?.clusterId == null || !Array.isArray(session.impersonate) || !session.impersonate.length) return headers
   impersonationProbe.kick(session)
   return mergeImpersonate(headers, session, impersonationProbe.isProbed(session.clusterId) === true)
@@ -911,15 +916,10 @@ function buildKubeConfig(KubeConfig, session) {
   // 客户端证书（kubeconfig client-cert/key）：client-node 的 *Data 期望 base64
   if (session.cert) user.certData = b64(session.cert)
   if (session.key) user.keyData = b64(session.key)
-  // W2 Phase E:exec/portforward 的 impersonation。client-node 1.4 的 kubeconfig user 仅支持
-  // as → Impersonate-User 单头(applyHTTPSOptions → WebSocketHandler.connect 的 WS upgrade 头);
-  // impersonate-group / Impersonate-Extra 无通道 —— R4 裁决:该路径跳过组注入,记录于此,不阻断
-  // (exec 走 v1 ns 门已足够;组归真由 requestOnce 注入面承载)。probe-gated:探测未过不注。
-  if (session.clusterId != null && Array.isArray(session.impersonate) && session.impersonate.length) {
-    if (impersonationProbe.isProbed(session.clusterId) === true) {
-      user.impersonateUser = session.impersonate.find(x => x.startsWith(IMPERSONATE_USER_PREFIX))
-    }
-  }
+  // W2 Phase E(final-review Critical 3 裁决):归因缺口——client-node 仅支持 Impersonate-User,
+  // 而集群侧只供给 Group 绑定,注入 user-only 身份会 403,故此路径不注入(附录 C.5)。exec/pf
+  // 的 apiserver 审计仍归到网关凭据主体;恢复注入须待 client-node 支持 group 头,或集群侧
+  // 供给 user-subject 绑定。
   kc.loadFromClusterAndUser(cluster, user)
   return kc
 }

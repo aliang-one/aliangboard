@@ -108,8 +108,32 @@ test('impersonateHeadersFor:可读名 → impersonate-extra-displayname 头', ()
 
 test('impersonateHeadersFor:displayname 控制字符剥成空格(review #3 头注入防线,\r\n\t 恒单行)', () => {
   const h = impersonateHeadersFor({ impersonate: ['aliangboard:u-u1'], impersonateDisplayname: 'Evil\r\nX-Injected: 1\t|nul\x00' })
-  assert.equal(h['impersonate-extra-displayname'], 'Evil  X-Injected: 1 |nul ')
+  assert.equal(h['impersonate-extra-displayname'], 'Evil  X-Injected: 1 |nul')
   assert.ok(!h['impersonate-extra-displayname'].includes('\r') && !h['impersonate-extra-displayname'].includes('\n'))
+})
+
+// ===== final-review Critical 2:undici 头值是 ByteString,>0xFF 直接 TypeError(非 mojibake) =====
+// CJK displayName 会让探测通过后的每个缓冲请求 500——非 Latin-1 字符必须整字剔除(用户名仍在
+// impersonate-user,displayname 纯展示),并截 64 上限;清空则整个头省略(不发空值头)。
+
+test('impersonateHeadersFor:CJK displayname → 非 Latin-1 整字剔除;纯 CJK 清空 → 省略头不崩(Critical 2)', () => {
+  const pure = impersonateHeadersFor({ impersonate: ['aliangboard:u-u1'], impersonateDisplayname: '梁板用户' })
+  assert.ok(!('impersonate-extra-displayname' in pure), '纯 CJK displayname 必须整个省略头')
+  assert.equal(pure['impersonate-user'], 'aliangboard:u-u1', 'user 头不受影响')
+  const mixed = impersonateHeadersFor({ impersonate: ['aliangboard:u-u1'], impersonateDisplayname: 'Alice 梁' })
+  assert.equal(mixed['impersonate-extra-displayname'], 'Alice')
+  // Latin-1 可打印区(U+00A0–U+00FF,如 é)是 ByteString 合法值 → 保留
+  const latin1 = impersonateHeadersFor({ impersonate: ['aliangboard:u-u1'], impersonateDisplayname: 'Adèle' })
+  assert.equal(latin1['impersonate-extra-displayname'], 'Adèle')
+})
+
+test('impersonateHeadersFor:displayname 64 上限 + 首尾空白清理;全空白 → 省略头', () => {
+  const capped = impersonateHeadersFor({ impersonate: ['aliangboard:u-u1'], impersonateDisplayname: 'x'.repeat(100) })
+  assert.equal(capped['impersonate-extra-displayname'], 'x'.repeat(64))
+  const padded = impersonateHeadersFor({ impersonate: ['aliangboard:u-u1'], impersonateDisplayname: '  Alice  ' })
+  assert.equal(padded['impersonate-extra-displayname'], 'Alice')
+  const blank = impersonateHeadersFor({ impersonate: ['aliangboard:u-u1'], impersonateDisplayname: '   ' })
+  assert.ok(!('impersonate-extra-displayname' in blank), '全空白同样省略头')
 })
 
 // ===== createImpersonationProbe =====
@@ -342,6 +366,46 @@ test('kick:cache 无条目 → 发起;在途/已决 → 不重复;无身份/无 
   assert.equal(calls.length, 1)
   probe.kick(sess({ clusterId: undefined }))  // 无 clusterId → 不发
   probe.kick(sess({ impersonate: [] }))       // 无身份 → 不发
+  assert.equal(calls.length, 1)
+})
+
+// ===== final-review Critical 1:探测器自身请求同步回流 kick 的自递归风暴 =====
+// 真实链路:runProbe 同步前置段 → requestKubernetes → requestOnce → injectImpersonation → kick。
+// 修复前 cache.set 在 runProbe() 返回后才执行——回流 kick 看到空缓存 → 重入 ensureProbed →
+// 无限同步自递归(实测每次 enable ~1,148 发重复 SSRR POST 直到栈深截断)。修复双层:
+// (a) 占位 Promise 在任何请求发出前同步占据 clusterId 槽;(b) 探测请求带 __impersonationProbe
+// 标记,injectImpersonation 见标记早退(index.mjs,结构防线钉在 w2b-coverage)。
+
+test('probe:探测器自身请求同步回流 kick 不自递归——一次 HTTP,缓存槽同步占位(Critical 1)', async () => {
+  const calls = []
+  let probe
+  probe = createImpersonationProbe({
+    ...ON,
+    // 模拟真实链路的同步重入:请求发出前/kick 返回前,同步再走一遍 kick 路径
+    requestKubernetes: (s, path, init) => {
+      calls.push({ path, marked: init?.__impersonationProbe === true })
+      probe.kick(s)
+      return Promise.resolve({ status: 200 })
+    },
+  })
+  probe.kick(sess())
+  // 同步断言(任何 await 结算之前):回流 kick 必须命中在途占位而非重入探测
+  assert.equal(calls.length, 1, '回流 kick 不得触发第二次探测(自递归风暴)')
+  assert.ok(calls[0].marked, '探测请求必须带 __impersonationProbe 标记(injectImpersonation 早退防线)')
+  assert.equal(await probe.ensureProbed(sess()), true)
+  assert.equal(calls.length, 1, '在途占位去重后全程只有一次探测')
+  assert.equal(probe.isProbed('c1'), true)
+})
+
+test('kick:同步返回前缓存槽已占位(在途未决时第二次同步 kick 不发探测)', async () => {
+  const calls = []
+  let release
+  const probe = createImpersonationProbe({ ...ON, requestKubernetes: () => { calls.push(1); return new Promise(r => { release = r }) } })
+  probe.kick(sess())
+  probe.kick(sess()) // HTTP 仍未决,但槽位已在 kick#1 同步段占住
+  assert.equal(calls.length, 1, 'cache slot must be reserved synchronously (before any await settles)')
+  release({ status: 200 })
+  assert.equal(await probe.ensureProbed(sess()), true)
   assert.equal(calls.length, 1)
 })
 

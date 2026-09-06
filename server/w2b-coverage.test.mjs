@@ -70,7 +70,8 @@ test('coverage: I1 — gateParsedPath has no clusterScope GET-pass bypass (all s
 // ===== W2 Phase E(PE-A Task 2):impersonation egress 注入结构防线 =====
 // 身份归真的收口形状:requestOnce(缓冲出站唯一收口)+ 流式透传分支 + watch-mux fetchUpstream
 // 三处 kubeFetch 必须走 injectImpersonation(probe-gated);exec/portforward 走 client-node,
-// 唯一头通道是 kubeconfig user.impersonateUser(buildKubeConfig,applyHTTPSOptions→WS upgrade)。
+// **不注入**(final-review Critical 3 裁决:client-node 仅支持 Impersonate-User 单头,而集群侧
+// 只供给 Group 绑定——注入 user-only 身份在 enable 后处处 403;归因缺口记账于 spec 附录 C.5)。
 // 行为矩阵由 impersonate.test.mjs 钉住;此处只锁「网关 K8s 出口全接线」不回退。
 
 function assertNear(anchor, needle, desc, window = 40) {
@@ -93,8 +94,21 @@ test('coverage: streaming passthrough and watch-mux upstream carry impersonation
   assertNear('const fetchUpstream = ', 'injectImpersonation(', 'watch-mux fetchUpstream', 16)
 })
 
-test('coverage: exec/portforward k8s clients impersonate via kubeconfig user.impersonateUser', () => {
-  assertNear('function buildKubeConfig(', 'impersonateUser', 'client-node impersonate user (Impersonate-User on WS upgrade)', 35)
+test('coverage: exec/portforward client-node paths do NOT inject impersonateUser (final-review Critical 3)', () => {
+  const i = lines.findIndex(l => l.includes('function buildKubeConfig('))
+  assert.ok(i >= 0, 'buildKubeConfig not found in server/index.mjs')
+  const body = lines.slice(i, i + 40).join('\n')
+  assert.ok(
+    !/\bimpersonateUser\b/.test(body),
+    'buildKubeConfig must not set user.impersonateUser: client-node is user-only, cluster bindings are Group-subject — injecting breaks exec/pf with 403 on enable',
+  )
+  assert.ok(body.includes('归因缺口'), 'buildKubeConfig must document the attribution gap (spec appendix C.5)')
+})
+
+test('coverage: probe request is marker-gated out of injectImpersonation (final-review Critical 1 belt-and-braces)', () => {
+  assertNear('async function requestOnce(', 'injectImpersonation(headers, session, init)', 'requestOnce passes init into injectImpersonation')
+  assertNear('function injectImpersonation(', '__impersonationProbe', 'probe-marker early return', 12)
+  assert.ok(impSrc.includes('__impersonationProbe'), 'runProbe must mark its own request with __impersonationProbe')
 })
 
 test('coverage: loadPersistedSessions rebuilds impersonation identity from userId', () => {
