@@ -110,7 +110,12 @@
       "removeCluster": "移除集群",
       "switchedTo": "已切换到 {name}",
       "nodes": "NODES",
-      "pods": "PODS"
+      "pods": "PODS",
+      "reasonCaMismatch": "证书失配",
+      "reasonCertExpired": "证书过期",
+      "reasonHostnameMismatch": "主机名失配",
+      "reasonUnreachable": "网络不可达",
+      "reasonTlsOk": "非证书原因"
     },
     "volumeMount": {
       "mountToContainer": "挂到容器",

@@ -110,7 +110,12 @@
       "removeCluster": "Remove cluster",
       "switchedTo": "Switched to {name}",
       "nodes": "NODES",
-      "pods": "PODS"
+      "pods": "PODS",
+      "reasonCaMismatch": "CA mismatch",
+      "reasonCertExpired": "Cert expired",
+      "reasonHostnameMismatch": "Hostname mismatch",
+      "reasonUnreachable": "Unreachable",
+      "reasonTlsOk": "Non-cert failure"
     },
     "volumeMount": {
       "mountToContainer": "Mount to container",
