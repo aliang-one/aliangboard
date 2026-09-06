@@ -8,7 +8,7 @@ import { normalizeKind } from './kindAlias.mjs'
 import { getApiPath } from './kind-paths.mjs'
 import { maskSecretResource } from './secret-mask.mjs'
 import { formatRefBlock, createRefContextBudget } from './ref-context.mjs'
-import { REFS_CTX_HEADER } from './refs-context.mjs'
+import { REFS_CTX_HEADER, REFS_GUARD_NOTE } from './refs-context.mjs'
 import { buildServerRefBlock } from './ssh/ref-block.mjs'
 
 // 竞速辅助:超时 rejects 带 isTimeout 标记。race 迟到 rejection 被内部 handler 吞掉
@@ -58,7 +58,8 @@ export function createRefContextFetcher({ requestKubernetes, listSshServers, ref
       }
     })
     const blocks = await Promise.all(tasks)
-    return `\n\n${REFS_CTX_HEADER}${blocks.join('\n\n')}`
+    // 审计#9:header 后紧随抗注入声明段(数据非指令)再接资源块;声明随 header 恰好注入一次
+    return `\n\n${REFS_CTX_HEADER}${REFS_GUARD_NOTE}${blocks.join('\n\n')}`
   }
   return { fetchRefContext }
 }

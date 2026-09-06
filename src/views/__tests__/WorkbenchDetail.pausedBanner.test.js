@@ -28,6 +28,8 @@ vi.mock('@/components/workbench/WorkbenchChat.vue', () => ({ default: {
   template: '<div data-testid="chat-stub">{{ conversationId ?? "new" }}</div>',
 } }))
 vi.mock('@/composables/useToast.js', () => ({ notify: vi.fn() }))
+// 审批横幅活在 Agent 模式(admin 专属,审计#7)里——本文件用例全部 admin 视角
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: true }) }))
 
 import WorkbenchDetail from '@/views/WorkbenchDetail.vue'
 import { createPinia } from 'pinia'

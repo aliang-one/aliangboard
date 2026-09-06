@@ -43,7 +43,9 @@ export function buildToolDefs(tier) {
 // dynamicApproval(可选,2026-08-28 SSH):async (name, args) => bool——静态 requiresApproval 命中时
 //   再问钩子(true=需人审),SSH 按服务器策略(always/readonly/none)放宽/收紧;缺省保持旧行为(恒 true)。
 // excludeTools(可选,2026-08-28 SSH):Set<string> 从合并后的 toolDefs 剔除(零暴露时隐藏 SSH 工具)。
-export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps, disabledTools, budgetChars, dynamicApproval, excludeTools }) {
+// shouldAbort(可选,2026-09-06 审计#3):() => bool | Promise<bool>——透传 createAgent 的轻量
+//   取消检查点(workbench-agent 注入「读对话状态 === cancelled」闭包);缺省零行为变化。
+export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps, disabledTools, budgetChars, dynamicApproval, excludeTools, shouldAbort }) {
   const toolDefs = [
     ...(keyRow ? registry.toolDefsFor(effectiveTools(keyRow)) : []),
     ...(workbench ? registry.workbenchToolDefs(disabledTools) : []),
@@ -80,6 +82,6 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     if (dynamicApproval) return !!(await dynamicApproval(n, args))
     return true
   }
-  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: needsApprovalFn, ...(maxSteps != null ? { maxSteps } : {}), ...(budgetChars ? { budgetChars } : {}) })
+  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: needsApprovalFn, ...(maxSteps != null ? { maxSteps } : {}), ...(budgetChars ? { budgetChars } : {}), ...(shouldAbort ? { shouldAbort } : {}) })
   return { run: agent.run, toolDefs }
 }

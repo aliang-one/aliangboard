@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createWorkbenchSchema, createProject, projectRepoPath } from './workbench-projects.mjs'
 import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
+import { ensureSshSchema } from './ssh/store.mjs'
 
 function setup({ confirmName = 'demo' } = {}) {
   const db = new DatabaseSync(':memory:')
@@ -163,6 +164,60 @@ test('M4:PATCH name+recap 单事务——name 写入失败时 recap 一并回滚
     assert.equal(s.row().projectRecap, '既有记忆', 'recap 不许先落半截')
     assert.equal(s.row().historyWatermark, 7, '水位不受半途失败影响')
   } finally { s.cleanup() }
+})
+
+// ═══ 审计#7(2026-09-06):GET /api/workbench/search 的 kind='server' 分支收紧 admin ═══
+// 对话路由族恒 requireAdmin(workbench-conversations.mjs 顶部契约),而 server 分支此前只过
+// requirePlatform + 项目存在——普通平台用户可枚举 exposed SSH 服务器元数据(name/description/
+// clusterRef)。server 清单是平台级 exposed 配置(非项目数据),且 @server 搜索只服务 AI 对话
+// (对话域 admin 专属)——与同端点 K8s 分支及 SSH 管理页同门槛 requireAdmin;放开普通用户聊天
+// 前须先做 ns 隔离 ADR。
+function setupSearch({ role } = {}) {
+  const db = new DatabaseSync(':memory:')
+  createWorkbenchSchema(db)
+  ensureSshSchema(db)
+  const p = createProject(db, { name: 'demo', clusterId: '', ownerId: 'u-me' })
+  // 一台 exposed:kind=server 搜索的唯一合法产出
+  db.prepare(`INSERT INTO ssh_servers (id,name,host,port,username,authMethod,description,clusterRef,exposeToAi,aiApprovalPolicy,status,createdAt,updatedAt)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run('s1', 'gw', '10.0.0.1', 22, 'ops', 'password', '入口网关', 'ck-t1', 1, 'readonly', 'ok', Date.now(), Date.now())
+  const session = { userId: 'u-me', username: 'me', role }
+  const sent = []
+  const sendJson = (_res, status, body) => sent.push({ status, body })
+  const routes = createWorkbenchProjectRoutes({
+    db,
+    sendJson,
+    readBody: async () => ({}),
+    requirePlatform: () => session,
+    // 镜像真 requireAdmin 语义(server/index.mjs):非 admin → sendJson(403) + null
+    requireAdmin: (_req, res) => {
+      if (session.role !== 'admin') { sendJson(res, 403, { message: 'admin required' }); return null }
+      return session
+    },
+    WORKBENCH_DIR: ':memory:',
+    dbPath: ':memory:',
+    listSshSessions: () => [],
+  })
+  const call = kind => routes.handle(
+    { headers: {}, method: 'GET' }, {},
+    new URL(`http://x/api/workbench/search?projectId=${p.id}&kind=${kind}`),
+  )
+  return { sent, call }
+}
+
+test('审计#7:非 admin 平台会话查 kind=server → 403(exposed 服务器元数据不可枚举)', async () => {
+  const s = setupSearch({ role: 'user' })
+  assert.equal(await s.call('server'), true)
+  assert.equal(s.sent[0].status, 403, JSON.stringify(s.sent[0]))
+})
+
+test('审计#7:admin 会话查 kind=server 照常 200(exposed 命中 + host 随 admin 响应携带)', async () => {
+  const s = setupSearch({ role: 'admin' })
+  assert.equal(await s.call('server'), true)
+  assert.equal(s.sent[0].status, 200, JSON.stringify(s.sent[0]))
+  assert.equal(s.sent[0].body.items.length, 1)
+  assert.equal(s.sent[0].body.items[0].name, 'gw')
+  assert.equal(s.sent[0].body.items[0].host, '10.0.0.1')
 })
 
 // ═══ 终审 M1(服务端):确认名两侧 trim——带首尾空白的项目名也删得掉 ═══

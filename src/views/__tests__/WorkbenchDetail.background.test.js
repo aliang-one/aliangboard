@@ -23,6 +23,8 @@ vi.mock('vue-router', () => ({
 }))
 vi.mock('@/components/workbench/WorkbenchChat.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/composables/useToast.js', () => ({ notify: vi.fn() }))
+// 「挂到后台」是 Agent 模式(admin 专属,审计#7)按钮——本文件用例全部 admin 视角
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: true }) }))
 
 import WorkbenchDetail from '@/views/WorkbenchDetail.vue'
 import { useClusterStore } from '@/stores/cluster'

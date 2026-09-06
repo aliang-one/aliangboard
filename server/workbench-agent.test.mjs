@@ -753,3 +753,150 @@ test('SSH offering:无 ctx.ssh(未接线)→ fail-closed 剔除全集,而非放�
   assert.ok(got instanceof Set, 'sshBridge 缺席(接线断裂)必须 fail-closed')
   for (const n of SSH_HIDDEN_TOOLS) assert.ok(got.has(n), `接线断裂必须剔除 ${n}`)
 })
+
+// ═══ 2026-09-06 审计#3 轻量取消中止:shouldAbort 装配 + catch 块 cancelled 分支 ═══
+// 根因:cancelConversation 只置 DB cancelled+发 SSE,agent 循环无人查它——用户点「停止」后
+// 队列剩余工具与后续 LLM 轮照跑(工具副作用不该继续发生)。契约三层:①run/resume 装配
+// runner 时传 shouldAbort(读对话状态);②agent 循环两检查点(工具开头/chat 前)取消即抛;
+// ③catch 块开头走 cancelled 分支(与落库前 cancelled 守卫同款保留,不发 failed 不 safeSalvage)。
+const PAUSED = { status: 'paused', messages: '[]', queue: '[]', denied: '[]', pendingApproval: JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }) }
+
+test('取消中止装配:run/resume 均传 shouldAbort(函数,按对话取消态返回布尔)', async () => {
+  const { db, conv, busEmit, busDispose, capturedRunnerArgs, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async () => DONE)
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  const runArgs = capturedRunnerArgs()
+  assert.equal(typeof runArgs.shouldAbort, 'function', 'run 装配须传 shouldAbort 函数')
+  assert.equal(runArgs.shouldAbort(), false, '非取消态返回 false')
+
+  updateConversation(db, conv.id, { status: 'cancelled' })
+  assert.equal(runArgs.shouldAbort(), true, '取消态返回 true')
+
+  // resume 同款装配(convId 闭包可用)
+  updateConversation(db, conv.id, PAUSED)
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) })
+  const resumeArgs = capturedRunnerArgs()
+  assert.equal(typeof resumeArgs.shouldAbort, 'function', 'resume 装配须传 shouldAbort 函数')
+  assert.equal(resumeArgs.shouldAbort(), false, 'paused(非 cancelled)返回 false')
+  updateConversation(db, conv.id, { status: 'cancelled' })
+  assert.equal(resumeArgs.shouldAbort(), true, '取消态返回 true')
+})
+
+test('取消中止:run 期间被取消(run 抛错)→ catch 走 cancelled 分支——状态保持 cancelled、partial 落 assistant(含终答兜底块)、无 failed 事件', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('已流出的尾巴')
+    // 模拟 run 期间用户点停止:DB 置 cancelled(真实链路=shouldAbort 检查点抛错落 catch)
+    updateConversation(db, conv.id, { status: 'cancelled' })
+    throw new Error('对话已取消,中止工具执行')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'cancelled', '状态保持 cancelled(不被 failed 覆写)')
+  const msgs = db.prepare('SELECT role, content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.at(-1).role, 'assistant', '已流出 partial 落 assistant 消息')
+  assert.equal(msgs.at(-1).content, '已流出的尾巴', '部分内容保留,刷新不蒸发')
+  const trace = JSON.parse(msgs.at(-1).trace || '[]')
+  assert.ok(trace.some(e => e?.type === 'assistant' && e.content === '已流出的尾巴'), 'trace 含终答兜底块(交错模式可见)')
+  assert.ok(!events.some(e => e.type === 'status' && e.status === 'failed'), '不发 failed 事件(cancelConversation 已发 cancelled)')
+  assert.ok(events.some(e => e.type === 'end'), '发 end 事件(幂等无害)')
+  assert.ok(events.some(e => e.type === 'disposed'), '终态 dispose')
+})
+
+test('取消中止:resume 期间被取消(run 抛错)→ catch 同款 cancelled 分支(对称)', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, PAUSED)
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('续跑已流出的一半')
+    updateConversation(db, conv.id, { status: 'cancelled' })
+    throw new Error('对话已取消,中止工具执行')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  assert.equal(getConversation(db, conv.id).status, 'cancelled', '状态保持 cancelled')
+  const last = db.prepare('SELECT role, content FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id).at(-1)
+  assert.equal(last.role, 'assistant')
+  assert.equal(last.content, '续跑已流出的一半', '续跑段 partial 保留')
+  assert.ok(!events.some(e => e.type === 'status' && e.status === 'failed'), '不发 failed')
+  assert.ok(events.some(e => e.type === 'end'), '发 end')
+})
+
+test('取消中止:对话不存在 + throw → 维持旧 safeSalvage 路径(EXISTENCE 守卫语义,不炸)', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async () => {
+    db.prepare('DELETE FROM workbench_conversations WHERE id=?').run(conv.id)
+    throw new Error('boom')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  // 旧路径:salvage 的 EXISTENCE 守卫静默零写入,failed+end 事件照发
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed' && e.error === 'boom'), '对话不存在 → 旧 failed 路径')
+  assert.ok(events.some(e => e.type === 'end'), 'end 事件照发')
+  assert.ok(events.some(e => e.type === 'disposed'), 'dispose 照发')
+})
+
+// ── 审计#3 对抗审查收口(2026-09-06):「停止→修改重发」主流程击穿共享 status 取消信号──
+// 重发路由放行 cancelled 并置回 running,旧 run 的检查点/落库前守卫读到 running 即放行——
+// 旧 run 继续执行剩余工具、把终态与 bus 事件覆写到新 run 头上(路由 P0 守卫警告的并发双跑)。
+// 契约:per-run epoch(每次 run 启动/cancelConversation bump),旧 run 一切产出静默丢弃。
+test('取消→重发后旧 run 终态被丢弃:不覆写状态/消息/零 bus 事件(per-run epoch)', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let release1
+  const p1 = new Promise(r => { release1 = r })
+  let call = 0
+  const { createAgentRunner } = makeRunner(async () => {
+    if (++call === 1) return p1            // run#1 挂起(在途 LLM 流的等价物)
+    return { status: 'done', content: 'run2 答案', steps: 1, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const r1 = agent.runConversation(conv.id, { chat: async () => ({}) })
+  await new Promise(r => setTimeout(r, 10))  // run#1 已挂起
+  // 模拟「停止→修改重发」:重发路由复位运行态字段并启动 run#2
+  updateConversation(db, conv.id, { status: 'running', content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })  // run#2 完成
+  const eventsAfterRun2 = events.length
+  const msgsAfterRun2 = db.prepare('SELECT COUNT(*) n FROM workbench_messages WHERE conversationId=?').get(conv.id).n
+  const historyAfterRun2 = db.prepare('SELECT COUNT(*) n FROM workbench_history').get().n
+
+  release1({ status: 'done', content: 'run1 迟到的答案', steps: 9, messages: [], queue: [], denied: [] })
+  await r1
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'done', '终态仍是 run#2 的 done')
+  assert.equal(row.content, 'run2 答案', 'run#1 迟到终答不覆写')
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM workbench_messages WHERE conversationId=?').get(conv.id).n, msgsAfterRun2, '不追加 run#1 消息')
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM workbench_history').get().n, historyAfterRun2, '不追加 run#1 项目历史')
+  assert.equal(events.length, eventsAfterRun2, 'run#1 不再发任何 bus 事件(幽灵 delta/step/done 绝迹)')
+})
+
+test('取消→重发后旧 run 抛错不再 safeSalvage:状态保持新 run 终态、无 failed 事件', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let release1
+  const p1 = new Promise((_, rej) => { release1 = rej })
+  let call = 0
+  const { createAgentRunner } = makeRunner(async () => {
+    if (++call === 1) return p1
+    return { status: 'done', content: 'run2 答案', steps: 1, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const r1 = agent.runConversation(conv.id, { chat: async () => ({}) }).catch(e => e)
+  await new Promise(r => setTimeout(r, 10))
+  updateConversation(db, conv.id, { status: 'running', content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  const eventsAfterRun2 = events.length
+
+  release1(new Error('stale run 崩溃'))
+  await r1
+  assert.equal(getConversation(db, conv.id).status, 'done', '旧 catch 不再把新 run 标 failed')
+  assert.ok(!events.some(e => e.type === 'status' && e.status === 'failed'), '无 failed 事件')
+  assert.equal(events.length, eventsAfterRun2, '旧 run 静默退出,零事件')
+})

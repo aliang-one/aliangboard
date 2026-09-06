@@ -5,6 +5,7 @@ import SideNavBar from './SideNavBar.vue'
 import TopNavBar from './TopNavBar.vue'
 import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useAuthStore } from '@/stores/auth'
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { useTransferStore } from '@/stores/transfers'
@@ -39,6 +40,7 @@ import { useAppVersion } from '@/composables/useAppVersion'
 const route = useRoute()
 
 const store = useClusterStore()
+const auth = useAuthStore() // 审计#7:悬浮 AI 对话入口(ChatPresence)admin 专属门控
 const termStore = useTerminalStore()
 const fbStore = useFileBrowserStore()
 const trStore = useTransferStore()
@@ -132,8 +134,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <FileBrowserWindow v-for="b in fbStore.browsers" :key="b.id" :browser="b" v-show="b.status === 'open'" />
     <!-- 传输面板:按需挂载(关闭即销毁,状态在 transfers store) -->
     <TransfersPanel v-if="trStore.panelOpen" />
-    <!-- 全局悬浮 AI 对话入口:有活跃对话才可见(内部自管显隐/轮询) -->
-    <ChatPresence />
+    <!-- 全局悬浮 AI 对话入口:有活跃对话才可见(内部自管显隐/轮询);审计#7:对话域恒 admin
+         专属(conversations 路由族 requireAdmin),非 admin 不挂载——也省掉恒 403 的 active 轮询 -->
+    <ChatPresence v-if="auth.isAdmin" />
   </div>
 </template>
 

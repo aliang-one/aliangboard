@@ -4,6 +4,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createRefContextFetcher, withTimeout } from './ref-fetch.mjs'
+import { REFS_CTX_HEADER, REFS_GUARD_NOTE } from './refs-context.mjs'
 
 test('withTimeout:超时输家的 Error 带 isTimeout 标记(供失败分流)', async () => {
   await assert.rejects(
@@ -21,6 +22,19 @@ test('K8s ref 拉取成功 → REFS_CTX_HEADER + JSON 块(原语义保留)', asy
   assert.ok(out.startsWith('\n\nReferenced resources'))
   assert.match(out, /\[pod\/default\/nginx\]/)
   assert.match(out, /"nginx"/)
+})
+
+// 审计#9(2026-09-06):注入流带抗注入声明段——随 header 进入 system 位,恰好一次,不重复不缺漏。
+// 集群资源体(ConfigMap 值/注解/日志)可含恶意指令文本,中性 header 不构成防御,声明是提示层加固。
+test('注入流 = 前导空行 + HEADER + 抗声明段 + 资源块(声明随 header,恰好一次)', async () => {
+  const fetcher = createRefContextFetcher({
+    requestKubernetes: async () => ({ status: 200, headers: {}, body: { kind: 'Pod', metadata: { name: 'nginx' } } }),
+    listSshServers: () => [],
+  })
+  const out = await fetcher.fetchRefContext([{ kind: 'pod', namespace: 'default', name: 'nginx' }], {})
+  assert.ok(out.startsWith(`\n\n${REFS_CTX_HEADER}${REFS_GUARD_NOTE}`), '声明段紧随 header(先于首块)')
+  assert.equal(out.split(REFS_GUARD_NOTE).length, 2, '声明段恰好出现一次,不重复')
+  assert.match(out, /\[pod\/default\/nginx\]/, '资源块仍在声明段之后')
 })
 
 test('修复⑤:拉取超时 → 标「查询超时,状态未知」,不再误报 not found/已删除', async () => {
