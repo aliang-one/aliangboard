@@ -100,13 +100,13 @@ createClusterCerts({ tlsConnect, requestFn, now, ttlMs, timeoutMs })
 
 ### 6.1 路由 / 侧栏 / 搜索
 
-- 路由:`path: 'cluster/certs'`,name `ClusterCerts`,`meta: { titleKey: 'route.clusterCerts', icon: 'verified', scope: 'global' }`(不设 `module`/`requiresCluster`,clusterGate 默认要求选中集群)。
+- 路由:`path: 'cluster/certs'`,name `ClusterCerts`,`meta: { titleKey: 'nav.certs', icon: 'verified', scope: 'global' }`(不设 `module`/`requiresCluster`,clusterGate 默认要求选中集群;titleKey 落 `nav.certs` 而非 `route.clusterCerts`——随 ClusterEvents 用 `nav.events` 的先例)。
 - 侧栏:`clusterResourcesNav` 追加 `{ icon: 'verified', labelKey: 'nav.certs', route: '/cluster/certs' }`。
 - 全局搜索:`globalSearch.js` PAGE_ENTRIES 追加(含 keywords),中文同义词进 `nav.searchPageSynonyms['cluster/certs']`(zh.json)。
 
 ### 6.2 `src/views/ClusterCerts.vue`(Nodes.vue 骨架,K 轨)
 
-- 数据:`useResourceList({ key: ['cluster', cid, 'certs'], fetcher: () => store.fetchClusterCerts(), options: { staleTime: 60_000, refetchInterval: 300_000 } })`——与铃铛共用同一 queryKey(去重)。`fetchClusterCerts` 落在 `stores/cluster.js` 委派 `useFetchers.js`(fetcher 调 `k8sHttp` 新端点,防御性 `?.` 兜底以过 `_allViewsMount` 真实 store 挂载)。
+- 数据:`useResourceList({ key: ['cluster', cid, 'certs'], fetcher: () => store.fetchClusterCerts(), options: { staleTime: 60_000, refetchInterval: 300_000 } })`——与铃铛共用同一 queryKey(去重)。`fetchClusterCerts` 落在 `stores/cluster.js` 内联(随 `fetchEvents` 先例,调 `api.clusterCerts()` 新 client 方法;`_allViewsMount` 真实 store 挂载下 Proxy api 兜底)。取数失败(ns 门 403/上游 5xx)显示 error 横幅(`certs-load-error`),不静默空白。
 - **A 段「集群连接证书」**(少量异构行,自定义卡片而非 DataTable):
   - 状态 banner:`trusted` 绿/默认无;`ca-mismatch`/`cert-expired`/`hostname-mismatch` error banner(归因文案 + 「管理员重新导入 kubeconfig」引导,链接 /clusters);`unverified` tertiary 提示(insecure 接入未校验链);`unreachable` error。
   - API server 服务证书卡:subject/issuer/到期日/daysLeft 分级 pill/SANs(`max-w` + `truncate` + `:title`,遵守 overflow 守卫)。
@@ -134,7 +134,7 @@ createClusterCerts({ tlsConnect, requestFn, now, ttlMs, timeoutMs })
 ### 6.4 铃铛合并(AlertBell)
 
 - 新增第二个 query(同 key `['cluster', cid, 'certs']`,`refetchInterval: 300_000`,`enabled` 同 events)——与页面共享缓存,不新增全局轮询负担(events 的 60s 轮询/watch 互斥逻辑不动)。
-- 伪事件构造(纯函数入 `src/logic/certExpiry.js`):`daysLeft ≤ 30` 或已过期的 leaf → `{ uid: 'cert:' + fingerprint256(稳定,跨天不漂移), type: 'warning', reason: 'CertificateExpiring'|'CertificateExpired', message: t('nav.certAlertExpiring', { name, days }) 等, icon: 'key', color: 'tertiary'|'error', relatedKind: 'Certificate', relatedName, relatedNamespace, _ts: Date.now() }`。
+- 伪事件构造(纯函数入 `src/logic/certExpiry.js`,i18n 经 `t` 参数注入):`daysLeft ≤ 30` 或已过期的 leaf → `{ uid: 'cert:' + fingerprint256(稳定,跨天不漂移), type: 'warning', reason: t('nav.certAlertReason'|'nav.certAlertReasonExpired')(铃铛加粗行文案), age: t('nav.certAlertExpiringAge'|'nav.certAlertExpiredAge', { days })(右侧时间位), icon: 'key', color: 'tertiary'|'error', relatedKind: 'Certificate', relatedName, relatedNamespace, _ts: now() }`(铃铛只渲染 reason/relatedKind/relatedName/age,无 message 字段)。
 - 面板合并:`[...warningEvents(按 _ts desc), ...certAlerts(按 daysLeft asc)]` 取前 30;未读台账复用 `eventKey`(uid 稳定 → 标记已读后不复活)。
 - 点击导航:`src/logic/resourceNavigation.js` 的 `routeForResource` 增加 `Certificate` kind → `{ name: 'ClusterCerts' }`。
 
