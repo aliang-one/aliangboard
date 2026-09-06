@@ -205,10 +205,16 @@ function setupSearch({ role } = {}) {
   return { sent, call }
 }
 
-test('审计#7:非 admin 平台会话查 kind=server → 403(exposed 服务器元数据不可枚举)', async () => {
+// Phase D merge 裁决(2026-09-06):对话域已降门 platform+owner,审计#7 的「对话域恒 admin」
+// 前提失效——server 搜索门槛=ownership(u-me 是本夹具项目 owner)。非 owner 场景由
+// workbench-projects-gates.test.mjs 的「非 owner 403 无权访问该项目」钉住;本用例改钉
+// owner(user)可搜但 host 脱敏(host 仅 admin 响应携带)。
+test('Phase D 裁决:owner(user 角色)查 kind=server → 200 且 host 脱敏(非 admin 不带 host)', async () => {
   const s = setupSearch({ role: 'user' })
   assert.equal(await s.call('server'), true)
-  assert.equal(s.sent[0].status, 403, JSON.stringify(s.sent[0]))
+  assert.equal(s.sent[0].status, 200, JSON.stringify(s.sent[0]))
+  assert.equal(s.sent[0].body.items[0].name, 'gw')
+  assert.equal(s.sent[0].body.items[0].host, undefined, 'owner 非 admin → host 不携带')
 })
 
 test('审计#7:admin 会话查 kind=server 照常 200(exposed 命中 + host 随 admin 响应携带)', async () => {
