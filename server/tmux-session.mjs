@@ -46,6 +46,12 @@ export function tmuxKillCommand(label, name, tmuxBin = 'tmux') {
   return [tmuxBin, '-L', label, 'kill-session', '-t', name]
 }
 
+// 回收前置取证(2026-09-06 评审#2):清道夫摘除 tracker 后的异步窗口内用户可能已重连——
+// 杀会话前先 list-clients,输出非空=有人附着,必须放弃(内存态守卫拦不住 tmux 侧时序)。
+export function tmuxListClientsCommand(label, name, tmuxBin = 'tmux') {
+  return [tmuxBin, '-L', label, 'list-clients', '-t', name]
+}
+
 // -A = attach if session exists, else create. shell array is spread after `--`.
 export function tmuxAttachCommand({ tmuxBin = 'tmux', terminfoDir = '', confPath = '', label, name, cols, rows, shell }) {
   return withTermInfo(terminfoDir, [tmuxBin, ...(confPath ? ['-f', confPath] : []), '-L', label, 'new-session', '-A', '-s', name,

@@ -17,7 +17,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useClusterStore } from '@/stores/cluster'
-import { execStream } from '@/api/client'
+import { execStream, api } from '@/api/client'
 import { codeTheme } from '@/styles/code-theme'
 import { useIsPhone } from '@/composables/useBreakpoint'
 
@@ -108,6 +108,9 @@ function openStream() {
     onStderr: d => { gotOutput = true; term.write(d) },
     onExit: s => { if (my === gen) handleEnd(s?.status, s?.code) },
     onError: m => { if (my === gen) handleEnd(undefined, undefined, m) },
+    // 握手失败(典型=K8s token 过期被 401 拒):发廉价探针,401 拦截器自动清 session 并
+    // 跳集群选择页(与 SSH 流的 401 探针同款恢复路径);探针失败静默,错误面保持原样。
+    onHandshakeFailure: () => { api.k8s('/version').catch(() => {}) },
     onClose: () => { if (my === gen && status.value !== 'error' && status.value !== 'closed') handleEnd() },
     onMode: m => { persistent.value = !!m?.persistent; if (m?.shell) actualShell.value = m.shell },
   })

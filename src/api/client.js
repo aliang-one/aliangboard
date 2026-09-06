@@ -441,7 +441,7 @@ export const adminApi = {
 // Pod exec 终端双向通道：浏览器 WebSocket ↔ Gateway ↔ K8s（SPDY/WS）。
 // 二进制帧首字节为通道标识（1 stdin / 2 resize 入向；1 stdout / 2 stderr / 3 exit / 4 error 出向）。
 // 返回 { send, resize, close, isOpen } 供 xterm 终端驱动。
-export function execStream({ namespace, pod, container = '', command = '/bin/sh', tty = true, attach = false, sid = '', auto = false, onStdout, onStderr, onExit, onError, onClose, onMode } = {}) {
+export function execStream({ namespace, pod, container = '', command = '/bin/sh', tty = true, attach = false, sid = '', auto = false, onStdout, onStderr, onExit, onError, onClose, onMode, onHandshakeFailure } = {}) {
   const token = getSessionToken()
   const proto = globalThis.location?.protocol === 'https:' ? 'wss' : 'ws'
   const host = globalThis.location?.host || '127.0.0.1:8787'
@@ -469,7 +469,11 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
     else if (type === 5) { try { onMode?.(JSON.parse(utf8.decode(payload) || '{}')) } catch { onMode?.({}) } }
   }
   ws.onerror = () => onError?.(i18n.global.t('terminal.execConnectError'))
-  ws.onclose = () => onClose?.()
+  // 握手失败(未 open 即 close,典型=K8s token 过期被升级门 401 拒)回调:组件借此发廉价
+  // 探针走既有 401 拦截器(清 K8s session→选集群页);正常会话结束不触发。
+  let opened = false
+  ws.onopen = () => { opened = true }
+  ws.onclose = ev => { if (!opened) onHandshakeFailure?.(ev?.code); onClose?.() }
   const encoder = new TextEncoder()
   function frame(type, data) {
     if (ws.readyState !== 1) return
