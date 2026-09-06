@@ -8,14 +8,15 @@ export function hashToken(token) {
   return createHash('sha256').update(String(token || '')).digest('hex').slice(0, 8)
 }
 
-// tmux socket label: per-user isolation (one socket per platform user / k8s token).
-export function tmuxLabel(token) {
-  return 'ab' + hashToken(token)
+// tmux socket label: per-user isolation. 锚 = 平台 userId(稳定 UUID,2026-09-06 去 token 化:
+// token 会随 TTL/重连集群轮换,uid 不会;旧调用传 token 的写法已全部换锚,遗留回退见 index.mjs)。
+export function tmuxLabel(anchor) {
+  return 'ab' + hashToken(anchor)
 }
 
 // tmux session name: label + stable card id. sid = frontend terminal.id.
-export function tmuxSessionName(token, sid) {
-  return `${tmuxLabel(token)}-${sid}`
+export function tmuxSessionName(anchor, sid) {
+  return `${tmuxLabel(anchor)}-${sid}`
 }
 
 export function probeKey(namespace, pod, container) {
