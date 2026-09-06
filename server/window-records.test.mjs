@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken } from './window-records.mjs'
+import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneSession, sessionTokenOwner, tombstoneExpiredSessions, purgeRotatedSessions } from './window-records.mjs'
 
 function freshDb() {
   const db = new DatabaseSync(':memory:')
@@ -13,6 +13,9 @@ function freshDb() {
     id TEXT PRIMARY KEY, sessionToken TEXT NOT NULL, name TEXT NOT NULL,
     namespace TEXT NOT NULL, podName TEXT NOT NULL, container TEXT,
     status TEXT DEFAULT 'minimized', createdAt INTEGER NOT NULL)`)
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN userId TEXT`) } catch { /* 列已存在 */ }
+  db.exec(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, userId TEXT, createdAt INTEGER NOT NULL)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS rotated_sessions (token TEXT PRIMARY KEY, userId TEXT NOT NULL, rotatedAt INTEGER NOT NULL)`)
   return db
 }
 const insTerm = (db, id, token, createdAt = 1) =>
@@ -71,12 +74,56 @@ test('purge: 无超龄记录时零删除', () => {
 
 test('isKnownSessionToken: sessions 表里存在的 token 才算 known(空值/未知/查库异常均拒)', () => {
   const db = freshDb()
-  db.exec(`CREATE TABLE sessions (token TEXT PRIMARY KEY, apiServer TEXT NOT NULL, createdAt INTEGER NOT NULL)`)
-  db.prepare(`INSERT INTO sessions (token, apiServer, createdAt) VALUES ('tok-1', 'https://a', 1)`).run()
+  db.prepare(`INSERT INTO sessions (token, userId, createdAt) VALUES ('tok-1', 'user-a', 1)`).run()
   assert.equal(isKnownSessionToken(db, 'tok-1'), true)
   assert.equal(isKnownSessionToken(db, 'tok-unknown'), false)
   assert.equal(isKnownSessionToken(db, ''), false)
   assert.equal(isKnownSessionToken(db, null), false)
   const badDb = { prepare: () => { throw new Error('boom') } }
   assert.equal(isKnownSessionToken(badDb, 'tok-1'), false)
+})
+
+const DAY = 24 * 60 * 60 * 1000
+
+test('墓碑:tombstoneSession 落表;isKnownSessionToken 接受 7 天内墓碑、拒 7 天外', () => {
+  const db = freshDb()
+  const now = 100 * DAY
+  tombstoneSession(db, 'rot-1', 'user-1', now)
+  tombstoneSession(db, 'rot-old', 'user-1', now - 8 * DAY)
+  assert.equal(isKnownSessionToken(db, 'rot-1', now), true)
+  assert.equal(isKnownSessionToken(db, 'rot-old', now), false)
+  assert.equal(isKnownSessionToken(db, 'unknown', now), false)
+})
+
+test('sessionTokenOwner:live 行优先于墓碑;都没有 → null', () => {
+  const db = freshDb()
+  const now = 100 * DAY
+  db.prepare('INSERT INTO sessions (token, userId, createdAt) VALUES (?,?,?)').run('live', 'user-live', now)
+  tombstoneSession(db, 'rot-1', 'user-rot', now)
+  assert.equal(sessionTokenOwner(db, 'live'), 'user-live')
+  assert.equal(sessionTokenOwner(db, 'rot-1'), 'user-rot')
+  assert.equal(sessionTokenOwner(db, 'ghost'), null)
+})
+
+test('tombstoneExpiredSessions:过期行逐行落墓碑(无 userId 的旧行跳过)后由调用方删行', () => {
+  const db = freshDb()
+  const now = 100 * DAY
+  db.prepare('INSERT INTO sessions (token, userId, createdAt) VALUES (?,?,?)').run('exp-1', 'user-1', now - 9 * DAY)
+  db.prepare('INSERT INTO sessions (token, userId, createdAt) VALUES (?,?,?)').run('exp-legacy', null, now - 9 * DAY)
+  db.prepare('INSERT INTO sessions (token, userId, createdAt) VALUES (?,?,?)').run('fresh', 'user-2', now)
+  tombstoneExpiredSessions(db, now - 8 * DAY, now)
+  assert.equal(sessionTokenOwner(db, 'exp-1'), 'user-1')
+  assert.equal(sessionTokenOwner(db, 'exp-legacy'), null)   // 旧行无 userId:不落墓碑
+  // fresh 的 live 行仍在(sessionTokenOwner live 优先),改验墓碑表确未落
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM rotated_sessions WHERE token = ?').get('fresh').n, 0)
+})
+
+test('purgeRotatedSessions:清 rotatedAt 早于保留窗的墓碑', () => {
+  const db = freshDb()
+  const now = 100 * DAY
+  tombstoneSession(db, 'keep', 'u', now - 3 * DAY)
+  tombstoneSession(db, 'drop', 'u', now - 9 * DAY)
+  purgeRotatedSessions(db, now, 7 * DAY)
+  assert.equal(sessionTokenOwner(db, 'keep'), 'u')
+  assert.equal(sessionTokenOwner(db, 'drop'), null)
 })
