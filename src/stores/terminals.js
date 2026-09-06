@@ -50,10 +50,38 @@ export const useTerminalStore = defineStore('terminals', () => {
     }, 2000)
   }
 
-  // 持久化到服务端
-  async function persistCreate(term) { try { await terminalApi.create(term) } catch { /* 离线静默 */ } }
-  async function persistUpdate(id, patch) { try { await terminalApi.update(id, patch) } catch { /* noop */ } }
-  async function persistDelete(id) { try { await terminalApi.remove(id) } catch { /* noop */ } }
+  // 持久化到服务端。写失败进补偿队列有界重试(3 次×30s,评审#5)——此前直接吞掉,INSERT
+  // 失败时终端已开、刷新即丢记录;重试超限丢弃并告警(对端可能已永久不可达)。
+  const persistQueue = []           // { tries, run(): Promise }
+  let persistTimer = null
+  const PERSIST_RETRY_MAX = 3
+  function enqueuePersist(op, run) {
+    persistQueue.push({ op, tries: 0, run })
+    if (!persistTimer) persistTimer = setInterval(() => { flushPersistQueue() }, 30_000)
+  }
+  async function flushPersistQueue() {
+    for (let i = persistQueue.length - 1; i >= 0; i--) {
+      const item = persistQueue[i]
+      item.tries++
+      try {
+        await item.run()
+        persistQueue.splice(i, 1)
+      } catch { /* 本轮仍失败:留队待下轮 */ }
+    }
+    for (let i = persistQueue.length - 1; i >= 0; i--) {
+      if (persistQueue[i].tries >= PERSIST_RETRY_MAX) {
+        console.warn('[terminals] 服务端写补偿超限放弃:', persistQueue[i].op)
+        persistQueue.splice(i, 1)
+      }
+    }
+    if (!persistQueue.length && persistTimer) { clearInterval(persistTimer); persistTimer = null }
+  }
+  async function persistWithRetry(op, run) {
+    try { await run() } catch { enqueuePersist(op, run) }
+  }
+  async function persistCreate(term) { await persistWithRetry('create', () => terminalApi.create(term)) }
+  async function persistUpdate(id, patch) { await persistWithRetry('update', () => terminalApi.update(id, patch)) }
+  async function persistDelete(id) { await persistWithRetry('delete', () => terminalApi.remove(id)) }
 
   // 跨标签页镜像写盘:仅身份字段(见文件头 LS_KEY 注释)
   function persistMirror() {

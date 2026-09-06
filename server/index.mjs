@@ -72,7 +72,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'n
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
-import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
+import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, tmuxListClientsCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
 import { createApplyYaml } from './apply-yaml.mjs'
@@ -697,6 +697,12 @@ const idleSweeper = setInterval(() => {
       if (session) {
         try {
           const { bin } = await resolveTmux(session, meta.ns, meta.pod, meta.container || '')
+          // 重入守卫(2026-09-06 评审#2):摘除 tracker 后的 await 窗口内,同名条目若被重连者
+          // 重建(用户已回来),本轮回收作废——否则旧清道夫会杀掉刚恢复的 tmux 并删活记录。
+          if (idleTracker.has(name)) continue
+          // tmux 侧原子守卫:会话已有附着客户端=有人在看,不杀(兜住 tracker 之外的重建时序)
+          const clients = await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxListClientsCommand(tmuxLabel(meta.token), name, bin))
+          if (String(clients?.stdout || '').trim() !== '') continue
           await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.token), name, bin))
         } catch { /* pod 不在 / token 已过期 —— 忽略 */ }
       }
