@@ -216,7 +216,7 @@ test('equivalence matrix: hoisted decision == canAccessNs on allowlist clusters'
 })
 
 // ===== W2 Phase B Batch B (Task 3/4): 接线辅助纯函数 =====
-import { gateParsedPath, filterNamespaceList, gateWatchResources } from './k8s-gate.mjs'
+import { gateParsedPath, filterNamespaceList, gateWatchResources, applyDocNamespaces } from './k8s-gate.mjs'
 import { levelForRequest as lfr } from './authz.mjs'
 import { parseApiPath } from './k8s-path.mjs'
 
@@ -290,4 +290,53 @@ test('levelForRequest: outlet method mapping (terminals/podfile/pvcfile 按 meth
   assert.equal(lfr('GET', 'logs'), 'operate')
   assert.equal(lfr('GET', 'portforward'), 'operate')
   assert.equal(lfr('GET', 'attach'), 'operate')
+})
+
+// ===== 评审 R1:/api/apply 门与 applyYaml 解析链同源(显式 ns > defaultNs > 'default';
+// 集群级 kind(discovery namespaced=false)→ undefined → null-ns 门;不可发现 kind → null → 不拦,apply 原语义失败) =====
+const NS_P = { namespaced: true }, CS_P = { namespaced: false }
+
+test('applyDocNamespaces: chain mirrors resolveApplyNamespace exactly (explicit > defaultNs > default; cluster-scoped → undefined; undiscoverable → null)', () => {
+  const rf = o => o.kind === 'ClusterRole' ? CS_P : o.kind === 'Mystery' ? null : NS_P
+  const docs = [
+    { kind: 'Pod', metadata: { namespace: 'team-a' } },
+    { kind: 'Pod', metadata: {} },
+    { kind: 'ClusterRole', metadata: { name: 'cr' } },
+    { kind: 'Mystery', metadata: {} },
+  ]
+  assert.deepEqual(applyDocNamespaces(docs, 'team-b', rf), ['team-a', 'team-b', undefined, null])
+  assert.deepEqual(applyDocNamespaces([{ kind: 'Pod', metadata: {} }], undefined, rf), ['default'])
+})
+
+test('apply gate A (red): no-ns doc + defaultNs=team-b → team-b required; default-only operate user DENIED', () => {
+  const db = makeGateDb()
+  db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
+    .run('g2', 'user', 'u2', 'c-allow', 'default', 'operate', Date.now())
+  const gate = createK8sGate({ db, writeAudit })
+  const sess = { userId: 'u2', clusterId: 'c-allow' }
+  const nss = applyDocNamespaces([{ kind: 'Pod', metadata: {} }], 'team-b', () => NS_P)
+  assert.deepEqual(nss, ['team-b']) // 修复前这里是 ['default'] → 误放行
+  assert.equal(gate.gateK8sSession(sess, { namespace: nss[0], level: 'operate', path: '/api/apply', method: 'POST' }), false)
+})
+
+test('apply gate B (red): cluster-scoped doc (ClusterRole) → null-ns branch denies allowlist non-admin; admin passes', () => {
+  const db = makeGateDb()
+  db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
+    .run('g2', 'user', 'u2', 'c-allow', 'default', 'operate', Date.now())
+  const gate = createK8sGate({ db, writeAudit })
+  const nss = applyDocNamespaces([{ kind: 'ClusterRole', metadata: { name: 'x' } }], undefined, () => CS_P)
+  assert.deepEqual(nss, [undefined]) // 集群级:undefined(修复前被误当成 'default' ns 门 → 绕过)
+  assert.equal(gate.gateK8sSession({ userId: 'u2', clusterId: 'c-allow' }, { namespace: nss[0] ?? null, level: 'operate' }), false)
+  db.prepare(`INSERT INTO user_clusters (userId, clusterId) VALUES (?,?)`).run('admin1', 'c-allow')
+  assert.equal(gate.gateK8sSession({ userId: 'admin1', clusterId: 'c-allow' }, { namespace: nss[0] ?? null, level: 'operate' }), true)
+})
+
+test('apply gate C: operate on team-a + doc ns=team-a + no defaultNs → allowed (no unconditional-default over-block)', () => {
+  const db = makeGateDb()
+  db.prepare(`INSERT INTO ns_grants (id, subjectType, subjectId, clusterId, namespace, level, grantedAt) VALUES (?,?,?,?,?,?,?)`)
+    .run('g2', 'user', 'u2', 'c-allow', 'team-a', 'operate', Date.now())
+  const gate = createK8sGate({ db, writeAudit })
+  const nss = applyDocNamespaces([{ kind: 'Pod', metadata: { namespace: 'team-a' } }], undefined, () => NS_P)
+  assert.deepEqual(nss, ['team-a'])
+  assert.equal(gate.gateK8sSession({ userId: 'u2', clusterId: 'c-allow' }, { namespace: nss[0], level: 'operate' }), true)
 })

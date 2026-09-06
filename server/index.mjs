@@ -5,7 +5,7 @@ import { WebSocketServer } from 'ws'
 import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from 'node:crypto'
 import { URL, fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
+import { load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody } from './call-context.mjs'
 import { sessionOwnerValid } from './session-guard.mjs'
@@ -615,7 +615,7 @@ async function requestKubernetes(session, path, init = {}) {
 }
 
 // YAML apply 内核已抽至 ./apply-yaml.mjs(deps 注入便于单测,ns 缺省补齐见该模块)。
-const { applyYaml, applyYamlPartial } = createApplyYaml({ requestKubernetes })
+const { applyYaml, applyYamlPartial, resolveApplyNamespaces } = createApplyYaml({ requestKubernetes })
 // API-key 工具链(T8 walking skeleton):注入 db + requestKubernetes,路由挂 /api/key/*。
 // AI 路径的 execFn 适配:api-key-tools 传第 6 参 bounds(审计 P1a)→ execCapture 第 7 参(raw 固定 false)
 const apiKeyTools = createApiKeyTools({ db, requestFn: requestKubernetes, execFn: (ctx, ns, pod, container, command, bounds) => execCapture(ctx, ns, pod, container, command, false, bounds), applyYamlFn: applyYamlPartial, ephemeralFn: attachEphemeral })
@@ -1700,22 +1700,22 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const input = await readBody(req)
-      // W2 Phase B:apply 前对 YAML 全部文档涉及的 ns 逐一过 operate 门(metadata.namespace 缺省
-      // 'default');全部通过才放行。YAML 解析失败不在此拦——交给 applyYaml 原错误路径(解析失败本就无法 apply)。
-      const docNss = new Set(['default'])
+      const defaultNs = typeof input.defaultNs === 'string' && input.defaultNs ? input.defaultNs : undefined
+      // W2 Phase B(评审 R1 修正):apply 门与 applyYaml 解析同源——namespaced 来自集群 discovery
+      // (对 CRD 权威),ns 链 = 显式 metadata.namespace > defaultNs > 'default'(apply-yaml.mjs
+      // resolveApplyNamespace 单一事实源,不在此内联)。逐文档:解析出 ns → operate 门;
+      // 集群级 kind(undefined)→ namespace=null 门(null-ns 裁决:allowlist 非 admin 拒);
+      // 不可发现 kind(null)→ 不拦,applyYaml 以原语义失败(无法 apply 即无绕过)。
+      // 无条件 seed 'default' 已废——只在解析链真的产出 'default' 时才要求它(过度阻断回归)。
+      let docNss = []
       try {
-        for (const doc of yamlLoadAll(String(input.yaml || ''))) {
-          if (doc && typeof doc === 'object') docNss.add(doc.metadata?.namespace || 'default')
-        }
-      } catch { /* 无效 YAML:applyYaml 会以原语义报错 */ }
+        docNss = await resolveApplyNamespaces(session, String(input.yaml || ''), defaultNs)
+      } catch { /* 无效 YAML:applyYaml 会以同因报错,门不拦 */ }
       for (const ns of docNss) {
-        if (!k8sGate.gateK8sSession(session, { namespace: ns, level: 'operate', path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
+        if (ns === null) continue // 不可发现 kind
+        if (!k8sGate.gateK8sSession(session, { namespace: ns ?? null, level: 'operate', path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
       }
-      const { resources, applied, failed, total } = await applyYaml(
-        session,
-        String(input.yaml || ''),
-        typeof input.defaultNs === 'string' && input.defaultNs ? input.defaultNs : undefined,
-      )
+      const { resources, applied, failed, total } = await applyYaml(session, String(input.yaml || ''), defaultNs)
       // 全失败 → 422:保留单资源「失败即抛错」语义(remoteCreate/remoteUpdate/CRD 等走 catch 回滚)
       if (!applied.length) {
         return sendJson(res, 422, { message: failed[0]?.error || msg(req, 'api.applyYamlFailed'), details: { failed, total } })

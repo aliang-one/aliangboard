@@ -18,6 +18,8 @@
 
 import { parseApiPath } from './k8s-path.mjs'
 import { levelForRequest } from './authz.mjs'
+// re-export:apply 门解析辅助定义在 apply-yaml.mjs(与 resolveApplyNamespace 同文件防漂移),此处转出口供接线方/测试统一从 k8s-gate 引入。
+export { applyDocNamespaces } from './apply-yaml.mjs'
 
 const LEVEL_RANK = { view: 0, operate: 1 }
 
