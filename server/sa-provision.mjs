@@ -139,3 +139,127 @@ export async function sweepNsBindings({ requestFn, callCtx }, { keyId, namespace
   }
   return { deleted, errors }
 }
+
+// ===== W2 Phase E(Task 3):组级 RoleBinding(impersonation 的集群侧执行点)=====
+// ns_grants(subjectType='group')驱动的组身份绑定:Role 名 aliangboard-group-<tier>-<gid8>,
+// subject kind=Group name=aliangboard:team-<groupId>(与 impersonate.mjs 的 IMPERSONATE_GROUP_PREFIX
+// 对齐)。tier 映射复用既有模板:view → roleRules('read'),operate → roleRules('operator')。
+// 双写门:仅 allowlist 集群(open 不隔离,绑定无意义=spec 非目标);由 admin 路由驱动(见
+// routes/admin.mjs)+ 启动期 sweepGroupBindings 兜底删残留。
+export const GROUP_TIERS = ['view', 'operate']
+const gid8 = (groupId) => String(groupId).slice(0, 8)
+export const groupRoleName = (tier, groupId) => `aliangboard-group-${tier}-${gid8(groupId)}`
+const groupLabels = (groupId, tier) => ({
+  'app.kubernetes.io/managed-by': 'aliangboard',
+  'aliangboard.io/group': groupId, // sweep 按 labels 选择定位本组全部绑定
+  'aliangboard.io/tier': tier,
+})
+const GROUP_LABEL_SELECTOR = 'app.kubernetes.io/managed-by=aliangboard,aliangboard.io/group'
+
+// 组 Role 规则:tier 映射的既有模板 + SSRR-create(PE-A 终审关键项:impersonation 探测器以被代理
+// 身份 POST selfsubjectrulesreviews——组身份无此权则探测恒 403,impersonation 永不激活)。两档都加。
+export function groupRoleRules(tier) {
+  const ssrr = { apiGroups: ['authorization.k8s.io'], resources: ['selfsubjectrulesreviews'], verbs: ['create'] }
+  return [...roleRules(tier === 'operate' ? 'operator' : 'read'), ssrr]
+}
+
+// 幂等供给:每 ns 建 Role + RoleBinding(SSA fieldManager=aliangboard;409/AlreadyExists 视为已就绪)。
+// 部分失败不抛(返回 {ok:false, failed}),由驱动方 console.warn + 启动 sweep 兜底。
+export async function provisionGroupBindings({ requestFn, callCtx }, { groupId, tier, namespaces = [] }) {
+  if (!GROUP_TIERS.includes(tier)) throw new Error(`unknown group tier: ${tier}`)
+  const role = groupRoleName(tier, groupId)
+  const created = [], failed = []
+  const ssa = async (path, object) => {
+    const label = { kind: object.kind, name: object.metadata.name, namespace: object.metadata.namespace }
+    try {
+      await requestFn(callCtx, `${path}?fieldManager=aliangboard&force=true`, {
+        method: 'PATCH', headers: { 'content-type': 'application/apply-patch+yaml' }, body: JSON.stringify(object),
+      })
+      created.push(label)
+    } catch (e) {
+      if (e.status === 409 || /already\s*exist/i.test(String(e.message || ''))) { created.push(label); return }
+      failed.push({ ...label, error: e.message })
+    }
+  }
+  for (const ns of [...new Set(namespaces)]) {
+    await ssa(`/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/roles/${enc(role)}`, {
+      apiVersion: 'rbac.authorization.k8s.io/v1', kind: 'Role',
+      metadata: { name: role, namespace: ns, labels: groupLabels(groupId, tier) }, rules: groupRoleRules(tier),
+    })
+    await ssa(`/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/rolebindings/${enc(role)}`, {
+      apiVersion: 'rbac.authorization.k8s.io/v1', kind: 'RoleBinding',
+      metadata: { name: role, namespace: ns, labels: groupLabels(groupId, tier) },
+      roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name: role },
+      subjects: [{ kind: 'Group', name: `aliangboard:team-${groupId}`, apiGroup: 'rbac.authorization.k8s.io' }],
+    })
+  }
+  return { ok: failed.length === 0, created, failed }
+}
+
+// 删该组全部绑定(GROUP_TIERS 两档名全删——tier 变更后旧档名残留;404 容忍)。
+// namespaces 省略/空 → 不动(删错比留脏危险,调用方恒传明确 scope)。
+export async function teardownGroupBindings({ requestFn, callCtx }, { groupId, namespaces = [] }) {
+  const paths = [...new Set(namespaces)].flatMap(ns => GROUP_TIERS.flatMap(t => {
+    const role = groupRoleName(t, groupId)
+    return [
+      `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/rolebindings/${enc(role)}`,
+      `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/roles/${enc(role)}`,
+    ]
+  }))
+  const deleted = [], errors = []
+  for (const p of paths) {
+    try { await requestFn(callCtx, p, { method: 'DELETE' }); deleted.push(p) }
+    catch (e) { if (e.status !== 404) errors.push({ path: p, error: e.message }) }
+  }
+  return { deleted, errors }
+}
+
+// grants 行(ns_grants SELECT subjectId,namespace,level)→ 组绑定计划:tier = 该组该集群最高档
+// (operate > view;绑定按组+集群一档,ns 粒度由绑定落位承担),namespaces = 该组全部授权 ns。
+export function groupBindingPlan(rows) {
+  const byGroup = new Map()
+  for (const r of rows || []) {
+    const cur = byGroup.get(r.subjectId) || { tier: 'view', namespaces: [] }
+    if (r.level === 'operate') cur.tier = 'operate'
+    if (!cur.namespaces.includes(r.namespace)) cur.namespaces.push(r.namespace)
+    byGroup.set(r.subjectId, cur)
+  }
+  return byGroup
+}
+
+// 计划 → sweep keep 集:Map<ns, Set<期望 Role 全名>>(该 ns 内不在此集的组绑定 = 漂移)。
+export function groupBindingKeepSet(rows) {
+  const keep = new Map()
+  for (const [groupId, { tier, namespaces }] of groupBindingPlan(rows)) {
+    const name = groupRoleName(tier, groupId)
+    for (const ns of namespaces) {
+      if (!keep.has(ns)) keep.set(ns, new Set())
+      keep.get(ns).add(name)
+    }
+  }
+  return keep
+}
+
+// 组绑定漂移清扫:keep 的每个 ns 内 list 带组标签的 Role/RoleBinding,名字不在该 ns keep 集 → 删
+// (降档/收 ns/删组/驱动失败的残留)。list 失败(网络/权限)记 errors 且不删该类(fail-safe:
+// 看不清就不删);DELETE 404 容忍(残留本就可能不存在)。
+export async function sweepGroupBindings({ requestFn, callCtx }, { keep }) {
+  const deleted = [], errors = []
+  for (const [ns, keepNames] of (keep || new Map())) {
+    for (const kind of ['rolebindings', 'roles']) {
+      let items
+      try {
+        const { body } = await requestFn(callCtx, `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/${kind}?labelSelector=${enc(GROUP_LABEL_SELECTOR)}`, {})
+        items = body?.items || []
+      } catch (e) { errors.push({ namespace: ns, kind, error: e.message }); continue }
+      for (const it of items) {
+        const name = it?.metadata?.name
+        if (!name || keepNames.has(name)) continue
+        const p = `/apis/rbac.authorization.k8s.io/v1/namespaces/${enc(ns)}/${kind}/${enc(name)}`
+        try { await requestFn(callCtx, p, { method: 'DELETE' }); deleted.push(p) }
+        catch (e) { if (e.status !== 404) errors.push({ path: p, error: e.message }) }
+      }
+    }
+  }
+  return { deleted, errors }
+}

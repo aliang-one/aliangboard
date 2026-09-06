@@ -3,6 +3,7 @@
 // 用户可见消息走 ../messages.mjs 双语表(msg(req,'auth.xxx'));zh 默认与原文逐字一致。
 import { msg } from '../messages.mjs'
 import { tombstoneSession } from '../window-records.mjs'
+import { buildImpersonation, impersonateDisplaynameFor } from '../impersonate.mjs'
 import { APP_VERSION } from '../version.mjs'
 import { resolvePasswordPolicy, firstFailedRule } from '../password-policy.mjs'
 import { queryAuditLog } from '../audit.mjs'
@@ -23,6 +24,7 @@ export function createAuthRoutes(deps) {
     getSetting,
     removeSessionRecord,
     hashPassword, extractPlatformToken,
+    impersonationProbe, // W2 Phase E(可选):connect-cluster 成功后 fire-and-forget 探测集群 impersonate 能力
   } = deps
 
   // 读用户 prefs:SELECT/parse 全程容错——存量库无 prefs 列、坏 JSON 均回 {}(node:sqlite 拒绝非法绑定,这里只读标量)。
@@ -345,7 +347,12 @@ export function createAuthRoutes(deps) {
         }
         // 从 clusters 行构造 K8s session（字段与 sessions 表完全一致;经 buildCallContext 统一形状）
         const apiServer = normalizeServer(cluster.apiServer)
-        const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now(), userId: ps.userId, clusterId: cluster.id }
+        const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now(), userId: ps.userId, clusterId: cluster.id,
+          // W2 Phase E:impersonation 身份归真(内存 session 对象携带,不持久化——sessions 表无此列;
+          // 重启后 loadPersistedSessions 从 platform_sessions.userId 重建)。admin 平台用户同样携带(R3);
+          // legacy ps(无 userId)→ 空数组 = 不注入。
+          impersonate: buildImpersonation(db, ps.userId),
+          impersonateDisplayname: impersonateDisplaynameFor(db, ps.userId) }
         const probe = await requestKubernetes(k8sSession, '/version')
         k8sSession.version = probe.body?.gitVersion || 'unknown'
         const k8sToken = randomUUID()
@@ -362,6 +369,9 @@ export function createAuthRoutes(deps) {
         ps.k8sSessionToken = k8sToken
         platformSessions.set(req.headers['x-platform-token'], ps)
         db.prepare('UPDATE platform_sessions SET k8sSessionToken=? WHERE token=?').run(k8sToken, req.headers['x-platform-token'])
+        // W2 Phase E:连接成功后 fire-and-forget 探测该集群凭据的 impersonate 能力(不阻塞连接;
+        // 结果按 clusterId 缓存,缓存后 egress 注入生效)。legacy ps 无身份不触发探测。
+        if (k8sSession.impersonate.length) impersonationProbe?.ensureProbed?.(k8sSession)
         sendJson(res, 200, { token: k8sToken, cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: k8sSession.version } })
         return true
       } catch (e) { sendJson(res, e.status || 502, { message: e?.message || msg(req, 'auth.connectFailed') }); return true }

@@ -17,7 +17,8 @@ import { createClusterCerts } from './cluster-certs.mjs'
 import { createClusterCertsRoutes } from './routes/cluster-certs.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
 import { sweepOrphanGrants, effectiveGrants, levelForRequest, wbToolGate, gateApplyNamespaces } from './authz.mjs'
-import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings } from './sa-provision.mjs'
+import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings,
+  provisionGroupBindings, teardownGroupBindings, sweepGroupBindings, groupBindingKeepSet } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
 import { probeSaDrift, withTimeout as withProbeTimeout } from './sa-drift.mjs'
 import { createAuditSchema, writeAudit } from './audit.mjs'
@@ -75,6 +76,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
+import { buildImpersonation, impersonateDisplaynameFor, mergeImpersonate, createImpersonationProbe } from './impersonate.mjs'
 import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, tmuxListClientsCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
@@ -212,6 +214,27 @@ try {
   const swept = sweepOrphanGrants(db)
   if (swept.members || swept.grants) console.log(`[authz] orphan grant sweep: removed ${swept.members} group_members, ${swept.grants} ns_grants`)
 } catch (e) { console.error('[authz] orphan grant sweep failed:', e?.message || e) }
+// W2 Phase E(Task 3):组 RoleBinding 漂移清扫(启动一次,best-effort)——allowlist 集群上按
+// ns_grants 推导 keep 集,删掉带组标签但不在 keep 集的 Role/RoleBinding(降档/收 ns/删组/驱动失败
+// 的残留)。网络面延迟 3s 发起(不阻塞启动、避开启动探测窗口);失败仅告警,下轮启动重试。
+setTimeout(() => {
+  ;(async () => {
+    const clusterIds = db.prepare("SELECT DISTINCT clusterId FROM ns_grants WHERE subjectType='group'").all().map(r => r.clusterId)
+    for (const clusterId of clusterIds) {
+      try {
+        const row = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
+        if (!row || row.nsAuthMode !== 'allowlist') continue // open 集群不双写 RBAC(非目标)
+        const rows = db.prepare("SELECT subjectId, namespace, level FROM ns_grants WHERE subjectType='group' AND clusterId=?").all(clusterId)
+        const out = await sweepGroupBindings(
+          { requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) },
+          { keep: groupBindingKeepSet(rows) },
+        )
+        if (out.deleted.length) console.log(`[authz] group binding sweep: cluster=${clusterId} removed ${out.deleted.length} stale group Role/RoleBinding`)
+        if (out.errors.length) console.warn(`[authz] group binding sweep: cluster=${clusterId} ${out.errors.length} namespace(s) skipped (list failed)`)
+      } catch (e) { console.warn('[authz] group binding sweep failed:', `cluster=${clusterId}`, e?.message || e) }
+    }
+  })().catch(() => { /* per-cluster try/catch 已兜底 */ })
+}, 3000)
 db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
   token TEXT PRIMARY KEY,
   userId TEXT NOT NULL,
@@ -466,6 +489,12 @@ function loadPersistedSessions() {
       }
       session.endpoints = r.endpoints ? JSON.parse(r.endpoints).map(s => new URL(s)) : [session.apiServer]
       session.insecureDispatcher = getDispatcher({ ca: r.ca, cert: r.cert, key: r.key, insecure: true })
+      // W2 Phase E:重启重建 impersonation 身份(sessions 表无 impersonate 列——身份只在内存 session
+      // 对象;从 userId 重新 build,组员关系变化在重启后生效)。legacy 行(无 userId)→ 无字段,不注入。
+      if (r.userId) {
+        session.impersonate = buildImpersonation(db, r.userId)
+        session.impersonateDisplayname = impersonateDisplaynameFor(db, r.userId)
+      }
       sessions.set(r.token, session)
     } catch { /* 单条损坏跳过，不影响其他 */ }
   }
@@ -573,6 +602,11 @@ async function requestOnce(session, endpoint, path, init = {}) {
   const headers = { accept: 'application/json', ...(init.headers || {}) }
   if (session.authHeader) headers.authorization = session.authHeader
   if (init.body && !headers['content-type']) headers['content-type'] = 'application/json'
+  // W2 Phase E:impersonation 注入(缓冲出站唯一收口;probe-gated——探测通过才注,未探测/在途/
+  // 未过一律保守不注;懒探测:有身份且 cache 无条目 → 后台 kick,本请求先不注,落缓存后生效)。
+  // init 透传:探测器自身的 SSRR 请求带 __impersonationProbe 标记 → injectImpersonation 早退
+  // (final-review Critical 1 第二层防线,防同步自递归;占位 Promise 是第一层,见 impersonate.mjs)。
+  injectImpersonation(headers, session, init)
   const dispatcher = (endpoint.origin === session.apiServer.origin) ? session.dispatcher : (session.insecureDispatcher || session.dispatcher)
   const response = await kubeFetch(target, {
     ...init, headers, dispatcher,
@@ -616,6 +650,26 @@ async function requestKubernetes(session, path, init = {}) {
       throw e
     }
   }
+}
+
+// W2 Phase E:impersonation 能力探测器(每 cluster 一次,内存缓存,在途去重;重启清零可接受)。
+// 凭据未必有 impersonate 权(自管 SA 常没有)——盲目注入 = 全站 403,故探测通过(=== true)才注。
+// 探测语义见 ./impersonate.mjs(POST SelfSubjectRulesReview 自带 impersonate 头;401/403→缓存
+// false,5xx/网络错误→不缓存重试)。kill-switch(review #2):platform_settings 的
+// impersonation.enabled 需显式 '1'(默认关——组 RoleBinding 供给落地前防 403 风暴;admin 经
+// sqlite 直置该键,无 admin UI,Phase E Task 4 文档化)。
+const impersonationProbe = createImpersonationProbe({ requestKubernetes, getSetting })
+
+// egress 注入收口助手(requestOnce / 流式透传分支 / watch-mux fetchUpstream 三处 kubeFetch 共用):
+// 有身份才动作——懒 kick(cache 无条目→后台探测,本请求不注)+ 探测已决 true 才 merge。
+// 探测器自身的请求(init.__impersonationProbe)早退——回流 kick 防线的第二层
+// (final-review Critical 1:防 runProbe 同步前置段回流 injectImpersonation → kick 自递归)。
+// exec/portforward 走 @kubernetes/client-node,**不注入**(见 buildKubeConfig 归因缺口注释)。
+function injectImpersonation(headers, session, init) {
+  if (init?.__impersonationProbe) return headers
+  if (session?.clusterId == null || !Array.isArray(session.impersonate) || !session.impersonate.length) return headers
+  impersonationProbe.kick(session)
+  return mergeImpersonate(headers, session, impersonationProbe.isProbed(session.clusterId) === true)
 }
 
 // YAML apply 内核已抽至 ./apply-yaml.mjs(deps 注入便于单测,ns 缺省补齐见该模块)。
@@ -862,6 +916,10 @@ function buildKubeConfig(KubeConfig, session) {
   // 客户端证书（kubeconfig client-cert/key）：client-node 的 *Data 期望 base64
   if (session.cert) user.certData = b64(session.cert)
   if (session.key) user.keyData = b64(session.key)
+  // W2 Phase E(final-review Critical 3 裁决):归因缺口——client-node 仅支持 Impersonate-User,
+  // 而集群侧只供给 Group 绑定,注入 user-only 身份会 403,故此路径不注入(附录 C.5)。exec/pf
+  // 的 apiserver 审计仍归到网关凭据主体;恢复注入须待 client-node 支持 group 头,或集群侧
+  // 供给 user-subject 绑定。
   kc.loadFromClusterAndUser(cluster, user)
   return kc
 }
@@ -1623,6 +1681,7 @@ async function handle(req, res) {
     getSetting,
     removeSessionRecord,
     hashPassword, extractPlatformToken,
+    impersonationProbe, // W2 Phase E:connect-cluster 成功后 fire-and-forget 探测该集群 impersonate 能力
   })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
@@ -1646,6 +1705,15 @@ async function handle(req, res) {
     sweepNamespacesCluster: async (row, spec) => {
       if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
       return sweepNsBindings({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
+    // W2 Phase E(Task 3):组级绑定驱动(admin.mjs grants/ns-auth-mode/删组 → 集群侧 Role/RoleBinding)
+    provisionGroupCluster: async (row, spec) => {
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
+      return provisionGroupBindings({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
+    },
+    teardownGroupCluster: async (row, spec) => {
+      if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
+      return teardownGroupBindings({ requestFn: requestKubernetes, callCtx: buildCallContext({ apiServer: row.apiServer, authHeader: row.authHeader, ca: row.ca, cert: row.cert, key: row.key, insecure: !!row.insecure }) }, spec)
     },
     probeSa: async (row, ns, name) => {
       if (!row) return { ok: false, detail: msg(req, 'api.clusterNotFound') }
@@ -2233,7 +2301,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     // 上游凭据/dispatcher 复用既有流式透传分支同一机制（session.authHeader + currentDispatcher）
     const fetchUpstream = (path, { signal }) => kubeFetch(new URL(path, currentEndpoint(session)), {
       method: 'GET',
-      headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
+      // W2 Phase E:watch 上游同样注入 impersonation(probe-gated,与缓冲出站同语义)
+      headers: injectImpersonation({ accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) }, session),
       dispatcher: currentDispatcher(session),
       signal: AbortSignal.any([signal, AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000))]),
     })
@@ -2276,7 +2345,9 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       const target = assertSameOrigin(new URL(kubernetesPath, ep), ep)
       const upstream = await kubeFetch(target, {
         method: 'GET',
-        headers: { accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) },
+        // W2 Phase E:流式透传(?watch/?follow)同样注入 impersonation(probe-gated;此处与 requestOnce
+        // 是仅有的两处自建 kubeFetch 头,第三处为 watch-mux fetchUpstream——三处同收口于 injectImpersonation)
+        headers: injectImpersonation({ accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) }, session),
         dispatcher: currentDispatcher(session),
         signal: AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000)),
       })

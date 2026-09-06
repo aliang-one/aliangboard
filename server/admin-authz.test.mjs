@@ -246,3 +246,127 @@ test('GET members / GET grants:读端点(Task 5 管理页数据面)', async () =
   await h.call('GET', '/api/admin/grants?subjectType=user&subjectId=u1')
   assert.equal(h.sent[7].status, 400)
 })
+
+// ===== W2 Phase E(Task 3):组 RoleBinding 驱动(grants 变更 → 集群侧绑定收敛,fire-and-forget)=====
+
+// 驱动测试 harness:与 makeHarness 同库,加 provision/teardown 组绑定 stub + 可配 nsAuthMode 的集群。
+// opts.reject = true 时 stub 恒抛(验证 fire-and-forget 失败不拖垮响应)。
+function makeDriveHarness(nsAuthMode = 'allowlist', { reject = false } = {}) {
+  const sent = []
+  const db = new DatabaseSync(':memory:')
+  db.exec(`CREATE TABLE platform_users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, passwordHash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', displayName TEXT, createdAt INTEGER NOT NULL, disabled INTEGER DEFAULT 0)`)
+  db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
+  db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, nsAuthMode TEXT DEFAULT 'open')`)
+  db.exec(`CREATE TABLE groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, createdAt INTEGER NOT NULL, createdBy TEXT)`)
+  db.exec(`CREATE TABLE group_members (groupId TEXT NOT NULL, userId TEXT NOT NULL, addedBy TEXT, createdAt INTEGER NOT NULL, PRIMARY KEY (groupId, userId))`)
+  db.exec(`CREATE TABLE ns_grants (id TEXT PRIMARY KEY, subjectType TEXT NOT NULL, subjectId TEXT NOT NULL, clusterId TEXT NOT NULL, namespace TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'view', grantedBy TEXT, grantedAt INTEGER NOT NULL, UNIQUE(subjectType,subjectId,clusterId,namespace))`)
+  db.prepare("INSERT INTO platform_users (id,username,passwordHash,role,createdAt) VALUES ('u1','alice','x','user',1)").run()
+  db.prepare("INSERT INTO platform_users (id,username,passwordHash,role,createdAt) VALUES ('adm','admin','x','admin',1)").run()
+  db.prepare("INSERT INTO clusters (id,name,nsAuthMode) VALUES ('c1','cluster-one',?)").run(nsAuthMode)
+  const prov = [], td = []
+  let seq = 0
+  const routes = createAdminRoutes({
+    db, sendJson: (r, s, j) => sent.push({ status: s, json: j }),
+    readBody: async () => harness._body, requireAdmin: () => ({ userId: 'adm', role: 'admin', username: 'admin' }),
+    getSetting: () => null, setSetting: () => {}, randomUUID: () => `id-${seq++}`,
+    writeAudit: () => {}, sessions: new Map(), platformSessions: new Map(),
+    getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
+    provisionGroupCluster: reject ? async () => { throw new Error('cluster unreachable') } : async (row, spec) => { prov.push({ row, spec }) },
+    teardownGroupCluster: reject ? async () => { throw new Error('cluster unreachable') } : async (row, spec) => { td.push({ row, spec }) },
+  })
+  const harness = { sent, db, prov, td, _body: {},
+    call: (m, p, body) => { harness._body = body || {}; return routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) } }
+  return harness
+}
+const flush = () => new Promise(r => setImmediate(r))
+
+test('驱动:PUT grants(group/allowlist 集群)→ fire-and-forget 供给(tier=组内最高档,ns=全部授权 ns);首授不 teardown', async () => {
+  const h = makeDriveHarness()
+  const gid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  db_insert_group(h.db, gid)
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'view' }, { namespace: 'ops', level: 'operate' }] })
+  assert.equal(h.sent[0].status, 200)
+  await flush()
+  assert.equal(h.prov.length, 1)
+  assert.equal(h.prov[0].row.id, 'c1')
+  assert.deepEqual(h.prov[0].spec, { groupId: gid, tier: 'operate', namespaces: ['app', 'ops'] })
+  assert.equal(h.td.length, 0, '首次授予(prev 无绑定)不需要 teardown')
+})
+
+test('驱动:PUT grants 降档/收 ns → teardown(两档名全清的 scope)后重供给;清空 grants → 只 teardown', async () => {
+  const h = makeDriveHarness()
+  const gid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  db_insert_group(h.db, gid)
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [{ namespace: 'ns1', level: 'operate' }, { namespace: 'ns2', level: 'operate' }] })
+  await flush()
+  // 降档 + 收 ns:operate(ns1,ns2) → view(ns1)
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [{ namespace: 'ns1', level: 'view' }] })
+  await flush()
+  assert.deepEqual(h.td.at(-1).spec, { groupId: gid, namespaces: ['ns1', 'ns2'] }, 'teardown scope = prev ∪ next')
+  assert.deepEqual(h.prov.at(-1).spec, { groupId: gid, tier: 'view', namespaces: ['ns1'] })
+  // 清空 → 只 teardown,无 provision
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [] })
+  await flush()
+  assert.deepEqual(h.td.at(-1).spec, { groupId: gid, namespaces: ['ns1'] })
+  assert.equal(h.prov.length, 2, '清空后不再供给')
+})
+
+test('驱动:open 集群不双写 RBAC;subjectType=user 不驱动;供给 stub 抛错不影响响应(fire-and-forget)', async () => {
+  const h = makeDriveHarness('open')
+  const gid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  db_insert_group(h.db, gid)
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'operate' }] })
+  await flush()
+  await h.call('PUT', '/api/admin/grants', { subjectType: 'user', subjectId: 'u1', clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'view' }] })
+  await flush()
+  assert.equal(h.prov.length, 0, 'open 集群(非目标:不隔离绑定无意义)+ user 主体都不驱动')
+  assert.equal(h.td.length, 0)
+  assert.equal(h.sent[0].status, 200); assert.equal(h.sent[1].status, 200)
+  // allowlist + stub 抛错 → 响应仍 200(fail 只 console.warn,启动 sweep 兜底)
+  const h2 = makeDriveHarness('allowlist', { reject: true })
+  db_insert_group(h2.db, gid)
+  await h2.call('PUT', '/api/admin/grants', { subjectType: 'group', subjectId: gid, clusterId: 'c1', namespaces: [{ namespace: 'app', level: 'view' }] })
+  assert.equal(h2.sent[0].status, 200, '供给失败仅 warn,grants 落库照常')
+  await flush()
+})
+
+test('驱动:PUT ns-auth-mode 切 allowlist → 该集群全部组 grants 逐组供给;切 open 不触发', async () => {
+  const h = makeDriveHarness('open')
+  const g1 = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', g2 = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
+  db_insert_group(h.db, g1); db_insert_group(h.db, g2)
+  const stmt = h.db.prepare("INSERT INTO ns_grants (id,subjectType,subjectId,clusterId,namespace,level,grantedBy,grantedAt) VALUES (?,'group',?,?,?,?,?,1)")
+  stmt.run('r1', g1, 'c1', 'app', 'view', 'adm')
+  stmt.run('r2', g1, 'c1', 'ops', 'operate', 'adm')
+  stmt.run('r3', g2, 'c1', 'app', 'view', 'adm')
+  await h.call('PUT', '/api/admin/clusters/c1/ns-auth-mode', { mode: 'allowlist' })
+  assert.equal(h.sent[0].status, 200)
+  await flush()
+  assert.equal(h.prov.length, 2, '逐组供给(两组)')
+  const byGroup = Object.fromEntries(h.prov.map(c => [c.spec.groupId, c.spec]))
+  assert.deepEqual(byGroup[g1], { groupId: g1, tier: 'operate', namespaces: ['app', 'ops'] })
+  assert.deepEqual(byGroup[g2], { groupId: g2, tier: 'view', namespaces: ['app'] })
+  // 切回 open 不触发
+  await h.call('PUT', '/api/admin/clusters/c1/ns-auth-mode', { mode: 'open' })
+  await flush()
+  assert.equal(h.prov.length, 2)
+})
+
+test('驱动:DELETE group → 该组在各 allowlist 集群的授权 ns 全量 teardown', async () => {
+  const h = makeDriveHarness()
+  const gid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  db_insert_group(h.db, gid)
+  const stmt = h.db.prepare("INSERT INTO ns_grants (id,subjectType,subjectId,clusterId,namespace,level,grantedBy,grantedAt) VALUES (?,'group',?,?,?,?,?,1)")
+  stmt.run('r1', gid, 'c1', 'app', 'view', 'adm')
+  stmt.run('r2', gid, 'c1', 'ops', 'operate', 'adm')
+  await h.call('DELETE', `/api/admin/groups/${gid}`)
+  assert.equal(h.sent[0].status, 200)
+  await flush()
+  assert.equal(h.td.length, 1)
+  assert.deepEqual(h.td[0].spec, { groupId: gid, namespaces: ['app', 'ops'] })
+  assert.equal(h.prov.length, 0)
+})
+
+// 组行插入 helper(绕过路由创建,id 确定性)
+function db_insert_group(db, id) {
+  db.prepare('INSERT OR IGNORE INTO groups (id,name,createdAt) VALUES (?,?,1)').run(id, `grp-${id.slice(0, 8)}`)
+}
