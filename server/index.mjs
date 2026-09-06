@@ -906,10 +906,10 @@ async function handleExec(ws, session, url, req) {
   // 刷新不保留但 shell 不挂(planExec 只用于持久性判定)。
   const resolved = mode === 'attach' ? { kind: 'none', bin: 'tmux', terminfoDir: '' } : await resolveTmux(session, namespace, pod, container)
   const present = resolved.kind === 'system' || resolved.kind === 'injected'
-  const planned = planExec({ mode, tmuxPresent: present, sid })
   // 身份锚(2026-09-06 去 token 化):平台 userId 稳定,token 轮换不再撕裂 tmux 身份。
   // 遗留会话(WS2-0 前落库)无 userId → 回退 token(行为等同旧版,重连集群后自愈为新锚)。
   const identity = session.userId || token
+  const planned = planExec({ mode, tmuxPresent: present, sid, token: identity })
   const label = tmuxLabel(identity)
   const sessionName = tmuxSessionName(identity, sid)
   let execCommand = command   // 默认:一次性 shell(降级 / 非 tmux 路径)
