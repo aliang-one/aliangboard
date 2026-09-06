@@ -24,7 +24,7 @@ import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { fetchRegistryTags } from './registry-tags.mjs'
-import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken } from './window-records.mjs'
+import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneExpiredSessions, purgeRotatedSessions } from './window-records.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
@@ -258,6 +258,7 @@ setTimeout(() => {
 }, 2000)
 // === 平台设置(LLM 配置等,key/value 通用)===
 db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
+try { db.exec('CREATE TABLE IF NOT EXISTS rotated_sessions (token TEXT PRIMARY KEY, userId TEXT NOT NULL, rotatedAt INTEGER NOT NULL)') } catch { /* 已存在 */ }
 function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
 function setSetting(key, value) { db.prepare('INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES (?,?,?)').run(key, String(value ?? ''), Date.now()) }
 // Pod 文件传输限额(单文件,上传下载共用):默认 1GB,admin 可经 /api/admin/podfile-config 调整
@@ -2320,8 +2321,10 @@ setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
 const sessionSweeper = setInterval(() => {
   try {
     const cutoff = Date.now() - sessionTtl
+    tombstoneExpiredSessions(db, cutoff, Date.now())          // 先墓碑(有 userId 的过期行)再删
     db.prepare('DELETE FROM sessions WHERE createdAt < ?').run(cutoff)
     db.prepare('DELETE FROM platform_sessions WHERE createdAt < ?').run(cutoff)
+    purgeRotatedSessions(db, Date.now())                      // 墓碑 7d 保留窗
     for (const [t, s] of sessions) if (s.createdAt < cutoff) sessions.delete(t)
     for (const [t, s] of platformSessions) if (s.createdAt < cutoff) platformSessions.delete(t)
     // 30d 孤儿窗口记录清理(2026-09-04 M2):此前只在启动时跑一次,长驻进程期间「防无界增长」
