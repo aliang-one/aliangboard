@@ -2224,7 +2224,10 @@ sessionSweeper.unref?.()
 const handleSshTerminal = createSshTerminalHandler({
   sshPool,
   service: terminalService,
-  writeAudit,
+  // handler 契约是单参 entry(2026-09-05 P0:此前裸注 writeAudit(db, entry),handler 传一个
+  // 对象 → db.prepare(undefined) 必炸 → 属主首连必失败,且 attach 已计connIds、断开钩子未挂
+  // = 幻影 ATTACHED)。审计失败吞掉降级(审计断链不得反噬连接生命周期)。
+  writeAudit: entry => { try { writeAudit(db, entry) } catch (e) { console.error('[ssh] terminal audit failed:', e?.message) } },
   wsSend,
   lookupServer: serverId => db.prepare('SELECT id FROM ssh_servers WHERE id=?').get(serverId),
   CH: { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT },

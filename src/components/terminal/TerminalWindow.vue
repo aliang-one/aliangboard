@@ -15,6 +15,10 @@ const editing = ref(false)
 const nameInput = ref(props.terminal.name)
 
 // minimized → open:xterm 重新 fit(display:none→block 时 ResizeObserver 可能漏触发)
+// + 按需建连(2026-09-05 P1:镜像 SshTerminalWindow 配方——minimized 挂载不自动连,恢复时
+// connectIfIdle 补连。此前硬编码 auto-connect=true,刷新后全部历史窗口(含用户没点的)各自
+// 静默开一条 exec/tmux,死 sid 还会被同 sid 新建 shell=「chip 在内容全新」)
+const connectAtMount = props.terminal.status === 'open'
 let refitTimer = null
 watch(() => props.terminal.status, (s) => {
   if (s === 'open') {
@@ -22,6 +26,7 @@ watch(() => props.terminal.status, (s) => {
     nextTick(() => {
       refitTimer = setTimeout(() => {
         try { termRef.value?.refit() } catch { /* noop */ }
+        try { termRef.value?.connectIfIdle?.() } catch { /* noop */ }
         refitTimer = null
       }, 50)
     })
@@ -57,6 +62,6 @@ function saveName() {
         <span class="material-symbols-outlined text-base">open_in_new</span>
       </button>
     </template>
-    <InteractiveTerminal ref="termRef" :pod-name="terminal.podName" :namespace="terminal.namespace" :container="terminal.container" :session-id="terminal.id" :auto-connect="true" />
+    <InteractiveTerminal ref="termRef" :pod-name="terminal.podName" :namespace="terminal.namespace" :container="terminal.container" :session-id="terminal.id" :auto-connect="connectAtMount" />
   </FloatingWindow>
 </template>
