@@ -1700,6 +1700,17 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const input = await readBody(req)
+      // W2 Phase B:apply 前对 YAML 全部文档涉及的 ns 逐一过 operate 门(metadata.namespace 缺省
+      // 'default');全部通过才放行。YAML 解析失败不在此拦——交给 applyYaml 原错误路径(解析失败本就无法 apply)。
+      const docNss = new Set(['default'])
+      try {
+        for (const doc of yamlLoadAll(String(input.yaml || ''))) {
+          if (doc && typeof doc === 'object') docNss.add(doc.metadata?.namespace || 'default')
+        }
+      } catch { /* 无效 YAML:applyYaml 会以原语义报错 */ }
+      for (const ns of docNss) {
+        if (!k8sGate.gateK8sSession(session, { namespace: ns, level: 'operate', path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
+      }
       const { resources, applied, failed, total } = await applyYaml(
         session,
         String(input.yaml || ''),
@@ -1726,6 +1737,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
         const port = Number(input.port)
         const localPort = input.localPort ? Number(input.localPort) : 0
         if (!input.namespace || !input.name || !port) return sendJson(res, 400, { message: msg(req, 'api.missingNsNamePort') })
+        // W2 Phase B:ns 授权门(创建端口转发 = operate)
+        if (!k8sGate.gateK8sSession(session, { namespace: input.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
         const fwd = await startForward(session, token, input.kind, input.namespace, input.name, port, localPort)
         return sendJson(res, 200, fwd)
       } catch (error) {
@@ -1738,6 +1751,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/portforward/')) {
     const session = req.abSession // 路由鉴权门已预检并缓存
     const id = decodeURIComponent(url.pathname.slice('/api/portforward/'.length))
+    // W2 Phase B:关断复检 operate(经 forwards Map 记录的 namespace;行不存在也过门 = fail-closed)
+    if (!k8sGate.gateK8sSession(session, { namespace: forwards.get(id)?.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
     const removed = stopForward(id)
     return sendJson(res, removed ? 200 : 404, { ok: removed })
   }
@@ -1749,6 +1764,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     try {
       const input = await readBody(req)
       if (!input.namespace || !input.pvc) return sendJson(res, 400, { message: msg(req, 'api.missingNsPvc') })
+      // W2 Phase B:ns 授权门(读浏览 view / 写上传 operate,按 method 分档;本端点全 POST → operate)
+      if (!k8sGate.gateK8sSession(session, { namespace: input.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
       const podName = await ensurePvcBrowser(session, input.namespace, input.pvc)
       const sub = (input.path || '/').replace(/^\//, '')
       const fullPath = sub ? `/data/${sub}`.replace(/\/$/, '') : '/data'
@@ -1788,6 +1805,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
         const namespace = q.get('namespace'), pod = q.get('pod')
         const container = q.get('container') || '', path = q.get('path') || ''
         if (!namespace || !pod || !path) return sendJson(res, 400, { message: msg(req, 'api.missingNsPodPath') })
+        // W2 Phase B:ns 授权门(上传 = operate,须在流式上传/预检之前)
+        if (!k8sGate.gateK8sSession(session, { namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
         const contentLength = parseInt(req.headers['content-length'] || '', 10)
         // 预检(2026-09-04):目录不存在/不可写/磁盘不足在开传前秒拒,别让人推完几个 G 才见错。
         // best-effort:探针异常/超时不拦上传(输出为空→放行),真实错误交给流式上传本身;411 与限额超限仍由 streamUpload 先判。
@@ -1830,6 +1849,9 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       const namespace = input.namespace, pod = input.pod, container = input.container || ''
       const path = input.path || '/'
       if (!namespace || !pod) return sendJson(res, 400, { message: msg(req, 'api.missingNsPod') })
+      // W2 Phase B:ns 授权门(list/read 视作 view 口径的读,write/download/upload 为写;统一按
+      // method 分档——本端点 body 分支全 POST → operate,读动作由 exec 面天然需要更高权限,从严不损授权用户)
+      if (!k8sGate.gateK8sSession(session, { namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
 
       if (action === 'list') {
         const result = await execCapture(session, namespace, pod, container, ['sh', '-c', 'ls -1Ap "$1"', 'ls', path])
@@ -1907,6 +1929,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       }
       if (req.method === 'POST') {
         const input = await readBody(req)
+        // W2 Phase B:ns 授权门(打开终端 = operate)
+        if (!k8sGate.gateK8sSession(session, { namespace: input.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
         const id = input.id || `term-${randomUUID().slice(0, 8)}`   // 用前端 id(=WS sid),刷新后重连同会话
         const term = {
           id, sessionToken: token,
@@ -1948,6 +1972,11 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     const id = decodeURIComponent(url.pathname.slice('/api/terminals/'.length))
     try {
+      // W2 Phase B:/:id 重连/写入/关断复检 operate(行内有 namespace 列;行不存在也过门 = fail-closed)
+      if (req.method === 'PATCH' || req.method === 'DELETE') {
+        const row = db.prepare('SELECT namespace FROM terminals WHERE id = ? AND sessionToken = ?').get(id, token)
+        if (!k8sGate.gateK8sSession(session, { namespace: row?.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
+      }
       if (req.method === 'PATCH') {
         const input = await readBody(req)
         const fields = []
@@ -1986,6 +2015,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       }
       if (req.method === 'POST') {
         const input = await readBody(req)
+        // W2 Phase B:ns 授权门(打开文件浏览 = operate;浏览本身走 /api/podfile 读面)
+        if (!k8sGate.gateK8sSession(session, { namespace: input.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
         const b = {
           id: input.id || `fb-${randomUUID().slice(0, 8)}`, sessionToken: token,
           name: input.name || `${input.podName}/${input.container || 'main'}`,
@@ -2028,6 +2059,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     try {
       const input = await readBody(req)
       if (!input.namespace || !input.pod || !input.image) return sendJson(res, 400, { message: msg(req, 'api.missingNsPodImage') })
+      // W2 Phase B:ns 授权门(注入 ephemeral container = operate)
+      if (!k8sGate.gateK8sSession(session, { namespace: input.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
       const name = input.name || 'debugger'
       await attachEphemeral(session, input.namespace, input.pod, {
         name,
@@ -2049,6 +2082,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     try {
       const input = await readBody(req)
       if (!input.namespace || !input.name) return sendJson(res, 400, { message: msg(req, 'api.missingNsName') })
+      // W2 Phase B:ns 授权门(触发 CronJob = operate)
+      if (!k8sGate.gateK8sSession(session, { namespace: input.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
       const job = await triggerCronJob(session, input.namespace, input.name, input.jobName)
       return sendJson(res, 200, { ok: true, job: job?.metadata?.name || '' })
     } catch (error) {
@@ -2065,6 +2100,9 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     const session = req.abSession // 路由鉴权门已预检并缓存
     try {
       const input = await readBody(req)
+      // W2 Phase B:集群级出口(ns 无关)→ namespace=null 门:allowlist 集群非 admin 拒
+      // (canAccessCluster 语义;open/legacy 照常放行,admin 短路)。
+      if (!k8sGate.gateK8sSession(session, { namespace: null, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
       const agent = new UndiciAgent({ connect: { rejectUnauthorized: false } })
       const r = await fetchRegistryTags({ image: String(input.image || ''), username: input.username, password: input.password, fetchImpl: (t, o) => kubeFetch(t, { ...o, dispatcher: agent }) })
       if (r.unparsable) return sendJson(res, 400, { message: msg(req, 'api.registryUnparsable') })
@@ -2085,6 +2123,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
     const name = url.searchParams.get('name')
     const apiVersion = url.searchParams.get('apiVersion') || 'v1'
     if (!ns || !kind || !name) return sendJson(res, 400, { message: msg(req, 'api.missingNsKindName') })
+    // W2 Phase B:ns 授权门(读拓扑 = view)
+    if (!k8sGate.gateK8sSession(session, { namespace: ns, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
     try {
       const tree = await resolveOwnerTree(session, ns, kind, name, apiVersion)
       return sendJson(res, 200, tree)
