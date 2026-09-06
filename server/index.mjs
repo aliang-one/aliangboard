@@ -24,7 +24,7 @@ import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
 import { fetchRegistryTags } from './registry-tags.mjs'
-import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneExpiredSessions, purgeRotatedSessions } from './window-records.mjs'
+import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneExpiredSessions, purgeRotatedSessions, sessionTokenOwner } from './window-records.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
@@ -1967,6 +1967,13 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
       const input = await readBody(req)
       if (!isKnownSessionToken(db, input.from)) {
+        return sendJson(res, 403, { message: msg(req, 'api.rekeySourceUnknown') })
+      }
+      // 属主校验(2026-09-06 spec §3):墓碑化后旧 token 可被出示,须防「猜 token 吸收他人记录」。
+      // 双方均无 userId(WS2-0 前遗留)放行=保持旧可迁;任一方有 userId 则必须相等。
+      const fromOwner = sessionTokenOwner(db, input.from)
+      const myId = session.userId || null
+      if (fromOwner && myId && fromOwner !== myId) {
         return sendJson(res, 403, { message: msg(req, 'api.rekeySourceUnknown') })
       }
       const moved = rekeyWindowRecords(db, input.from, token)
