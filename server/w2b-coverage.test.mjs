@@ -104,3 +104,26 @@ test('coverage: loadPersistedSessions rebuilds impersonation identity from userI
 test('coverage: connect-cluster probe wiring passes the shared probe into auth routes', () => {
   assertNear('const authRoutes = createAuthRoutes({', 'impersonationProbe', 'auth routes deps', 20)
 })
+
+// ===== W2 Phase E(review round 1)修订防线 =====
+const impSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'impersonate.mjs'), 'utf8')
+
+test('coverage: egress merge goes through the canonical impersonateHeadersFor builder (brief letter)', () => {
+  // brief 字面要求「requestOnce 含 impersonateHeadersFor( 调用」——实现经 injectImpersonation →
+  // mergeImpersonate 间接到达;此处锁链路末端:mergeImpersonate 函数体必须调用 impersonateHeadersFor。
+  const m = impSrc.indexOf('export function mergeImpersonate')
+  const body = impSrc.slice(m, impSrc.indexOf('\n}', m))
+  assert.ok(m >= 0 && body.includes('impersonateHeadersFor('), 'mergeImpersonate must derive headers via impersonateHeadersFor(')
+})
+
+test('coverage: impersonation.enabled kill-switch gates the probe (default off)', () => {
+  assert.ok(impSrc.includes("'impersonation.enabled'"), 'probe must read the impersonation.enabled setting')
+  assert.ok(
+    src.includes('createImpersonationProbe({ requestKubernetes, getSetting })'),
+    'index.mjs must pass getSetting into the probe factory',
+  )
+})
+
+test('coverage: SSRR probe body carries the required spec.namespace (400-proof)', () => {
+  assert.ok(impSrc.includes("spec: { namespace: 'default' }"), 'SSRR probe body must include required spec.namespace')
+})

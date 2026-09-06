@@ -9,9 +9,16 @@
 //
 // 探测器:网关凭据未必有 impersonate 权(自管 SA 常没有)——盲目注入会让全站请求 403。
 // 故对每个 cluster 探测一次:POST /apis/authorization.k8s.io/v1/selfsubjectrulesreviews
-// 显式自带 impersonate 头——2xx → 凭据可 impersonate(后续 egress 注入);403/401/网络错误
-// → false(保守,不注入,回退 v1 门语义)。结果按 clusterId 缓存在内存 Map(重启清零可接受,
-// 受网关单进程不变式保护);并发去重(在途 Promise 共享)。
+// 显式自带 impersonate 头——2xx → 凭据可 impersonate(后续 egress 注入);401/403
+// → false 并缓存(确定性「凭据无 impersonate 权」);5xx/网络错误 → 本次 false 但不缓存
+// (瞬态,下一请求重试)。结果按 clusterId 缓存在内存 Map(重启清零可接受,受网关单进程
+// 不变式保护);并发去重(在途 Promise 共享)。
+//
+// Kill-switch(review #2,总开关默认关):仅当 platform_settings 的 impersonation.enabled === '1'
+// 才真探测/注入——防止 Phase E Task 3/4(组 RoleBinding 供给)落地前对无身份 RBAC 的集群
+// 403 风暴。关时不发 SSRR 也不写缓存 → admin 置 '1' 后无需重启,下一 kick 即真探测;
+// 开→关的收口靠重启清缓存(裁定可接受)。admin 经 sqlite/platform_settings 直接置键
+// (无 admin UI;Phase E Task 4 文档化)。
 
 export const IMPERSONATE_USER_PREFIX = 'aliangboard:u-'
 export const IMPERSONATE_GROUP_PREFIX = 'aliangboard:team-'
@@ -41,6 +48,9 @@ export function impersonateDisplaynameFor(db, userId) {
 // session → impersonate 头对象(node 小写头名;undici 数组形态 = 同名头重复)。
 // 纯函数:impersonate 为空数组/undefined/非数组 → {}(不注入)。group 恒数组形态(单值亦然)。
 // displayname 仅在确有 user 身份时携带(K8s 要求 impersonate group/extra 必须伴随 user)。
+// displayname 是唯一用户可控的头值 → 剥控制字符成空格(\r\n\t 等 = 头注入防线,review #3);
+// unicode 保留,但 undici 头编码是 latin1——非 latin1 字符(如中文 displayName)会 mojibake,
+// 已知限制,不阻断(值仅展示用,不影响鉴权)。
 export function impersonateHeadersFor(session) {
   const list = Array.isArray(session?.impersonate) ? session.impersonate.filter(x => typeof x === 'string' && x) : []
   const user = list.find(x => x.startsWith(IMPERSONATE_USER_PREFIX))
@@ -48,7 +58,9 @@ export function impersonateHeadersFor(session) {
   const groups = list.filter(x => x.startsWith(IMPERSONATE_GROUP_PREFIX))
   const headers = { 'impersonate-user': user }
   if (groups.length) headers['impersonate-group'] = groups
-  if (session.impersonateDisplayname) headers['impersonate-extra-displayname'] = String(session.impersonateDisplayname)
+  if (session.impersonateDisplayname) {
+    headers['impersonate-extra-displayname'] = String(session.impersonateDisplayname).replace(/[\r\n\t\x00-\x1f]/g, ' ')
+  }
   return headers
 }
 
@@ -64,8 +76,9 @@ export function mergeImpersonate(headers, session, probed) {
 
 // 探测器工厂(模块闭包缓存;每集群只探测一次,在途去重)。
 // requestKubernetes 与 requestOnce 同签名(注入便单测);requestOnce 对非 2xx 抛错
-// (err.status 携 HTTP 码),故「到达即 2xx」;403/401/网络错误统一进 catch → false。
-export function createImpersonationProbe({ requestKubernetes } = {}) {
+// (err.status 携 HTTP 码),故「到达即 2xx」。getSetting 可选注入(kill-switch 读取;
+// 未注入 = 视为关,保守)。
+export function createImpersonationProbe({ requestKubernetes, getSetting } = {}) {
   // clusterId → true/false(已决)| Promise<boolean>(在途)。在途条目同样算「已 kick」,
   // 防探测器自身请求回流 requestOnce 懒探测时无限递归。
   const cache = new Map()
@@ -77,7 +90,10 @@ export function createImpersonationProbe({ requestKubernetes } = {}) {
       'content-type': 'application/json',
       ...impersonateHeadersFor(session),
     }
-    const body = JSON.stringify({ apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectRulesReview', spec: {} })
+    // spec.namespace 是 SSRR 的必填字段(K8s API: "namespace to evaluate rules for. Required.")
+    // ——缺省会被 apiserver 400 拒(review #1:探测永远真不了=注入死在起点)。'default' 仅作
+    // 探测载体命名空间,不承载语义(RBAC 评估任一 ns 都能证明凭据的 impersonate 通道)。
+    const body = JSON.stringify({ apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectRulesReview', spec: { namespace: 'default' } })
     await requestKubernetes(session, IMPERSONATION_PROBE_PATH, { method: 'POST', headers, body })
     return true
   }
@@ -87,11 +103,20 @@ export function createImpersonationProbe({ requestKubernetes } = {}) {
     if (clusterId == null || !Array.isArray(session?.impersonate) || !session.impersonate.length) {
       return Promise.resolve(false) // 无归属/无身份:不发探测,也不写缓存(不占用 clusterId 键)
     }
+    // Kill-switch(review #2):默认关。关 → 不发 SSRR、不写缓存(admin 置 '1' 后无需重启,
+    // 下一 kick 即真探测)。未注入 getSetting 同样视为关(保守)。
+    if (!getSetting || getSetting('impersonation.enabled') !== '1') return Promise.resolve(false)
     const hit = cache.get(clusterId)
     if (hit !== undefined) return typeof hit === 'boolean' ? Promise.resolve(hit) : hit
     const inflight = runProbe(session).then(
       ok => { cache.set(clusterId, ok); return ok },
-      () => { cache.set(clusterId, false); return false }, // 403/401/网络错误 → false(保守)
+      e => {
+        // 401/403 = 确定性「凭据无 impersonate 权」→ 缓存 false(不再打扰 apiserver);
+        // 其余(5xx/网络错误/无 status)= 瞬态 → 不缓存(isProbed 保持 undefined,下一请求重试)。
+        if (e?.status === 401 || e?.status === 403) { cache.set(clusterId, false); return false }
+        cache.delete(clusterId)
+        return false
+      },
     )
     cache.set(clusterId, inflight)
     return inflight

@@ -630,8 +630,11 @@ async function requestKubernetes(session, path, init = {}) {
 
 // W2 Phase E:impersonation 能力探测器(每 cluster 一次,内存缓存,在途去重;重启清零可接受)。
 // 凭据未必有 impersonate 权(自管 SA 常没有)——盲目注入 = 全站 403,故探测通过(=== true)才注。
-// 探测语义见 ./impersonate.mjs(POST SelfSubjectRulesReview 自带 impersonate 头;403/网络错误→false)。
-const impersonationProbe = createImpersonationProbe({ requestKubernetes })
+// 探测语义见 ./impersonate.mjs(POST SelfSubjectRulesReview 自带 impersonate 头;401/403→缓存
+// false,5xx/网络错误→不缓存重试)。kill-switch(review #2):platform_settings 的
+// impersonation.enabled 需显式 '1'(默认关——组 RoleBinding 供给落地前防 403 风暴;admin 经
+// sqlite 直置该键,无 admin UI,Phase E Task 4 文档化)。
+const impersonationProbe = createImpersonationProbe({ requestKubernetes, getSetting })
 
 // egress 注入收口助手(requestOnce / 流式透传分支 / watch-mux fetchUpstream 三处 kubeFetch 共用):
 // 有身份才动作——懒 kick(cache 无条目→后台探测,本请求不注)+ 探测已决 true 才 merge。

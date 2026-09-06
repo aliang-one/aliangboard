@@ -106,15 +106,24 @@ test('impersonateHeadersFor:可读名 → impersonate-extra-displayname 头', ()
   assert.equal(h['impersonate-extra-displayname'], 'Alice')
 })
 
+test('impersonateHeadersFor:displayname 控制字符剥成空格(review #3 头注入防线,\r\n\t 恒单行)', () => {
+  const h = impersonateHeadersFor({ impersonate: ['aliangboard:u-u1'], impersonateDisplayname: 'Evil\r\nX-Injected: 1\t|nul\x00' })
+  assert.equal(h['impersonate-extra-displayname'], 'Evil  X-Injected: 1 |nul ')
+  assert.ok(!h['impersonate-extra-displayname'].includes('\r') && !h['impersonate-extra-displayname'].includes('\n'))
+})
+
 // ===== createImpersonationProbe =====
 
 function sess(over = {}) {
   return { clusterId: 'c1', impersonate: ['aliangboard:u-u1', 'aliangboard:team-g1'], impersonateDisplayname: 'Alice', ...over }
 }
 
+// kill-switch(review #2)默认关——各「开关已开」用例统一注入此 stub。
+const ON = { getSetting: () => '1' }
+
 test('probe:2xx → true 并缓存(同 cluster 只探测一次,requestFn 计数)', async () => {
   const calls = []
-  const probe = createImpersonationProbe({ requestKubernetes: async (s, path, init) => { calls.push({ s, path, init }); return { status: 201 } } })
+  const probe = createImpersonationProbe({ ...ON, requestKubernetes: async (s, path, init) => { calls.push({ s, path, init }); return { status: 201 } } })
   assert.equal(probe.isProbed('c1'), undefined, '探测前未知')
   assert.equal(await probe.ensureProbed(sess()), true)
   assert.equal(await probe.ensureProbed(sess()), true)
@@ -122,9 +131,9 @@ test('probe:2xx → true 并缓存(同 cluster 只探测一次,requestFn 计数)
   assert.equal(probe.isProbed('c1'), true)
 })
 
-test('probe:探测请求形状 = POST SelfSubjectRulesReview 且自带 impersonate 头(注入门未开时探测必须显式带头)', async () => {
+test('probe:探测请求形状 = POST SelfSubjectRulesReview 且自带 impersonate 头(注入门未开时探测必须显式带头);body 带必填 namespace', async () => {
   const calls = []
-  const probe = createImpersonationProbe({ requestKubernetes: async (s, path, init) => { calls.push({ s, path, init }); return { status: 200 } } })
+  const probe = createImpersonationProbe({ ...ON, requestKubernetes: async (s, path, init) => { calls.push({ s, path, init }); return { status: 200 } } })
   await probe.ensureProbed(sess())
   const { path, init, s } = calls[0]
   assert.equal(path, '/apis/authorization.k8s.io/v1/selfsubjectrulesreviews')
@@ -136,25 +145,68 @@ test('probe:探测请求形状 = POST SelfSubjectRulesReview 且自带 impersona
   const body = JSON.parse(init.body)
   assert.equal(body.kind, 'SelfSubjectRulesReview')
   assert.equal(body.apiVersion, 'authorization.k8s.io/v1')
+  // review #1:spec.namespace 是 SSRR 必填字段,缺省 apiserver 直接 400(探测永远真不了)
+  assert.equal(body.spec.namespace, 'default', 'SSRR body 必须带必填 spec.namespace')
 })
 
-test('probe:403 → false(凭据无 impersonate 权)并缓存', async () => {
+test('probe:kill-switch 关(默认)→ 不发 SSRR、不写缓存、恒 false;置 1 后无需重启即真探测', async () => {
   const calls = []
-  const probe = createImpersonationProbe({ requestKubernetes: async () => { calls.push(1); throw Object.assign(new Error('forbidden'), { status: 403 }) } })
-  assert.equal(await probe.ensureProbed(sess()), false)
-  assert.equal(await probe.ensureProbed(sess()), false)
-  assert.equal(calls.length, 1, '403 结果同样缓存,不重复探测')
-  assert.equal(probe.isProbed('c1'), false)
+  const enabled = { value: null } // 模拟 platform_settings 键
+  const probe = createImpersonationProbe({
+    getSetting: (k) => (k === 'impersonation.enabled' ? enabled.value : null),
+    requestKubernetes: async () => { calls.push(1); return { status: 200 } },
+  })
+  assert.equal(await probe.ensureProbed(sess()), false, '未注入 getSetting 值非 1 → false')
+  assert.equal(calls.length, 0, '关着不发 SSRR')
+  assert.equal(probe.isProbed('c1'), undefined, '关着不写缓存(不是 false)')
+  probe.kick(sess()) // kick 同样被开关拦住
+  await new Promise(r => setImmediate(r))
+  assert.equal(calls.length, 0)
+  enabled.value = '1' // admin 置键——无需重启/新建工厂
+  assert.equal(await probe.ensureProbed(sess()), true)
+  assert.equal(calls.length, 1, '开后的第一次 kick 即真探测')
+  assert.equal(probe.isProbed('c1'), true)
 })
 
-test('probe:网络错误(无 HTTP status)→ false(保守)', async () => {
-  const probe = createImpersonationProbe({ requestKubernetes: async () => { throw new Error('ECONNREFUSED') } })
+test('probe:未注入 getSetting(缺省)→ 恒关(保守)', async () => {
+  const calls = []
+  const probe = createImpersonationProbe({ requestKubernetes: async () => { calls.push(1); return { status: 200 } } })
   assert.equal(await probe.ensureProbed(sess()), false)
+  assert.equal(calls.length, 0)
+})
+
+test('probe:403 → false(凭据无 impersonate 权)并缓存;401 同为确定性缓存', async () => {
+  for (const status of [403, 401]) {
+    const calls = []
+    const probe = createImpersonationProbe({ ...ON, requestKubernetes: async () => { calls.push(1); throw Object.assign(new Error('denied'), { status }) } })
+    assert.equal(await probe.ensureProbed(sess()), false)
+    assert.equal(await probe.ensureProbed(sess()), false)
+    assert.equal(calls.length, 1, `${status} 结果同样缓存,不重复探测`)
+    assert.equal(probe.isProbed('c1'), false)
+  }
+})
+
+test('probe:网络错误(无 HTTP status)→ 本次 false 但不缓存(isProbed=undefined,可重试)', async () => {
+  const calls = []
+  const probe = createImpersonationProbe({ ...ON, requestKubernetes: async () => { calls.push(1); throw new Error('ECONNREFUSED') } })
+  assert.equal(await probe.ensureProbed(sess()), false, '本次调用仍保守返 false')
+  assert.equal(probe.isProbed('c1'), undefined, '瞬态不落缓存(review #4)')
+  assert.equal(await probe.ensureProbed(sess()), false, '下一请求重试')
+  assert.equal(calls.length, 2, '瞬态失败会再次发起探测')
+})
+
+test('probe:5xx → 同网络错误处理(瞬态不缓存,重试)', async () => {
+  const calls = []
+  const probe = createImpersonationProbe({ ...ON, requestKubernetes: async () => { calls.push(1); throw Object.assign(new Error('boom'), { status: 502 }) } })
+  assert.equal(await probe.ensureProbed(sess()), false)
+  assert.equal(probe.isProbed('c1'), undefined)
+  await probe.ensureProbed(sess())
+  assert.equal(calls.length, 2)
 })
 
 test('probe:不同 clusterId 独立探测;无 clusterId 不发探测直接 false', async () => {
   const calls = []
-  const probe = createImpersonationProbe({ requestKubernetes: async (s) => { calls.push(s.clusterId); return { status: 200 } } })
+  const probe = createImpersonationProbe({ ...ON, requestKubernetes: async (s) => { calls.push(s.clusterId); return { status: 200 } } })
   assert.equal(await probe.ensureProbed(sess()), true)
   assert.equal(await probe.ensureProbed(sess({ clusterId: 'c2' })), true)
   assert.deepEqual(calls.sort(), ['c1', 'c2'])
@@ -165,7 +217,7 @@ test('probe:不同 clusterId 独立探测;无 clusterId 不发探测直接 false
 test('probe:并发 ensureProbed 共享同一 in-flight 探测(不重复打 apiserver)', async () => {
   let release
   const calls = []
-  const probe = createImpersonationProbe({ requestKubernetes: () => { calls.push(1); return new Promise(r => { release = r }) } })
+  const probe = createImpersonationProbe({ ...ON, requestKubernetes: () => { calls.push(1); return new Promise(r => { release = r }) } })
   const p1 = probe.ensureProbed(sess())
   const p2 = probe.ensureProbed(sess())
   release({ status: 200 })
@@ -280,7 +332,7 @@ test('mergeImpersonate:显式已有 impersonate 头不被覆盖(调用方显式�
 test('kick:cache 无条目 → 发起;在途/已决 → 不重复;无身份/无 clusterId → 不发', async () => {
   const calls = []
   let release
-  const probe = createImpersonationProbe({ requestKubernetes: () => { calls.push(1); return new Promise(r => { release = r }) } })
+  const probe = createImpersonationProbe({ ...ON, requestKubernetes: () => { calls.push(1); return new Promise(r => { release = r }) } })
   probe.kick(sess())                          // cache 无条目 → 发起
   probe.kick(sess())                          // 在途 → 去重
   assert.equal(calls.length, 1)
@@ -293,9 +345,14 @@ test('kick:cache 无条目 → 发起;在途/已决 → 不重复;无身份/无 
   assert.equal(calls.length, 1)
 })
 
-test('kick:fire-and-forget 恒不抛,失败静默落 false 缓存', async () => {
-  const probe = createImpersonationProbe({ requestKubernetes: async () => { throw new Error('boom') } })
-  probe.kick(sess())
-  await new Promise(r => setImmediate(r))
-  assert.equal(probe.isProbed('c1'), false)
+test('kick:fire-and-forget 恒不抛;网络错误失败不落缓存(可重试),403 落 false 缓存', async () => {
+  for (const [mkErr, cached] of [
+    [() => new Error('boom'), undefined],
+    [() => Object.assign(new Error('forbidden'), { status: 403 }), false],
+  ]) {
+    const probe = createImpersonationProbe({ ...ON, requestKubernetes: async () => { throw mkErr() } })
+    probe.kick(sess())
+    await new Promise(r => setImmediate(r))
+    assert.equal(probe.isProbed('c1'), cached)
+  }
 })
