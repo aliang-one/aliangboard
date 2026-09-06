@@ -29,6 +29,18 @@ export async function routeDynamicApproval(n, args, sshBridge, sshJobs) {
     : (sshBridge ? sshBridge.needsApproval(n, args) : true)
 }
 
+// 终答兜底块(2026-09-06「对话尾巴不展示」修复):轮未完成(失败/取消/步数硬断)时,已流出
+// 的文本只活在 content——没有 assistant step 事件 → trace 无对应块 → 前端交错渲染模式只渲染
+// trace 块,尾巴对用户永久不可见(生产近期 31% 消息中招)。纯函数:content 非空且 trace 末尾
+// 无同文 assistant 块 → 追加一块并返回新数组;否则原样返回。同文判定兼容 conv.trace 全量形状
+// (message.content 嵌套)。salvage/cancelled/done 三条落库路径共用,勿在调用点复刻判定。
+export function ensureFinalTraceBlock(content, trace = []) {
+  if (!content) return trace
+  const last = trace[trace.length - 1]
+  if (last?.type === 'assistant' && (last.content ?? last.message?.content) === content) return trace
+  return [...trace, { type: 'assistant', content }]
+}
+
 export function createWorkbenchAgent(deps) {
   const { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose } = deps
 
@@ -65,7 +77,11 @@ const CK_TIME_MS = 500
       if (tracker) patch.reasoning = tracker.reasoning()
       updateConversation(db, convId, patch)
       // T4:多轮核心 —— done 时追加 assistant 消息到 workbench_messages(供下一轮 buildHistory 读取)。
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', reasoning: tracker ? tracker.reasoning() : null, trace: traceJson || '[]' })
+      // 终答兜底(2026-09-06):硬断/异常路径的 out.content 没有对应 assistant step 事件
+      // (如「(达到最大步数,未给出终答)」),不补块则交错模式对用户不可见。
+      let traceArr = []
+      try { traceArr = JSON.parse(traceJson || '[]') } catch { traceArr = [] }
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', reasoning: tracker ? tracker.reasoning() : null, trace: JSON.stringify(ensureFinalTraceBlock(out.content, traceArr)) })
       appendHistory(db, project.id, 'user', getConversation(db, convId).userMessage)
       appendHistory(db, project.id, 'assistant', out.content || '')
     }
@@ -121,7 +137,7 @@ const CK_TIME_MS = 500
       },
     }
   }
-  function salvagePartial(convId, err, tracker) {
+  function salvagePartial(convId, err, tracker, traceArr = []) {
     // EXISTENCE 守卫(终审 I5,同 handleAgentResult):对话已被删时不再补录任何行,
     // 否则 catch 路径会把部分内容写成孤儿 assistant 消息。静默返回(catch 块后续的
     // busEmit failed+end 仍照发,前端不会被无限 thinking 卡住)。
@@ -130,8 +146,10 @@ const CK_TIME_MS = 500
     const reasoning = tracker ? tracker.reasoning() : ''
     if (partial || reasoning) {
       updateConversation(db, convId, { status: 'failed', error: err.message, content: partial, reasoning })
-      const trace = getConversation(db, convId)?.trace
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: partial, reasoning: reasoning || null, trace })
+      // 消息级 trace 由调用方给「本轮事件」(run 段=turnTrace;resume 段=currentTurnTrace,
+      // 含审批暂停前事件):旧实现拉 conv.trace 全对话累积,历史轮事件污染本轮交错渲染。
+      // + 终答兜底块(轮未完成无 step 事件,已流出文本必须补块才在交错模式可见)。
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: partial, reasoning: reasoning || null, trace: JSON.stringify(ensureFinalTraceBlock(partial, traceArr)) })
     } else {
       updateConversation(db, convId, { status: 'failed', error: err.message })
     }
@@ -140,8 +158,8 @@ const CK_TIME_MS = 500
   // busEmit(failed+end)——事件发不出去,前端就是无限 thinking 无提示;且本函数 detached
   // 调用(无 .catch),reject 会变 unhandledRejection 把网关进程带走。落库失败只记 stderr,
   // conv 留在 running 由启动时 salvageInterrupted 兜底标记。
-  function safeSalvage(convId, err, tracker) {
-    try { salvagePartial(convId, err, tracker) }
+  function safeSalvage(convId, err, tracker, traceArr = []) {
+    try { salvagePartial(convId, err, tracker, traceArr) }
     catch (salvageErr) { console.error('[workbench-agent] salvage 落库失败(对话留待启动抢救):', salvageErr?.message || salvageErr) }
   }
   function finalizeConvEmit(convId, out) {
@@ -150,10 +168,47 @@ const CK_TIME_MS = 500
     if (dispose) busDispose(convId)
   }
 
+  // onStep 统一工厂(2026-09-06 run/resume 对齐):trace 落库 + turnTrace 累积 + assistant
+  // 轮完成清零检查点。此前 resume 的 onStep 只做 appendTrace+推流——缺 resetRound,续跑段
+  // 多轮时 partial 跨轮累积,失败 salvage 把多轮拼接串整体落成一条消息(生产实例:
+  // 408=26+212+50+7+113)。tracker 须在装配 onStep 前已赋值。
+  function makeOnStep(convId, turnTrace, tracker) {
+    return raw => {
+      const e = clampTraceStep(raw)
+      if (e.type !== 'tool_start') {
+        appendTrace(db, convId, e)
+        if (e.type === 'assistant') {
+          turnTrace.push({ type: 'assistant', content: e.message?.content || '', ts: e.ts })
+          tracker?.resetRound()   // 检查点轮间清零(见 trackPartial 注释)
+        }
+        else turnTrace.push(e)
+      }
+      busEmit(convId, { type: 'step', step: e })
+    }
+  }
+
+  // 本轮事件切片(2026-09-06):消息级 trace 只该含「最后一条 user 消息之后」的本轮事件
+  // (与前端 pollOnce live 对齐同口径,ts > lastMsgTs + 剔除 tool_start 瞬态 + assistant 全量
+  // 形状瘦身为平铺)。resume 消息必须用它而非 run 段 turnTrace:审批续跑轮的暂停前事件
+  // (中间文本/工具)也属于本轮,落库丢了交错渲染就断章;历史轮事件则必须排除(conv.trace
+  // 是全对话累积,旧 resume-done 整包拉取会把历史轮灌进本轮消息)。
+  function currentTurnTrace(convId) {
+    // 全程防御(被 catch 块调用,自身抛错会吞掉 salvage/failed 事件序列):任何读失败 → 空切片
+    let conv = null
+    try { conv = getConversation(db, convId) } catch { return [] }
+    let all = []; try { all = JSON.parse(conv?.trace || '[]') } catch { all = [] }
+    let lastMsgTs = 0
+    try { lastMsgTs = db.prepare('SELECT MAX(createdAt) AS m FROM workbench_messages WHERE conversationId=?').get(convId)?.m || 0 } catch { lastMsgTs = 0 }
+    return all
+      .filter(e => e && (e.ts || 0) > lastMsgTs && e.type !== 'tool_start')
+      .map(e => e?.type === 'assistant' ? { type: 'assistant', content: e.message?.content ?? e.content ?? '', ts: e.ts } : e)
+  }
+
   // 后台跑对话(detached Promise,不阻塞 HTTP 响应)。k8sSession 内部按 conv.projectId 重建(T5)。
   // T7:全程把事件透到 conv-bus(status/delta/step/end/approval),供 SSE 订阅。
   async function runConversation(convId, llmClient, actor) {
     let tracker = null // 中断保全:catch 需读累计内容,须在 try 外声明
+    let turnTrace = [] // 本段事件累积(失败 salvage 落消息级 trace 用,同在 try 外)
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -194,38 +249,26 @@ const CK_TIME_MS = 500
         + await fetchRefContext(refs, k8sSession)
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv)
-      // 本轮事件累积(tool/denied + 瘦身 assistant 文本)——done 时随 assistant 消息落库,
+      // 本段事件累积(tool/denied + 瘦身 assistant 文本)——done/salvage 时随 assistant 消息落库,
       // 前端重建历史据此交错渲染(文本↔工具)。对话级 appendTrace(全事件)保持不变。
-      const turnTrace = []
+      turnTrace = []
       const out = await run({
         system: conv.system,
         history,
         refreshSystem,
         onDelta: tracker.onDelta,
         onReasoning: tracker.onReasoning,
-        // assistant 事件瘦身入 turnTrace({type,content,ts}——中间文本,交错渲染用;终答 content 恒等于
-        // 末个 assistant 事件,前端据此去重);对话级 appendTrace 仍存全事件。tool_start 瞬态只推流不落库。
-        // 2026-08-27:工具 result 存/流面前过 clampTraceStep(32KB 截断)——get_resource 等全量
-        // 对象不再无界灌入 conv.trace/GET /:id/SSE;LLM feed 不受影响(agent.mjs 独立钳制)。
-        onStep: raw => {
-          const e = clampTraceStep(raw)
-          if (e.type !== 'tool_start') {
-            appendTrace(db, convId, e)
-            if (e.type === 'assistant') {
-              turnTrace.push({ type: 'assistant', content: e.message?.content || '', ts: e.ts })
-              tracker?.resetRound()   // 检查点轮间清零(见 trackPartial 注释)
-            }
-            else turnTrace.push(e)
-          }
-          busEmit(convId, { type: 'step', step: e })
-        },
+        // onStep 统一走 makeOnStep(2026-09-06 run/resume 对齐,语义注释见工厂):assistant 事件
+        // 瘦身入 turnTrace + 轮间清零;工具 result 存/流面前过 clampTraceStep(32KB 截断);
+        // tool_start 瞬态只推流不落库。
+        onStep: makeOnStep(convId, turnTrace, tracker),
       })
       // 用户已取消(cancelConversation 置 cancelled):终态结果丢弃——不覆盖状态、不追加项目历史;
       // 但已流出的部分内容+思考落 assistant 消息(用户裁决 2026-08-19,与 failed 抢救对称——
       // 此前全弃,刷新后用户看着流出来的答案蒸发)。无流出内容则不追加。
       if (getConversation(db, convId)?.status === 'cancelled') {
         if (tracker && (tracker.partial() || tracker.reasoning())) {
-          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(turnTrace) })
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(ensureFinalTraceBlock(tracker.partial(), turnTrace)) })
         }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
@@ -235,7 +278,7 @@ const CK_TIME_MS = 500
       finalizeConvEmit(convId, out)
       maybeSummarizeProject(db, conv.projectId, llmClient).catch(() => {}) // 项目记忆:done 后补 fire(A2;append 处保留兜底,水位幂等)
     } catch (err) {
-      safeSalvage(convId, err, tracker)
+      safeSalvage(convId, err, tracker, turnTrace)
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)
@@ -296,28 +339,26 @@ const CK_TIME_MS = 500
         refreshSystem,
         onDelta: tracker.onDelta,
         onReasoning: tracker.onReasoning,
-        onStep: raw => { const e = clampTraceStep(raw); if (e.type !== 'tool_start') appendTrace(db, convId, e); busEmit(convId, { type: 'step', step: e }) }, // tool_start 瞬态只推流不落库(重载后不会残留 running 态);result 存/流面截断同 runConversation
+        // 与 runConversation 同款(2026-09-06 对齐):assistant 轮完成清零检查点。turnTrace
+        // 处传 throwaway——resume 落库不用段内累积,而用 currentTurnTrace(须含审批暂停前事件)。
+        onStep: makeOnStep(convId, [], tracker),
       })
       // 同 runConversation:取消后终态丢弃,但保留已流出的部分内容+思考(见 runConversation 注释)
       if (getConversation(db, convId)?.status === 'cancelled') {
         if (tracker && (tracker.partial() || tracker.reasoning())) {
-          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: getConversation(db, convId)?.trace })
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(ensureFinalTraceBlock(tracker.partial(), currentTurnTrace(convId))) })
         }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
         return
       }
-      // resume(审批续跑)done:整段 conv.trace 归一化后落消息级——assistant 全量形状
-      // (message.content 嵌套)瘦身为平铺,与新对话路径一致(交错渲染消费统一形状)。
-      let resumeTrace = []
-      try { resumeTrace = JSON.parse(getConversation(db, convId)?.trace || '[]') } catch { resumeTrace = [] }
-      handleAgentResult(convId, project, out, tracker, JSON.stringify(
-        resumeTrace.map(e => e?.type === 'assistant' ? { type: 'assistant', content: e.message?.content || '', ts: e.ts } : e)
-      ))
+      // resume(审批续跑)done:消息级 trace = 本轮事件切片(currentTurnTrace)——含审批暂停前
+      // 的中间文本/工具事件(交错渲染不断章),排除历史轮(2026-09-06 前整包拉 conv.trace 全对话累积)。
+      handleAgentResult(convId, project, out, tracker, JSON.stringify(currentTurnTrace(convId)))
       finalizeConvEmit(convId, out)
       maybeSummarizeProject(db, project.id, llmClient).catch(() => {}) // 项目记忆:resume done 后补 fire(A2;水位幂等)
     } catch (err) {
-      safeSalvage(convId, err, tracker)
+      safeSalvage(convId, err, tracker, currentTurnTrace(convId))
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)

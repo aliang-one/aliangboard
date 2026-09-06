@@ -20,6 +20,25 @@ export function ensureFinalAnswerBlock(state) {
   return { ...state, trace: [...trace, { type: 'assistant', content }] }
 }
 
+// 存量隐形尾巴自愈(2026-09-06「对话尾巴不展示」修复):轮未完成落库的消息(失败/取消/步数
+// 硬断)已流出文本只在 content,trace 无块 → 交错渲染(只渲染 trace 块)看不见。消息重建
+// (pollOnce rebuild)时算缺尾:①content 与末块同文(正常 done)→ 无缺;②content 以文本块
+// 拼接串为前缀(legacy 拼接遗留)→ 缺尾=后缀;③其余(块外全新文本,当前轮 partial)→ 缺尾=
+// 整个 content。无文本块返回 ''(回退布局 content 自会渲染)。纯函数,调用方据此补 trace 块。
+export function missingFinalTail(content, trace) {
+  const c = content || ''
+  if (!c) return ''
+  const texts = (trace || [])
+    .filter(e => e && e.type === 'assistant')
+    .map(e => (e.content ?? e.message?.content) || '')
+    .filter(Boolean)
+  if (!texts.length) return ''
+  if (texts[texts.length - 1] === c) return ''
+  const concat = texts.join('')
+  if (concat && c.startsWith(concat)) return c.slice(concat.length)
+  return c
+}
+
 export function applyStreamEvent(state, evt) {
   if (!evt || typeof evt !== 'object') return state
   switch (evt.type) {
@@ -68,7 +87,7 @@ export function applyStreamEvent(state, evt) {
     case 'status': {
       // 对话状态变更(running/paused/done/failed/cancelled);终态清 tool_start 残留(execTool 抛错直 failed 等)
       const clean = st => ({ ...st, trace: (st.trace || []).filter(x => x?.type !== 'tool_start') })
-      if (evt.status === 'done') return ensureFinalAnswerBlock(clean({ ...state, status: 'done', truncated: !!(evt.truncated || state.truncated) }))
+      if (evt.status === 'done') return ensureFinalAnswerBlock(clean({ ...state, status: 'done', truncated: !!(evt.truncated || state.truncated), cutByLength: !!(evt.cutByLength || state.cutByLength) }))
       if (evt.status === 'paused') return clean({ ...state, status: 'pending_approval' })
       // failed 的 error 可能是上游网关整页 HTML(nginx 502 等)——显示前净化
       if (evt.status === 'failed') return clean({ ...state, status: 'error', error: sanitizeChatError(evt.error) })

@@ -490,3 +490,76 @@ test('F2: 收尾轮 chat 前先按预算裁剪(到上限时刻消息最长,防�
   const size = JSON.stringify(wrappedUpMessages).length
   assert.ok(size <= 500 + 1000, `收尾轮消息序列化长度 ${size} 应 ≤ budget+1000 余量(system/收尾 user 提示不裁)`)
 })
+
+// ── chat 容错重试(2026-09-06「对话尾巴不展示」排查):sub2api/litellm 代理瞬时 400/502
+// 常打死 final 轮(跑完全部工具只差总结)→ 整轮 failed。契约:首 token 前(未吐任何
+// delta/reasoning)失败自动重试一次;已吐 delta 后失败不重试——流式重试会让前端内容重复拼接。
+
+test('chat 首次失败(未吐 delta)→ 自动重试一次并成功', async () => {
+  let calls = 0
+  const chat = async () => {
+    if (++calls === 1) throw new Error('LLM HTTP 502: Upstream service temporarily unavailable')
+    return final('重试后的终答')
+  }
+  const out = await createAgent({ chat, execTool: async () => 'x' }).run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, '重试后的终答')
+  assert.equal(calls, 2, '失败一次,恰好重试一次')
+})
+
+test('chat 中间轮首 delta 前失败 → 同样重试(tool 轮救活)', async () => {
+  let calls = 0
+  const chat = async () => {
+    if (++calls === 1) throw new Error('LLM HTTP 400: messages 参数非法')
+    if (calls === 2) return toolCall('1', 'list_resources', { kind: 'pods' })
+    return final('ok')
+  }
+  const out = await createAgent({ chat, execTool: async () => 'x' }).run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, 'ok')
+  assert.equal(calls, 3)
+})
+
+test('chat 已吐 delta 后失败 → 不重试,错误照抛(salvage 由上层接)', async () => {
+  let calls = 0
+  const chat = async (messages, tools, opts = {}) => {
+    if (++calls === 1) { opts.onDelta?.('前半段'); throw new Error('midstream dead') }
+    return final('不该走到这')
+  }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x' }).run({ history: [{ role: 'user', content: 'hi' }], onDelta: () => {} }),
+    /midstream dead/,
+  )
+  assert.equal(calls, 1, '已吐 delta 不重试(前端内容会被重复拼接)')
+})
+
+test('重试也失败 → 抛第二次错误', async () => {
+  let calls = 0
+  const chat = async () => { calls++; throw new Error(`boom #${calls}`) }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x' }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /boom #2/,
+  )
+  assert.equal(calls, 2, '至多重试一次')
+})
+
+// ── finishReason=length → cutByLength 亮标(不再静默截断)──
+test('终答 finishReason=length → out.cutByLength=true', async () => {
+  const run = createAgent({ chat: mockChat([{ role: 'assistant', content: '被掐断的回答', finishReason: 'length' }]), execTool: async () => 'x' }).run
+  const out = await run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, '被掐断的回答')
+  assert.equal(out.cutByLength, true)
+})
+
+test('正常终答不携带 cutByLength', async () => {
+  const run = createAgent({ chat: mockChat([final('完整回答')]), execTool: async () => 'x' }).run
+  const out = await run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.cutByLength, false)
+})
+
+test('收尾轮 finishReason=length → cutByLength=true', async () => {
+  let i = 0
+  const chat = async () => ++i <= 3 ? toolCall(String(i), 'list_resources', {}) : { role: 'assistant', content: '收尾也被掐断', finishReason: 'length' }
+  const run = createAgent({ chat, execTool: async () => 'x', maxSteps: 3 }).run
+  const out = await run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.truncated, true)
+  assert.equal(out.cutByLength, true)
+})

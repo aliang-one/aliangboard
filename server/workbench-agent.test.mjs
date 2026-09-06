@@ -274,6 +274,106 @@ test('resumeConversation 失败:同样保全部分内容(审批续跑路径对�
   assert.equal(msgs.at(-1).content, '续跑已产出')
 })
 
+// 回归(2026-09-06「对话尾巴不展示」排查):resume 的 onStep 原缺 turnTrace 累积 + resetRound——
+// 续跑段多轮时 partial 跨轮累积,失败 salvage 把多轮拼接串整体落一条消息(生产实例:408=26+212+50+7+113),
+// 且消息级 trace 从 conv.trace 拉全对话累积(历史轮事件污染本轮渲染)。契约对齐 run 路径:
+// ① assistant 轮完成即清零 partial(抢救内容只含当前轮)②消息 trace 只含本段事件。
+test('resumeConversation 多轮:assistant 轮完成清零 partial + 消息 trace 只含本段事件', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, {
+    status: 'paused', messages: '[]', queue: '[]', denied: '[]',
+    pendingApproval: JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }),
+    // 预置历史轮事件:resume 落库的消息 trace 不得再包含(conv.trace 全量拉取是污染源)
+    trace: JSON.stringify([{ type: 'assistant', message: { role: 'assistant', content: '历史轮文本' }, ts: 0 }]),
+  })
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('第一轮文本')                                                      // 轮 1 流式中
+    opts.onStep({ type: 'assistant', message: { role: 'assistant', content: '第一轮文本' }, ts: Date.now() + 1 }) // 轮 1 完成
+    opts.onStep({ type: 'tool', name: 'wb_scale', args: {}, result: 'ok', ts: Date.now() + 2 })
+    opts.onDelta('第二轮尾巴')                                                      // 轮 2 流式中(未完成即失败)
+    throw new Error('LLM HTTP 400: messages 参数非法')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  const last = db.prepare('SELECT content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id).at(-1)
+  assert.equal(last.content, '第二轮尾巴', 'assistant 轮完成即清零:抢救内容只含当前轮,无历史轮拼接')
+  const trace = JSON.parse(last.trace || '[]')
+  // 末尾 assistant = 终答兜底块(2026-09-06):未完成轮的流出文本补块,交错模式可见
+  assert.deepEqual(trace.map(e => e.type), ['assistant', 'tool', 'assistant'], '本段事件 + 终答兜底块(不含预置历史轮)')
+  assert.equal(trace.at(-1).content, '第二轮尾巴', '兜底块内容 = 已流出尾巴')
+  assert.ok(!JSON.stringify(trace).includes('历史轮文本'), '历史轮事件不污染本轮消息 trace')
+})
+
+// ── 终答兜底块(2026-09-06「对话尾巴不展示」修复核心)──
+// 轮未完成(失败/取消/硬断)时已流出的文本只活在 content——没有 assistant step 事件 →
+// trace 无对应块 → 前端交错渲染模式只渲染 trace 块,尾巴对用户永久不可见(生产 31% 近期
+// 消息中招)。契约:三条落库路径(salvage/cancelled/done)凡 content 非空且 trace 末尾无
+// 同文 assistant 块,一律补 {type:'assistant', content} 块。纯函数 ensureFinalTraceBlock。
+test('ensureFinalTraceBlock:末尾无同文块 → 补;有 → 不重复;content 空 → 原样', async () => {
+  const { ensureFinalTraceBlock } = await import('./workbench-agent.mjs')
+  // 无块 → 补
+  assert.deepEqual(ensureFinalTraceBlock('尾巴文本', [{ type: 'tool', name: 'x' }]),
+    [{ type: 'tool', name: 'x' }, { type: 'assistant', content: '尾巴文本' }])
+  // 末尾同文块已在 → 不重复(正常 done 路径)
+  const withBlock = [{ type: 'assistant', content: '终答' }]
+  assert.deepEqual(ensureFinalTraceBlock('终答', withBlock), withBlock)
+  // content 空 → 原样(reasoning-only 抢救不补空块)
+  assert.deepEqual(ensureFinalTraceBlock('', withBlock), withBlock)
+  // 兼容 conv.trace 全量形状(message.content 嵌套)的同文判定
+  const legacy = [{ type: 'assistant', message: { content: '旧形状终答' } }]
+  assert.deepEqual(ensureFinalTraceBlock('旧形状终答', legacy), legacy)
+})
+
+test('salvage 落库补终答块:失败时已流出文本在交错模式可见', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onDelta('这是已经流出来的部分答案')
+    throw new Error('LLM HTTP 502: boom')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  const last = db.prepare('SELECT content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id).at(-1)
+  const trace = JSON.parse(last.trace || '[]')
+  const tailBlock = trace.filter(e => e?.type === 'assistant' && e.content).at(-1)
+  assert.ok(tailBlock, '失败轮无 step 事件,须补 assistant 块')
+  assert.equal(tailBlock.content, last.content, '补块内容 = 已流出文本')
+})
+
+test('done 落库终答兜底:硬断文案无 assistant step 事件 → 补块(交错模式可见,不再静默结束)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  // 模拟旧硬断/异常:run 直接返回终态文本,但从未发 assistant step 事件(trace 无终答块)
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onStep({ type: 'tool', name: 'wb_exec', args: {}, result: 'ok', ts: 1 })
+    return { status: 'done', content: '(达到最大步数,未给出终答)', steps: 2, messages: [], queue: [], denied: [], truncated: true }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  const msgs = db.prepare('SELECT content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  const trace = JSON.parse(msgs.at(-1).trace || '[]')
+  assert.ok(trace.some(e => e?.type === 'assistant' && e.content === '(达到最大步数,未给出终答)'), '终答文本有 trace 块,交错模式可见')
+})
+
+test('取消落库补终答块:cancelled 路径已流出文本同样可见', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let resolveRun
+  const { createAgentRunner } = makeRunner((opts) => {
+    opts.onDelta('已流出的一半')
+    return new Promise(res => { resolveRun = res })
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const p = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+  agent.cancelConversation(conv.id)
+  resolveRun({ status: 'done', content: '迟到的完整答案', trace: [], steps: 1, messages: [], queue: [], denied: [] })
+  await p
+  const last = db.prepare('SELECT content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id).at(-1)
+  const trace = JSON.parse(last.trace || '[]')
+  assert.ok(trace.some(e => e?.type === 'assistant' && e.content === '已流出的一半'), '取消时已流出文本有 trace 块')
+})
+
+
 // ── reasoning(思考过程)持久化(R1):与 content 同款三层防御,刷新/重进后 thinking 可回看 ──
 test('runConversation done: reasoning 落 conv 检查点 + assistant 消息终值', async () => {
   const { db, conv, busEmit, busDispose, makeRunner } = setup()

@@ -244,3 +244,53 @@ test('done:content 为空(正常 SSE 路径,step.assistant 已清零)→ 不追�
   const next = applyStreamEvent(state, { type: 'status', status: 'done' })
   expect(next.trace).toHaveLength(1)
 })
+
+// ── 存量隐形尾巴自愈(2026-09-06「对话尾巴不展示」修复)──
+// 轮未完成落库的消息(失败/取消/步数硬断)已流出文本只在 content,trace 无块 → 交错渲染
+// (只渲染 trace 块)看不见。消息重建(pollOnce rebuild)时用 missingFinalTail 算缺尾补块。
+import { missingFinalTail } from '../conv-stream'
+
+test('missingFinalTail:content 与末块同文(正常 done)→ 无缺尾', () => {
+  const trace = [{ type: 'assistant', content: '中间轮' }, { type: 'assistant', content: '终答全文' }]
+  expect(missingFinalTail('终答全文', trace)).toBe('')
+})
+
+test('missingFinalTail:无 assistant 文本块(回退布局)→ 不补(content 自会渲染)', () => {
+  expect(missingFinalTail('部分答案', [{ type: 'tool', name: 'x' }])).toBe('')
+  expect(missingFinalTail('部分答案', [])).toBe('')
+})
+
+test('missingFinalTail:legacy 拼接行(content=块拼接串)→ 无缺尾,不重复补块', () => {
+  // 生产实例 13705764:resume 段多轮 partial 拼接,content 与块序列拼接串完全相等
+  const trace = [
+    { type: 'assistant', content: 'CNP 已写入。现在 apply:' },
+    { type: 'tool', name: 'apply' },
+    { type: 'assistant', content: 'apply 结果:字段写错了' },
+  ]
+  const content = 'CNP 已写入。现在 apply:' + 'apply 结果:字段写错了'
+  expect(missingFinalTail(content, trace)).toBe('')
+})
+
+test('missingFinalTail:legacy 拼接行带段外后缀 → 只补后缀', () => {
+  const trace = [{ type: 'assistant', content: '第一轮' }, { type: 'tool', name: 'x' }, { type: 'assistant', content: '第二轮' }]
+  expect(missingFinalTail('第一轮第二轮第三轮尾巴', trace)).toBe('第三轮尾巴')
+})
+
+test('missingFinalTail:当前轮 partial(块外全新文本)→ 缺尾为整个 content', () => {
+  const trace = [{ type: 'assistant', content: '中间轮文本' }, { type: 'tool', name: 'wb_exec' }]
+  expect(missingFinalTail('被掐断的尾巴:清理清单如下:', trace)).toBe('被掐断的尾巴:清理清单如下:')
+})
+
+test('missingFinalTail:兼容 conv.trace 全量形状(message.content 嵌套)', () => {
+  const trace = [{ type: 'assistant', message: { content: '旧形状中间轮' } }]
+  expect(missingFinalTail('旧形状中间轮', trace)).toBe('')
+})
+
+test('missingFinalTail:content 空 → 无缺尾', () => {
+  expect(missingFinalTail('', [{ type: 'assistant', content: 'x' }])).toBe('')
+})
+
+test('status=done 携带 cutByLength → 落入 state(输出上限截断亮标)', () => {
+  expect(applyStreamEvent(fresh(), { type: 'status', status: 'done', cutByLength: true }).cutByLength).toBe(true)
+  expect(applyStreamEvent(fresh(), { type: 'status', status: 'done' }).cutByLength).toBe(false)
+})

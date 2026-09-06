@@ -32,9 +32,11 @@ export function createLlmClient({
     let json
     try { json = JSON.parse(text) } catch { throw new Error(`LLM 返回非 JSON(HTTP ${res.status}): ${text.slice(0, 200)}`) }
     if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${json.error?.message || json.message || text.slice(0, 200)}`)
-    const msg = json.choices?.[0]?.message
+    const choice = json.choices?.[0]
+    const msg = choice?.message
     if (!msg) throw new Error('LLM 响应缺 choices[0].message')
-    return msg
+    // finish_reason 透传(2026-09-06):'length' = 输出上限掐断,agent 据此亮 cutByLength 标,不再静默截断
+    return choice.finish_reason ? { ...msg, finishReason: choice.finish_reason } : msg
   }
 
   // chatStream:流式版 chat。逐 chunk 解 OpenAI 兼容 SSE;content 累积并回调 onDelta;
@@ -67,14 +69,15 @@ export function createLlmClient({
     if (!res.body) throw new Error('LLM 响应无 body(不支持流式)')
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
-    let buf = '', content = '', reasoning = '', toolCallsMap = {}
+    let buf = '', content = '', reasoning = '', finishReason = null, toolCallsMap = {}
     const readChunk = async () => { const r = await reader.read(); armIdle(); return r }
     const finalize = () => {
       const tool_calls = Object.keys(toolCallsMap).sort((a, b) => a - b)
         .map(k => toolCallsMap[k]).filter(t => t.function.name || t.function.arguments)
       // reasoning(DeepSeek-R1/Qwen 深思考的 reasoning_content,OpenAI o 系列为 reasoning):
       // 思考 token 也回调/返回——此前整段丢弃,前端只能干等 35-40s"思考中"。
-      return { role: 'assistant', content, ...(reasoning ? { reasoning } : {}), ...(tool_calls.length ? { tool_calls } : {}) }
+      // finish_reason 透传(2026-09-06,同 chat):'length' = 输出上限掐断。
+      return { role: 'assistant', content, ...(reasoning ? { reasoning } : {}), ...(finishReason ? { finishReason } : {}), ...(tool_calls.length ? { tool_calls } : {}) }
     }
     while (true) {
       const { done, value } = await readChunk()
@@ -89,6 +92,7 @@ export function createLlmClient({
         if (payload === '[DONE]') { reader.cancel?.().catch(() => {}); return finalize() }
         let obj; try { obj = JSON.parse(payload) } catch { continue }
         const delta = obj.choices?.[0]?.delta
+        if (obj.choices?.[0]?.finish_reason) finishReason = obj.choices[0].finish_reason
         if (!delta) continue
         const rtext = delta.reasoning_content ?? delta.reasoning
         if (typeof rtext === 'string' && rtext) { reasoning += rtext; onReasoning?.(rtext) }

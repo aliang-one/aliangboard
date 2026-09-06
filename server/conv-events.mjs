@@ -19,9 +19,10 @@ export function eventsForResult(out) {
   }
   // done(以及其他终态——非 paused)都按 done 处理并 dispose;
   // truncated 透传(2026-09-03):收尾轮答案/旧硬断都带此标,前端亮「已达步数上限」
+  // cutByLength 透传(2026-09-06):finish_reason=length = 输出上限掐断,前端亮标,不再静默
   return {
     events: [
-      { type: 'status', status: 'done', truncated: !!out.truncated },
+      { type: 'status', status: 'done', truncated: !!out.truncated, cutByLength: !!out.cutByLength },
       { type: 'end' },
     ],
     dispose: true,

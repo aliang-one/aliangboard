@@ -226,3 +226,31 @@ test('chat: temperature/maxTokens 有值才进 body(空串/undefined 不带)', a
   await c2.chat({ messages: [] })
   assert.ok(!('temperature' in cap2.body) && !('max_tokens' in cap2.body), '空串不带')
 })
+
+// ── finish_reason 透传(2026-09-06「对话尾巴不展示」排查):provider 单响应输出上限掐断
+// 生成时此前全链路无人读,静默截断无任何标记。契约:chat/chatStream 把 choices[0].finish_reason
+// 以 finishReason 字段随结果返回(缺失则不带该字段)。
+test('chat: finish_reason 透传为 finishReason', async () => {
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ text: { choices: [{ message: { role: 'assistant', content: '被掐断的回答' }, finish_reason: 'length' }] } }) })
+  const msg = await c.chat({ messages: [] })
+  assert.equal(msg.content, '被掐断的回答')
+  assert.equal(msg.finishReason, 'length')
+})
+
+test('chat: 无 finish_reason → 不带 finishReason 字段', async () => {
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ text: { choices: [{ message: { role: 'assistant', content: 'hi' } }] } }) })
+  const msg = await c.chat({ messages: [] })
+  assert.equal('finishReason' in msg, false)
+})
+
+test('chatStream: finish_reason 透传为 finishReason', async () => {
+  const chunks = [
+    'data: ' + JSON.stringify({ choices: [{ delta: { content: '答案前半' } }] }) + '\n\n',
+    'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] }) + '\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] }, {})
+  assert.equal(msg.content, '答案前半')
+  assert.equal(msg.finishReason, 'length')
+})

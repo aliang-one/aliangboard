@@ -216,6 +216,8 @@ function onRootClick(e) {
       <span class="material-symbols-outlined text-sm" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? 'person' : 'smart_toy' }}</span>
       <span class="text-body-xs font-semibold" :class="turn.role === 'user' ? 'text-primary' : 'text-on-surface-variant'">{{ turn.role === 'user' ? t('workbench.chat.roleYou') : t('workbench.chat.roleAgent') }}</span>
       <span v-if="turn.truncated && turn.content" class="text-body-xs text-status-warning">⚠ {{ t('workbench.chat.stepsLimitWrapped') }}</span>
+      <!-- 输出上限截断亮标(2026-09-06):finish_reason=length 此前全链路无人读,静默截断 -->
+      <span v-if="turn.cutByLength && turn.content" class="text-body-xs text-status-warning">⚠ {{ t('workbench.chat.cutByLength') }}</span>
       <!-- 消息操作(hover 显现;复制终态可用,重新生成仅最后一条 assistant) -->
       <span v-if="turn.role === 'assistant'" class="ml-auto flex items-center gap-xs">
         <span v-if="turn.steps" class="text-body-xs text-on-surface-variant">{{ t('workbench.chat.stepsTaken', { n: turn.steps }) }}</span>
@@ -289,6 +291,15 @@ function onRootClick(e) {
         </summary>
         <div class="px-sm pb-sm max-h-64 overflow-y-auto text-body-xs text-on-surface-variant whitespace-pre-wrap break-words leading-relaxed border-t border-outline-variant/40 pt-xs">{{ turn.reasoning }}</div>
       </details>
+
+      <!-- 已流出部分回答保留(2026-09-06「对话尾巴不展示」修复):流式文本区 v-if=isStreaming,
+           status 翻 error 当场消失——用户眼看着答案流到 90% 蒸发,只剩红错误块。error+有 content
+           时部分文本保留在错误块上方(独立于下方 v-else-if 链,两种布局通用;失败轮文本没有
+           trace 块,不会与交错块双显)。 -->
+      <div v-if="turn.status === 'error' && turn.content && rendered" class="flex flex-col gap-xs px-md">
+        <span class="text-body-xs text-on-surface-variant/70">{{ t('workbench.chat.partialAnswer') }}</span>
+        <div class="text-body-sm text-on-surface leading-relaxed prose-chat break-words"><span v-html="rendered"></span></div>
+      </div>
 
       <!-- thinking(回退布局;交错模式的流式末段在上方交错流内):①已收到流式文本 → 实时渲染;②跳动提示 -->
       <div v-if="!interleaveUsable && turn.status === 'thinking' && rendered" class="text-body-sm text-on-surface leading-relaxed prose-chat">

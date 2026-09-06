@@ -12,7 +12,7 @@ import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import AiConfigPanel from './AiConfigPanel.vue'
-import { applyStreamEvent, ensureFinalAnswerBlock } from './conv-stream'
+import { applyStreamEvent, ensureFinalAnswerBlock, missingFinalTail } from './conv-stream'
 import { applyLegacyTs } from '@/utils/toolResultFormat'
 import { sanitizeChatError } from '@/logic/chatErrors'
 import { filterSlashItems } from '@/logic/chatPlaybooks'
@@ -553,7 +553,12 @@ async function pollOnce(id) {
             turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs), messageId: m.id })
           } else {
             // R1(2026-08-19):assistant 消息带消息级 reasoning(服务端已持久化),刷新后 thinking 可回看。
-            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), reasoning: m.reasoning || '', trace: applyLegacyTs(tryParseTrace(m.trace), m.createdAt), steps: 0, _createdAt: m.createdAt })
+            // 存量尾巴自愈(2026-09-06):轮未完成落库的消息(失败/取消/硬断)已流出文本只在
+            // content 无 trace 块,交错渲染看不见——重建时 missingFinalTail 算缺尾补块。
+            const trace = applyLegacyTs(tryParseTrace(m.trace), m.createdAt)
+            const tail = missingFinalTail(m.content, trace)
+            if (tail) trace.push({ type: 'assistant', content: tail })
+            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), reasoning: m.reasoning || '', trace, steps: 0, _createdAt: m.createdAt })
           }
         }
         // running/paused 且末条非 assistant-thinking:补 thinking turn(页面刷新续接运行中对话;
