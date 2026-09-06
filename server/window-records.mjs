@@ -9,12 +9,54 @@
 
 const REKEY_TABLES = ['terminals', 'file_browsers']
 
+const ROTATED_TTL_MS = 7 * 24 * 60 * 60 * 1000   // 墓碑保留:与会话策略上限/记录保留三方对齐(lifecycle O1)
+
+// 轮换墓碑(2026-09-06 spec):轮换/TTL 过期不再裸删 session 行——先落墓碑再删,
+// rekey 的 isKnownSessionToken 才能认得「刚轮换的 token」(CSO #11 当场删行曾使其恒 403)。
+export function tombstoneSession(db, token, userId, now = Date.now()) {
+  if (!token) return
+  db.prepare('INSERT OR REPLACE INTO rotated_sessions (token, userId, rotatedAt) VALUES (?,?,?)')
+    .run(String(token), userId == null ? '' : String(userId), Number(now) || Date.now())
+}
+
+// 归属解析:live sessions 行优先(带 userId 列,W2-0),其次墓碑。都无 → null。
+export function sessionTokenOwner(db, token) {
+  const t = String(token || '')
+  if (!t) return null
+  try {
+    const live = db.prepare('SELECT userId FROM sessions WHERE token = ?').get(t)
+    if (live) return live.userId ?? null
+    const tomb = db.prepare('SELECT userId FROM rotated_sessions WHERE token = ?').get(t)
+    return tomb?.userId || null   // 空串墓碑 userId(无属主)归一为 null
+  } catch { return null }
+}
+
+// TTL 过期行落墓碑(有 userId 的才落;旧行 userId 为 NULL 跳过——无属主不可迁)。
+// 调用方(会话清扫器)随后照常删行。
+export function tombstoneExpiredSessions(db, cutoff, now = Date.now()) {
+  try {
+    const rows = db.prepare('SELECT token, userId FROM sessions WHERE createdAt < ?').all(cutoff)
+    for (const r of rows) if (r.token && r.userId) tombstoneSession(db, r.token, r.userId, now)
+  } catch { /* 表未建等:清扫器不抛 */ }
+}
+
+export function purgeRotatedSessions(db, now = Date.now(), retentionMs = ROTATED_TTL_MS) {
+  try { db.prepare('DELETE FROM rotated_sessions WHERE rotatedAt < ?').run(Number(now) - retentionMs) } catch { /* noop */ }
+}
+
 // from token 是否为网关见过的会话行。过期行由 sessionSweeper 周期删除(默认 8h TTL):
 // 轮换后长时间(>TTL)才回来的迁移会被拒——记录按 30d 兜底清扫,不无限等待。
-export function isKnownSessionToken(db, token) {
+// 2026-09-06 扩展:轮换/TTL 过期落墓碑(rotated_sessions),7 天内的墓碑也算 known,
+// 使「刚轮换的 token」在裸删行后仍能通过 rekey 授权。
+export function isKnownSessionToken(db, token, now = Date.now()) {
   const t = String(token || '')
   if (!t) return false
-  try { return !!db.prepare('SELECT token FROM sessions WHERE token = ?').get(t) } catch { return false }
+  try {
+    if (db.prepare('SELECT token FROM sessions WHERE token = ?').get(t)) return true
+    const tomb = db.prepare('SELECT userId, rotatedAt FROM rotated_sessions WHERE token = ?').get(t)
+    if (!tomb) return false
+    return (Number(now) - tomb.rotatedAt) <= ROTATED_TTL_MS
+  } catch { return false }
 }
 
 export function rekeyWindowRecords(db, fromToken, toToken) {

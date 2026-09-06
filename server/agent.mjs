@@ -52,6 +52,11 @@ export function clampTraceStep(e, cap = TRACE_RESULT_MAX_BYTES) {
 
 // 预算裁剪:超 budget 字符时,从最旧的非 system 消息丢起,保留 system + 尾部;
 // 丢弃 tool 消息时,连带从对应 assistant.tool_calls 删该 id(若 tool_calls 清空则丢掉该 assistant),防悬空。
+// 二阶段(2026-09-06 计量缺陷B):phase1 只丢 user/tool、恒保 assistant → assistant 体积大
+// (多轮长文)时裁完仍超预算,provider 400。phase2 按「轮」从最旧整组丢弃:一条 assistant
+// (非末条)及其后连续的 tool 消息为一组(assistant 和它的 tool 一起走,不产生孤儿 tool),
+// 循环直到达标;若某组的 tool 连到末条(末条恰是该 assistant 的 tool 结果),该组不可丢
+// ——丢 assistant 会孤儿、丢 tool 违反保尾部,system + 该配对即裁剪下限。
 export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
   const total = messages.reduce((n, m) => n + JSON.stringify(m).length, 0)
   if (total <= budget) return { messages, truncated: false }
@@ -76,6 +81,19 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
       }
       return m
     }).filter(Boolean)
+  }
+  // phase2:仍超预算 → assistant 轮从最旧整组丢弃(assistant + 其后连续 tool 一体走,无孤儿)
+  if (cur > budget) {
+    cur = out.reduce((n, m) => n + JSON.stringify(m).length, 0)  // 悬空清理可能已丢 assistant,重算
+    while (cur > budget) {
+      const idx = out.findIndex((m, i) => m.role === 'assistant' && i < out.length - 1)
+      if (idx === -1) break                                    // 无可丢的 assistant 轮(只剩 system+末条)
+      let end = idx + 1
+      while (end < out.length && out[end].role === 'tool') end++
+      if (end >= out.length) break                             // 组触末条:末条是该轮的 tool → 到下限,不可拆
+      for (let i = idx; i < end; i++) cur -= JSON.stringify(out[i]).length
+      out.splice(idx, end - idx)
+    }
   }
   return { messages: out, truncated: true }
 }
@@ -203,13 +221,15 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       steps++
       let truncated = false // 注意:此处 trimMessages 的裁剪旗标不透传到返回值——
       // out.truncated 的语义是「步数上限截断/收尾轮」(唯一消费方 conv-events.mjs),预算裁剪不经此亮标
+      // T5(@-ref 漂移修复):每轮 chat 前重置 messages[0],让 LLM 看到 ref 的最新状态(由 run/resumeConversation 注入的 refreshSystem 钩子)。
+      // 须在 trim 之前(2026-09-06 计量缺陷A):recap/@refs 注入可达 ~50KB,若发生在裁剪之后
+      // 则不计预算 → 实际上下文可超预算;先重写再裁,重写体积计入(system 恒保不会被裁掉)。
+      if (refreshSystem && messages[0]?.role === 'system') {
+        messages[0] = { role: 'system', content: await refreshSystem() }
+      }
       if (messages.length > 1) {
         const t = trimMessages(messages, budgetChars)
         messages = t.messages
-      }
-      // T5:每轮 chat 前重置 messages[0]——@-ref 漂移修复:让 LLM 每轮看到 ref 的最新状态(由 run/resumeConversation 注入的 refreshSystem 钩子)。
-      if (refreshSystem && messages[0]?.role === 'system') {
-        messages[0] = { role: 'system', content: await refreshSystem() }
       }
       const assistant = await chatWithRetry(messages, toolDefs, (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
       messages.push(assistant)

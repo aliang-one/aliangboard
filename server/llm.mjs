@@ -7,6 +7,11 @@
 //   慢思考模型读到一半被掐("回答一半就断流"的直接根因;首 token >60s 的深思考同样必死)。
 import { fetch as defaultFetch } from 'undici'
 
+// SSE 行尾三态(规范认 CR / LF / CRLF):事件终结符 = 空行(两个行尾),事件内部行分割同款。
+// 只认 '\n\n' 时 CRLF 风格代理(\r\n\r\n 分隔)的流永不切出事件,整流瘫痪。
+const EVENT_END = /\r\n\r\n|\r\r|\n\n/
+const LINE_END = /\r\n|\r|\n/
+
 export function createLlmClient({
   baseURL, apiKey, model, temperature, maxTokens, fetch = defaultFetch,
   timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 120000,
@@ -83,32 +88,37 @@ export function createLlmClient({
       const { done, value } = await readChunk()
       if (done) break
       buf += decoder.decode(value, { stream: true })
-      let idx
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const raw = buf.slice(0, idx); buf = buf.slice(idx + 2)
-        const line = raw.trim()
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (payload === '[DONE]') { reader.cancel?.().catch(() => {}); return finalize() }
-        let obj; try { obj = JSON.parse(payload) } catch { continue }
-        const delta = obj.choices?.[0]?.delta
-        if (obj.choices?.[0]?.finish_reason) finishReason = obj.choices[0].finish_reason
-        if (!delta) continue
-        const rtext = delta.reasoning_content ?? delta.reasoning
-        if (typeof rtext === 'string' && rtext) { reasoning += rtext; onReasoning?.(rtext) }
-        // I-审计(2026-08-26):content 与 reasoning 同款守卫——多模态代理可能发数组形态
-        // content,`content += 对象` 会产生 [object Object]/逗号拼接直接进对话+落库。非字符串 JSON 并入。
-        if (delta.content) {
-          const text = typeof delta.content === 'string' ? delta.content : JSON.stringify(delta.content)
-          content += text; onDelta?.(text)
-        }
-        if (Array.isArray(delta.tool_calls)) {
-          for (const tc of delta.tool_calls) {
-            const i = tc.index ?? 0
-            if (!toolCallsMap[i]) toolCallsMap[i] = { id: tc.id, type: tc.type || 'function', function: { name: '', arguments: '' } }
-            if (tc.id) toolCallsMap[i].id = tc.id
-            if (tc.function?.name) toolCallsMap[i].function.name += tc.function.name
-            if (tc.function?.arguments) toolCallsMap[i].function.arguments += tc.function.arguments
+      // 终结符按 match[0].length 切除(CR/LF/CRLF 行尾宽窄不一);跨 chunk 断裂的行尾
+      // (如 '...\r' + '\n\r\n...')在拼齐前不构成完整终结符,不会切出半事件。
+      let m
+      while ((m = EVENT_END.exec(buf)) !== null) {
+        const raw = buf.slice(0, m.index); buf = buf.slice(m.index + m[0].length)
+        // 事件内部逐行处理(SSE 事件可多行,只认 data: 行);[DONE]/JSON 容错/delta 处理不变。
+        for (const rawLine of raw.split(LINE_END)) {
+          const line = rawLine.trim()
+          if (!line.startsWith('data:')) continue
+          const payload = line.slice(5).trim()
+          if (payload === '[DONE]') { reader.cancel?.().catch(() => {}); return finalize() }
+          let obj; try { obj = JSON.parse(payload) } catch { continue }
+          const delta = obj.choices?.[0]?.delta
+          if (obj.choices?.[0]?.finish_reason) finishReason = obj.choices[0].finish_reason
+          if (!delta) continue
+          const rtext = delta.reasoning_content ?? delta.reasoning
+          if (typeof rtext === 'string' && rtext) { reasoning += rtext; onReasoning?.(rtext) }
+          // I-审计(2026-08-26):content 与 reasoning 同款守卫——多模态代理可能发数组形态
+          // content,`content += 对象` 会产生 [object Object]/逗号拼接直接进对话+落库。非字符串 JSON 并入。
+          if (delta.content) {
+            const text = typeof delta.content === 'string' ? delta.content : JSON.stringify(delta.content)
+            content += text; onDelta?.(text)
+          }
+          if (Array.isArray(delta.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const i = tc.index ?? 0
+              if (!toolCallsMap[i]) toolCallsMap[i] = { id: tc.id, type: tc.type || 'function', function: { name: '', arguments: '' } }
+              if (tc.id) toolCallsMap[i].id = tc.id
+              if (tc.function?.name) toolCallsMap[i].function.name += tc.function.name
+              if (tc.function?.arguments) toolCallsMap[i].function.arguments += tc.function.arguments
+            }
           }
         }
       }

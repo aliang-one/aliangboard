@@ -237,7 +237,7 @@ export const useTerminalStore = defineStore('terminals', () => {
     try { localStorage.setItem('aliangboard.termTokenHandoff', getSessionToken()) } catch { /* 存储不可用 */ }
   }
 
-  // 弹窗页 URL(sid 必传:网关 planExec 以 sid 判持久性,tmux 会话名 = label(token)-sid,
+  // 弹窗页 URL(sid 必传:网关 planExec 以 sid 判持久性,tmux 会话名 = label(平台 userId)-sid,
   // 缺了降级一次性 exec;弹窗刷新同 URL → 同 sid → 回放续跑;token 走交接槽,不上 URL)
   function popupUrl(t) {
     const params = new URLSearchParams({ ns: t.namespace, pod: t.podName, container: t.container, name: t.name, sid: t.id })

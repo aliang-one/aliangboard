@@ -563,3 +563,85 @@ test('收尾轮 finishReason=length → cutByLength=true', async () => {
   assert.equal(out.truncated, true)
   assert.equal(out.cutByLength, true)
 })
+
+// ── 2026-09-06 上下文裁剪计量缺陷A:refreshSystem 须先于 trim ──
+// 旧序:run 主循环先 trimMessages 再 refreshSystem 重写 messages[0] → recap/@refs 注入
+// (可达 ~50KB)发生在裁剪之后、不计预算 → 实际发给 provider 的上下文可超预算。
+// 契约:重写后的 system 体积计入裁剪(trim 发生在 system 替换之后),system 恒保不被裁掉。
+test('refreshSystem 先于 trim:重写后的 system 体积计入裁剪(注入 ~50KB 后仍受控)', async () => {
+  const bigSystem = 'R'.repeat(50000)
+  let captured = null
+  const chat = async (messages) => { captured = [...messages]; return final('done') }
+  const run = createAgent({ chat, execTool: async () => 'x', budgetChars: 3000 }).run
+  await run({
+    system: 'sys-init',
+    history: [{ role: 'user', content: 'A'.repeat(2000) }, { role: 'user', content: 'B-tail' }],
+    refreshSystem: async () => bigSystem,
+  })
+  assert.ok(captured, 'chat 应被调用')
+  const size = JSON.stringify(captured).length
+  assert.ok(size < bigSystem.length + 300, `trim 须发生在 system 重写之后:总长 ${size} 应 ≤ 重写 system(${bigSystem.length})+末条+零头`)
+  assert.equal(captured[0].content, bigSystem, 'system 为 refreshSystem 重写后的内容(恒保)')
+  assert.ok(!captured.some(m => m.content === 'A'.repeat(2000)), '重写后超预算 → trim 实际发生,最旧 user 被裁')
+  assert.equal(captured[captured.length - 1].content, 'B-tail', '末条保留')
+})
+
+// ── 2026-09-06 上下文裁剪计量缺陷B:trimMessages 二阶段 ──
+// phase1 只丢 user/tool、恒保 assistant → 纯 assistant 多轮长文时裁完仍超预算,provider 400。
+// phase2 契约:按「轮」从最旧丢——一条 assistant(非末条)及其后连续的 tool 消息为一组,
+// 整组丢弃(assistant 和它的 tool 一起走,不产生孤儿 tool),循环直到达标或只剩 system+末条。
+test('trimMessages 第二阶段:assistant 轮从最旧丢弃直到达标(纯 assistant 也可裁)', () => {
+  const msgs = [
+    { role: 'system', content: 's' },
+    { role: 'assistant', content: 'A'.repeat(3000) },
+    { role: 'assistant', content: 'B'.repeat(3000) },
+    { role: 'assistant', content: 'C-tail' },
+  ]
+  const { messages, truncated } = trimMessages(msgs, 5000)
+  assert.equal(truncated, true)
+  assert.equal(messages[0].role, 'system', 'system 恒保')
+  assert.ok(!messages.some(m => m.content?.startsWith('A'.repeat(20))), '最旧 assistant 轮被丢(phase1 无 user/tool 可丢,phase2 兜底)')
+  assert.ok(messages.some(m => m.content?.startsWith('B'.repeat(20))), '丢一轮即达标,B 轮保留')
+  assert.equal(messages[messages.length - 1].content, 'C-tail', '末条保留')
+  const size = messages.reduce((n, m) => n + JSON.stringify(m).length, 0)
+  assert.ok(size <= 5000 + 50, `裁后 ${size} 应 ≤ 预算 5000(+序列化零头)`)
+})
+
+test('trimMessages 第二阶段:assistant+tool 配对整组丢弃,不留孤儿 tool', () => {
+  const tc = id => ({ id, type: 'function', function: { name: 'f', arguments: '{}' } })
+  const msgs = [
+    { role: 'system', content: 's' },
+    { role: 'assistant', content: null, tool_calls: [tc('c1')] },
+    { role: 'tool', tool_call_id: 'c1', content: 'X'.repeat(3000) },
+    { role: 'assistant', content: 'B'.repeat(2000) },
+    { role: 'assistant', content: 'C'.repeat(2000) },
+    { role: 'user', content: 'tail-q' },
+  ]
+  const { messages, truncated } = trimMessages(msgs, 1500)
+  assert.equal(truncated, true)
+  assert.deepEqual(messages.map(m => m.role), ['system', 'user'], 'assistant 轮从最旧整组丢弃直到达标')
+  assert.equal(messages[messages.length - 1].content, 'tail-q', '末条保留')
+  // 不留孤儿 tool:剩余每条 tool 必有携带该 id 的 assistant;assistant 的 tool_calls 必有对应 tool 回执
+  const toolIds = new Set(messages.filter(m => m.role === 'tool').map(m => m.tool_call_id))
+  const callIds = new Set(messages.filter(m => m.role === 'assistant').flatMap(m => (m.tool_calls || []).map(t => t.id)))
+  for (const id of toolIds) assert.ok(callIds.has(id), `tool ${id} 无主(孤儿)`)
+  for (const id of callIds) assert.ok(toolIds.has(id), `tool_call ${id} 无回执`)
+  const size = messages.reduce((n, m) => n + JSON.stringify(m).length, 0)
+  assert.ok(size <= 1500 + 50, `裁后 ${size} 应 ≤ 预算 1500(+零头)`)
+})
+
+test('trimMessages 第二阶段:末条为 tool 时与其 assistant 配对保留(不孤儿、不丢末条)', () => {
+  const tc = id => ({ id, type: 'function', function: { name: 'f', arguments: '{}' } })
+  const msgs = [
+    { role: 'system', content: 's' },
+    { role: 'assistant', content: 'B'.repeat(3000) },
+    { role: 'assistant', content: null, tool_calls: [tc('c2')] },
+    { role: 'tool', tool_call_id: 'c2', content: 'r' },
+  ]
+  const { messages, truncated } = trimMessages(msgs, 100)
+  assert.equal(truncated, true)
+  assert.deepEqual(messages.map(m => m.role), ['system', 'assistant', 'tool'], '裁到下限:system + 末轮配对(末条 tool 与其 assistant 一起走)')
+  assert.ok(!messages.some(m => m.content?.startsWith('B'.repeat(20))), '中间纯文本 assistant 轮被丢')
+  assert.deepEqual(messages[1].tool_calls.map(t => t.id), ['c2'], '配对完整:assistant 携带 tool_call')
+  assert.equal(messages[2].tool_call_id, 'c2', '配对完整:tool 回执指向该 assistant')
+})

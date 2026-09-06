@@ -2,6 +2,7 @@
 // health / login / me / logout / my-clusters / connect-cluster 逐字搬迁,仅依赖引用改走 deps 注入。
 // 用户可见消息走 ../messages.mjs 双语表(msg(req,'auth.xxx'));zh 默认与原文逐字一致。
 import { msg } from '../messages.mjs'
+import { tombstoneSession } from '../window-records.mjs'
 import { APP_VERSION } from '../version.mjs'
 import { resolvePasswordPolicy, firstFailedRule } from '../password-policy.mjs'
 import { queryAuditLog } from '../audit.mjs'
@@ -350,7 +351,11 @@ export function createAuthRoutes(deps) {
         const k8sToken = randomUUID()
         // CSO #11:重连先吊销旧 k8s token(旧行为只覆盖单标量,旧行留存成孤儿活 8h、重启还复活)
         const oldTok = ps.k8sSessionToken
-        if (oldTok) { sessions.delete(oldTok); try { db.prepare('DELETE FROM sessions WHERE token=?').run(oldTok) } catch { /* noop */ } }
+        if (oldTok) {
+          // 轮换墓碑(2026-09-06 spec):先落 rotated_sessions 再删行,rekey 才认得刚轮换的 token
+          try { tombstoneSession(db, oldTok, ps.userId, Date.now()) } catch { /* noop */ }
+          sessions.delete(oldTok); try { db.prepare('DELETE FROM sessions WHERE token=?').run(oldTok) } catch { /* noop */ }
+        }
         sessions.set(k8sToken, k8sSession)
         persistSession(k8sToken, k8sSession)
         // 更新平台会话的 k8sSessionToken
