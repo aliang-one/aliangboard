@@ -4162,6 +4162,8 @@
     "expiredDays": "过期 {n} 天",
     "noSecretsTitle": "没有 TLS Secret",
     "noSecretsDesc": "当前集群未发现 kubernetes.io/tls 类型的 Secret",
+    "noMatchTitle": "无匹配的证书",
+    "noMatchDesc": "当前搜索 / 过滤条件下没有匹配项",
     "synced": "证书已刷新",
     "syncFailed": "刷新失败"
   },

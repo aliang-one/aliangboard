@@ -29,6 +29,7 @@ const certsQ = useResourceList({
 })
 const report = computed(() => certsQ.data.value || null)
 const loading = computed(() => certsQ.isLoading.value)
+const loadError = computed(() => certsQ.error.value || null)
 const syncing = computed(() => certsQ.isFetching.value)
 async function sync() {
   try { await certsQ.refetch(); notify('success', t('certs.synced')) }
@@ -80,6 +81,9 @@ const filtered = computed(() => {
 })
 const headers = computed(() => tableColumns('clusterCerts'))
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery, filterMode] })
+// 跨 ns 列表:name 在不同 namespace 会重名(cert-manager 的 <app>-tls 惯例如此),
+// 复合 _key 防行 key 冲突(对标 ClusterResourceList 的 ns+'/'+name 先例)。
+const tableRows = computed(() => paginated.value.map(s => ({ ...s, _key: `${s.namespace}/${s.name}` })))
 function onRowClick(row) {
   const target = routeForResource('Secret', row.name, row.namespace)
   if (target) router.push(target)
@@ -101,6 +105,12 @@ function onRowClick(row) {
     <div v-if="loading" class="flex items-center justify-center py-xl">
       <span class="material-symbols-outlined text-2xl animate-spin text-on-surface-variant">progress_activity</span>
     </div>
+    <div v-else-if="loadError" data-testid="certs-load-error"
+      class="flex items-center gap-sm rounded-lg bg-error-container/20 border border-error/30 text-error px-md py-sm mb-md">
+      <span class="material-symbols-outlined text-base">cloud_off</span>
+      <p class="text-body-sm font-medium">{{ $t('certs.bannerError', { reason: loadError.message || '' }) }}</p>
+      <button class="ml-auto text-body-sm underline underline-offset-2" @click="sync">{{ $t('common.sync') }}</button>
+    </div>
     <template v-else-if="report">
       <!-- 归因 banner:trusted 不渲染 -->
       <div v-if="bannerKey" data-testid="certs-banner"
@@ -119,7 +129,10 @@ function onRowClick(row) {
         <div class="flex items-center gap-sm mb-sm">
           <span class="material-symbols-outlined text-primary">verified_user</span>
           <p class="text-body-md font-bold text-on-surface">{{ $t('certs.apiServerCert') }}</p>
-          <span data-testid="cert-days" class="ml-auto px-1.5 py-0.5 rounded text-xs font-semibold" :class="pillClass(apiCert?.daysLeft)">{{ fmtDays(apiCert?.daysLeft) }}</span>
+          <span class="flex items-center gap-xs ml-auto">
+            <span v-if="conn?.trust === 'trusted'" data-testid="certs-trusted" class="px-1.5 py-0.5 rounded text-xs font-semibold bg-primary/10 text-primary">{{ $t('certs.trusted') }}</span>
+            <span data-testid="cert-days" class="px-1.5 py-0.5 rounded text-xs font-semibold" :class="pillClass(apiCert?.daysLeft)">{{ fmtDays(apiCert?.daysLeft) }}</span>
+          </span>
         </div>
         <div v-if="apiCert" class="grid grid-cols-1 md:grid-cols-3 gap-sm text-body-sm">
           <div class="min-w-0">
@@ -146,6 +159,7 @@ function onRowClick(row) {
         <div v-for="a in caAnchors" :key="a.fingerprint256 || a.subject" class="flex items-center gap-sm py-xs border-b border-outline-variant/50 last:border-0">
           <span class="material-symbols-outlined text-base text-on-surface-variant">key</span>
           <span class="font-mono text-code-sm text-on-surface truncate max-w-[22rem]" :title="a.subject">{{ a.subject }}</span>
+          <span class="font-mono text-xs text-on-surface-variant shrink-0" :title="`${$t('certs.fingerprint')}: ${a.fingerprint256 || ''}`">{{ (a.fingerprint256 || '').replace(/:/g, '').slice(0, 8) }}</span>
           <span data-testid="cert-days" class="ml-auto px-1.5 py-0.5 rounded text-xs font-semibold" :class="pillClass(a.daysLeft)">{{ fmtDays(a.daysLeft) }}</span>
         </div>
         <p v-if="!caAnchors.length" class="text-body-sm text-on-surface-variant">{{ $t('certs.insecureHint') }}</p>
@@ -173,8 +187,8 @@ function onRowClick(row) {
         <span class="text-body-sm text-on-surface-variant">{{ filtered.length }} / {{ secretItems.length }}</span>
       </div>
       <EmptyState v-if="!secretItems.length && !secretsError" icon="verified_user" :title="$t('certs.noSecretsTitle')" :description="$t('certs.noSecretsDesc')" />
-      <EmptyState v-else-if="secretItems.length && !filtered.length" icon="search" :title="$t('certs.noSecretsTitle')" :description="$t('certs.searchPlaceholder')" />
-      <DataTable v-else :headers="headers" :rows="paginated" column-key="clusterCerts" row-key="name" @row-click="onRowClick">
+      <EmptyState v-else-if="secretItems.length && !filtered.length" icon="search" :title="$t('certs.noMatchTitle')" :description="$t('certs.noMatchDesc')" />
+      <DataTable v-else :headers="headers" :rows="tableRows" column-key="clusterCerts" row-key="_key" @row-click="onRowClick">
         <template #name="{ row }">
           <span class="font-semibold text-on-surface text-body-md block truncate max-w-[14rem]" :title="row.name">{{ row.name }}</span>
         </template>

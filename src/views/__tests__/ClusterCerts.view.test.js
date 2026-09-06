@@ -8,10 +8,10 @@ import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 const h = await vi.hoisted(async () => {
   const { ref: r } = await import('vue')
-  return { certsData: r(null) }
+  return { certsData: r(null), certsError: r(null) }
 })
 vi.mock('@/composables/useK8sQuery', () => ({
-  useResourceList: () => ({ data: h.certsData, isLoading: ref(false), isFetching: ref(false), refetch: vi.fn(async () => { }) }),
+  useResourceList: () => ({ data: h.certsData, error: h.certsError, isLoading: ref(false), isFetching: ref(false), refetch: vi.fn(async () => { }) }),
 }))
 vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({ currentCluster: 'demo', fetchClusterCerts: vi.fn(async () => null) }) }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }), useRouter: () => ({ push: vi.fn() }) }))
@@ -55,7 +55,7 @@ describe('ClusterCerts', () => {
     const cls = w.findAll('[data-testid="cert-days"]').map(p => p.classes().join(' '))
     expect(cls.some(c => c.includes('text-tertiary-container'))).toBe(true)
     expect(cls.some(c => c.includes('text-error'))).toBe(true)
-    expect(w.text()).toContain(i18n.global.t('certs.expiredDays', { n: 5 }).replace(/5/, '5'))
+    expect(w.text()).toContain(i18n.global.t('certs.expiredDays', { n: 5 }))
     w.unmount()
   })
 
@@ -81,14 +81,23 @@ describe('ClusterCerts', () => {
     w.unmount()
   })
 
-  it('trusted:无 banner;unverified:提示文案', async () => {
+  it('trusted:无 banner、trusted 徽标在场;unverified:提示文案', async () => {
     h.certsData.value = { ...REPORT, connection: { ...REPORT.connection, trust: 'trusted' } }
     const w = mountView(); await flushPromises()
     expect(w.find('[data-testid="certs-banner"]').exists()).toBe(false)
+    expect(w.find('[data-testid="certs-trusted"]').text()).toContain(i18n.global.t('certs.trusted'))
     w.unmount()
     h.certsData.value = { ...REPORT, connection: { ...REPORT.connection, trust: 'unverified' } }
     const w2 = mountView(); await flushPromises()
     expect(w2.find('[data-testid="certs-banner"]').text()).toContain(i18n.global.t('certs.insecureHint'))
     w2.unmount()
+  })
+
+  it('取数失败(ns 门 403/上游 5xx):error 态横幅,不再静默空白页', async () => {
+    h.certsError.value = new Error('403 Forbidden')
+    const w = mountView(); await flushPromises()
+    expect(w.find('[data-testid="certs-load-error"]').exists()).toBe(true)
+    expect(w.find('[data-testid="certs-apiserver-card"]').exists()).toBe(false)
+    w.unmount()
   })
 })

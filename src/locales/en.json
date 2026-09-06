@@ -4162,6 +4162,8 @@
     "expiredDays": "{n} d overdue",
     "noSecretsTitle": "No TLS secrets",
     "noSecretsDesc": "No kubernetes.io/tls secrets found in this cluster",
+    "noMatchTitle": "No matching certificates",
+    "noMatchDesc": "Nothing matches the current search / filters",
     "synced": "Certificates refreshed",
     "syncFailed": "Refresh failed"
   },
