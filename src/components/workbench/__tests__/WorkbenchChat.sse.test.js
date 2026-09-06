@@ -27,7 +27,7 @@ const i18n = createI18n({
   legacy: false, locale: 'zh',
   messages: { zh: { workbench: { chat: {
     userMessage: 'Type...', title: 'AI', hint: 'hint', noAnswer: '(无回答)',
-    stop: '停止', stopped: '已停止', agentFailed: 'Agent 调用失败',
+    stop: '停止', stopped: '已停止', agentFailed: 'Agent 调用失败', thinking: '思考中',
     loadFailed: '对话加载失败', reconnecting: '连接中断,重试中…',
     execApprovalTitle: '确认执行', writeFileApproval: '确认写入',
     pendingApproval: '等待审批', reopenApproval: '点击重新打开审批',
@@ -225,5 +225,44 @@ test('SSE 死亡后看门狗对齐 done:交错模式终答必须可见(不只活
     expect(w.html()).not.toContain('progress_activity')  // 不再转圈
   } finally {
     vi.useRealTimers()
+  }
+})
+
+// ── 审计#8(2026-09-06):cancelled 终态在轮询路径无分支——跨 tab 取消后本 tab 永远
+// 轮询、thinking turn 永远转圈。契约:pollOnce 读到 cancelled → 停轮询 + thinking turn
+// 置 error「已停止」。(EventSource 构造即抛 → 走降级轮询通路,纯轮询可测。)
+test('pollOnce:cancelled → 停轮询,thinking turn 置已停止', async () => {
+  vi.stubGlobal('EventSource', class { constructor() { throw new Error('no ES in test') } })
+  vi.useFakeTimers()
+  try {
+    let apiStatus = 'running'
+    api.conversations.get.mockImplementation(async () => ({
+      id: 'conv-1', status: apiStatus,
+      messages: [{ role: 'user', content: '帮我查一下', id: 1, createdAt: 1 }],
+      trace: '[]', steps: 2, content: '', reasoning: '', userMessage: '帮我查一下', error: '用户取消',
+    }))
+    const w = await mountChat({ conversationId: 'conv-1' })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    // 载入轮 + startPolling 立即轮:thinking turn 在转圈
+    expect(w.text()).toContain('思考中')
+    const callsRunning = api.conversations.get.mock.calls.length
+    expect(callsRunning).toBeGreaterThanOrEqual(2)
+
+    // 另一 tab 取消 → 本 tab 下个轮询周期对齐终态并停轮询
+    apiStatus = 'cancelled'
+    await vi.advanceTimersByTimeAsync(2100)
+    await flushPromises()
+    expect(w.text()).toContain('已停止')
+    expect(w.text()).not.toContain('思考中')
+    const callsAfterCancel = api.conversations.get.mock.calls.length
+    // 轮询已停:再推 5s(若未停,2s 周期会再打 2 次;看门狗 10s 内不会误触)
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(api.conversations.get.mock.calls.length).toBe(callsAfterCancel)
+  } finally {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
   }
 })

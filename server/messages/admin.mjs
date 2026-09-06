@@ -41,6 +41,7 @@ export const TABLE = {
   'admin.newPasswordRequired': { zh: '新密码不能为空', en: 'New password is required' },
   'admin.passwordTooShort': { zh: '密码至少 8 位', en: 'Password must be at least 8 characters' },
   'admin.invalidJsonBody': { zh: '请求体不是有效 JSON(需要 application/json)', en: 'Request body is not valid JSON (application/json required)' },
+  'admin.bodyTooLarge': { zh: '请求体超过 5MB 上限', en: 'Request body exceeds the 5MB limit' },
   'admin.aiToolsNotArray': { zh: 'disabledTools 必须为字符串数组', en: 'disabledTools must be an array of strings' },
   'admin.aiToolUnknown': { zh: 'disabledTools 含未知工具名', en: 'disabledTools contains unknown tool name' },
   'admin.aiMaxStepsInvalid': { zh: '最大执行步数必须是 {lo}-{hi} 的整数(0 = 不限制)', en: 'Max agent steps must be an integer between {lo} and {hi} (0 = unlimited)' },

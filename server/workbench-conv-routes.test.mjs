@@ -15,7 +15,7 @@ import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { stripRefsContext, REFS_CTX_HEADER } from './refs-context.mjs'
 
 // ── 路由测试装置:真 db + 桩 deps,POST/GET 走真实 handler ──
-function makeHarness() {
+function makeHarness({ overrides = {} } = {}) {
   const db = new DatabaseSync(':memory:')
   createWorkbenchSchema(db)
   db.exec(`CREATE TABLE IF NOT EXISTS clusters (
@@ -24,6 +24,7 @@ function makeHarness() {
   db.prepare("INSERT INTO clusters (id,name,apiServer,createdAt) VALUES ('c1','c1','http://k8s',?)").run(Date.now())
   const pid = createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u1' }).id
   const sent = []
+  const runs = []
   let body = {}
   const res = { writeHead: () => {}, end: () => {} }
   const routes = createWorkbenchConvRoutes({
@@ -31,15 +32,16 @@ function makeHarness() {
     sendJson: (r, status, json) => { sent.push({ status, json }) },
     readBody: async () => body,
     requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
-    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
+    wbAgent: { runConversation: async (...a) => { runs.push(a[0]) }, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } }),
     busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    ...overrides,
   })
   return {
-    db, pid, sent,
+    db, pid, sent, runs,
     setBody: b => { body = b },
     call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)),
     // SSE 端点直测:注入自定义 res 捕获 write 的原始事件块
@@ -341,4 +343,101 @@ test('修复⑧:edit 重发保留/补齐 resource 载荷(沿用锚 refs 不剥;�
   last = listMessages(h.db, conv.id).pop()
   refs = JSON.parse(last.refs || '[]')
   assert.equal(refs[0]?.resource?.kind, 'Pod', `新 references 应补拉 enrich,收到: ${last.refs}`)
+})
+
+// ── 审计修复(2026-09-06 静态审计 #1/#2/#4)──
+
+test('审计#1 并发双跑:refs 拉取期间对话被并发置 running → 400 且不落 user 消息、不启动 run', async () => {
+  // 复现:首查 status(done)通过 → await buildRefsContext 窗口内「另一请求」把状态翻成 running
+  // → 旧代码仍会 append user 消息 + 置 running + 启动第二个 detached run(交错写)。
+  const h = makeHarness({ overrides: { requestKubernetes: async function () {
+    h.db.prepare("UPDATE workbench_conversations SET status='running' WHERE id=?").run(conv.id)
+    return { status: 200, headers: {}, body: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } }
+  } } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: '首轮' })
+  h.setBody({ message: '并发消息', references: [{ kind: 'pods', namespace: 'default', name: 'nginx' }] })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+
+  const last = h.sent.at(-1)
+  assert.equal(last.status, 400, '竞态败者须 400')
+  assert.match(String(last.json.message), /运行中|待审批/, '复用 busy 文案')
+  assert.equal(listMessages(h.db, conv.id).filter(m => m.role === 'user').length, 1, '只余首轮 user 消息,败者不落消息')
+  assert.equal(h.runs.length, 0, '败者不启动 agent run')
+  assert.equal(getConversation(h.db, conv.id).content ?? '', '', '运行态字段不被败者复位')
+})
+
+test('审计#1 并发双跑(edit):refs 拉取期间被置 running → 400 且不截断消息', async () => {
+  const h = makeHarness({ overrides: { requestKubernetes: async function () {
+    h.db.prepare("UPDATE workbench_conversations SET status='running' WHERE id=?").run(conv.id)
+    return { status: 200, headers: {}, body: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } }
+  } } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: '首轮提问' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: '答' })
+  const msgs = listMessages(h.db, conv.id)
+  const anchor = msgs.find(m => m.role === 'user')
+  h.setBody({ messageId: anchor.id, content: '编辑后的提问', references: [{ kind: 'pods', namespace: 'default', name: 'nginx' }] })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`)
+
+  const last = h.sent.at(-1)
+  assert.equal(last.status, 400, '竞态败者须 400')
+  assert.equal(listMessages(h.db, conv.id).length, msgs.length, '败者不截断消息(truncation 移入同步块后)')
+  assert.equal(h.runs.length, 0, '败者不启动 agent run')
+})
+
+test('审计#2 approve:LLM 配置缺失 → 400 且不翻 paused(可重试,不卡 running)', async () => {
+  const h = makeHarness({ overrides: { getLlmConfig: () => ({ baseURL: '', apiKey: '', model: '' }) } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'hi' })
+  h.db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval=?, queue='[]', messages='[]', denied='[]' WHERE id=?")
+    .run(JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }), conv.id)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/approve`)
+
+  assert.equal(h.sent.at(-1).status, 400, '配置缺失 400')
+  const row = getConversation(h.db, conv.id)
+  assert.equal(row.status, 'paused', '状态保持 paused——修复前 CAS 先翻 running,永久卡死')
+  assert.ok(row.pendingApproval, 'pendingApproval 完好,配置恢复后可直接重试审批')
+})
+
+test('审计#2 deny:同样先查配置再 CAS(状态不动)', async () => {
+  const h = makeHarness({ overrides: { getLlmConfig: () => ({ baseURL: '', apiKey: '', model: '' }) } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'hi' })
+  h.db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval=?, queue='[]', messages='[]', denied='[]' WHERE id=?")
+    .run(JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }), conv.id)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/deny`)
+  assert.equal(h.sent.at(-1).status, 400)
+  assert.equal(getConversation(h.db, conv.id).status, 'paused')
+})
+
+test('审计#4 续接更新 conv.userMessage:项目历史每轮记真实提问,不再复读第一问', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '第一问' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  h.setBody({ message: '第二问(真实追问)' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(getConversation(h.db, conv.id).userMessage, '第二问(真实追问)', '本轮提问落 userMessage,done 时 appendHistory 记真实问题')
+})
+
+test('审计#10 消息校验:新建对话 message 缺失/非字符串 → 400 不建对话(不再把 "undefined" 存进库)', async () => {
+  const h = makeHarness()
+  const before = h.db.prepare('SELECT COUNT(*) AS n FROM workbench_conversations').get().n
+  h.setBody({ projectId: h.pid, message: undefined })
+  await h.call('POST', '/api/workbench/conversations')
+  assert.equal(h.sent.at(-1).status, 400, '缺消息 400')
+  h.setBody({ projectId: h.pid })
+  await h.call('POST', '/api/workbench/conversations')
+  assert.equal(h.sent.at(-1).status, 400, '无 message 字段 400')
+  assert.equal(h.db.prepare('SELECT COUNT(*) AS n FROM workbench_conversations').get().n, before, '不建对话行')
+})
+
+test('审计#10 消息校验:续接空 message → 400 不落消息', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  h.setBody({ message: '   ' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 400, '空白消息 400')
+  assert.equal(listMessages(h.db, conv.id).filter(m => m.role === 'user').length, 0, '不落空消息行')
 })

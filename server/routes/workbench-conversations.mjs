@@ -156,6 +156,11 @@ export function createWorkbenchConvRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       try {
         const input = await readBody(req)
+        // 消息校验(2026-09-06 审计#10):旧 String(input.message) 会把 undefined 存成字面
+        // "undefined";缺失/空白直接 400(旧路径落到 createConversation 抛错变 500 更糟)。
+        if (typeof input.message !== 'string' || !input.message.trim()) {
+          sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true
+        }
         const project = getProject(db, input.projectId)
         if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
         if (project.ownerId !== ps.userId && ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
@@ -193,6 +198,10 @@ export function createWorkbenchConvRoutes(deps) {
         const input = await readBody(req)
         const conv = getConversation(db, id)
         if (!conv) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
+        // 消息校验(2026-09-06 审计#10):空/非字符串消息不落库不启动(空白也拒,防无问题空跑)
+        if (typeof input.message !== 'string' || !input.message.trim()) {
+          sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true
+        }
         // P0 守卫(D):运行中/待审批拒绝续接——detached run 无互斥,并发双 run 会交错写
         // trace/检查点/messages(多标签页或直接 API 调用都能绕过前端 sending 守卫)。
         if (conv.status === 'running' || conv.status === 'paused') {
@@ -208,14 +217,21 @@ export function createWorkbenchConvRoutes(deps) {
         // 1) @-ref 资源拉取(先拉,enrich refs 存完整资源 → 刷新后 ResourceCard 不丢)
         const cleanMessage = String(input.message ?? '')
         const { resources: fetchedResources } = await buildRefsContext(project, input.references)
-        // 2) append user 消息:content 只存干净正文(曾把 refsCtx 烤进 content → 刷新后整段
+        // 2) 并发双跑收口(2026-09-06 审计#1):首查 status 与此处之间隔了 await buildRefsContext
+        //    (K8s 往返),另一请求可先赢——node:sqlite 同步执行,「重读状态 → 落消息 → 置 running」
+        //    零 await 同步块内原子,TOCTOU 关闭(前提=网关单进程不变式)。败者不落任何行。
+        const nowConv = getConversation(db, id)
+        if (!nowConv || nowConv.status === 'running' || nowConv.status === 'paused') {
+          sendJson(res, 400, { message: msg(req, 'wbc.busyNoResume') }); return true
+        }
+        // 3) append user 消息:content 只存干净正文(曾把 refsCtx 烤进 content → 刷新后整段
         //    JSON 当消息显示;agent 上下文改由 references 走 system,见下)
         appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
-        // 3) 新 refs 并入对话级 "references"(去重 kind/namespace/name):runConversation 的
+        // 4) 新 refs 并入对话级 "references"(去重 kind/namespace/name):runConversation 的
         //    refreshSystem 每轮重写 messages[0] 注入引用资源最新状态(agent.mjs T5 漂移修复),
         //    上下文与烤进 content 等价且更新鲜;新建路径(POST /conversations)本就走此机制。
         let mergedRefs = []
-        try { mergedRefs = JSON.parse(conv.references || '[]') } catch { mergedRefs = [] }
+        try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { mergedRefs = [] }
         if (Array.isArray(input.references)) {
           const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
           const seen = new Set(mergedRefs.map(key))
@@ -224,10 +240,12 @@ export function createWorkbenchConvRoutes(deps) {
             if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) }
           }
         }
-        // 4) 标记 running + 复位上轮运行态字段(A)→ 后台跑 → 异步摘要(失败忽略)。
+        // 5) 标记 running + 复位上轮运行态字段(A)→ 后台跑 → 异步摘要(失败忽略)。
         //    content/reasoning/trace/steps/pendingApproval 不复位的话:上轮答案/思考残留会让
         //    启动抢救(salvageInterrupted)在本轮中断时把上轮内容补录成"新消息"(跨轮污染)。
-        updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null })
+        //    userMessage 同步更新(审计#4):done 时 appendHistory 的 user 侧记本轮真实提问,
+        //    不再复读对话首问污染项目记忆(projectRecap)输入。
+        updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null, userMessage: cleanMessage })
         const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
         maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
@@ -303,18 +321,25 @@ export function createWorkbenchConvRoutes(deps) {
         if (!content.trim()) { sendJson(res, 400, { message: msg(req, 'wbc.editContentRequired') }); return true }
         const anchor = db.prepare('SELECT id, seq, refs FROM workbench_messages WHERE id=? AND conversationId=? AND role=?').get(String(input.messageId || ''), id, 'user')
         if (!anchor) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
-        const t = truncateFromMessage(db, id, anchor.id)
-        if (!t) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
         // refs:body.references 替换;缺省沿用锚消息 refs(原始对象形状,appendMessage 直存)
         let refsValue = Array.isArray(input.references) ? input.references : null
         if (!refsValue && anchor.refs) { try { const p = JSON.parse(anchor.refs); if (Array.isArray(p)) refsValue = p } catch { refsValue = null } }
         // 2026-08-31 审计修复⑧:与 create/messages 路径同款 enrich——沿用锚 refs 保留其已存的
         // resource 载荷,新 references 补拉(buildRefsContext 单次拉取);刷新后 ResourceCard 不丢。
         const { resources: fetchedResources } = await buildRefsContext(project, refsValue)
+        // 并发双跑收口(2026-09-06 审计#1):此前 truncateFromMessage 在 await 之前就截了消息——
+        // 输了竞态也会白截。截断挪到 await 之后,与重读状态/落消息/置 running 组成零 await
+        // 同步块(node:sqlite 同步执行即原子;前提=网关单进程不变式)。败者零副作用。
+        const nowConv = getConversation(db, id)
+        if (!nowConv || nowConv.status === 'running' || nowConv.status === 'paused') {
+          sendJson(res, 400, { message: msg(req, 'wbc.busyNoResume') }); return true
+        }
+        const t = truncateFromMessage(db, id, anchor.id)
+        if (!t) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
         setActiveConversation(db, conv.projectId, id)
         // 新 refs 并入对话级 references(与 append 的 mergeRefs 同款)
         let mergedRefs = []
-        try { mergedRefs = JSON.parse(conv.references || '[]') } catch { mergedRefs = [] }
+        try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { mergedRefs = [] }
         const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
         const seen = new Set(mergedRefs.map(key))
         for (const r of (refsValue || [])) { const k = key(r); if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) } }
@@ -324,9 +349,11 @@ export function createWorkbenchConvRoutes(deps) {
         })
         updateConversation(db, id, {
           status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null,
+          // 审计#4:编辑后的提问即本轮真实问题,userMessage 同步更新(done 时项目历史记对)
+          userMessage: content,
           // 水位钳制(spec §3.1 修正):min(现值, fromSeq-1)——前缀连续 1..fromSeq-1,保留其摘要覆盖;
           // 编辑首条(fromSeq-1=0)归 0。原 keptMinSeq-1 因 seq 从 1 起恒为 0,会把摘要覆盖每次归零。
-          summarizedUpTo: Math.min(conv.summarizedUpTo ?? 0, t.fromSeq - 1),
+          summarizedUpTo: Math.min(nowConv.summarizedUpTo ?? 0, t.fromSeq - 1),
         })
         const llmClient = createLlmClient(cfg)
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached
@@ -476,12 +503,14 @@ export function createWorkbenchConvRoutes(deps) {
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/approve$/) && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/approve
+      // LLM 配置检查先于 CAS(2026-09-06 审计#2):配置缺失 400 时状态未动,对话保持 paused
+      // 可配置恢复后直接重试;旧顺序 CAS 先翻 running,失败即永久卡死(只能重启网关抢救)。
+      const cfg = getLlmConfig()
+      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       // P0(E):仅 paused 可审批。迟到审批(done/failed 后)此前会让 resume 的
       // JSON.parse(conv.pendingApproval=null) 抛错 → 把终态改写成 failed(吞掉已完成答案)。
       const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
-      const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const llmClient = createLlmClient(cfg)
       wbAgent.resumeConversation(id, true, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached resume 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
       sendJson(res, 200, { status: 'running' })
@@ -492,10 +521,11 @@ export function createWorkbenchConvRoutes(deps) {
     if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/deny$/) && req.method === 'POST') {
       const ps = requireAdmin(req, res); if (!ps) return true
       const id = url.pathname.split('/')[4] // /api/workbench/conversations/<id>/deny
-      const cas = claimPausedForResume(req, db, id)
-      if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
+      // 配置先于 CAS(同 approve,2026-09-06 审计#2)
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
+      const cas = claimPausedForResume(req, db, id)
+      if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       const llmClient = createLlmClient(cfg)
       wbAgent.resumeConversation(id, false, llmClient, { userId: ps.userId, username: ps.username }).catch(e => console.error('[wbAgent] detached resume 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
       sendJson(res, 200, { status: 'running' })

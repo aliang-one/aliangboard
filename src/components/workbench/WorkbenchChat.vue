@@ -13,6 +13,7 @@ import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import AiConfigPanel from './AiConfigPanel.vue'
 import { applyStreamEvent, ensureFinalAnswerBlock, missingFinalTail } from './conv-stream'
+import { pairRefResources } from '@/logic/refResources'
 import { applyLegacyTs } from '@/utils/toolResultFormat'
 import { sanitizeChatError } from '@/logic/chatErrors'
 import { filterSlashItems } from '@/logic/chatPlaybooks'
@@ -668,6 +669,14 @@ async function pollOnce(id) {
       errorBanner.value = errMsg
       if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: errMsg })
       sending.value = false
+    } else if (conv.status === 'cancelled') {
+      // cancelled 终态(2026-09-06 审计#8):此前无分支——跨 tab 取消/刷新后本 tab 永远轮询、
+      // thinking turn 永远转圈。对齐同 tab 实时路径(SSE cancelled→error「已停止」)。
+      stopPolling()
+      stopWatchdog()
+      lastApproval.value = null
+      if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: t('workbench.chat.stopped') })
+      sending.value = false
     }
     pollFailStreak = 0
     if (netLost.value) netLost.value = false
@@ -968,7 +977,7 @@ async function send() {
       netLost.value = false; pollFailStreak = 0   // POST 成功 = 网络已活,熄断连横幅(免得残留到下次轮询)
       if (Array.isArray(references) && references.length) {
         const ut = turns.value.find(x => x._id === userId)
-        if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
+        if (ut?.refs) pairRefResources(ut.refs, references) // 按下标配对(审计#11:同名不同 kind 不再错绑)
       }
       startStreaming(props.activeConversationId)
     } else {
@@ -980,7 +989,7 @@ async function send() {
       // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
       if (Array.isArray(references) && references.length) {
         const ut = turns.value.find(x => x._id === userId)
-        if (ut?.refs) ut.refs.forEach(ref => { ref.resource = references.find(r => r?.metadata?.name === ref.name && (r?.metadata?.namespace || '') === (ref.namespace || '')) })
+        if (ut?.refs) pairRefResources(ut.refs, references) // 按下标配对(审计#11:同名不同 kind 不再错绑)
       }
       emit('conversation-created', id)
       startStreaming(id)
