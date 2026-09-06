@@ -707,9 +707,9 @@ const idleSweeper = setInterval(() => {
           // 重建(用户已回来),本轮回收作废——否则旧清道夫会杀掉刚恢复的 tmux 并删活记录。
           if (idleTracker.has(name)) continue
           // tmux 侧原子守卫:会话已有附着客户端=有人在看,不杀(兜住 tracker 之外的重建时序)
-          const clients = await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxListClientsCommand(tmuxLabel(meta.token), name, bin))
+          const clients = await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxListClientsCommand(tmuxLabel(meta.userId || meta.token), name, bin))
           if (String(clients?.stdout || '').trim() !== '') continue
-          await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.token), name, bin))
+          await execCapture(session, meta.ns, meta.pod, meta.container || '', tmuxKillCommand(tmuxLabel(meta.userId || meta.token), name, bin))
         } catch { /* pod 不在 / token 已过期 —— 忽略 */ }
       }
       // 只按 id 删(2026-09-04 S9):id 是主键唯一定位;带 sessionToken 条件在记录 rekey 后
@@ -907,8 +907,11 @@ async function handleExec(ws, session, url, req) {
   const resolved = mode === 'attach' ? { kind: 'none', bin: 'tmux', terminfoDir: '' } : await resolveTmux(session, namespace, pod, container)
   const present = resolved.kind === 'system' || resolved.kind === 'injected'
   const planned = planExec({ mode, tmuxPresent: present, sid })
-  const label = tmuxLabel(token)
-  const sessionName = tmuxSessionName(token, sid)
+  // 身份锚(2026-09-06 去 token 化):平台 userId 稳定,token 轮换不再撕裂 tmux 身份。
+  // 遗留会话(WS2-0 前落库)无 userId → 回退 token(行为等同旧版,重连集群后自愈为新锚)。
+  const identity = session.userId || token
+  const label = tmuxLabel(identity)
+  const sessionName = tmuxSessionName(identity, sid)
   let execCommand = command   // 默认:一次性 shell(降级 / 非 tmux 路径)
   let persistent = false
   let attachedMeta = null     // 持久路径下本 exec 在 idleTracker 中的 meta(ws 关闭时递减 attached)
@@ -934,7 +937,7 @@ async function handleExec(ws, session, url, req) {
       // get-or-create:重连不重置计数,只续时间。
       const idleMeta = idleTracker.get(sessionName)
       if (idleMeta) { idleMeta.lastActiveAt = Date.now(); idleMeta.attached = (idleMeta.attached || 0) + 1 }
-      else idleTracker.set(sessionName, { token, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now(), attached: 1 })
+      else idleTracker.set(sessionName, { token, userId: identity, ns: namespace, pod, container, terminalId: sid, lastActiveAt: Date.now(), attached: 1 })
       attachedMeta = idleMeta || idleTracker.get(sessionName)
     } catch {
       // tmux 起不来 → 降级一次性 exec(刷新不保留),shell 仍可用
@@ -1998,12 +2001,13 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
         // 取行（含 ns/pod/container）以便 best-effort 杀掉 pod 内的 tmux 会话
         const row = db.prepare('SELECT namespace, podName, container FROM terminals WHERE id = ? AND sessionToken = ?').get(id, token)
         db.prepare('DELETE FROM terminals WHERE id = ? AND sessionToken = ?').run(id, token)
-        idleTracker.delete(tmuxSessionName(token, id))
+        const identity = session.userId || token
+        idleTracker.delete(tmuxSessionName(identity, id))
         if (row) {
           try {
             const { bin } = await resolveTmux(session, row.namespace, row.podName, row.container || '')
             await execCapture(session, row.namespace, row.podName, row.container || '',
-              tmuxKillCommand(tmuxLabel(token), tmuxSessionName(token, id), bin))
+              tmuxKillCommand(tmuxLabel(identity), tmuxSessionName(identity, id), bin))
           } catch { /* pod 已不在 / 无 tmux —— 忽略 */ }
         }
         return sendJson(res, 200, { ok: true })
