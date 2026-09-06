@@ -1,7 +1,7 @@
 # 用户中心 Wave 2 详细设计:组 + namespace 授权 + 授权传导
 
 - 日期: 2026-09-05
-- 修订: r2(2026-09-05 外部技术评审采纳:新增 §0.4 现状绕过与 Phase 0/W2-0 强制前置、§2.7 open 模式语义、§6.1 部分收权语义、§3 决策函数完整 API 面 + 索引/孤儿清理、§4 body-param 端点全覆盖、§6.3 detached runner 逐调用复检、§9 双用户负向矩阵、§10 各期退出判据)
+- 修订: r2(2026-09-05 外部技术评审采纳:新增 §0.4 现状绕过与 Phase 0/W2-0 强制前置、§2.7 open 模式语义、§6.1 部分收权语义、§3 决策函数完整 API 面 + 索引/孤儿清理、§4 body-param 端点全覆盖、§6.3 detached runner 逐调用复检、§9 双用户负向矩阵、§10 各期退出判据);r3(2026-09-06 Phase E 落地增补:附录 C「Impersonation 信任面与开关」——kill-switch/探测语义/信任面声明/启用前清单/归因缺口)
 - 状态: 待用户评审
 - 父 spec: `docs/superpowers/specs/2026-09-04-usercenter-enterprise-design.md`(§2 公理 / §4 约束;本文档将 §4 从约束升格为可实施设计)
 - 事实基础: 2026-09-05 三路代码审计(工作台隔离现状 / 枚举搜索面 / 授权机器复用评估),全部结论带 file:line,摘要见附录 A/B
@@ -249,3 +249,58 @@ allowlist 集群上,组 A 成员 u1 对组 B 的 ns `team-b`(端到端):
 | 11 | /api/my/activity | auth.mjs:223-236 | 本人+90d ✅ | 不变 |
 | 12 | SSH 服务器面 | ref-fetch.mjs:34 + ssh/agent-bridge.mjs:32-42(exposeToAi 闸,host 脱敏) | exposed 闸 ✅,ns 无关 | 维持;per-user 白名单不做 |
 | 13 | 用户审计面 | /api/my/activity | 本人 ✅ | 不变 |
+
+## 附录 C:Impersonation 信任面与开关(2026-09-06,Phase E 落地增补)
+
+Phase E(§7)已落地:身份随会话携带(`impersonate.mjs` buildImpersonation:User=`aliangboard:u-<userId>`、Group=`aliangboard:team-<groupId>`、可读名走 `Impersonate-Extra-Displayname`)、probe-gated 单点注入(requestOnce/exec/watch/pf 出站路径)、组级 RoleBinding 供给与漂移清扫(`sa-provision.mjs` provisionGroupBindings/teardownGroupBindings/sweepGroupBindings,由 admin grants/ns-auth-mode/删组驱动 + 启动兜底)。本附录固化运维面事实。
+
+### C.1 总开关(kill-switch)语义
+
+- 键:`platform_settings.impersonation.enabled`,**仅当值严格等于 `'1'` 时生效;默认关**(未置键 = 关)。admin 经 sqlite 直接置键(无 admin UI):
+  ```sql
+  INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES ('impersonation.enabled','1',strftime('%s','now')*1000);
+  ```
+- **关 → 开:无需重启**。开关关闭时不发探测、不写探测缓存;置 `'1'` 后下一请求 kick 即真探测该集群,探测通过即开始注入。
+- **开 → 关:须重启网关收口**。探测结果按 clusterId 缓存在内存 Map,置回关不清缓存(裁定可接受的取舍);重启即清零回到「关」稳态。
+- 关闭态零副作用:不发 SSRR、不注入任何 `Impersonate-*` 头,行为与 Phase D 完全一致。
+
+### C.2 SSRR 探测语义(每集群一次)
+
+- 探测请求:`POST /apis/authorization.k8s.io/v1/selfsubjectrulesreviews`,**显式自带本会话的 impersonate 头**——不带头的 2xx 证明不了 impersonate 通道;`spec.namespace: 'default'` 仅作探测载体(K8s 必填字段),不承载授权语义。
+- 结果按 clusterId 缓存(内存,重启清零,受网关单进程不变式保护;在途 Promise 去重):
+  - **2xx** → 凭据可 impersonate,该集群后续 egress 注入身份;
+  - **401/403** → 确定性「凭据无 impersonate 权」,缓存 false 不再打扰 apiserver(直到重启);
+  - **5xx/网络错误** → 瞬态,不缓存,下一请求重试。
+- **凭据侧前提**:impersonate 权限不可 ns 限定(apiserver 的 impersonate 动词挂在 users/groups 上,需 ClusterRole 级),凭据录入者责任——平台不供给网关凭据自身的 impersonate 权(非目标)。
+- **身份侧前提(PE-A 终审关键项)**:探测以被代理身份发起,组身份必须能 `create selfsubjectrulesreviews`,否则探测恒 403、impersonation 永不激活——组 Role(view/operate 两档)均已内嵌 SSRR-create 规则;这也覆盖了硬化集群解除 `system:basic-user` 绑定的场景。
+
+### C.3 信任面声明
+
+**启用 impersonation 不扩大信任面,与现状同级。**论据:
+
+1. 网关凭据本就是集群级全权委托(今天所有平台请求即以该凭据全权打 apiserver);impersonation 只是把「apiserver 看到的主体」从网关凭据换成真实平台用户,**收窄**apiserver 实际放行的动作(被代理身份的 RBAC ⊆ 网关凭据的 RBAC)。
+2. 网关侧第一执行点(v1 网关授权 + 头剥离)原样保留:入站 `Impersonate-*`/`X-Remote-*` 无条件剥离(CVE-2021-31999),allowlist 集群的 ns 授权判定在网关先走一遍——impersonation 是**第二执行点 + 审计归真**,双层结构,v1 gate 不移除。
+3. 集群侧组 RoleBinding 只落在 ns_grants 授权范围内(仅 allowlist 集群双写;open 集群不写——不隔离,绑定无意义)。
+
+**已知精度取舍**:组绑定 tier 按「组+集群」取最高档(operate > view),ns 粒度由绑定落位承担——同组在 ns1=view、ns2=operate 时,apiserver 侧 ns1 也是 operate 档。经平台的实际可达面由 v1 网关门按 ns_grants 精确收紧(apiserver 档位 ⊇ 网关档位),无净放权;仅当攻击者绕过网关直连 apiserver 且持有网关凭据时才会触达粗粒度差——而那已经是凭据泄露域,非本设计引入。
+
+### C.4 启用前检查单(逐项过,缺一不启用)
+
+1. 目标集群已切 `allowlist`(open 集群无隔离语义,不启用);
+2. 组 RoleBinding 已供给:admin 保存一次组授权(PUT /api/admin/grants)或切换 ns-auth-mode 即触发;或重启网关由启动 sweep 验证无漂移;抽查 `kubectl get role,rolebinding -l aliangboard.io/group -n <ns>`;
+3. 探测身份可过 SSRR-create:组 Role 规则已含 `selfsubjectrulesreviews create`(C.2);
+4. 网关凭据确有 impersonate 权(以 admin token 录入的凭据通常有;没有则保持关——探测会确定性 403 并缓存 false,零打扰);
+5. 置 `impersonation.enabled='1'`,任意列表请求后集群侧核验:`kubectl get clusterrolebindings` 无关,看 apiserver 审计日志/事件中出现 `aliangboard:u-<userId>`;伪造头复测(w2b 用例:入站 Impersonate-User 被剥离后正常判定)。
+
+### C.5 归因缺口(未 impersonate 的出站路径,记账为未来工作)
+
+以下路径**各自持有独立凭据、不走平台会话身份**,apiserver 审计仍归到其凭据主体,不归到发起用户:
+
+| 路径 | 现状凭据 | 归真计划 |
+|---|---|---|
+| wb_* 工具执行(wb-ctx/buildWbCtx 直连) | 项目绑定集群的平台级凭据 | 未来:以发起用户(或 ownerUserId)构造 impersonated ctx |
+| @mention 引用注入(ref-fetch.mjs) | 同上,平台级凭据 | 同上 |
+| API-key / MCP 面 | key 绑定的 SA 自身凭据(托管或 BYO) | 不适用 impersonation——SA 即身份,审计已归 key(owner 维度在平台审计链) |
+| exec/portforward/watch WS(非会话路径) | 已注入(probe-gated) | 已覆盖 |
+
+在这些路径归真前,**平台审计链仍是完整归因源**(writeAudit 按人记录),apiserver 侧归真是增量而非替代。
