@@ -5,7 +5,7 @@ import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { parseCertChain, parseCertDate, classifyTlsError, createClusterCerts } from './cluster-certs.mjs'
+import { parseCertChain, parseCertDate, classifyTlsError, createClusterCerts, probeConnection } from './cluster-certs.mjs'
 
 const FX = join(dirname(fileURLToPath(import.meta.url)), 'test-fixtures', 'certs')
 const read = f => readFileSync(join(FX, f), 'utf8')
@@ -142,4 +142,56 @@ test('服务缓存:TTL 内复用;invalidate 清空;classifyFromRow 语义映射'
   const okSvc = createClusterCerts({ tlsConnect: okTls(), requestFn: async () => ({ body: { items: [] } }), now: now0 })
   assert.equal(await okSvc.classifyFromRow({ apiServer: 'https://x', ca: 'ca', insecure: 0 }), 'tls-ok')
   assert.equal(await okSvc.classifyFromRow({ apiServer: 'https://x', ca: null, insecure: 1 }), 'unknown-insecure')
+})
+
+// ---- 对抗审查修复批(2026-09-06)----
+test('缓存键含凭据指纹:同 origin+CA 不同 authHeader 不串缓存(防跨会话 RBAC 泄漏)', async () => {
+  let calls = 0
+  const requestFn = async () => { calls++; return { body: { items: [] } } }
+  const svc = createClusterCerts({ tlsConnect: failTls('ECONNREFUSED'), requestFn, now: now0, ttl: 60_000 })
+  const a = { apiServer: new URL('https://x'), ca: 'ca', insecure: false, authHeader: 'Bearer A' }
+  const b = { apiServer: new URL('https://x'), ca: 'ca', insecure: false, authHeader: 'Bearer B' }
+  await svc.getCertsReport(a); await svc.getCertsReport(b)
+  assert.equal(calls, 4, 'scanSecrets 按各自凭据各跑一次(secrets+cert-manager 各 1 请求)')
+  await svc.getCertsReport(a)
+  assert.equal(calls, 4, 'TTL 内复用各自缓存')
+})
+
+test('classifyFromRow TTL 缓存:TTL 内二次调用零拨号;K8S_INSECURE_SKIP_TLS_VERIFY 计入有效 insecure', async () => {
+  let dials = 0
+  const tlsConnect = () => { dials++; return dials === 1 ? okTls()() : failTls('UNABLE_TO_VERIFY_LEAF_SIGNATURE')() }
+  const svc = createClusterCerts({ tlsConnect, requestFn: async () => ({ body: { items: [] } }), now: now0, ttl: 60_000 })
+  const row = { apiServer: 'https://x', ca: 'ca', insecure: 0 }
+  assert.equal(await svc.classifyFromRow(row), 'ca-mismatch')
+  dials = 0
+  assert.equal(await svc.classifyFromRow(row), 'ca-mismatch')
+  assert.equal(dials, 0, 'TTL 内命中归因缓存,不再拨号')
+  process.env.K8S_INSECURE_SKIP_TLS_VERIFY = 'true'
+  try {
+    assert.equal(await svc.classifyFromRow({ apiServer: 'https://y', ca: 'ca', insecure: 0 }), 'unknown-insecure')
+  } finally { delete process.env.K8S_INSECURE_SKIP_TLS_VERIFY }
+})
+
+test('报告缓存 FIFO 封顶:防会话材质铸造撑爆单进程网关内存', async () => {
+  const requestFn = async () => ({ body: { items: [] } })
+  const svc = createClusterCerts({ tlsConnect: failTls('ECONNREFUSED'), requestFn, now: now0 })
+  for (let i = 0; i < 34; i++) await svc.getCertsReport({ apiServer: new URL(`https://x${i}`), ca: null, insecure: true })
+  assert.ok(svc._cacheSizeForTest() <= 32, `缓存条目应封顶 32,实际 ${svc._cacheSizeForTest()}`)
+})
+
+test('http:// apiServer:无 TLS 语义(trust=scheme-http),零拨号', async () => {
+  let dials = 0
+  const r = await probeConnection(() => { dials++; throw new Error('不应拨号') }, { apiServer: 'http://x:8080', ca: 'ca', insecure: false, now: now0 })
+  assert.equal(r.trust, 'scheme-http')
+  assert.equal(r.reachable, true)
+  assert.equal(r.peerChain.length, 0)
+  assert.equal(dials, 0)
+})
+
+test('probeConnection 透传客户端证书(mTLS 前置的集群):宽/严两次拨号均带 cert/key', async () => {
+  const seen = []
+  const tlsConnect = opts => { seen.push(opts); return okTls()() }
+  await probeConnection(tlsConnect, { apiServer: 'https://x', ca: 'ca', cert: 'CERTPEM', key: 'KEYPEM', insecure: false, now: now0 })
+  assert.equal(seen.length, 2)
+  assert.ok(seen.every(o => o.cert === 'CERTPEM' && o.key === 'KEYPEM'), '两次拨号都应携带客户端证书材料')
 })

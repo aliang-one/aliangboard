@@ -33,8 +33,6 @@ test('Disconnected 行富化 disconnectReason;Healthy 行零调用;凭据列不�
 })
 
 test('classifyFromRow 抛错不拖垮列表:行降级为无归因(其余照常)', async () => {
-  const h = makeHarness({ rows: [row('c1', 'Disconnected')] })
-  h.routes = null
   const sent = [], classified = []
   const routes = createAdminRoutes({
     db: { prepare: (sql) => ({ all: () => (sql.includes('FROM clusters') ? [row('c1', 'Disconnected')] : []), get: () => null, run: () => {} }) },
