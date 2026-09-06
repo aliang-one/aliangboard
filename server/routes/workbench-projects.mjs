@@ -336,7 +336,7 @@ export function createWorkbenchProjectRoutes(deps) {
         const items = listSshServers(db, { exposedOnly: true })
           .filter(s => !q || s.name.toLowerCase().includes(q) || String(s.host || '').toLowerCase().includes(q) || String(s.description || '').toLowerCase().includes(q))
           .slice(0, 50)
-          .map(s => ({ kind: 'server', name: s.name, description: s.description || '', clusterRef: s.clusterRef || '', host: s.host }))
+          .map(s => ({ kind: 'server', name: s.name, description: s.description || '', clusterRef: s.clusterRef || '', ...(ps.role === 'admin' ? { host: s.host } : {}) }))
         sendJson(res, 200, { items })
         return true
       }
