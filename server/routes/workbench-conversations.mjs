@@ -26,7 +26,7 @@ import { normalizeKind } from '../kindAlias.mjs'
 
 export function createWorkbenchConvRoutes(deps) {
   const {
-    db, sendJson, readBody, requireAdmin, requirePlatform, wbAgent,
+    db, sendJson, readBody, requireAdmin, requirePlatform, wbAgent, writeAudit,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
     busSubscribe, busUnsubscribe, busDispose,
   } = deps
@@ -498,6 +498,9 @@ export function createWorkbenchConvRoutes(deps) {
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       // 审批归属留痕:approverId/approvedAt 并入 pendingApproval(载荷原样保留)。
       stampApprover(db, id, ps.userId)
+      // 审批归属持久留痕(CB-B 控制器裁决):pendingApproval 的归属戳会在 resume 时被清,
+      // 审计链才是 durable 权威源——resume 前落一条 wb_approval。
+      writeAudit?.(db, { owner: ps.username, verb: 'approve', tool: 'wb_approval', result: 'ok', requestSummary: `conv=${id} approverId=${ps.userId}`, source: 'platform' })
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const llmClient = createLlmClient(cfg)
@@ -517,6 +520,7 @@ export function createWorkbenchConvRoutes(deps) {
       const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       stampApprover(db, id, ps.userId)
+      writeAudit?.(db, { owner: ps.username, verb: 'deny', tool: 'wb_approval', result: 'ok', requestSummary: `conv=${id} approverId=${ps.userId}`, source: 'platform' })
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       const llmClient = createLlmClient(cfg)

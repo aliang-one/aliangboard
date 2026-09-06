@@ -17,18 +17,20 @@ function makeHarness({ userId = 'u1', role = 'user' } = {}) {
   const paused = (id) => db.prepare(`INSERT INTO workbench_conversations (id,projectId,status,createdAt,updatedAt,system,pendingApproval) VALUES (?,'p1','paused',1,2,'SYS',?)`).run(id, JSON.stringify({ toolCallId: 'tc1', name: 'wb_exec', args: {} }))
   paused('cA')
   const resumeCalls = []
+  const auditEntries = []
   const routes = createWorkbenchConvRoutes({
     db, sendJson: (r, s, j) => sent.push({ status: s, json: j }),
     readBody: async () => ({}),
     requirePlatform: () => ({ userId, role, username }),
     requireAdmin: () => (role === 'admin' ? { userId, role, username } : null),
     wbAgent: { resumeConversation: async (id, approved, llm, actor) => { resumeCalls.push({ id, approved, actor }) } },
+    writeAudit: (db_, entry) => { auditEntries.push(entry) },
     getLlmConfig: () => ({ baseURL: 'http://x', model: 'm' }),
     createLlmClient: () => ({}),
     busSubscribe: () => {}, busUnsubscribe: () => {}, busDispose: () => {},
   })
   const username = userId
-  const harness = { sent, db, resumeCalls,
+  const harness = { sent, db, resumeCalls, auditEntries,
     call: (m, p) => routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) }
   return harness
 }
@@ -59,6 +61,37 @@ test('owner approve → 200;approverId/approvedAt 落 pendingApproval;CAS 置 ru
   assert.equal(pa.toolCallId, 'tc1') // 原审批载荷不丢
   assert.equal(h.resumeCalls.length, 1)
   assert.deepEqual(h.resumeCalls[0].actor, { userId: 'u1', username: 'u1' }) // 审计 actor 照旧
+})
+
+test('owner approve 落 durable 审计:wb_approval 带 approverId(resume 前)', async () => {
+  const h = makeHarness({ userId: 'u1' })
+  await h.call('POST', '/api/workbench/conversations/cA/approve')
+  assert.equal(h.sent[0].status, 200)
+  const entries = h.auditEntries.filter(e => e.tool === 'wb_approval')
+  assert.equal(entries.length, 1)
+  const e = entries[0]
+  assert.equal(e.verb, 'approve')
+  assert.equal(e.result, 'ok')
+  assert.equal(e.owner, 'u1')
+  assert.equal(e.source, 'platform')
+  assert.equal(e.requestSummary, 'conv=cA approverId=u1')
+})
+
+test('owner deny 落 durable 审计:verb=deny 同样带 approverId', async () => {
+  const h = makeHarness({ userId: 'u1' })
+  await h.call('POST', '/api/workbench/conversations/cA/deny')
+  assert.equal(h.sent[0].status, 200)
+  const entries = h.auditEntries.filter(e => e.tool === 'wb_approval')
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].verb, 'deny')
+  assert.equal(entries[0].requestSummary, 'conv=cA approverId=u1')
+})
+
+test('u2 403 时不落 wb_approval 审计(拒绝不留归属痕)', async () => {
+  const h = makeHarness({ userId: 'u2', role: 'user' })
+  await h.call('POST', '/api/workbench/conversations/cA/approve')
+  assert.equal(h.sent[0].status, 403)
+  assert.equal(h.auditEntries.filter(e => e.tool === 'wb_approval').length, 0)
 })
 
 test('owner deny → 200 同样落 approverId/approvedAt,approved=false', async () => {
