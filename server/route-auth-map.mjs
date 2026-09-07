@@ -19,6 +19,7 @@ export const ROUTE_AUTH = [
   // --- 公有(allowlist 守卫测试锁定) ---
   { method: 'GET',    pattern: '/api/health',    auth: 'none' },  // 存活探针(无鉴权,deployment.yaml 探针依赖)
   { method: 'POST',   pattern: '/api/auth/login', auth: 'none' },
+  { method: 'POST',   pattern: '/api/auth/login/mfa', auth: 'none' }, // W3 §1.3:登录二步第二步(票据+验证码;自身独立限流,handler 内验)
   { method: 'POST',   pattern: '/api/auth/logout', auth: 'none' }, // 幂等:无 token 也 200
   { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204(POST /api/session 已下线:CSO #1 未认证 SSRF 链)
   // --- 平台 ---

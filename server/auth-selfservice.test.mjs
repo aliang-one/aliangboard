@@ -16,10 +16,14 @@ function makeDb() {
   db.exec(`CREATE TABLE platform_users (
     id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, passwordHash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user', displayName TEXT, createdAt INTEGER NOT NULL,
-    disabled INTEGER DEFAULT 0, prefs TEXT, avatar BLOB, avatarMime TEXT)`)
+    disabled INTEGER DEFAULT 0, prefs TEXT, avatar BLOB, avatarMime TEXT, totpSecret TEXT)`)
   db.exec(`CREATE TABLE platform_sessions (
     token TEXT PRIMARY KEY, userId TEXT NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL,
-    createdAt INTEGER NOT NULL, k8sSessionToken TEXT, lastSeenAt INTEGER, ip TEXT, userAgent TEXT)`)
+    createdAt INTEGER NOT NULL, k8sSessionToken TEXT, lastSeenAt INTEGER, ip TEXT, userAgent TEXT,
+    mfaPending INTEGER DEFAULT 0, stepUpAt INTEGER)`)
+  db.exec(`CREATE TABLE mfa_recovery_codes (
+    userId TEXT NOT NULL, codeHash TEXT NOT NULL, usedAt INTEGER,
+    PRIMARY KEY (userId, codeHash))`)
   db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT NOT NULL,
     authHeader TEXT, ca TEXT, cert TEXT, key TEXT, insecure INTEGER DEFAULT 0, version TEXT, nsAuthMode TEXT DEFAULT 'open')`)
   db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
@@ -507,4 +511,16 @@ test('my-keys POST:allowlist 集群签发未授权 ns → 403;授权 ns → 走�
   await ok.routes.handle({ method: 'POST', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/my/keys'))
   assert.equal(ok.sent[0].status, 200)
   assert.equal(provisioned.length, 1)
+})
+
+// ===== Wave 3 Task 2(MFA):回归锚 + schema 兼容 =====
+// 裁决 R5:未启用 MFA + 开关关 → 登录路径与 Wave 3 之前逐字节同形(无 mfaRequired 字段)。
+test('回归锚(W3 R5):无 totpSecret 用户登录 → 直发 token,响应键集恒为 token/user/prefs', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  routes._body = { username: 'alice', password: 'right-password' }
+  await routes.routes.handle({ method: 'POST', headers: { 'user-agent': 'vitest' }, url: '/api/auth/login' }, {}, new URL('/api/auth/login', 'http://x'))
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(Object.keys(sent[0].payload).sort(), ['prefs', 'token', 'user'])
+  assert.equal(sent[0].payload.mfaRequired, undefined)
 })

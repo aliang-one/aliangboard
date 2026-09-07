@@ -8,9 +8,21 @@ import { APP_VERSION } from '../version.mjs'
 import { resolvePasswordPolicy, firstFailedRule } from '../password-policy.mjs'
 import { queryAuditLog } from '../audit.mjs'
 import { effectiveGrants } from '../authz.mjs'
+import { generateTotpSecret, otpauthUri, verifyTotp, generateRecoveryCodes, hashRecoveryCode } from '../totp.mjs'
 import { unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+// ===== Wave 3 MFA(§1.3):内存态票据/待落库密钥(模块级;单进程网关不变式,重启即失效=重走密码步) =====
+// mfaTickets:login 密码步通过后签发 → login/mfa 第二步消费。5min TTL,单次(读即删);
+//   导出仅供测试播种(过期票据用例),生产代码只经 login/login-mfa 两处触碰。
+// mfaPendingSecrets:setup 生成的待验证密钥(不落库),5min,重复调用覆盖=轮换;
+//   enable 以 body 传入的 secret 验码(此 Map 仅记录最近一次 pending,便于将来做绑定校验)。
+export const mfaTickets = new Map()        // ticket -> { userId, username, exp }
+export const mfaPendingSecrets = new Map() // userId  -> { secret, exp }
+const MFA_TICKET_TTL_MS = 5 * 60_000
+const MFA_PENDING_SECRET_TTL_MS = 5 * 60_000
+const STEP_UP_MAX_AGE_MS = 10 * 60_000
 
 export function createAuthRoutes(deps) {
   const {
@@ -33,6 +45,49 @@ export function createAuthRoutes(deps) {
       const row = db.prepare('SELECT prefs FROM platform_users WHERE id=?').get(userId)
       return JSON.parse(row?.prefs || '{}') || {}
     } catch { return {} }
+  }
+
+  // ===== Wave 3 MFA helpers =====
+  // 恢复码校验:归一化后按哈希查(容错:存量库无表视作未命中)。命中未用码 → true;
+  // consume=true 即焚(仅登录第二步消费——裁决 R2:disable/step-up 验过不消费,因用户已持完整会话)。
+  function checkRecoveryCode(userId, code, { consume = false } = {}) {
+    const hash = hashRecoveryCode(String(code))
+    let row
+    try { row = db.prepare('SELECT usedAt FROM mfa_recovery_codes WHERE userId=? AND codeHash=?').get(userId, hash) } catch { return false }
+    if (!row || row.usedAt) return false
+    if (consume) db.prepare('UPDATE mfa_recovery_codes SET usedAt=? WHERE userId=? AND codeHash=?').run(Date.now(), userId, hash)
+    return true
+  }
+
+  // step-up 守卫(W3 §2):会话最近强认证(stepUpAt)距今 >10min(或从未)→ 409 {stepUpRequired:true},
+  // 前端拦截该形状弹 TOTP 窗重放。守卫仅账户安全面(disable/setup-重置/改密),普通操作不受约束。
+  function requireStepUp(req, ps, res) {
+    const last = Number(ps?.stepUpAt || 0)
+    if (!last || Date.now() - last > STEP_UP_MAX_AGE_MS) {
+      sendJson(res, 409, { stepUpRequired: true, message: msg(req, 'auth.stepUpRequired') })
+      return false
+    }
+    return true
+  }
+
+  // login 成功尾段(W3 起两处共用,防漂移:密码直接通过 / login/mfa 二步通过):
+  // 建平台会话(内存+DB,stepUpAt=now——刚完成密码/MFA 认证)+ 会话上限 + 审计 + token/user/prefs 响应。
+  function finishLogin(req, res, user, ip, auditOk) {
+    const token = randomUUID()
+    const psNow = Date.now()
+    const userAgent = String(req.headers['user-agent'] || '')
+    const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: psNow, k8sSessionToken: null, ip, userAgent, lastSeenAt: psNow, stepUpAt: psNow }
+    platformSessions.set(token, ps)
+    db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt,stepUpAt) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(token, user.id, user.username, user.role, psNow, ip, userAgent, psNow, psNow)
+    // 会话数量上限(2026-08-30 设计 §3.2):超出踢最久未活跃的旧会话,刚建的本会话永不踢;
+    // 被踢会话的 K8s 凭据由 enforceSessionCap 一并回收。强制失败不阻断登录(降级不踢)。
+    try {
+      enforceSessionCap?.({ platformSessions, db, sessions, userId: user.id, owner: user.username,
+        max: maxPlatformSessionsPerUser, keepToken: token, now: psNow, writeAudit })
+    } catch (e) { console.error('[auth] 会话上限强制失败(降级不踢):', e?.message || e) }
+    auditOk()
+    sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt }, prefs: readPrefs(db, user.id) })
   }
 
   // 匹配 auth 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -63,22 +118,130 @@ export function createAuthRoutes(deps) {
           auditLogin('denied', 'bad-credentials')
           sendJson(res, 401, { message: msg(req, 'auth.badCredentials') }); return true
         }
-        const token = randomUUID()
-        const psNow = Date.now()
-        const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: psNow, k8sSessionToken: null, ip, userAgent: String(req.headers['user-agent'] || ''), lastSeenAt: psNow }
-        platformSessions.set(token, ps)
-        db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt) VALUES (?,?,?,?,?,?,?,?)')
-          .run(token, user.id, user.username, user.role, psNow, ip, String(req.headers['user-agent'] || ''), psNow)
-        // 会话数量上限(2026-08-30 设计 §3.2):超出踢最久未活跃的旧会话,刚建的本会话永不踢;
-        // 被踢会话的 K8s 凭据由 enforceSessionCap 一并回收。强制失败不阻断登录(降级不踢)。
-        try {
-          enforceSessionCap?.({ platformSessions, db, sessions, userId: user.id, owner: user.username,
-            max: maxPlatformSessionsPerUser, keepToken: token, now: psNow, writeAudit })
-        } catch (e) { console.error('[auth] 会话上限强制失败(降级不踢):', e?.message || e) }
-        auditLogin('ok')
-        sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt }, prefs: readPrefs(db, user.id) })
+        // W3 §1.3(TOTP 二步):已启用 MFA → 不发 token,签发 5min 单次 mfaTicket(密码步=第一步通过);
+        // 第二步 POST /api/auth/login/mfa。未启用者路径零变化(裁决 R5 回归锚钉死)。
+        if (user.totpSecret) {
+          const ticket = randomUUID()
+          mfaTickets.set(ticket, { userId: user.id, username: user.username, exp: Date.now() + MFA_TICKET_TTL_MS })
+          auditLogin('ok', 'mfa-required')
+          sendJson(res, 200, { mfaRequired: true, mfaTicket: ticket })
+          return true
+        }
+        finishLogin(req, res, user, ip, () => auditLogin('ok'))
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
+    }
+
+    // POST /api/auth/login/mfa — 登录二步第二步(W3 §1.3):mfaTicket(密码步签发,5min 单次)+ TOTP/恢复码。
+    // ROUTE_AUTH class none,但自身独立限流(键 `mfa|ip|username`,防 ticket 5min 有效期内对 6 位码暴力)。
+    if (url.pathname === '/api/auth/login/mfa' && req.method === 'POST') {
+      try {
+        const { username, mfaTicket, code } = await readBody(req)
+        if (!username || !mfaTicket || !code) { sendJson(res, 400, { message: msg(req, 'auth.mfaInputRequired') }); return true }
+        const ip = req.socket?.remoteAddress || 'unknown'
+        const rl = checkLoginRate(`mfa|${ip}|${username}`)
+        if (!rl.allowed) {
+          writeAudit?.(db, { owner: String(username), verb: 'login', tool: 'platform_login', result: 'ratelimited', reason: 'too-many-attempts-mfa', requestSummary: `ip=${ip}`, source: 'platform' })
+          sendJson(res, 429, { message: msg(req, 'auth.rateLimited'), retryAfter: rl.retryAfter })
+          return true
+        }
+        const auditMfa = (result, reason = null) => writeAudit?.(db, { owner: String(username), verb: 'login', tool: 'platform_login', result, reason, requestSummary: `ip=${ip}`, source: 'platform' })
+        // 票据:读即删(单次);过期/未签发/用户名错绑同报 invalid——不泄漏票据存在性。
+        const ticket = mfaTickets.get(mfaTicket)
+        mfaTickets.delete(mfaTicket)
+        if (!ticket || ticket.exp < Date.now() || ticket.username !== String(username) || ticket.userId == null) {
+          auditMfa('denied', 'bad-mfa-ticket')
+          sendJson(res, 401, { message: msg(req, 'auth.mfaTicketInvalid') }); return true
+        }
+        const user = db.prepare('SELECT * FROM platform_users WHERE id=?').get(ticket.userId)
+        if (!user || user.disabled || !user.totpSecret || user.username !== String(username)) {
+          auditMfa('denied', 'bad-mfa-ticket')
+          sendJson(res, 401, { message: msg(req, 'auth.mfaTicketInvalid') }); return true
+        }
+        // 验码:TOTP 或恢复码(恢复码即焚——仅此处消费,裁决 R2)。
+        let via = null
+        if (verifyTotp(user.totpSecret, String(code))) via = 'totp'
+        else if (checkRecoveryCode(user.id, code, { consume: true })) via = 'recovery'
+        if (!via) {
+          auditMfa('denied', 'bad-mfa-code')
+          sendJson(res, 401, { message: msg(req, 'auth.mfaCodeInvalid') }); return true
+        }
+        finishLogin(req, res, user, ip, () => auditMfa('ok', `via=${via}`))
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
+    }
+
+    // POST /api/auth/mfa/setup — 生成待验证密钥(W3 §1.3):不落库;同会话重复调用轮换(覆盖);
+    // 已启用者需 step-up(重置场景)。响应含 base32 secret + otpauth URI(认证器扫码/手输)。
+    if (url.pathname === '/api/auth/mfa/setup' && req.method === 'POST') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      try {
+        const user = db.prepare('SELECT totpSecret FROM platform_users WHERE id=?').get(ps.userId)
+        if (user?.totpSecret && !requireStepUp(req, ps, res)) return true
+        const secret = generateTotpSecret()
+        mfaPendingSecrets.set(ps.userId, { secret, exp: Date.now() + MFA_PENDING_SECRET_TTL_MS })
+        writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'platform_mfa_setup', result: 'ok', source: 'platform' })
+        sendJson(res, 200, { secret, otpauthUri: otpauthUri(secret, ps.username) })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.mfaFailed') }); return true }
+    }
+
+    // POST /api/auth/mfa/enable {secret, code} — 验码通过 → totpSecret 落库 + 10 恢复码哈希入库(单事务:
+    // 部分失败整体回滚)+ stepUpAt=now(刚验过码);恢复码明文仅此次下发(刷新后不可再取)。
+    if (url.pathname === '/api/auth/mfa/enable' && req.method === 'POST') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      try {
+        const { secret, code } = await readBody(req)
+        if (!secret || !code) { sendJson(res, 400, { message: msg(req, 'auth.mfaInputRequired') }); return true }
+        const auditEnable = (result, reason = null) => writeAudit?.(db, { owner: ps.username, verb: 'change', tool: 'platform_mfa_enable', result, reason, source: 'platform' })
+        if (!verifyTotp(String(secret), String(code))) {
+          auditEnable('denied', 'bad-code')
+          sendJson(res, 400, { message: msg(req, 'auth.mfaCodeInvalid') }); return true
+        }
+        const codes = generateRecoveryCodes(10)
+        const now = Date.now()
+        const token = extractPlatformToken(req)
+        db.exec('BEGIN')
+        try {
+          db.prepare('UPDATE platform_users SET totpSecret=? WHERE id=?').run(String(secret), ps.userId)
+          db.prepare('DELETE FROM mfa_recovery_codes WHERE userId=?').run(ps.userId) // 重复启用=换码组,旧恢复码全作废
+          const ins = db.prepare('INSERT INTO mfa_recovery_codes (userId,codeHash,usedAt) VALUES (?,?,NULL)')
+          for (const c of codes) ins.run(ps.userId, c.hash)
+          if (token) db.prepare('UPDATE platform_sessions SET stepUpAt=? WHERE token=?').run(now, token)
+          db.exec('COMMIT')
+        } catch (e) { db.exec('ROLLBACK'); throw e }
+        ps.stepUpAt = now
+        mfaPendingSecrets.delete(ps.userId)
+        auditEnable('ok', `codes=${codes.length}`)
+        sendJson(res, 200, { ok: true, recoveryCodes: codes.map(c => c.plaintext) })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.mfaFailed') }); return true }
+    }
+
+    // POST /api/auth/mfa/disable {code} — TOTP 或恢复码验过 → 清 totpSecret + 恢复码(事务);必须 step-up
+    // (W3 §1.3)。恢复码在此不消费(R2:仅登录即焚);未启用者 400。
+    if (url.pathname === '/api/auth/mfa/disable' && req.method === 'POST') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      try {
+        if (!requireStepUp(req, ps, res)) return true
+        const { code } = await readBody(req)
+        const user = db.prepare('SELECT totpSecret FROM platform_users WHERE id=?').get(ps.userId)
+        if (!user?.totpSecret) { sendJson(res, 400, { message: msg(req, 'auth.mfaNotEnabled') }); return true }
+        const auditDisable = (result, reason = null) => writeAudit?.(db, { owner: ps.username, verb: 'change', tool: 'platform_mfa_disable', result, reason, source: 'platform' })
+        if (!code || (!verifyTotp(user.totpSecret, String(code)) && !checkRecoveryCode(ps.userId, code))) {
+          auditDisable('denied', 'bad-code')
+          sendJson(res, 401, { message: msg(req, 'auth.mfaCodeInvalid') }); return true
+        }
+        db.exec('BEGIN')
+        try {
+          db.prepare('UPDATE platform_users SET totpSecret=NULL WHERE id=?').run(ps.userId)
+          db.prepare('DELETE FROM mfa_recovery_codes WHERE userId=?').run(ps.userId)
+          db.exec('COMMIT')
+        } catch (e) { db.exec('ROLLBACK'); throw e }
+        auditDisable('ok')
+        sendJson(res, 200, { ok: true })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.mfaFailed') }); return true }
     }
 
     // GET /api/auth/me — 当前登录用户信息(含 grants 下发,仅展示)

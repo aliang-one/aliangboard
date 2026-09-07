@@ -255,6 +255,19 @@ try { db.exec('ALTER TABLE platform_sessions ADD COLUMN userAgent TEXT') } catch
 try { db.exec('ALTER TABLE platform_users ADD COLUMN prefs TEXT') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE platform_users ADD COLUMN avatar BLOB') } catch { /* 列已存在 */ }        // Wave1 §3.5:头像存 SQLite blob(单库不变式)
 try { db.exec('ALTER TABLE platform_users ADD COLUMN avatarMime TEXT') } catch { /* 列已存在 */ }
+// Wave 3 MFA(§1.2):totpSecret 刻意明文存储——密钥与 SQLite 库文件同信任边界(加密密钥无处独立安放,
+// 安全性同源;政策同 passwordHash/salt,部署侧库文件 0600 已设,spec 明示「库文件即敏感」)。
+// mfaPending=1 受限 token(admin 强制开关下未启用者,§1.5);stepUpAt=最近一次强认证(登录/MFA 登录/step-up)。
+try { db.exec('ALTER TABLE platform_users ADD COLUMN totpSecret TEXT') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN mfaPending INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_sessions ADD COLUMN stepUpAt INTEGER') } catch { /* 列已存在 */ }
+// 恢复码:SHA-256 哈希入库(明文仅启用时一次性下发);usedAt 非 NULL = 已消费(登录即焚,裁决 R2)。
+db.exec(`CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+  userId TEXT NOT NULL,
+  codeHash TEXT NOT NULL,
+  usedAt INTEGER,
+  PRIMARY KEY (userId, codeHash)
+)`)
 // API key 表(机器/人绑定的长效凭据):schema + 签发/查询/吊销逻辑见 ./auth-keys.mjs(T4,6A 抽模块 + 可单测)。
 createApiKeysSchema(db)
 // SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)
