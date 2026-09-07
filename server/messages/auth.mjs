@@ -28,4 +28,8 @@ export const TABLE = {
   'auth.mfaFailed': { zh: '两步验证操作失败', en: 'Two-factor operation failed' },
   'auth.stepUpRequired': { zh: '需要重新验证身份,请输入两步验证码', en: 'Recent authentication required, please enter your two-factor code' },
   'auth.mfaEnrollmentRequired': { zh: '管理员已要求启用两步验证,请先完成启用后再继续', en: 'Your administrator requires two-factor authentication — enroll before continuing' },
+  // Wave 4 OIDC(SSO 登录,§D3):登录页兑换码落地/兜底文案(302 错误码文案在前端白名单,不走本表)
+  'auth.oidcCodeRequired': { zh: '缺少登录兑换码', en: 'Sign-in code is required' },
+  'auth.oidcCodeInvalid': { zh: '登录兑换码无效或已过期,请重新登录', en: 'Sign-in code is invalid or expired, please sign in again' },
+  'auth.oidcAccountDisabled': { zh: '该账户已被禁用', en: 'This account has been disabled' },
 }

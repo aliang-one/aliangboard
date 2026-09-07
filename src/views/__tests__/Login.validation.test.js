@@ -27,7 +27,8 @@ beforeEach(() => {
 })
 
 function mountView() { return mount(Login, { global: { plugins: [i18n] } }) }
-const submit = w => w.findAll('button').find(b => b.text().includes('登录'))
+// W4 起 SSO 钮(「使用 SSO 登录」)含「登录」字样,text 匹配会先撞上它——改钉 testid
+const submit = w => w.find('[data-testid="login-submit"]')
 
 test('空用户名/密码 → 不发请求,行内提示', async () => {
   setActivePinia(createPinia())
