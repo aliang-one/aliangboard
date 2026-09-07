@@ -129,12 +129,15 @@ export function createK8sProxyRoutes(deps) {
       // I1 裁决:discovery 根不走透传门(parseApiPath null → 403),直读上游缓冲透传 body。
       // 非 GET 的同形状路径不放行(照旧交给透传门拒)。
       if (isDiscoveryRoot(req.method, kubernetesPath.split('?')[0])) {
+        // sendJson 无返回值——分支已处理必须显式 return true(re-review 1:曾靠 dispatcher
+        // 末端 headersSent 吸收兜底,契约滑移;现在钉死)。
         try {
           const result = await requestKubernetes(r.session, kubernetesPath)
-          return sendJson(res, result.status, result.body ?? {})
+          sendJson(res, result.status, result.body ?? {})
         } catch (error) {
-          return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sRequestFailed'), details: error.details })
+          sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sRequestFailed'), details: error.details })
         }
+        return true
       }
       await handlePassthrough(req, res, r.session, kubernetesPath)
       return true

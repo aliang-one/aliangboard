@@ -690,7 +690,7 @@
       "generate": "生成 kubeconfig",
       "copy": "复制",
       "download": "下载",
-      "expiryHint": "凭据说明：kubeconfig 中的 token 即当前平台登录凭据，随平台会话失效（登出、被强制下线或修改密码后即刻失效）；集群权限跟随你的平台授权，请勿将文件泄露给他人。；注意：kubectl exec / port-forward 与服务端 apply（kubectl apply --server-side）不经此代理（与浏览器操作面同口径）。",
+      "expiryHint": "凭据说明：kubeconfig 中的 token 即当前平台登录凭据，随平台会话失效（登出、被强制下线或修改密码后即刻失效）；集群权限跟随你的平台授权，请勿将文件泄露给他人；注意：kubectl exec / port-forward 与服务端 apply（kubectl apply --server-side）不经此代理（与浏览器操作面同口径）。",
       "noClusters": "暂无可访问的集群（请联系管理员分配）"
     }
   },
