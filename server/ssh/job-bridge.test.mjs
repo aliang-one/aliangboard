@@ -199,10 +199,11 @@ test('run pid:跳过 banner 行取纯数字行;全是噪音则不采信(pid 空)
 
 test('jobWrite:none 免审 ok;readonly 策略 needsApproval=true;keyMode 恒拒', async () => {
   const sink = []
+  // P1-7:jobWrite 先跑 list 探测属主(空表=不在列表=属主未知→放行),再写 fifo——按内容定位命令
   const pool = fakePool([{ stdout: '' }], sink)
   await bridge(pool).jobWrite({ server: 'dev-1', jobId: '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', text: 'y' })
-  const cmd = sink.find(c => c[0] === 'exec')[1]
-  assert.ok(cmd.includes("'y'"))
+  const cmd = sink.filter(c => c[0] === 'exec').map(c => c[1]).find(c => c.includes("'y'"))
+  assert.ok(cmd, '必须发出 fifo 写入命令')
   // 审批语义
   const ro = createSshJobBridge({
     db: fakeDb([{ id: 'srv1', name: 'dev-1', exposeToAi: 1, aiApprovalPolicy: 'readonly' }]),
@@ -274,4 +275,44 @@ test('修复②:jobOut chunk 脱敏(PEM 不明文回传)', async () => {
   assert.ok(r.chunk.includes('[redacted-private-key]'), `chunk 应脱敏,收到: ${JSON.stringify(r.chunk)}`)
   assert.equal(r.chunk.includes('PRIVATE KEY'), false)
   assert.equal(r.size, 100, '边带元数据不受脱敏影响')
+})
+
+// W2 审计 P1-7(2026-09-07):wb_ssh_job_list/job_out 此前只过 exposeToAi 闸、不按 projectId
+// 过滤——同一暴露服务器上 A 项目 AI 可经 jobList 拿到 B 项目的 jobId 再 jobOut 读其输出
+//(跨项目信息泄露;memory 里的 projectId 字段只用于标注)。收口:远端 meta 的 projectId 经
+// list 第三列/readScript 边带回传;已知属主≠本项目 → list 隐藏 + out/write/kill 拒;
+// 属主未知(存量 meta 无 projectId)→ 维持可见(向后兼容,TTL 数小时内自然清空)。
+test('P1-7:jobList 隐藏他项目任务;jobOut 读他项目(边带 AB_PROJECT)→ 拒;未知属主存量任务仍可读', async () => {
+  const mine = randomUUID(), theirs = randomUUID(), legacy = randomUUID()
+  const r = await bridge(fakePool([{ stdout: `${mine} RUNNING p1\n${theirs} RUNNING p2\n${legacy} 0\n` }]))
+    .jobList({ server: 'dev-1' })
+  assert.deepEqual(r.jobs.map(j => j.jobId).sort(), [legacy, mine].sort(), 'p2 的任务不得出现在 p1 桥的列表')
+
+  const r2 = await bridge(fakePool([{ stdout: 's3cret', stderr: 'AB_SIZE=99 AB_RUNNING=1 AB_EXIT= AB_PROJECT=p2\n' }]))
+    .jobOut({ server: 'dev-1', jobId: theirs, offset: 0 })
+  assert.match(r2.error, /其他项目/, '读输出前必须拒绝,不得回 chunk')
+  assert.equal(r2.chunk, undefined)
+
+  const r3 = await bridge(fakePool([{ stdout: 'hello', stderr: 'AB_SIZE=100 AB_RUNNING=0 AB_EXIT=0\n' }]))
+    .jobOut({ server: 'dev-1', jobId: legacy, offset: 0 })
+  assert.equal(r3.chunk, 'hello', '属主未知(存量)维持可读——向后兼容')
+})
+
+test('P1-7:jobKill/jobWrite 经 list 探测属主,他项目 → 拒且不发 kill/write', async () => {
+  const theirs = randomUUID()
+  const sinkK = []
+  const rk = await bridge(fakePool([{ stdout: `${theirs} RUNNING p2\n` }], sinkK)).jobKill({ server: 'dev-1', jobId: theirs })
+  assert.match(rk.error, /其他项目/)
+  assert.ok(!sinkK.some(c => c[0] === 'exec' && c[1].includes('kill')), '拒后不得发出 kill 命令')
+
+  const sinkW = []
+  const rw = await bridge(fakePool([{ stdout: `${theirs} RUNNING p2\n` }], sinkW)).jobWrite({ server: 'dev-1', jobId: theirs, text: 'y' })
+  assert.match(rw.error, /其他项目/)
+  assert.ok(!sinkW.some(c => c[0] === 'exec' && c[1].includes('exec 9<>')), '拒后不得写入 fifo')
+
+  // 本项目任务照常(kill:探测 + kill 两步)
+  const sinkSelf = []
+  const rs = await bridge(fakePool([{ stdout: `${randomUUID()} RUNNING p1\n` }, { stdout: 'KILLED\n' }], sinkSelf))
+    .jobKill({ server: 'dev-1', jobId: randomUUID() })
+  assert.equal(rs.ok, true)
 })

@@ -63,22 +63,27 @@ export function stdinWriteScript({ jobId, text }) {
 }
 
 // 读输出:stdout=原始字节(tail 1-based 偏移 + head 截断);stderr 边带一行元数据。
+// P1-7(2026-09-07 审计):边带追加 AB_PROJECT(launch 时写进 meta 的任务属主)——jobOut 据此
+// 跨项目拒绝,零额外往返;meta 缺失/无 projectId(存量任务)→ 空 = 属主未知,向后兼容可见。
 export function readScript({ jobId, offset, maxBytes }) {
   const D = jobDir(jobId)
   return [
     `tail -c +${Number(offset) + 1} "${D}/out" 2>/dev/null | head -c ${Number(maxBytes)}`,
-    `echo "AB_SIZE=$(wc -c < "${D}/out" 2>/dev/null || echo 0) AB_RUNNING=$([ ! -f "${D}/code" ] && kill -0 "$(cat "${D}/pid" 2>/dev/null)" 2>/dev/null && echo 1 || echo 0) AB_EXIT=$(cat "${D}/code" 2>/dev/null || echo '')" 1>&2`,
+    `echo "AB_SIZE=$(wc -c < "${D}/out" 2>/dev/null || echo 0) AB_RUNNING=$([ ! -f "${D}/code" ] && kill -0 "$(cat "${D}/pid" 2>/dev/null)" 2>/dev/null && echo 1 || echo 0) AB_EXIT=$(cat "${D}/code" 2>/dev/null || echo '') AB_PROJECT=$(grep -o '"projectId":"[^"]*"' "${D}/meta" 2>/dev/null | head -1 | cut -d'"' -f4)" 1>&2`,
   ].join('\n')
 }
 
 export function parseSideband(stderrText) {
-  const m = /AB_SIZE=(\d+)\s+AB_RUNNING=(\d)\s+AB_EXIT=(\d*)/.exec(String(stderrText || ''))
+  const m = /AB_SIZE=(\d+)\s+AB_RUNNING=(\d)\s+AB_EXIT=(\d*)(?:\s+AB_PROJECT=(\S+))?/.exec(String(stderrText || ''))
   if (!m) return { size: 0, running: false, exitCode: null }
-  return { size: Number(m[1]), running: m[2] === '1', exitCode: m[3] === '' ? null : Number(m[3]) }
+  const r = { size: Number(m[1]), running: m[2] === '1', exitCode: m[3] === '' ? null : Number(m[3]) }
+  if (m[4] !== undefined) r.projectId = m[4] // P1-7:任务属主;无键 = 存量任务(属主未知)
+  return r
 }
 
+// P1-7:第三列 = meta 的 projectId(跨项目过滤的枚举源);存量任务目录无 meta → 空。
 export function listScript() {
-  return `for d in ${JOB_ROOT}/*/; do [ -d "$d" ] || continue; echo "$(basename "$d") $(cat "$d/code" 2>/dev/null || echo RUNNING)"; done; echo LIST-END`
+  return `for d in ${JOB_ROOT}/*/; do [ -d "$d" ] || continue; echo "$(basename "$d") $(cat "$d/code" 2>/dev/null || echo RUNNING) $(grep -o '"projectId":"[^"]*"' "$d/meta" 2>/dev/null | head -1 | cut -d'"' -f4)"; done; echo LIST-END`
 }
 
 // 终审 I2:sshd Banner/motd 也会在 exec 通道输出。任何解析不了的行一律**丢弃**——曾把它们映射成
@@ -88,10 +93,13 @@ export function parseListOutput(stdoutText) {
   return String(stdoutText || '').split('\n').map(l => l.trim())
     .filter(l => l && !l.includes('LIST-END'))
     .map(l => {
-      const [jobId, code] = l.split(/\s+/)
+      const [jobId, code, proj] = l.split(/\s+/)
       if (!validateJobId(jobId)) return null
       const n = Number(code)
-      return { jobId, exitCode: code === 'RUNNING' || !Number.isFinite(n) ? null : n }
+      const row = { jobId, exitCode: code === 'RUNNING' || !Number.isFinite(n) ? null : n }
+      // P1-7:第三列属主只在存在且形状合法时挂键(deepEqual 严格形状;无键 = 属主未知)
+      if (proj && /^[A-Za-z0-9_.:-]{1,64}$/.test(proj)) row.projectId = proj
+      return row
     })
     .filter(Boolean)
 }

@@ -138,20 +138,30 @@ test('wbToolGate: clusterId 空(未绑定项目)→ 零门(工具自然失败)',
 
 // ===== Job 2(wb_apply 门):applyManifests 的逐文档 ns 决策 =====
 // docNss 元素语义与 /api/apply 门同源(resolveApplyNamespaces):string=namespaced ns、
-// undefined=集群级 kind、null=不可发现(不拦,applyYaml 以原语义失败)。
+// undefined=集群级 kind、null=不可发现。
+// W2 审计 P1-6(2026-09-07):null 不再放行。原「applyYaml 以原语义失败,无法 apply 即无
+// 绕过」被瞬态失败证伪——resolve 阶段 discovery 瞬时故障 push null,紧随的 apply 阶段重试
+// discovery(失败不进缓存)成功 → 写未过门出站。fail-closed:无法核实 ns 的文档一律拒
+// (kind 拼错本来也无法 apply,语义等价;瞬态故障重试可恢复)。
 
-test('gateApplyNamespaces:string→check operate;undefined→clusterWide;null→跳过', () => {
+test('gateApplyNamespaces:string→check operate;undefined→clusterWide;null→拒(fail-closed)', () => {
   const seen = []
   const fakeGate = {
     check: (ns, level, tool) => seen.push(['check', ns, level, tool]),
     clusterWide: tool => seen.push(['clusterWide', tool]),
   }
-  gateApplyNamespaces(fakeGate, ['team-a', undefined, null, 'team-b'])
+  gateApplyNamespaces(fakeGate, ['team-a', undefined, 'team-b'])
   assert.deepEqual(seen, [
     ['check', 'team-a', 'operate', 'wb_apply'],
     ['clusterWide', 'wb_apply'],
     ['check', 'team-b', 'operate', 'wb_apply'],
   ])
+  // null(不可发现):必须 throw policy(fail-closed),不得静默放行
+  assert.throws(() => gateApplyNamespaces(fakeGate, [null]), (e) => {
+    assert.equal(e.code, 'PERMISSION_DENIED')
+    assert.equal(e.reason, 'policy')
+    return true
+  })
 })
 
 test('gateApplyNamespaces:拒绝透传(check 抛即停)+ 空文档清单零调用', () => {
@@ -169,6 +179,16 @@ test('接线守卫:applyManifests 实现体内先 resolveApplyNamespaces 过门�
   assert.match(m[0], /resolveApplyNamespaces\(/, 'applyManifests 必须先解析逐文档 ns(与 /api/apply 门同源)')
   assert.match(m[0], /gateApplyNamespaces\(gate,/, 'applyManifests 必须经 gateApplyNamespaces 逐文档 operate 门')
   assert.ok(m[0].indexOf('gateApplyNamespaces') < m[0].indexOf('applyYamlPartial'), '门必须在 applyYamlPartial 之前')
+})
+
+// W2 审计 P1-6(2026-09-07):HTTP /api/apply 的逐文档循环同样不得跳过 null(不可发现)——
+// 瞬态 discovery 失败 + apply 阶段重试成功 = 未过门写。三面(HTTP apply / wb applyManifests /
+// reconcile)统一 fail-closed。外层空 catch(仅可达于无效 YAML)保留:无效 YAML 本就无法写。
+test('接线守卫:HTTP /api/apply 逐文档循环不得 continue 跳过 null(不可发现)', () => {
+  const m = src.match(/const \{ resources, applied, failed, total \} = await applyYaml\(/)
+  assert.ok(m, '未定位到 /api/apply 的 applyYaml 调用(结构漂移请同步守卫)')
+  const loop = src.slice(Math.max(0, m.index - 1200), m.index)
+  assert.doesNotMatch(loop, /if \(ns === null\) continue/, '/api/apply 不得放行不可发现文档(null 须 403,fail-closed)')
 })
 
 // ============ ② 接线层:静态源码守卫(index.mjs buildWbCtx 必须接门) ============
@@ -236,6 +256,15 @@ test('run/resume 的 principal 恒从 project.ownerId 派生(不以触发 actor 
   const derives = agentSrc.match(/const principal = \{ userId: project\.ownerId \}/g) || []
   assert.equal(derives.length, 2, 'run/resume 两处 principal 都必须从 project.ownerId 派生')
   assert.doesNotMatch(agentSrc, /const principal = \{ userId: actor\?\.userId/, '触发 actor 只作审计留痕,不得进入授权链')
+})
+
+// W2 审计 P1-5(2026-09-07):wb_read_pod_file 实现是 exec(cat),与 wb_exec 同为「容器内拉起
+// 进程」语义——authz 的 SUBRESOURCE_OPERATE 把 exec/log 恒判 operate,wb_exec 也恒 operate,
+// 唯独它用 view 档(view-only 用户可在容器内跑进程;safePodPath/podPathDenied 只是路径缓解)。
+test('接线守卫:readPodFile 门档位必须是 operate(exec 语义,与 wb_exec/HTTP 面同口径)', () => {
+  const m = region.match(/readPodFile: async \(args\) => \{([\s\S]*?)execCapture\(/)
+  assert.ok(m, '未截取到 readPodFile 闭包体(签名变了请同步守卫)')
+  assert.match(m[1], /gate\.check\(args\.namespace, 'operate', 'wb_read_pod_file'\)/, 'readPodFile 过 cat-via-exec,门必须 operate 档')
 })
 
 // W2 审计 P0-③(2026-09-07 专属):readLedger 此前零授权门——ledger INDEX.md 是全集群 14 维

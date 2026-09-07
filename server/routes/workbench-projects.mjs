@@ -301,7 +301,8 @@ export function createWorkbenchProjectRoutes(deps) {
           if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
           const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now(), userId: ps.userId, clusterId: p.clusterId }
           // W2 C+D 终审#5:reconcile 与 wb_apply 同门——逐文档 ns 过 operate;集群级 kind 走
-          // null-ns 门(allowlist 非 admin 拒)。否则项目 owner 可经 reconcile 按钮写未授权 ns
+          // null-ns 门(allowlist 非 admin 拒);不可发现(null)→ 拒(审计 P1-6 2026-09-07
+          // fail-closed,gateApplyNamespaces 内统一执法)。否则项目 owner 可经 reconcile 按钮写未授权 ns
           //(同一 manifests 走 AI wb_apply 却被拒的 parity 缺口)。manifests 为空零门(reconcile 幂等空跑)。
           const { resolveApplyNamespaces } = createApplyYaml({ requestKubernetes })
           const manifestsYaml = await wbReadManifests(repo)
@@ -343,25 +344,34 @@ export function createWorkbenchProjectRoutes(deps) {
         sendJson(res, 200, { items })
         return true
       }
-      const psAdmin = requireAdmin(req, res); if (!psAdmin) return true   // K8s 分支维持 admin(原函数级门下移到分支内)
+      // W2 审计 P1-4(2026-09-07):K8s 分支此前仅 requireAdmin(无 ownership/entitlement/ns
+      // 过滤)——既是普通用户 @mention K8s 搜索恒拒的功能缺口,也是「降门即成洞」的第二份
+      // 集群级 list。与 server 分支同门(spec §6.2 E/§6.3):ownership(owner/admin)+
+      // clusterEntitled;候选集来自已授权查询——wbToolGate.namespaces() 结果过滤(admin/
+      // open → null 不限;无 ns 的集群级条目对受限用户不可见,同 wb_list_resources 语义)。
+      if (!assertProjectOwnership(ps, p)) { sendJson(res, 403, { message: msg(req, 'wbp.noProjectAccess') }); return true }
       if (!p.clusterId) { sendJson(res, 400, { message: msg(req, 'wbp.noBoundCluster') }); return true }
+      if (!clusterEntitled(ps, p.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
       const kind = normalizeKind(kindRaw) || 'pods'
       const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
       if (!cluster) { sendJson(res, 404, { message: msg(req, 'wbp.boundClusterNotFound') }); return true }
 
       // kind → K8s list path:统一从 kind-paths.mjs 派生(本路由曾持 15-kind 私有表,已删)。
-      // 集群级列表 + 前端客户端过滤 ns/name(语义不变)。
+      // 集群级列表 + 服务端按授权 ns 过滤(枚举源原则)+ 前端客户端过滤 name。
       const listPath = listApiPath(kind, '')
       if (!listPath) { sendJson(res, 400, { message: msg(req, 'wbp.kindUnsupported', { kind }) }); return true }
 
       try {
         const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
         const resp = await requestKubernetes(k8sSession, listPath)
-        const items = (resp?.body?.items || []).map(it => ({
-          name: it.metadata?.name || '',
-          namespace: it.metadata?.namespace || '',
-          kind,
-        }))
+        const nsScope = wbToolGate(db, ps, p.clusterId).namespaces()
+        const items = (resp?.body?.items || [])
+          .filter(it => !nsScope || (it.metadata?.namespace && nsScope.has(it.metadata.namespace)))
+          .map(it => ({
+            name: it.metadata?.name || '',
+            namespace: it.metadata?.namespace || '',
+            kind,
+          }))
         const filtered = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items
         sendJson(res, 200, { items: filtered.slice(0, 50) })
         return true

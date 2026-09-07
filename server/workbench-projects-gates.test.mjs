@@ -10,7 +10,7 @@ import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 
 const FORBIDDEN_MSG = '该集群未分配给你'
 
-function makeHarness({ userId = 'u1', role = 'user' } = {}) {
+function makeHarness({ userId = 'u1', role = 'user', requestKubernetes: reqK8s } = {}) {
   const sent = []
   const db = new DatabaseSync(':memory:')
   db.exec(`CREATE TABLE workbench_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, clusterId TEXT NOT NULL, ownerId TEXT NOT NULL, createdAt INTEGER NOT NULL, activeConversationId TEXT, projectRecap TEXT, historyWatermark INTEGER DEFAULT 0, repoRoot TEXT DEFAULT NULL)`)
@@ -23,16 +23,19 @@ function makeHarness({ userId = 'u1', role = 'user' } = {}) {
   db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p1','proj','c1','u1',1)`).run()
   db.exec(`CREATE TABLE IF NOT EXISTS platform_users (id TEXT PRIMARY KEY, username TEXT, role TEXT DEFAULT 'user', disabled INTEGER DEFAULT 0, createdAt INTEGER)`)
   db.exec(`CREATE TABLE IF NOT EXISTS ns_grants (id TEXT PRIMARY KEY, subjectType TEXT, subjectId TEXT, clusterId TEXT, namespace TEXT, level TEXT, grantedBy TEXT, grantedAt INTEGER)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, name TEXT)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS group_members (groupId TEXT, userId TEXT, addedBy TEXT, addedAt INTEGER, PRIMARY KEY(groupId, userId))`)
   db.prepare(`INSERT OR IGNORE INTO platform_users VALUES ('u1','u1','user',0,1)`).run()
   const workbenchDir = mkdtempSync(join(tmpdir(), 'wbp-gates-'))
   const routes = createWorkbenchProjectRoutes({
     db, sendJson: (r, s, j) => sent.push({ status: s, json: j }),
     readBody: async () => harness._body,
     requirePlatform: () => ({ userId, role, username: userId }),
+    requireAdmin: () => (role === 'admin' ? { userId, role, username: userId } : null),
     writeAudit: () => {},
     WORKBENCH_DIR: workbenchDir, dbPath: ':memory:',
     buildCallContext: () => ({}), applyYamlPartial: async () => ({ applied: [], failed: [], total: 0 }),
-    requestKubernetes: async () => ({ status: 200, headers: {}, body: { resources: [{ kind: 'ConfigMap', namespaced: true }] } }),
+    requestKubernetes: reqK8s || (async () => ({ status: 200, headers: {}, body: { resources: [{ kind: 'ConfigMap', namespaced: true }] } })),
   })
   const harness = { sent, db, _body: {},
     call: (m, p, body) => { harness._body = body || {}; return routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) } }
@@ -113,8 +116,8 @@ test('listConversationsByOwner:只回该用户名下项目对话,倒序,含项�
 
 // ===== W2 Phase C/D Batch CB-B Task 3: records/summary/search owner 收口 =====
 // 改造 harness:requireAdmin 语义化(非 admin 返 null),补对话/消息/ssh_servers 表。
-function makeOwnedHarness({ userId = 'u1', role = 'user' } = {}) {
-  const h = makeHarness({ userId, role })
+function makeOwnedHarness({ userId = 'u1', role = 'user', requestKubernetes: reqK8s } = {}) {
+  const h = makeHarness({ userId, role, requestKubernetes: reqK8s })
   h.db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT)`)
   h.db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER)`)
   h.db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id TEXT, source TEXT)`)
@@ -236,4 +239,43 @@ test('ledger:已分配用户 200 且 pending 蒸馏稿同门可达;admin 豁免�
   const ha = withPendingDistill(makeHarness({ userId: 'admin', role: 'admin' }), 'c2')
   await ha.call('GET', '/api/workbench/ledger?clusterId=c2') // admin 未分配 c2 → 豁免
   assert.equal(ha.sent[0].status, 200)
+})
+
+// W2 审计 P1-4(2026-09-07):/api/workbench/search K8s 分支此前仅 requireAdmin(无 ownership/
+// entitlement/ns 过滤)——既是普通用户 @mention K8s 搜索恒拒的功能缺口,也是「降门即成洞」的
+// 第二份集群级 list。按 spec §6.2 E/§6.3 与 server 分支同门:ownership + clusterEntitled;
+// 候选集来自已授权查询——wbToolGate.namespaces() 结果过滤(admin/open → null 不限;集群级
+// 条目对受限用户不可见,同 wb_list_resources 的过滤语义)。
+test('search K8s 分支:受限 owner(仅 team-a view)200 且候选集滤到授权 ns;admin 全量;非 owner 403', async () => {
+  const k8sItems = async () => ({ status: 200, headers: {}, body: { items: [
+    { metadata: { name: 'web-a', namespace: 'team-a' } },
+    { metadata: { name: 'web-b', namespace: 'team-b' } },
+    { metadata: { name: 'node-1', namespace: undefined } }, // 集群级条目(无 ns)
+  ] } })
+  const h = makeOwnedHarness({ userId: 'u1', requestKubernetes: k8sItems })
+  h.db.prepare(`UPDATE clusters SET nsAuthMode='allowlist' WHERE id='c1'`).run()
+  h.db.prepare(`INSERT INTO ns_grants VALUES ('g1','user','u1','c1','team-a','view','root',1)`).run()
+  await h.call('GET', '/api/workbench/search?projectId=p1&kind=pods&q=')
+  assert.equal(h.sent[0].status, 200, JSON.stringify(h.sent[0].json))
+  assert.deepEqual(h.sent[0].json.items.map(i => i.name), ['web-a'], 'team-b 条目与无 ns 集群级条目不得进受限 owner 候选集')
+
+  const ha = makeOwnedHarness({ userId: 'admin', role: 'admin', requestKubernetes: k8sItems })
+  ha.db.prepare(`INSERT OR IGNORE INTO platform_users VALUES ('admin','admin','admin',0,1)`).run() // 门不信任 ps.role,现查 DB——夹具 admin 须有真实用户行
+  ha.db.prepare(`UPDATE clusters SET nsAuthMode='allowlist' WHERE id='c1'`).run()
+  await ha.call('GET', '/api/workbench/search?projectId=p1&kind=pods&q=')
+  assert.equal(ha.sent[0].status, 200)
+  assert.deepEqual(ha.sent[0].json.items.map(i => i.name).sort(), ['node-1', 'web-a', 'web-b'], 'admin 全量(含集群级条目)')
+
+  const h2 = makeOwnedHarness({ userId: 'u2', requestKubernetes: k8sItems })
+  await h2.call('GET', '/api/workbench/search?projectId=p1&kind=pods&q=')
+  assert.equal(h2.sent[0].status, 403)
+  assert.equal(h2.sent[0].json.message, '无权访问该项目')
+})
+
+test('search K8s 分支:owner 失去集群分配 → 403 clusterForbidden(entitlement 同 server 面)', async () => {
+  const h = makeOwnedHarness({ userId: 'u1', requestKubernetes: async () => ({ status: 200, headers: {}, body: { items: [] } }) })
+  h.db.prepare(`DELETE FROM user_clusters WHERE userId='u1' AND clusterId='c1'`).run()
+  await h.call('GET', '/api/workbench/search?projectId=p1&kind=pods&q=')
+  assert.equal(h.sent[0].status, 403)
+  assert.equal(h.sent[0].json.message, FORBIDDEN_MSG)
 })

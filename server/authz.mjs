@@ -71,10 +71,14 @@ export function canAccessNs(db, principal, clusterId, namespace, needLevel = 'vi
 // Job 2(wb_apply 门):applyManifests 的逐文档决策(纯函数,gate 鸭子类型 {check,clusterWide})。
 // docNss 元素语义与 /api/apply HTTP 门同源(resolveApplyNamespaces 单一事实源):
 //   string = namespaced ns → operate;undefined = 集群级 kind → clusterWide(null-ns 裁决:
-//   allowlist 非 admin 拒);null = 不可发现 kind → 不拦(applyYaml 以原语义失败,无法 apply 即无绕过)。
+//   allowlist 非 admin 拒);null = 不可发现 → 拒(审计 P1-6 2026-09-07:原「不拦,applyYaml
+//   以原语义失败」被瞬态失败证伪——resolve 阶段 discovery 瞬时故障 push null,apply 阶段
+//   重试成功(失败不进缓存)→ 未过门写。fail-closed;kind 拼错本就无法 apply,语义等价)。
 export function gateApplyNamespaces(gate, docNss, tool = 'wb_apply') {
   for (const ns of (docNss || [])) {
-    if (ns === null) continue
+    if (ns === null) {
+      throw new PermissionDeniedError('policy', { tool, ns: null, detail: '无法解析该文档的 namespace(kind 未知或集群 discovery 失败),为防未过门写已拒绝;请检查 kind 拼写或稍后重试' })
+    }
     if (ns === undefined) gate.clusterWide(tool)
     else gate.check(ns, 'operate', tool)
   }

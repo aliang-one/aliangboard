@@ -1611,9 +1611,13 @@ async function handle(req, res) {
         },
         // 读 pod 内文件(cat via exec):路径过 safePodPath 白名单(无 ;|&$ 等 shell 元字符)→
         // 命令不可注入,只读语义 → 免人审。ConfigMap/Secret 看不到的容器内落盘文件用它。
+        // P1-5(2026-09-07 审计):门档位 operate——实现是 exec(容器内拉起进程),与 wb_exec
+        // 及 HTTP 面 SUBRESOURCE_OPERATE(exec 恒 operate)同口径;view 档会让 view-only
+        // 用户经 cat 读文件(sidecar 容器/挂载盘)绕过 ns 只读边界。safePodPath/podPathDenied
+        // 只是路径缓解,不是档位依据。
         readPodFile: async (args) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
-          gate.check(args.namespace, 'view', 'wb_read_pod_file')
+          gate.check(args.namespace, 'operate', 'wb_read_pod_file')
           if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
           const p = safePodPath(args.path)
           // CSO #4:免审读文件的敏感面拒绝清单(/proc /sys /dev /run/secrets)——SA token 等
@@ -2005,14 +2009,15 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       // (对 CRD 权威),ns 链 = 显式 metadata.namespace > defaultNs > 'default'(apply-yaml.mjs
       // resolveApplyNamespace 单一事实源,不在此内联)。逐文档:解析出 ns → operate 门;
       // 集群级 kind(undefined)→ namespace=null 门(null-ns 裁决:allowlist 非 admin 拒);
-      // 不可发现 kind(null)→ 不拦,applyYaml 以原语义失败(无法 apply 即无绕过)。
+      // 不可发现 kind(null)→ 拒(审计 P1-6 2026-09-07 fail-closed:瞬态 discovery 失败 +
+      // apply 阶段重试成功 = 未过门写;kind 拼错本就无法 apply,语义等价)。
       // 无条件 seed 'default' 已废——只在解析链真的产出 'default' 时才要求它(过度阻断回归)。
       let docNss = []
       try {
         docNss = await resolveApplyNamespaces(session, String(input.yaml || ''), defaultNs)
-      } catch { /* 无效 YAML:applyYaml 会以同因报错,门不拦 */ }
+      } catch { /* 无效 YAML:applyYaml 会以同因报错(无法写,无绕过面) */ }
       for (const ns of docNss) {
-        if (ns === null) continue // 不可发现 kind
+        if (ns === null) return sendJson(res, 403, { message: msg(req, 'api.nsUndiscoverable') })
         if (!k8sGate.gateK8sSession(session, { namespace: ns ?? null, level: 'operate', path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
       }
       const { resources, applied, failed, total } = await applyYaml(session, String(input.yaml || ''), defaultNs)

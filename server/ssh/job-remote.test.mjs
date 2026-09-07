@@ -189,3 +189,26 @@ test('sweep:真 sh——空/不存在 root 不炸(glob 无匹配);活 pid 守卫
 })
 
 function backdate(p, ageMin) { const t = new Date(Date.now() - ageMin * 60000); utimesSync(p, t, t) }
+
+// W2 审计 P1-7(2026-09-07):跨项目隔离的枚举源——launch 时写进远端 meta 的 projectId,由
+// list 输出(第三列)与 readScript 边带(AB_PROJECT)带回;两字段都只在存在时挂键
+//(deepEqual 严格形状,存量任务无 projectId = 属主未知 → 向后兼容可见)。
+test('P1-7:listScript 输出第三列 projectId;parseListOutput 提取(存量行无第三列 → 无键)', () => {
+  const s = listScript()
+  assert.ok(s.includes('"projectId"'), 'listScript 必须从 meta 提取 projectId(跨项目过滤的枚举源)')
+  assert.ok(s.includes('LIST-END'))
+  const rows = parseListOutput(`${ID} RUNNING p1\n${ID2} 0\n${ID3} 141 __key__\n`)
+  assert.equal(rows.find(r => r.jobId === ID).projectId, 'p1')
+  assert.equal('projectId' in rows.find(r => r.jobId === ID2), false, '存量行(无第三列)不得挂键=属主未知')
+  assert.equal(rows.find(r => r.jobId === ID3).projectId, '__key__')
+})
+
+test('P1-7:readScript 边带带 AB_PROJECT;parseSideband 提取(缺省无键=未知)', () => {
+  const s = readScript({ jobId: ID, offset: 0, maxBytes: 100 })
+  assert.ok(s.includes('AB_PROJECT='), 'readScript 边带必须携带任务属主(jobOut 据此跨项目拒绝,零额外往返)')
+  const mine = parseSideband('AB_SIZE=5 AB_RUNNING=1 AB_EXIT= AB_PROJECT=p1\n')
+  assert.equal(mine.projectId, 'p1')
+  const legacy = parseSideband('AB_SIZE=5 AB_RUNNING=1 AB_EXIT=\n')
+  assert.equal('projectId' in legacy, false, '无 AB_PROJECT(存量任务)不挂键')
+  assert.deepEqual(legacy, { size: 5, running: true, exitCode: null }, '原三字段形状不变')
+})
