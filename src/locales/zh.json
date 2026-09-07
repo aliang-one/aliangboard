@@ -4176,7 +4176,8 @@
   },
   "logPopup": {
     "title": "日志 · {pod}/{container}",
-    "closeWindow": "关闭窗口"
+    "closeWindow": "关闭窗口",
+    "expired": "会话已过期，请关闭此窗口并在原页面重新打开日志。"
   },
   "storageclass": {
     "editModalTitle": "编辑 StorageClass（仅可变字段）",

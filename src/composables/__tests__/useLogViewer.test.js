@@ -79,9 +79,12 @@ test('勾 previous 自动关 follow 并改走静态拉取；卸载断流', async
   wrapper.unmount()   // 卸载不再抛错（stopFollow 幂等）
 })
 
-test('openLogTab: URL 含 query 与 token，target 为具名 log-ns-pod-container', () => {
+// 2026-09-07 回归钉:token 必须走交接槽而非 URL(4d4eede 收紧消费分支到 /terminal-popup 后,
+// openLogTab 仍拼 URL token 却无人消费 → 日志弹窗恒报「会话已过期」)。
+test('openLogTab: token 走交接槽不上 URL，target 为具名 log-ns-pod-container', () => {
   const open = vi.fn()
   vi.stubGlobal('open', open)
+  localStorage.removeItem('aliangboard.termTokenHandoff')
   openLogTab({ namespace: 'default', podName: 'pod-1', container: 'main' })
   expect(open).toHaveBeenCalledTimes(1)
   const [url, target] = open.mock.calls[0]
@@ -89,7 +92,9 @@ test('openLogTab: URL 含 query 与 token，target 为具名 log-ns-pod-containe
   expect(url).toContain('ns=default')
   expect(url).toContain('pod=pod-1')
   expect(url).toContain('container=main')
-  expect(url).toContain('token=tok-1')
+  expect(url).not.toContain('token=')   // token 不再上 URL(进浏览器历史,2026-09-04 审计裁决)
+  expect(localStorage.getItem('aliangboard.termTokenHandoff')).toBe('tok-1')   // 改走交接槽
   expect(target).toBe('log-default-pod-1-main')
   vi.unstubAllGlobals()
+  localStorage.removeItem('aliangboard.termTokenHandoff')
 })

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { terminalApi, getSessionToken } from '@/api/client'
+import { writePopupTokenHandoff } from '@/logic/popupToken'
 import { createWindowZAllocator } from '@/styles/zScale'
 import { onPopupSync } from '@/utils/popupSync'
 
@@ -232,9 +233,9 @@ export const useTerminalStore = defineStore('terminals', () => {
 
   // K8s token 存储交接槽(2026-09-04):弹窗页 sessionStorage 不跨标签页,token 此前拼在
   // URL 上会进浏览器历史。改走 localStorage 交接槽——弹窗页读后即焚;值在同一浏览器会话内
-  // 恒同(同一集群会话),误读无越权面。
+  // 恒同(同一集群会话),误读无越权面。槽键/消费收敛在 logic/popupToken.js(与日志弹窗共用)。
   function writeTokenHandoff() {
-    try { localStorage.setItem('aliangboard.termTokenHandoff', getSessionToken()) } catch { /* 存储不可用 */ }
+    writePopupTokenHandoff(getSessionToken())
   }
 
   // 弹窗页 URL(sid 必传:网关 planExec 以 sid 判持久性,tmux 会话名 = label(平台 userId)-sid,

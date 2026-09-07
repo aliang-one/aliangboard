@@ -1,6 +1,6 @@
 <script setup>
 // 独立日志页（新浏览器标签页打开，TerminalPopup 同构）：全屏日志，无侧栏/顶栏。
-// URL: /log-popup?ns=xxx&pod=xxx&container=xxx&token=xxx
+// URL: /log-popup?ns=xxx&pod=xxx&container=xxx（token 走 localStorage 交接槽，不上 URL）
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -18,10 +18,10 @@ const container = ref(String(route.query.container || ''))
 // 容器列表：先以 URL 单容器兜底，挂载后拉 pod spec 补全（containers+initContainers+ephemeralContainers）
 const containers = ref(container.value ? [container.value] : [])
 
-// session token 已由 main.js 从 URL 写入 sessionStorage；缺失则整页提示会话过期
+// session token 已由 main.js 经交接槽/legacy URL 写入 sessionStorage；缺失则整页提示会话过期
 const hasToken = !!sessionStorage.getItem('aliangboard.session')
 if (!hasToken) {
-  document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:${codeTheme.surface};color:${codeTheme.onSurface};font-family:monospace;font-size:14px">${t('terminal.expired')}</div>`
+  document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:${codeTheme.surface};color:${codeTheme.onSurface};font-family:monospace;font-size:14px">${t('logPopup.expired')}</div>`
 } else if (ns.value) {
   store.setNamespace(ns.value)
 }
