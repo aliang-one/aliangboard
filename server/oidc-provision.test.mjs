@@ -8,8 +8,10 @@ import { oidcSubjectOf, upsertOidcUser, syncGroupsFromClaims } from './oidc-prov
 
 export function makeProvisionDb() {
   const db = new DatabaseSync(':memory:')
+  // 镜像 index.mjs 真实 DDL(审 1 Critical:passwordHash **NOT NULL**——夹具曾声明成可空,
+  // 掩蔽了 JIT INSERT 传 NULL 在生产库必炸的回归;此处钉死真实约束)。
   db.exec(`CREATE TABLE platform_users (
-    id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, passwordHash TEXT,
+    id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, passwordHash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user', displayName TEXT, createdAt INTEGER NOT NULL,
     disabled INTEGER DEFAULT 0, prefs TEXT,
     authProvider TEXT NOT NULL DEFAULT 'local', oidcSubject TEXT
@@ -28,7 +30,7 @@ test('oidcSubjectOf:issuer|sub 拼接', () => {
 })
 
 // === upsertOidcUser 三路 ===
-test('upsert:新 subject → INSERT(authProvider=oidc,passwordHash=NULL)', () => {
+test('upsert:新 subject → INSERT(authProvider=oidc,passwordHash=不可登录哨兵哈希,NOT NULL 约束下成功)', () => {
   const db = makeProvisionDb()
   const out = upsertOidcUser(db, { issuer: ISS, sub: 's1', username: 'alice', displayName: 'Alice A' })
   const row = db.prepare('SELECT * FROM platform_users WHERE oidcSubject=?').get(`${ISS}|s1`)
@@ -36,9 +38,21 @@ test('upsert:新 subject → INSERT(authProvider=oidc,passwordHash=NULL)', () =>
   assert.equal(out.user.id, row.id)
   assert.equal(row.username, 'alice')
   assert.equal(row.authProvider, 'oidc')
-  assert.equal(row.passwordHash, null) // 本地登录天然不可用(D2)
+  // 审 1 Critical:生产 DDL passwordHash NOT NULL——存 hashPassword(randomUUID()) 哨兵
+  // (随机 UUID 派生的 scrypt 哈希,口令无人知晓 → 本地密码登录恒 verify 失败)。
+  // 注:verifyPassword 失败路径不可在此测(登录验证逻辑在 routes/auth 侧),哨兵格式钉死即够。
+  assert.match(row.passwordHash, /^[0-9a-f]{32}:[0-9a-f]{128}:16384:8:1$/, 'scrypt 哨兵哈希(salt:hash:N:r:p)')
   assert.equal(row.displayName, 'Alice A')
   assert.equal(row.role, 'user')
+})
+
+test('upsert:hashPassword/randomUUID 可注入(生产接线点,Task 4 显式传或用缺省)', () => {
+  const db = makeProvisionDb()
+  const out = upsertOidcUser(db, { issuer: ISS, sub: 's1', username: 'alice', displayName: null }, {
+    hashPassword: (pw) => `sentinel(${pw})`, randomUUID: () => 'fixed-uuid',
+  })
+  assert.equal(out.user.id, 'fixed-uuid')
+  assert.equal(out.user.passwordHash, 'sentinel(fixed-uuid)')
 })
 
 test('upsert:已知 subject → UPDATE displayName(用户名不动,不建新行)', () => {
@@ -114,6 +128,15 @@ test('syncGroups 本地用户 no-op:{created:0},零组零成员', () => {
   assert.deepEqual(out, { created: 0 })
   assert.equal(db.prepare('SELECT COUNT(*) c FROM groups').get().c, 0)
   assert.equal(db.prepare('SELECT COUNT(*) c FROM group_members').get().c, 0)
+})
+
+test('syncGroups 重复组名去重(真 IdP 可重复发同组)→ 幂等单成员,不炸 PK', () => {
+  const db = makeProvisionDb()
+  const { user } = upsertOidcUser(db, { issuer: ISS, sub: 's1', username: 'alice', displayName: 'Alice' })
+  const out = syncGroupsFromClaims(db, user.id, ['dev', 'ops', 'dev', 'ops', 'dev'])
+  assert.equal(out.created, 2) // 重复条目不计新建
+  const names = db.prepare('SELECT g.name FROM group_members m JOIN groups g ON g.id=m.groupId WHERE m.userId=? ORDER BY g.name').all(user.id)
+  assert.deepEqual(names.map((n) => n.name), ['dev', 'ops'])
 })
 
 test('syncGroups 非 string[] 输入(混型/字符串/null)→ throw,库零变更', () => {

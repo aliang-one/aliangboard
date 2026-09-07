@@ -100,6 +100,21 @@ test('discovery:缺字段 → throw;HTTP 非 2xx → throw', async () => {
   await assert.rejects(() => badStatus.provider.discovery(ISS), /discovery/)
 })
 
+// 审 1-5:discovery 文档 issuer 必须与请求 issuer 相符(防错配端点/中间人换文档)。
+test('discovery:doc.issuer ≠ 请求 issuer → throw discovery', async () => {
+  const { provider } = makeProvider({ routes: { [`${ISS}/.well-known`]: () => docOf({ issuer: 'https://other.example.com' }) } })
+  await assert.rejects(() => provider.discovery(ISS), /discovery/)
+})
+
+// 审 1-6:buildAuthUrl 对畸形 authorization_endpoint(非 URL)→ 编码化 'discovery'(不裸传 URL 构造异常)。
+test('buildAuthUrl:authorization_endpoint 非 URL → throw discovery', () => {
+  const { provider } = makeProvider()
+  assert.throws(() => provider.buildAuthUrl({
+    doc: docOf({ authorization_endpoint: 'not a url at all' }), clientId: 'a', redirectUri: 'u',
+    state: 's', nonce: 'n', codeChallenge: 'c', scopes: 'openid',
+  }), /discovery/)
+})
+
 test('discovery:TTL 12h 过期后重新拉取', async (t) => {
   const realNow = Date.now()
   let fake = realNow
@@ -212,4 +227,34 @@ test('verifyCallbackIdToken:aud=clientId 校验 + nonce 比对透传(错 nonce �
   } })
   await assert.rejects(() => provider.verifyCallbackIdToken(makeIdToken(goodClaims({ nonce: 'wrong' })), ISS, 'client-a', 'n1'), /nonce/)
   await assert.rejects(() => provider.verifyCallbackIdToken(makeIdToken(goodClaims({ aud: 'other-client' })), ISS, 'client-a', 'n1'), /audience/)
+})
+
+// === 审 1-2:网络面失败编码化(不裸传 TypeError/SyntaxError 给上层分支) ===
+test('网络拒绝/json() 炸 → discovery/jwks/token 编码化错误(非 TypeError 透传)', async () => {
+  const code = (name) => (e) => e instanceof Error && e.message === name // 精确码(防 TypeError 透传)
+  // discovery:fetch 拒绝 + json() 炸
+  const netDown = createOidcProvider({ getSetting: () => null, fetchImpl: async () => { throw new TypeError('fetch failed') } })
+  await assert.rejects(() => netDown.discovery(ISS), code('discovery'))
+  const badJson = createOidcProvider({ getSetting: () => null, fetchImpl: async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token') } }) })
+  await assert.rejects(() => badJson.discovery(ISS), code('discovery'))
+  // jwks:discovery 走桩,其余(含 jwks_uri)一律网络拒绝
+  const rest = createOidcProvider({
+    getSetting: () => null,
+    fetchImpl: async (url) => {
+      if (String(url).includes('.well-known')) return { ok: true, status: 200, json: async () => docOf() }
+      throw new TypeError('fetch failed')
+    },
+  })
+  await assert.rejects(() => rest.jwksFor(ISS), code('jwks'))
+  // exchange:token 端点网络拒绝
+  await assert.rejects(() => rest.exchangeCode({ doc: docOf(), clientId: 'a', clientSecret: 's', redirectUri: 'u', code: 'c', codeVerifier: 'v' }), code('token'))
+  // jwks 面 json() 炸同样编码化
+  const badJwksJson = createOidcProvider({
+    getSetting: () => null,
+    fetchImpl: async (url) => {
+      if (String(url).includes('.well-known')) return { ok: true, status: 200, json: async () => docOf() }
+      return { ok: true, status: 200, json: async () => { throw new SyntaxError('nope') } }
+    },
+  })
+  await assert.rejects(() => badJwksJson.jwksFor(ISS), code('jwks'))
 })

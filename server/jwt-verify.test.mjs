@@ -129,6 +129,16 @@ test('verifyJwtSignature:alg 白名单外(none/RS512)→ throw unsupported-alg',
   assert.throws(() => verifyJwtSignature({ alg: 'RS512' }, Buffer.alloc(0), Buffer.alloc(1), Buffer.alloc(1)), /unsupported-alg/)
 })
 
+// 审 1-3:alg 混淆回归钉死——攻击者拿 RSA 公钥(PEM)当 HMAC secret 签 HS256 token、kid 指向 RSA JWK。
+// 服务端 jwkToKeyObject(RSA) 恒返 KeyObject,createHmac 不吃非对称 KeyObject → 验签 false → bad-signature。
+test('verifyIdToken:HS256 token 打 RSA kid(公钥当 HMAC secret 的经典混淆)→ bad-signature', () => {
+  const pem = rsa.publicKey.export({ type: 'spki', format: 'pem' }) // 攻击方仅有的材料:公钥
+  const header = { alg: 'HS256', typ: 'JWT', kid: 'rsa-1' }
+  const signingInput = Buffer.from(encodeSegments(header, baseClaims()))
+  const forged = `${signingInput}.${b64u(createHmac('sha256', pem).update(signingInput).digest())}`
+  assert.throws(() => verifyIdToken(forged, ctx), /bad-signature/)
+})
+
 // === verifyIdToken(三种 alg 各一通过例 + 全部 throw 分支) ===
 const jwks = { keys: [rsaJwk, ecJwk, hsJwk] }
 const ctx = { jwks, issuer: 'https://idp.example.com', audience: 'aliangboard', nonce: 'n-abc', now: NOW_MS }

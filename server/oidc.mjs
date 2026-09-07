@@ -25,13 +25,20 @@ export function createOidcProvider({ getSetting, fetchImpl = globalThis.fetch.bi
 
   const configured = (raw) => !!raw['oidc.issuer'] && !!raw['oidc.clientId']
 
-  // jwks 拉取 + 缓存(force=true 越过缓存——轮换强刷专用);keys 非数组/非 2xx → throw 'jwks'。
+  // jwks 拉取 + 缓存(force=true 越过缓存——轮换强刷专用);keys 非数组/非 2xx/网络拒绝/响应体
+  // 非 JSON → 统一编码化 throw 'jwks'(审 1-2)。
   async function fetchJwks(jwksUri, { force = false } = {}) {
     const cached = jwksCache.get(jwksUri)
     if (!force && cached && Date.now() - cached.at < OIDC_CACHE_TTL_MS) return cached.jwks
-    const res = await fetchImpl(jwksUri)
-    if (!res?.ok) throw new Error('jwks')
-    const jwks = await res.json()
+    let res, jwks
+    try {
+      res = await fetchImpl(jwksUri)
+      if (!res?.ok) throw new Error('jwks')
+      jwks = await res.json()
+    } catch (e) {
+      if (e?.message === 'jwks') throw e
+      throw new Error('jwks') // 网络拒绝 / json() 解析炸 → 编码化
+    }
     if (!jwks || !Array.isArray(jwks.keys)) throw new Error('jwks')
     jwksCache.set(jwksUri, { jwks, at: Date.now() })
     return jwks
@@ -73,17 +80,25 @@ export function createOidcProvider({ getSetting, fetchImpl = globalThis.fetch.bi
       }
     },
 
-    // OIDC Discovery:GET <issuer>/.well-known/openid-configuration,四字段齐才收
-    // (authorization_endpoint/token_endpoint/jwks_uri/issuer);缓存 12h。
+    // OIDC Discovery:GET <issuer>/.well-known/openid-configuration,四字段齐才收且 doc.issuer
+    // 必须与请求 issuer 相符(防错配端点);缓存 12h。网络拒绝/响应体非 JSON 同样编码化 'discovery'
+    // (审 1-2:不把 TypeError/SyntaxError 裸传给上层 302 分支)。
     async discovery(issuer) {
       const cached = discoveryCache.get(issuer)
       if (cached && Date.now() - cached.at < OIDC_CACHE_TTL_MS) return cached.doc
       const url = `${String(issuer).replace(/\/+$/, '')}/.well-known/openid-configuration`
-      const res = await fetchImpl(url)
-      if (!res?.ok) throw new Error('discovery')
-      const doc = await res.json()
+      let res, doc
+      try {
+        res = await fetchImpl(url)
+        if (!res?.ok) throw new Error('discovery')
+        doc = await res.json()
+      } catch (e) {
+        if (e?.message === 'discovery') throw e
+        throw new Error('discovery') // fetch 网络拒绝 / json() 解析炸 → 编码化
+      }
       if (!doc || typeof doc !== 'object'
-        || !doc.authorization_endpoint || !doc.token_endpoint || !doc.jwks_uri || !doc.issuer) throw new Error('discovery')
+        || !doc.authorization_endpoint || !doc.token_endpoint || !doc.jwks_uri || !doc.issuer
+        || doc.issuer !== issuer) throw new Error('discovery')
       discoveryCache.set(issuer, { doc, at: Date.now() })
       return doc
     },
@@ -96,8 +111,10 @@ export function createOidcProvider({ getSetting, fetchImpl = globalThis.fetch.bi
 
     // 授权码流第一步:authorization_endpoint + response_type=code + PKCE(S256)+ scope。
     // URLSearchParams 编码(RFC 6749 form-urlencoded,空格 '+' 是规范形态)。
+    // 畸形 endpoint(非 URL)编码化 'discovery'(审 1-6:不裸传 URL 构造异常)。
     buildAuthUrl({ doc, clientId, redirectUri, state, nonce, codeChallenge, scopes }) {
-      const url = new URL(doc.authorization_endpoint)
+      let url
+      try { url = new URL(doc.authorization_endpoint) } catch { throw new Error('discovery') }
       const q = url.searchParams
       q.set('response_type', 'code')
       q.set('client_id', clientId)
@@ -110,19 +127,26 @@ export function createOidcProvider({ getSetting, fetchImpl = globalThis.fetch.bi
       return url.toString()
     },
 
-    // 授权码兑换(PKCE verifier):POST token_endpoint form-urlencoded;取 id_token,缺失/非 2xx → throw 'token'。
+    // 授权码兑换(PKCE verifier):POST token_endpoint form-urlencoded;取 id_token,缺失/非 2xx/
+    // 网络拒绝/响应体非 JSON → throw 'token'(审 1-2:统一编码化,上层按 302 分支处理)。
     async exchangeCode({ doc, clientId, clientSecret, redirectUri, code, codeVerifier }) {
       const body = new URLSearchParams({
         client_id: clientId, client_secret: clientSecret, grant_type: 'authorization_code',
         code, redirect_uri: redirectUri, code_verifier: codeVerifier,
       }).toString()
-      const res = await fetchImpl(doc.token_endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body,
-      })
-      if (!res?.ok) throw new Error('token')
-      const json = await res.json()
+      let res, json
+      try {
+        res = await fetchImpl(doc.token_endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body,
+        })
+        if (!res?.ok) throw new Error('token')
+        json = await res.json()
+      } catch (e) {
+        if (e?.message === 'token') throw e
+        throw new Error('token') // 网络拒绝 / json() 解析炸 → 编码化
+      }
       if (!json?.id_token) throw new Error('token')
       return { idToken: json.id_token }
     },
