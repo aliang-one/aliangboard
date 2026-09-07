@@ -449,7 +449,8 @@
       "kind": "类型",
       "unknownKind": "未知",
       "noAttributes": "暂无属性",
-      "justNow": "刚刚"
+      "justNow": "刚刚",
+      "sourceCluster": "来源集群 {name}"
     },
     "kvRows": {
       "add": "添加一行"

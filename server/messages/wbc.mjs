@@ -30,4 +30,9 @@ export const TABLE = {
   // 对话限额(F6,2026-09-07 审计):429 文案必须含当前生效上限值(前端 errorBanner 直显服务端 message)
   'wbc.convRunningLimit': { zh: '并发运行中的对话已达上限({limit}),请等待运行结束、取消部分对话,或在 AI 配置中调高上限', en: 'Concurrent running conversations have reached the limit ({limit}). Wait for runs to finish, cancel some conversations, or raise the limit in AI config' },
   'wbc.convProjectLimit': { zh: '该项目对话总数已达上限({limit}),请删除旧对话,或在 AI 配置中调高上限', en: 'This project has reached its conversation quota ({limit}). Delete old conversations, or raise the limit in AI config' },
+  // refs 归一门(refs-injection-02,2026-09-07 审计批次二):400 文案带上限值,与限额文案同款
+  // 「用户可自证门值」口径;畸形/超字节为固定文案(无数值可带)。
+  'wbc.refsTooMany': { zh: '引用数量超过上限({limit}),请删减后重试', en: 'Too many references (limit {limit}). Remove some and retry' },
+  'wbc.refsInvalid': { zh: '引用格式无效:须为对象数组,kind/namespace/name 均为字符串', en: 'Invalid references: expected an array of objects with string kind/namespace/name' },
+  'wbc.refsTooLarge': { zh: '引用总大小超过上限({limitKB}KB)', en: 'References exceed the total size limit ({limitKB}KB)' },
 }

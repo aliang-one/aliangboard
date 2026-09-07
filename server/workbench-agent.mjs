@@ -11,6 +11,9 @@ import { clampTraceStep } from './agent.mjs'
 import { getWorkbenchAiConfig, getMaxStepsConfig } from './workbench-ai-config.mjs'
 import { workbenchExcludeTools } from './tool-registry.mjs'
 import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
+// gap3-01(2026-09-07 审计批次二):换绑锚定——refreshSystem 装配前比对 refs 戳与当下
+// project.clusterId,旧集群 ref 停用(不重拉)+ 注入作废注记。见 refs-normalize.mjs 文件头注。
+import { splitStaleRefs, buildStaleRefsNote } from './refs-normalize.mjs'
 
 // deps: { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose }
 //   db                —— node:sqlite DatabaseSync(index.mjs 顶层构造)
@@ -334,6 +337,12 @@ const CK_TIME_MS = 500
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
+      // gap3-01:换绑锚定。比对在装配前做一次,拆出 active/stale 两列——stale 不进拉取序列
+      // (不再对当前集群静默重解析同名资源),改为注入作废注记(指引重新 @ 重锚定)。无戳
+      // (存量老行/@server)恒 active,向后兼容。staleNote 在闭包外算好:refreshSystem 每轮
+      // 重建 system 时追加同一常量串,不随轮数膨胀(refreshSystem 每 LLM 轮重写 messages[0])。
+      const { active: activeRefs, stale: staleRefs } = splitStaleRefs(refs, project.clusterId)
+      const staleNote = buildStaleRefsNote(staleRefs)
       // 项目记忆(T2,2026-08-29):每次 run 现读开关(权限回收语义同 disabledTools);
       // 开启时把 T1 维护的 projectRecap 拼入 system——注入格式(头注 caveat+尾部护栏)
       // 单源在 workbench-prompt.buildProjectMemoryInjection,勿在此内联字面(有静态守卫)。
@@ -341,7 +350,8 @@ const CK_TIME_MS = 500
       const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
       const refreshSystem = async () => conv.system
         + buildProjectMemoryInjection(projectRecap)
-        + await fetchRefContext(refs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:逐 ref 过 refAllowed
+        + await fetchRefContext(activeRefs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:逐 ref 过 refAllowed
+        + staleNote
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv, myEpoch) // F3 写点守卫:tracker 各写点比对 epoch(见 trackPartial 注释)
       // 本段事件累积(tool/denied + 瘦身 assistant 文本)——done/salvage 时随 assistant 消息落库,
@@ -423,12 +433,16 @@ const CK_TIME_MS = 500
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
+      // gap3-01:换绑锚定(与 run 路径同款,审批续跑同样过门)——stale 不重拉 + 常量注记。
+      const { active: activeRefs, stale: staleRefs } = splitStaleRefs(refs, project.clusterId)
+      const staleNote = buildStaleRefsNote(staleRefs)
       // 项目记忆(T2):与 run 路径同款注入(单源 buildProjectMemoryInjection)
       const pmEnabled = getWorkbenchAiConfig(db).projectMemory !== false
       const projectRecap = pmEnabled ? (getProject(db, conv.projectId)?.projectRecap || '') : ''
       const refreshSystem = async () => conv.system
         + buildProjectMemoryInjection(projectRecap)
-        + await fetchRefContext(refs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:同 run
+        + await fetchRefContext(activeRefs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:同 run
+        + staleNote
       const pending = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
       // 以免把终态改写成 failed 吞掉已完成答案)。

@@ -31,6 +31,9 @@ import { getApiPath } from '../kind-paths.mjs'
 import { normalizeKind } from '../kindAlias.mjs'
 import { refAllowed } from '../ref-fetch.mjs' // Phase C Task 6:@mention 引用门单一事实源
 import { canAccessCluster } from '../authz.mjs' // Phase D Task 7:集群分配 entitlement(单一事实源,admin 短路)
+// refs-injection-02 + gap3-01(2026-09-07 审计批次二 Task 6):三入口统一归一(条数/形状/字节
+// → 400)+ 落库盖 clusterId 戳 + 换绑停用。见 refs-normalize.mjs 文件头注。
+import { normalizeReferences, stampRefs, REFS_MAX_ITEMS, REFS_MAX_BYTES } from '../refs-normalize.mjs'
 
 export function createWorkbenchConvRoutes(deps) {
   const {
@@ -156,6 +159,30 @@ export function createWorkbenchConvRoutes(deps) {
     return { estTokens: est, windowTokens, budgetTokens, recapUpTo: conv.summarizedUpTo ?? 0, willTrim: est > budgetTokens }
   }
 
+  // refs-injection-02:三入口统一归一门。失败 sendJson 400(i18n,文案带上限值)并返
+  // REFS_REJECTED(调用方 `if (inputRefs === REFS_REJECTED) return true`)——400 零副作用
+  // (不建行/不落消息/不触发 run)。注意返回值三态:refs 数组 / null(键缺省,合法可选载荷,
+  // 与「被拒」不同——edit 缺省=沿用锚 refs)/ REFS_REJECTED(畸形被拒),勿用 falsy 判被拒。
+  // 刻意 400 而非静默截断:静默丢引用会让 AI 上下文与用户所见漂移(用户以为自己 @ 了,AI 看不见)。
+  const REFS_REJECTED = Symbol('refs-rejected')
+  function normalizeInputRefs(req, res, references) {
+    const r = normalizeReferences(references)
+    if (r.ok) return r.refs
+    const params = r.code === 'wbc.refsTooMany' ? { limit: REFS_MAX_ITEMS }
+      : r.code === 'wbc.refsTooLarge' ? { limitKB: Math.round(REFS_MAX_BYTES / 1024) } : undefined
+    sendJson(res, 400, { message: params ? msg(req, r.code, params) : msg(req, r.code) })
+    return REFS_REJECTED
+  }
+
+  // gap3-01:盖戳辅助——clusterName 随 id 一并落库(展示值定格在创建时:agent 层 detached、
+  // 集群名后续可能被改,ResourceCard 徽标显示「引用创建时的集群名」而非当下名)。查名失败
+  // (异构 schema 夹具/集群行已删)降级为无名——比对键是 id,无名只影响徽标显示回退到 id。
+  function stampForProject(refs, project, opts = {}) {
+    let name = ''
+    try { name = db.prepare('SELECT name FROM clusters WHERE id=?').get(project.clusterId)?.name || '' } catch { name = '' }
+    return stampRefs(refs, project.clusterId, name, opts)
+  }
+
   // principal(Phase C Task 6):{ userId, role }——逐 ref 过 refAllowed(ref-fetch.mjs 单一
   // 事实源,与 run/resume 的 fetchRefContext 同门);无权 ref 静默跳过(零注入不中断),
   // resources 对应位 push null 保下标对齐(不变式见循环内注释)。
@@ -167,6 +194,13 @@ export function createWorkbenchConvRoutes(deps) {
     const blocks = []
     const resources = [] // 原始资源 body(供前端 ResourceCard),与 ctx 同源单次拉取
     for (const ref of references) {
+      // gap3-01 换绑停用(编辑重发沿用锚 refs 的唯一入口):戳 ≠ 当前集群 → 不重拉(否则
+      // 同名资源在新集群静默串味/缺失误报已删),注进作废块 + null 占位保下标对齐(不变式)。
+      if (typeof ref.clusterId === 'string' && ref.clusterId !== project.clusterId) {
+        blocks.push(`[${ref.kind}/${ref.namespace || ''}/${ref.name}]: (引用创建于集群 ${ref.clusterName || ref.clusterId},项目已换绑,已停用,请让用户重新 @)`)
+        resources.push(null)
+        continue
+      }
       if (!refAllowed(db, principal, ref, project.clusterId)) { resources.push(null); continue } // 无授权:零注入,null 占位保对齐
       const label = `[${ref.kind}/${ref.namespace || ''}/${ref.name}]`
       // @server 引用(spec §5):原始值比较(normalizeKind 不识别 server);不入 k8s 拉取序列,
@@ -248,6 +282,10 @@ export function createWorkbenchConvRoutes(deps) {
         if (typeof input.message !== 'string' || !input.message.trim()) {
           sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true
         }
+        // refs-injection-02:入口归一门(条数/形状/字节,refs-normalize 单源)——先于任何
+        // 建行/拉取/run,400 零副作用。null = 键缺省(合法可选载荷,非畸形)。
+        const inputRefs = normalizeInputRefs(req, res, input.references)
+        if (inputRefs === REFS_REJECTED) return true
         const project = getProject(db, input.projectId)
         if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
         if (!assertProjectOwnership(ps, project)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
@@ -267,18 +305,22 @@ export function createWorkbenchConvRoutes(deps) {
         // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
         // system 只存工作台 prompt 原文(不含 refContext——每轮 chat 前由 run/resumeConversation 内部
         // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
-        const { resources: fetchedResources } = await buildRefsContext(project, input.references, { userId: ps.userId, role: ps.role })
+        // gap3-01:拉取与落库前盖当前集群戳(clusterId=换绑比对键,clusterName=ResourceCard
+        // 徽标展示值定格在创建时;server ref 不盖,未绑定项目不盖)。
+        const stampedRefs = stampForProject(inputRefs, project)
+        const { resources: fetchedResources } = await buildRefsContext(project, stampedRefs, { userId: ps.userId, role: ps.role })
 
         // system 创建时烘焙入库(2026-08-25 设计决策):admin 改配置只影响新对话;
         // conv.system 即逐对话审计证据,透明面板据此展示"本对话实际用的提示词"。
         const sshServers = sshPromptServers()
         const system = buildWorkbenchSystemPrompt({ ...getWorkbenchAiConfig(db), sshServers })
 
-        const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: input.references })
+        const conv = createConversation(db, { projectId: input.projectId, system, userMessage: String(input.message), references: stampedRefs })
         // T5:新建线程成为项目当前活跃对话(前端轮询 GET project 拿此 id 跳转/高亮)。
         setActiveConversation(db, input.projectId, conv.id)
         // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
-        appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
+        // gap3-01:消息级 refs 同带戳(ResourceCard 徽标数据源;换绑后旧消息卡片可标注来源集群)。
+        appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(stampedRefs) ? stampedRefs.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
         wbAgent.runConversation(conv.id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程(k8sSession 由 runConversation 内部按 conv.projectId 重建)
         sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, conv.id)) })
         return true
@@ -298,6 +340,9 @@ export function createWorkbenchConvRoutes(deps) {
         if (typeof input.message !== 'string' || !input.message.trim()) {
           sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true
         }
+        // refs-injection-02:messages 入口同门(归一单源,400 零副作用先行)。
+        const inputRefs = normalizeInputRefs(req, res, input.references)
+        if (inputRefs === REFS_REJECTED) return true
         // P0 守卫(D):运行中/待审批拒绝续接——detached run 无互斥,并发双 run 会交错写
         // trace/检查点/messages(多标签页或直接 API 调用都能绕过前端 sending 守卫)。
         if (conv.status === 'running' || conv.status === 'paused') {
@@ -317,7 +362,10 @@ export function createWorkbenchConvRoutes(deps) {
         setActiveConversation(db, conv.projectId, id)
         // 1) @-ref 资源拉取(先拉,enrich refs 存完整资源 → 刷新后 ResourceCard 不丢)
         const cleanMessage = String(input.message ?? '')
-        const { resources: fetchedResources } = await buildRefsContext(project, input.references, { userId: ps.userId, role: ps.role })
+        // gap3-01:新提及 refs 盖当前集群戳(fresh——重 @ 同名 ref 即重锚定当前集群,这是
+        // 「请让用户重新 @」指引的自救正路;不重锚定则换绑后旧 ref 永久停用)。
+        const stampedRefs = stampForProject(inputRefs, project)
+        const { resources: fetchedResources } = await buildRefsContext(project, stampedRefs, { userId: ps.userId, role: ps.role })
         // 并发双跑收口(2026-09-06 审计#1):首查 status 与此处之间隔了 await buildRefsContext
         // (K8s 往返),另一请求可先赢——node:sqlite 同步执行,「重读状态 → 落消息 → 置 running」
         // 零 await 同步块内原子,TOCTOU 关闭(前提=网关单进程不变式)。败者不落任何行。
@@ -327,18 +375,21 @@ export function createWorkbenchConvRoutes(deps) {
         }
         // 2) append user 消息:content 只存干净正文(曾把 refsCtx 烤进 content → 刷新后整段
         //    JSON 当消息显示;agent 上下文改由 references 走 system,见下)
-        appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(input.references) ? input.references.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
+        appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(stampedRefs) ? stampedRefs.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
         // 4) 新 refs 并入对话级 "references"(去重 kind/namespace/name):runConversation 的
         //    refreshSystem 每轮重写 messages[0] 注入引用资源最新状态(agent.mjs T5 漂移修复),
         //    上下文与烤进 content 等价且更新鲜;新建路径(POST /conversations)本就走此机制。
+        //    gap3-01:并入的是带戳形状(比对键随行);同 key 重 @ → 原地替换(重锚定当前集群,
+        //    激活被停用的引用),未提及的旧条目原样保留(旧戳=换绑后由 agent 停用,不静默改锚)。
         let mergedRefs = []
         try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { mergedRefs = [] }
-        if (Array.isArray(input.references)) {
+        if (Array.isArray(stampedRefs)) {
           const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
-          const seen = new Set(mergedRefs.map(key))
-          for (const r of input.references) {
+          const idxOf = new Map(mergedRefs.map((r, i) => [key(r), i]))
+          for (const r of stampedRefs) {
             const k = key(r)
-            if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) }
+            if (idxOf.has(k)) mergedRefs[idxOf.get(k)] = r
+            else { idxOf.set(k, mergedRefs.length); mergedRefs.push(r) }
           }
         }
         // 5) 标记 running + 复位上轮运行态字段(A)→ 后台跑 → 异步摘要(失败忽略)。
@@ -431,16 +482,28 @@ export function createWorkbenchConvRoutes(deps) {
         const input = await readBody(req)
         const content = String(input.messageId ? input.content || '' : '')
         if (!content.trim()) { sendJson(res, 400, { message: msg(req, 'wbc.editContentRequired') }); return true }
+        // refs-injection-02:edit 入口同门——客户端载荷(body.references)present 即归一校验
+        // ([] 合法=清空全部 @;非数组/元素畸形/超限 → 400)。锚沿用路径的服务端数据不经此门
+        // (见下:锚 refs 含 resource 载荷,落库时已过校验)。
+        const inputRefs = normalizeInputRefs(req, res, input.references)
+        if (inputRefs === REFS_REJECTED) return true
         const anchor = db.prepare('SELECT id, seq, refs FROM workbench_messages WHERE id=? AND conversationId=? AND role=?').get(String(input.messageId || ''), id, 'user')
         if (!anchor) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
         // F6:并发门一道(排除自身行;不查总数)。放在 refs 拉取(await 窗口)之前,429 不截断不落消息。
         const quota = quotaHit(ps.userId, { excludeConvId: id })
         if (quota) { sendQuota429(req, res, quota); return true }
-        // refs:body.references 替换;缺省沿用锚消息 refs(原始对象形状,appendMessage 直存)
-        let refsValue = Array.isArray(input.references) ? input.references : null
-        if (!refsValue && anchor.refs) { try { const p = JSON.parse(anchor.refs); if (Array.isArray(p)) refsValue = p } catch { refsValue = null } }
+        // refs:body.references 替换;缺省沿用锚消息 refs(原始对象形状,appendMessage 直存)。
+        // gap3-01 戳策略:客户端重发 → fresh 盖当前集群戳(用户当下重新挑的引用锚定当下集群);
+        // 沿用锚 refs → preserve 保留原戳(换绑后编辑旧消息,锚 refs 语义是「当时引用的就是
+        // 旧集群资源」——静默改锚成新集群戳会伪造「这是新集群的引用」,旧戳留给 agent 停用
+        // 并注记;存量无戳老行在此补当前戳)。resource 载荷两路均保留。
+        let refsValue = inputRefs !== null ? stampForProject(inputRefs, project) : null
+        if (!refsValue && anchor.refs) {
+          try { const p = JSON.parse(anchor.refs); if (Array.isArray(p)) refsValue = stampForProject(p, project, { preserve: true }) } catch { refsValue = null }
+        }
         // 2026-08-31 审计修复⑧:与 create/messages 路径同款 enrich——沿用锚 refs 保留其已存的
         // resource 载荷,新 references 补拉(buildRefsContext 单次拉取);刷新后 ResourceCard 不丢。
+        // gap3-01:换绑后的旧集群 ref 在 buildRefsContext 内停用(不重拉),resource 沿用锚存快照。
         const { resources: fetchedResources } = await buildRefsContext(project, refsValue, { userId: ps.userId, role: ps.role })
         // 并发双跑收口(2026-09-06 审计#1):此前 truncateFromMessage 在 await 之前就截了消息——
         // 输了竞态也会白截。截断挪到 await 之后,与重读状态/落消息/置 running 组成零 await
@@ -452,15 +515,20 @@ export function createWorkbenchConvRoutes(deps) {
         const t = truncateFromMessage(db, id, anchor.id)
         if (!t) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
         setActiveConversation(db, conv.projectId, id)
-        // 新 refs 并入对话级 references(与 append 的 mergeRefs 同款)
+        // 新 refs 并入对话级 references(与 append 的 mergeRefs 同款;gap3-01:带戳形状入列,
+        // 同 key 重发 → 原地替换重锚定,未提及旧条目保留旧戳不静默改锚)
         let mergedRefs = []
         try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { mergedRefs = [] }
         const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
-        const seen = new Set(mergedRefs.map(key))
-        for (const r of (refsValue || [])) { const k = key(r); if (!seen.has(k)) { seen.add(k); mergedRefs.push({ kind: r.kind, namespace: r.namespace, name: r.name }) } }
+        const idxOf = new Map(mergedRefs.map((r, i) => [key(r), i]))
+        for (const r of (refsValue || [])) {
+          const k = key(r)
+          if (idxOf.has(k)) mergedRefs[idxOf.get(k)] = r
+          else { idxOf.set(k, mergedRefs.length); mergedRefs.push(r) }
+        }
         const appendedAnchor = appendMessage(db, {
           conversationId: id, role: 'user', content,
-          refs: refsValue ? refsValue.map((r, i) => ({ kind: r.kind, namespace: r.namespace, name: r.name, resource: r.resource ?? fetchedResources[i] ?? null })) : null,
+          refs: refsValue ? refsValue.map((r, i) => ({ ...r, resource: r.resource ?? fetchedResources[i] ?? null })) : null,
         })
         updateConversation(db, id, {
           status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null,

@@ -96,9 +96,11 @@ test('续接 @-ref:新 refs 并入对话级 references(refreshSystem 每轮注�
   assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`))
 
   const row = getConversation(h.db, conv.id)
+  // gap3-01(2026-09-07 审计批次二):refs 落库带集群戳(clusterId 比对键 + clusterName 徽标
+  // 展示值;夹具集群名恰为 'c1');重 @ 同名 nginx = 原地替换重锚定(带新戳)。
   assert.deepEqual(JSON.parse(row.references), [
-    { kind: 'pods', namespace: 'default', name: 'nginx' },
-    { kind: 'deployments', namespace: 'default', name: 'api' },
+    { kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: 'c1' },
+    { kind: 'deployments', namespace: 'default', name: 'api', clusterId: 'c1', clusterName: 'c1' },
   ], '去重 + 追加;agent 每轮经 refreshSystem 看到全部引用资源')
 })
 

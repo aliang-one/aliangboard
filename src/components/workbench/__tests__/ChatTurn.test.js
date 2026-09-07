@@ -191,3 +191,49 @@ test('user turn:showEdit 时出编辑按钮并 emit edit;默认不显示', async
   const w2 = mount(ChatTurn, { props: { turn: { role: 'user', content: 'q' } }, global: { plugins: [i18n] } })
   expect(w2.find('[data-testid="edit-msg-btn"]').exists()).toBe(false)
 })
+
+// gap3-01(2026-09-07 审计批次二):refs 落库盖 clusterId 戳后,消息级 refs 的 resource 快照
+// 可能来自换绑前的旧集群——ResourceCard/回退 chip 必须显示来源集群标识,否则同名资源串味
+// /旧快照被当新集群现状,零提示。@server ref 无戳(平台清单域)→ 无徽标。
+const clusterI18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: {
+  common: { copy: '复制' },
+  component: { resourceCard: { sourceCluster: '来源集群 {name}' } },
+  workbench: { chat: { roleYou: '你', roleAgent: 'Agent', editTitle: '编辑并重发' } },
+} } })
+
+test('ChatTurn refs 来源集群徽标:带 clusterId 戳 → 徽标显示(clusterName 优先,缺失回退 id)', () => {
+  const turn = { role: 'user', content: '看下', refs: [
+    { kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: '旧集群', resource: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } },
+  ] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [clusterI18n] } })
+  expect(w.find('[data-testid="resource-source-cluster"]').exists()).toBe(true)
+  expect(w.text()).toContain('来源集群')
+  expect(w.text()).toContain('旧集群')
+
+  const turn2 = { role: 'user', content: '看下', refs: [
+    { kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'ck-raw-id', resource: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } },
+  ] }
+  const w2 = mount(ChatTurn, { props: { turn: turn2 }, global: { plugins: [clusterI18n] } })
+  expect(w2.text()).toContain('ck-raw-id') // clusterName 缺失回退 clusterId
+})
+
+test('ChatTurn refs 回退 chip(无 resource):同样显示来源集群;@server ref 无戳不显示', () => {
+  const turn = { role: 'user', content: '看下', refs: [
+    { kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: '旧集群', resource: null },
+    { kind: 'server', namespace: '', name: '网关机', resource: null },
+  ] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [clusterI18n] } })
+  const chips = w.findAll('.font-mono').map(c => c.text())
+  expect(chips.some(t => t.includes('nginx') && t.includes('来源集群') && t.includes('旧集群'))).toBe(true)
+  expect(chips.some(t => t.includes('网关机'))).toBe(true)
+  expect(w.text()).not.toContain('{name}') // 插值完成,无残留占位
+})
+
+test('ChatTurn 无戳存量 refs(向后兼容):无徽标,渲染不回归', () => {
+  const turn = { role: 'user', content: '看下', refs: [
+    { kind: 'pods', namespace: 'default', name: 'nginx', resource: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } },
+  ] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [clusterI18n] } })
+  expect(w.find('[data-testid="resource-source-cluster"]').exists()).toBe(false)
+  expect(w.text()).toContain('nginx')
+})

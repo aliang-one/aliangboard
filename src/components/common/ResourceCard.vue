@@ -17,6 +17,10 @@ const { t } = useI18n()
 
 const props = defineProps({
   resource: { type: Object, required: true },
+  // 来源集群标识(gap3-01,2026-09-07 审计批次二):工作台 @refs 落库盖 clusterId 戳后,
+  // 换绑项目的旧消息卡片须标注「这份快照来自哪个集群」——否则同名资源串味/旧快照被当
+  // 新集群现状,零提示。传 null/undefined(未换绑场景/其他消费方)则不渲染徽标,零侵入。
+  sourceCluster: { type: String, default: null },
 })
 
 const spec = computed(() => getCardSpec(props.resource?.kind))
@@ -58,11 +62,16 @@ function relTime(ts) {
 
 <template>
   <div class="border border-outline-variant rounded-xl bg-surface-container-lowest p-md">
-    <!-- Header: icon + kind badge + name -->
+    <!-- Header: icon + kind badge + name + 来源集群徽标(仅换绑过的旧 refs 有) -->
     <div class="flex items-center gap-sm mb-md">
       <span class="material-symbols-outlined text-xl text-on-surface-variant">{{ spec.icon }}</span>
       <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant">{{ resource?.kind || t('component.resourceCard.unknownKind') }}</span>
       <span class="font-bold text-sm text-on-surface truncate flex-1 min-w-0" :title="resource?.metadata?.name">{{ resource?.metadata?.name || '—' }}</span>
+      <span v-if="sourceCluster" data-testid="resource-source-cluster"
+        class="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-warning/10 text-status-warning"
+        :title="t('component.resourceCard.sourceCluster', { name: sourceCluster })">
+        <span class="material-symbols-outlined text-xs">lan</span>{{ t('component.resourceCard.sourceCluster', { name: sourceCluster }) }}
+      </span>
     </div>
 
     <!-- Body: attribute grid (2-col: label left / value right) -->

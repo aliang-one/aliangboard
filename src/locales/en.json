@@ -449,7 +449,8 @@
       "kind": "Kind",
       "unknownKind": "Unknown",
       "noAttributes": "No attributes",
-      "justNow": "just now"
+      "justNow": "just now",
+      "sourceCluster": "From cluster {name}"
     },
     "kvRows": {
       "add": "Add row"
