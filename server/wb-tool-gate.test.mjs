@@ -104,6 +104,20 @@ test('wbToolGate.clusterWide:bootstrap_ledger 集群级门(allowlist 非 admin �
   wbToolGate(db, { userId: 'u1', role: 'user' }, 'c2').clusterWide('wb_bootstrap_ledger') // open
 })
 
+// W2 审计 P0-③(2026-09-07):read_ledger 的集群 entitlement 档——与 HTTP 面 GET /api/workbench/ledger
+// 的 clusterEntitled 同判(canAccessCluster 单源:admin 放行 / 须 user_clusters 分配 / 禁用拒)。
+// 台账 INDEX.md 是全集群 14 维 survey:分配内用户可读(HTTP 面既有语义,知识库=平台级资产裁决 §6.2 D),
+// 未分配/禁用 principal 拒——工具面不得成为绕过 entitlement 的第二通道。
+test('wbToolGate.entitled:集群 entitlement 档(分配即放行 / 未分配·禁用拒 / admin 放行)', () => {
+  const db = fixture()
+  wbToolGate(db, { userId: 'u1', role: 'user' }, 'c1').entitled('read_ledger') // 已分配(哪怕仅 team-a view)
+  wbToolGate(db, { userId: 'u2', role: 'user' }, 'c1').entitled('read_ledger') // u2 同样分配 c1
+  wbToolGate(db, { userId: 'a1', role: 'admin' }, 'c1').entitled('read_ledger')
+  assert.throws(() => wbToolGate(db, { userId: 'u2', role: 'user' }, 'c2').entitled('read_ledger'), /PERMISSION_DENIED: rbac/, 'u2 未分配 c2')
+  db.prepare(`UPDATE platform_users SET disabled=1 WHERE id='u1'`).run()
+  assert.throws(() => wbToolGate(db, { userId: 'u1', role: 'user' }, 'c1').entitled('read_ledger'), /PERMISSION_DENIED/, '禁用即拒(现查)')
+})
+
 test('wbToolGate.namespaces: open/admin → null(不限);allowlist → 授权 ns 集合;未分配 → 空集', () => {
   const db = fixture()
   assert.equal(wbToolGate(db, { userId: 'u1', role: 'user' }, 'c2').namespaces(), null)
@@ -176,6 +190,7 @@ test('buildWbCtx 构造 wbToolGate(principal 从参数线程进来)', () => {
 const TOOL_GATES = [
   ['listResources', /gate\.(check|clusterWide|namespaces)\(|gateKind\(/],
   ['bootstrapLedger', /gate\.clusterWide\(/],
+  ['readLedger', /gate\.entitled\(/],
   ['getPodLogs', /gate\.check\(/],
   ['readPodFile', /gate\.check\(/],
   ['describeResource', /gate\.(check|clusterWide)\(|gateKind\(/],
@@ -212,4 +227,23 @@ test('run/resume 两处 buildWbCtx 调用都线程 principal', () => {
   const calls = agentSrc.match(/buildWbCtx\(project[^)]*\)/g) || []
   assert.ok(calls.length >= 2, 'buildWbCtx 调用点少于 2(run/resume 各一)')
   for (const c of calls) assert.match(c, /principal/, `调用点未传 principal: ${c}`)
+})
+
+// W2 审计 P0-①(2026-09-07):授权主体必须从 project.ownerId 派生,不得用触发 actor——
+// admin 审批/代触发他人对话时若以 actor 为 principal,一次审批即解锁 admin 全权(队列剩余
+// 工具全部按 admin 判权),违反 spec §6.3「审批/续跑统一以 conv→project.ownerId 为准」。
+test('run/resume 的 principal 恒从 project.ownerId 派生(不以触发 actor 为授权主体)', () => {
+  const derives = agentSrc.match(/const principal = \{ userId: project\.ownerId \}/g) || []
+  assert.equal(derives.length, 2, 'run/resume 两处 principal 都必须从 project.ownerId 派生')
+  assert.doesNotMatch(agentSrc, /const principal = \{ userId: actor\?\.userId/, '触发 actor 只作审计留痕,不得进入授权链')
+})
+
+// W2 审计 P0-③(2026-09-07 专属):readLedger 此前零授权门——ledger INDEX.md 是全集群 14 维
+// survey(全部 namespaces/nodes/集群级 kind/全 ns 工作负载),只授单 ns view 的 principal 绑项目
+// 即可经对话免审拿到全集群清单。补门后与 HTTP 面(GET /api/workbench/ledger 的 clusterEntitled)
+// 同判;锚定闭包开头精确断言顺序:gate.entitled 必须先于 wbReadFile(读先于门=门形同虚设)。
+test('接线守卫:readLedger 闭包先过 entitled 门再读台账', () => {
+  const m = region.match(/readLedger: async \(\) => \{([\s\S]*?)wbReadFile\(/)
+  assert.ok(m, '未截取到 readLedger 闭包体(签名变了请同步守卫)')
+  assert.match(m[1], /gate\.entitled\('read_ledger'\)/, 'readLedger 必须在读 INDEX.md 前过 gate.entitled——集群 entitlement 档,与 HTTP 面同判')
 })

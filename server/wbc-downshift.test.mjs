@@ -128,8 +128,12 @@ test('owner u1 全端点 200(降门后普通用户完整可用)', async () => {
   await ok('DELETE', `/api/workbench/conversations/${h.c.done}`) // DELETE 放最后(真删)
 })
 
-test('admin 全端点 200(跨 owner 直通)', async () => {
-  const h = makeHarness({ userId: 'adm', role: 'admin', assignedCluster: false })
+test('admin 全端点 200(跨 owner 直通;P0-①:run 触发面 entitlement 以 owner 为准,故夹具须 owner 已分配)', async () => {
+  // 旧版此夹具用 assignedCluster:false(requester=admin 短路)。W2 审计 P0-①(2026-09-07)后
+  // entitlement 以项目 owner 为准:owner 未分配时 admin 的 run 触发面(approve/regenerate/
+  // messages/edit)403——该语义由 wbc-ownership.test.mjs 的 owner 失权三测钉住。本测试的
+  // 目的(owner 归属豁免=跨 owner 直通)不变,夹具改 owner 已分配。
+  const h = makeHarness({ userId: 'adm', role: 'admin' })
   for (const [m, p] of [
     ['GET', `/api/workbench/conversations/${h.c.done}`],
     ['GET', `/api/workbench/conversations/${h.c.done}/stream`],
@@ -158,7 +162,7 @@ test('降门红利:普通用户在「自己的项目」上可建对话并触发 
   assert.equal(r2.status, 403)
 })
 
-test('集群 entitlement:messages/regenerate 须项目集群已分配(有行 200;无行 403;admin 无行 200)', async () => {
+test('集群 entitlement:messages/regenerate 须项目集群已分配(有行 200;无行 403;admin 无行也以 owner 为准)', async () => {
   // u1 已分配 c1(夹具默认)→ messages / regenerate 各自独立夹具 200(防 running 状态互扰)
   const h = makeHarness({ userId: 'u1', role: 'user' })
   assert.equal((await h.call('POST', `/api/workbench/conversations/${h.c.done}/messages`, { message: 'hi' })).status, 200)
@@ -171,9 +175,9 @@ test('集群 entitlement:messages/regenerate 须项目集群已分配(有行 200
   assert.match(String(r2.json?.message), /未分配|not assigned/)
   const h2Reg = makeHarness({ userId: 'u1', role: 'user', assignedCluster: false })
   assert.equal((await h2Reg.call('POST', `/api/workbench/conversations/${h2Reg.c.done}/regenerate`)).status, 403)
-  // admin 短路(未分配也通)
+  // P0-①(2026-09-07):admin 代触发不再短路——entitlement 以项目 owner 为准,owner 未分配同样 403
   const h3 = makeHarness({ userId: 'adm', role: 'admin', assignedCluster: false })
-  assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.done}/messages`, { message: 'hi' })).status, 200)
+  assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.done}/messages`, { message: 'hi' })).status, 403)
 })
 
 test('集群 entitlement:创建对话也须项目集群已分配(未分配 403;已分配 200)', async () => {
@@ -191,8 +195,9 @@ test('集群 entitlement:创建对话也须项目集群已分配(未分配 403;�
 
 // F4(authz-entitlement-02,2026-09-07 审计):edit/approve/deny 补集群分配门——审计实测失权
 // owner 对未分配集群的对话 edit 200+run 启动(messages/regenerate 403)的绕道。三面同门:
-// 未分配 → 403 wbp.clusterForbidden 且零副作用(先于截断/CAS);admin 无行短路 200。
-test('集群 entitlement:edit/approve/deny 须项目集群已分配(未分配 403 零副作用;admin 无行 200)', async () => {
+// 未分配 → 403 wbp.clusterForbidden 且零副作用(先于截断/CAS)。P0-①(2026-09-07):口径
+// = 项目 owner(admin 代批不再短路,owner 未分配同样拒——agent 侧 principal 同取 owner)。
+test('集群 entitlement:edit/approve/deny 须项目集群已分配(未分配 403 零副作用;admin 无行也以 owner 为准)', async () => {
   // 授权回归(门不得过紧):已分配 owner 三面照常通——edit 用真实 user 锚(截断重发全流程)
   const hEdit = makeHarness({ userId: 'u1', role: 'user' })
   const anchor = hEdit.db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq LIMIT 1").get(hEdit.c.done).id
@@ -216,11 +221,16 @@ test('集群 entitlement:edit/approve/deny 须项目集群已分配(未分配 40
   assert.equal(h2.runCalls.length, 0, '被拒不得触发 run')
   assert.equal(h2.resumeCalls.length, 0, '被拒不得触发 resume')
   assert.equal(h2.db.prepare(`SELECT status FROM workbench_conversations WHERE id='${h2.c.paused}'`).get().status, 'paused', '审批拒绝须先于 CAS,状态不动')
-  // admin 短路(未分配也通):edit + approve 各验一面
+  // P0-①:admin 代发/代批不再短路——owner 未分配同样 403(edit + approve 各验一面)
   const h3 = makeHarness({ userId: 'adm', role: 'admin', assignedCluster: false })
   const a3 = h3.db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq LIMIT 1").get(h3.c.done).id
-  assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.done}/edit`, { messageId: a3, content: 'x' })).status, 200)
-  assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.paused}/approve`)).status, 200)
+  assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.done}/edit`, { messageId: a3, content: 'x' })).status, 403)
+  assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.paused}/approve`)).status, 403)
+  // 对照:owner 已分配时 admin 跨 owner 直通照常(edit + approve 200)
+  const h4 = makeHarness({ userId: 'adm', role: 'admin' })
+  const a4 = h4.db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq LIMIT 1").get(h4.c.done).id
+  assert.equal((await h4.call('POST', `/api/workbench/conversations/${h4.c.done}/edit`, { messageId: a4, content: 'x' })).status, 200)
+  assert.equal((await h4.call('POST', `/api/workbench/conversations/${h4.c.paused}/approve`)).status, 200)
 })
 
 test('列表面:GET ?projectId 非owner 403/owner 200;/active 非 admin 只见自己项目的活跃', async () => {

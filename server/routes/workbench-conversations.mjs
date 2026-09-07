@@ -75,6 +75,15 @@ export function createWorkbenchConvRoutes(deps) {
     return canAccessCluster(db, { userId: ps.userId }, clusterId)
   }
 
+  // W2 审计 P0-①(2026-09-07):触发 run 的六个面(create/messages/regenerate/edit/approve/deny)
+  // 的 entitlement 一律以「项目 owner」为准(spec §6.3 审批/续跑统一以 conv→project.ownerId 为准)
+  // ——admin 代触发/代批不得越过 owner 失权(移出分配/禁用;canAccessCluster 现查 disabled)。
+  // 触发者自身归属仍由前置 assertProjectOwnership 把关(owner 或 admin);与 workbench-agent
+  // 的 principal=project.ownerId 派生配对(路由早拒,agent 逐调用门兜底)。
+  function ownerEntitled(project) {
+    return clusterEntitled({ userId: project.ownerId }, project.clusterId)
+  }
+
   // F6(2026-09-07 审计):对话限额双门,触发 run 前现读配置(admin 改完即时生效,与 maxSteps
   // 同款「每次 run 现读」语义)。归属口径:会话无独立属主列 → 项目 ownerId(records/summary 的
   // listConversationsByOwner 同口径);DB count 重启安全(非内存计数)。0 = 不限制(逃生阀,
@@ -289,10 +298,11 @@ export function createWorkbenchConvRoutes(deps) {
         const project = getProject(db, input.projectId)
         if (!project) { sendJson(res, 404, { message: msg(req, 'wbc.projectNotFound') }); return true }
         if (!assertProjectOwnership(ps, project)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
-        // W2 Phase D(spec §6.2/§2.6):项目绑定集群时,创建者也须有集群分配 entitlement(admin 短路)
+        // W2 Phase D(spec §6.2/§2.6):项目绑定集群时,项目 owner 须有集群分配 entitlement(admin 短路)
         // ——与 messages/regenerate 同门(clusterEntitled 单源),否则未分配用户可在自己项目上对
-        // 未分配集群起对话(detached run 前的绕道)。未绑定集群('')不设门。
-        if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
+        // 未分配集群起对话(detached run 前的绕道)。未绑定集群('')不设门。P0-①:口径=项目 owner
+        //(admin 代建同样受 owner 失权约束)。
+        if (!ownerEntitled(project)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         const llmClient = createLlmClient(cfg)
@@ -351,7 +361,7 @@ export function createWorkbenchConvRoutes(deps) {
         // Phase D(Task 7):owner/admin 链 + 集群分配 entitlement(续接触发 run)。
         const project = resolveConvProject(req, res, ps, conv)
         if (!project) return true
-        if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
+        if (!ownerEntitled(project)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         // F6:并发门一道(排除自身行;不查总数——续接不新建行)。放在任何写(setActiveConversation/
@@ -420,7 +430,7 @@ export function createWorkbenchConvRoutes(deps) {
         // Phase D(Task 7):owner/admin 链 + 集群分配 entitlement(regenerate 触发 run)。
         const project = resolveConvProject(req, res, ps, conv)
         if (!project) return true
-        if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
+        if (!ownerEntitled(project)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         // F6:并发门一道(排除自身行;不查总数)。放在 truncate 之前——429 不截消息(零副作用)。
@@ -475,7 +485,8 @@ export function createWorkbenchConvRoutes(deps) {
       // F4(authz-entitlement-02,2026-09-07 审计):edit 截断重发 = 触发 run 的面,与
       // messages/regenerate 同门(clusterEntitled 单源)——失权 owner 此前实测 200+run 启动
       //(兄弟端点 403 的绕道)。先于锚校验/截断,拒绝零副作用;未绑定集群('')不设门。
-      if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
+      // P0-①:口径 = 项目 owner(admin 代发同样受 owner 失权约束)。
+      if (!ownerEntitled(project)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       try {
@@ -719,7 +730,7 @@ export function createWorkbenchConvRoutes(deps) {
       // F4(authz-entitlement-02,2026-09-07 审计):approve 触发 detached resume = 触发 run 的
       // 面,与 messages/regenerate/edit 同门(clusterEntitled 单源)——失权 owner 不得经审批
       // 续跑。先于 CAS(claimPausedForResume 翻 running)与 LLM 配置检查,拒绝零状态副作用。
-      if (!clusterEntitled(ps, projectForGate.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
+      if (!ownerEntitled(projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
       // LLM 配置检查先于 CAS(2026-09-06 审计#2):配置缺失 400 时状态未动,对话保持 paused
       // 可配置恢复后直接重试;旧顺序 CAS 先翻 running,失败即永久卡死(只能重启网关抢救)。
       const cfg = getLlmConfig()
@@ -750,7 +761,7 @@ export function createWorkbenchConvRoutes(deps) {
       if (!projectForGate || !assertProjectOwnership(ps, projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
       // F4(authz-entitlement-02):deny 同 approve 门——deny 也走 resumeConversation(detached
       // 续跑 denied 队列),失权 owner 不得经任何审批面触碰 run;先于 CAS,拒绝零副作用。
-      if (!clusterEntitled(ps, projectForGate.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
+      if (!ownerEntitled(projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
       // 配置先于 CAS(同 approve,2026-09-06 审计#2)
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }

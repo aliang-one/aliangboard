@@ -126,3 +126,32 @@ test('非 paused 对话 approve → 400(CAS 不变式保持)', async () => {
   await h.call('POST', '/api/workbench/conversations/cA/approve')
   assert.equal(h.sent[0].status, 400)
 })
+
+// W2 审计 P0-①(2026-09-07):run 触发面的 entitlement 以「项目 owner」为准(spec §6.3 审批/
+// 续跑统一以 conv→project.ownerId 为准)——admin 代批不得越过 owner 失权(移出分配/禁用)。
+// 拒绝仍先于 CAS,状态零副作用(paused 保持)。
+test('admin approve:owner 失去集群分配 → 403 且不 resume(entitlement 以 owner 为准)', async () => {
+  const h = makeHarness({ userId: 'admin1', role: 'admin' })
+  h.db.prepare(`DELETE FROM user_clusters WHERE userId='u1'`).run()
+  await h.call('POST', '/api/workbench/conversations/cA/approve')
+  assert.equal(h.sent[0].status, 403)
+  assert.equal(h.sent[0].json.message, '该集群未分配给你')
+  assert.equal(h.resumeCalls.length, 0)
+  assert.equal(h.db.prepare(`SELECT status FROM workbench_conversations WHERE id='cA'`).get().status, 'paused', '拒绝先于 CAS,零状态副作用')
+})
+
+test('admin deny:owner 失去集群分配 → 同样 403(deny 同门)', async () => {
+  const h = makeHarness({ userId: 'admin1', role: 'admin' })
+  h.db.prepare(`DELETE FROM user_clusters WHERE userId='u1'`).run()
+  await h.call('POST', '/api/workbench/conversations/cA/deny')
+  assert.equal(h.sent[0].status, 403)
+  assert.equal(h.resumeCalls.length, 0)
+})
+
+test('admin approve:owner 被禁用 → 403(canAccessCluster 现查 disabled)', async () => {
+  const h = makeHarness({ userId: 'admin1', role: 'admin' })
+  h.db.prepare(`UPDATE platform_users SET disabled=1 WHERE id='u1'`).run()
+  await h.call('POST', '/api/workbench/conversations/cA/approve')
+  assert.equal(h.sent[0].status, 403)
+  assert.equal(h.resumeCalls.length, 0)
+})
