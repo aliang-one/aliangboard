@@ -17,6 +17,8 @@ const clustersList = vi.fn(async () => ({ clusters: [
 const grantsList = vi.fn(async () => ({ namespaces: [{ namespace: 'app', level: 'view' }] }))
 const grantsSave = vi.fn(async () => ({ ok: true }))
 const usersList = vi.fn(async () => ({ users: [{ id: 'u1', username: 'alice', role: 'user', clusterIds: [] }] }))
+// 残余收尾 fix 1:nsAuthMode 切换(adminApi.nsMode.set 已存在 client.js,零新增 client 代码)
+const nsModeSet = vi.fn(async () => ({ ok: true, mode: 'allowlist' }))
 
 vi.mock('@/api/client', () => ({
   adminApi: {
@@ -29,6 +31,7 @@ vi.mock('@/api/client', () => ({
       removeMember: vi.fn(),
     },
     clusters: { list: (...a) => clustersList(...a) },
+    nsMode: { set: (...a) => nsModeSet(...a) },
     grants: { save: (...a) => grantsSave(...a), list: (...a) => grantsList(...a) },
     users: { list: (...a) => usersList(...a) },
   },
@@ -42,7 +45,7 @@ function mountView() {
 }
 
 beforeEach(() => {
-  for (const m of [groupsList, groupsCreate, groupsMembersList, groupsMembers, clustersList, grantsList, grantsSave, usersList]) m.mockClear()
+  for (const m of [groupsList, groupsCreate, groupsMembersList, groupsMembers, clustersList, grantsList, grantsSave, usersList, nsModeSet]) m.mockClear()
 })
 
 // 终审 Finding 1:nsAuthMode 必须来自 API 白名单回传——响应缺该字段时不得误报 open 提示
@@ -123,4 +126,59 @@ test('ns 授权:选组+集群回显 grants;非法 ns 拒入;合法 ns 保存 →
   expect(payload).toMatchObject({ subjectType: 'group', subjectId: 'g1', clusterId: 'c1' })
   const nss = payload.namespaces.map(r => `${r.namespace}:${r.level}`).sort()
   expect(nss).toEqual(['app:view', 'ops:view'])
+})
+
+// ===== 残余收尾 fix 1:nsAuthMode 切换控件(spec 承诺级) =====
+// ConfirmDialog 经 Modal Teleport 到 body(既有契约),弹窗节点走 document.body 查询。
+test('ns 模式切换:open→allowlist 走确认弹窗(警示文案);确认 → PUT nsMode.set + 重拉 clusters,警告条消失', async () => {
+  setActivePinia(createPinia())
+  const w = mountView()
+  await flushPromises()
+  expect(w.find('[data-testid="open-mode-notice"]').exists()).toBe(true)
+  await w.find('[data-testid="grant-group-g1"]').trigger('click')
+  await w.find('[data-testid="cluster-select"]').setValue('c2')
+  await flushPromises()
+  // 选中 open 集群:编辑器内逐集群警示可见;当前模式钮(open)高亮
+  expect(w.text()).toContain(i18n.global.t('admin.authz.openNoIsolation', { names: 'open-one' }))
+  expect(w.find('[data-testid="ns-mode-open"]').classes()).toContain('bg-primary')
+  // 点 allowlist → 确认弹窗(切到 allowlist 警示),未确认前不发请求
+  await w.find('[data-testid="ns-mode-allowlist"]').trigger('click')
+  await flushPromises()
+  const ok = document.body.querySelector('[data-testid="confirm-ok"]')
+  expect(ok).toBeTruthy()
+  expect(document.body.textContent).toContain(i18n.global.t('admin.authz.nsModeToAllowlist'))
+  expect(nsModeSet).not.toHaveBeenCalled()
+  // 确认 → PUT payload (clusterId, mode) + 重拉 clusters(c2 已切 allowlist)→ 两条警示消失
+  clustersList.mockImplementation(async () => ({ clusters: [
+    { id: 'c1', name: 'allow-one', nsAuthMode: 'allowlist' },
+    { id: 'c2', name: 'open-one', nsAuthMode: 'allowlist' },
+  ] }))
+  ok.click()
+  await flushPromises()
+  expect(nsModeSet).toHaveBeenCalledTimes(1)
+  expect(nsModeSet).toHaveBeenCalledWith('c2', 'allowlist')
+  expect(clustersList).toHaveBeenCalledTimes(2)
+  expect(w.find('[data-testid="open-mode-notice"]').exists()).toBe(false)
+  expect(w.text()).not.toContain(i18n.global.t('admin.authz.openNoIsolation', { names: 'open-one' }))
+  expect(w.find('[data-testid="ns-mode-allowlist"]').classes()).toContain('bg-primary')
+  w.unmount()
+})
+
+test('ns 模式切换:allowlist→open 提示恢复全开;取消不发请求', async () => {
+  setActivePinia(createPinia())
+  const w = mountView()
+  await flushPromises()
+  await w.find('[data-testid="grant-group-g1"]').trigger('click')
+  await w.find('[data-testid="cluster-select"]').setValue('c1')
+  await flushPromises()
+  expect(w.find('[data-testid="ns-mode-allowlist"]').classes()).toContain('bg-primary')
+  await w.find('[data-testid="ns-mode-open"]').trigger('click')
+  await flushPromises()
+  expect(document.body.textContent).toContain(i18n.global.t('admin.authz.nsModeToOpen'))
+  document.body.querySelector('[data-testid="confirm-cancel"]').click()
+  await flushPromises()
+  expect(nsModeSet).not.toHaveBeenCalled()
+  // 弹窗已关:确认钮从 body 消失
+  expect(document.body.querySelector('[data-testid="confirm-ok"]')).toBe(null)
+  w.unmount()
 })

@@ -4,6 +4,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const { t } = useI18n()
 const NS_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
@@ -24,6 +25,30 @@ const saving = ref(false)
 
 const openClusters = computed(() => (allClusters.value || []).filter(c => c.nsAuthMode === 'open'))
 const selCluster = computed(() => allClusters.value.find(c => c.id === selClusterId.value))
+
+// nsAuthMode 切换(残余收尾 fix 1,spec 承诺级):双钮 open/allowlist,切换经 ConfirmDialog
+// (adminApi.nsMode.set 已存在)。缺字段的响应(生产白名单遗漏形态)按服务端默认 open 呈现
+//(与 canAccessNs 的 `nsAuthMode || 'open'` 同口径)。
+const selNsMode = computed(() => selCluster.value?.nsAuthMode || 'open')
+const showNsModeConfirm = ref(false)
+const pendingNsMode = ref('')
+const nsModeConfirmMessage = computed(() => pendingNsMode.value === 'allowlist' ? t('admin.authz.nsModeToAllowlist') : t('admin.authz.nsModeToOpen'))
+function askNsMode(mode) {
+  if (!selCluster.value || mode === selNsMode.value) return
+  pendingNsMode.value = mode
+  showNsModeConfirm.value = true
+}
+async function doSetNsMode() {
+  const clusterId = selClusterId.value
+  const mode = pendingNsMode.value
+  showNsModeConfirm.value = false
+  if (!clusterId || !mode) return
+  try {
+    await adminApi.nsMode.set(clusterId, mode)
+    notify('success', t('admin.authz.nsModeSwitched'))
+    await load() // 重拉 clusters:openClusters 警告条 + 编辑器逐集群警示随模式自动更新
+  } catch (e) { notify('error', e.message || t('common.opFailed')) }
+}
 
 async function load() {
   loading.value = true
@@ -183,6 +208,12 @@ async function doSaveGrants() {
             </select>
           </div>
           <p v-if="selCluster && selCluster.nsAuthMode === 'open'" class="text-body-xs text-error mb-sm">{{ $t('admin.authz.openNoIsolation', { names: selCluster.name }) }}</p>
+          <!-- nsAuthMode 双钮切换(残余收尾 fix 1):当前模式高亮;点另一模式 → ConfirmDialog 警示后 PUT -->
+          <div v-if="selCluster" data-testid="ns-mode-toggle" class="flex items-center gap-xs mb-sm flex-wrap">
+            <span class="text-body-xs text-on-surface-variant">{{ $t('admin.authz.nsModeLabel') }}</span>
+            <button data-testid="ns-mode-open" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border', selNsMode === 'open' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high']" @click="askNsMode('open')">{{ $t('admin.authz.nsModeOpen') }}</button>
+            <button data-testid="ns-mode-allowlist" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border', selNsMode === 'allowlist' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high']" @click="askNsMode('allowlist')">{{ $t('admin.authz.nsModeAllowlist') }}</button>
+          </div>
           <template v-if="selClusterId">
             <div class="flex items-center gap-xs mb-sm">
               <input v-model="nsInput" data-testid="ns-add-input" :placeholder="$t('admin.authz.nsAdd')" class="flex-1 min-w-0 bg-surface-container border rounded-lg px-sm py-xs text-body-sm font-mono" :class="nsInput && nsError(nsInput) ? 'border-error' : 'border-outline-variant'" @keyup.enter="doAddNs" />
@@ -199,5 +230,10 @@ async function doSaveGrants() {
         </template>
       </div>
     </div>
+
+    <!-- nsAuthMode 切换确认:切到 allowlist(收紧,danger)警示先配组授权;切回 open 提示恢复全开 -->
+    <ConfirmDialog v-model="showNsModeConfirm" :danger="pendingNsMode === 'allowlist'"
+      :title="$t('admin.authz.nsModeConfirmTitle')" :message="nsModeConfirmMessage"
+      @confirm="doSetNsMode" />
   </section>
 </template>

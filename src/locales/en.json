@@ -581,6 +581,7 @@
     "resultError": "Error",
     "activityWindow": "Showing the last {n} days",
     "activityEmpty": "No recent activity",
+    "toolFilterPlaceholder": "Filter by tool name, e.g. platform_login/my_key_mint",
     "logoutConfirmTitle": "Sign out",
     "logoutConfirmMessage": "Sign out of this account? Unsaved edits and active terminal sessions will be interrupted.",
     "title": "User Center",
@@ -683,7 +684,8 @@
       "stepUpHint": "This action requires re-verification — enter a code or a recovery code",
       "stepUpConfirm": "Verify",
       "disable": "Disable",
-      "regen": "Regenerate recovery codes"
+      "regen": "Regenerate recovery codes",
+      "markUsedHint": "Click to mark as copied"
     },
     "kubectl": {
       "title": "kubectl access",
@@ -3345,7 +3347,14 @@
       "saved": "Grants saved",
       "saveFailed": "Failed to save grants",
       "noGroups": "No groups yet",
-      "openNoIsolation": "Open-mode clusters provide no namespace isolation: {names}"
+      "openNoIsolation": "Open-mode clusters provide no namespace isolation: {names}",
+      "nsModeLabel": "Namespace auth mode",
+      "nsModeOpen": "Open",
+      "nsModeAllowlist": "Allowlist",
+      "nsModeConfirmTitle": "Switch namespace auth mode",
+      "nsModeToAllowlist": "Switching to allowlist will immediately restrict unauthorized users to only their granted namespaces. Confirm group grants are configured first.",
+      "nsModeToOpen": "Switching back to open restores full namespace access for all users, without isolation.",
+      "nsModeSwitched": "Auth mode switched"
     },
     "agent": {
       "title": "AI Console",
