@@ -294,7 +294,9 @@ export function listMessages(db, conversationId) {
 
 // 重新生成(P1):删掉最后一条 user 消息之后的全部消息(即待重跑的 assistant 回复),
 // 该 user 消息保留——runConversation 以 buildHistory(=剩余消息)重跑即重答此轮。
-// 返回 { removed, lastUserSeq };无 user 消息返回 { removed: 0, lastUserSeq: 0 }(调用方据此 400)。
+// 返回 { removed, lastUserSeq };无 user 消息返回 { removed: 0, lastUserSeq: 0 }。调用方
+// (regenerate 路由)按 lastUserSeq 判 400 而非 removed——removed=0 但 user 仍在
+// (失败/取消轮零 assistant 产出)须放行重跑,见 contracts-02(2026-09-07 审计)。
 export function truncateAfterLastUser(db, conversationId) {
   const lastUser = db.prepare("SELECT seq FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq DESC LIMIT 1").get(conversationId)
   if (!lastUser) return { removed: 0, lastUserSeq: 0 }

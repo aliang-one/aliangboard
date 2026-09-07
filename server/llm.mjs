@@ -79,6 +79,12 @@ export function createLlmClient({
     const finalize = () => {
       const tool_calls = Object.keys(toolCallsMap).sort((a, b) => a - b)
         .map(k => toolCallsMap[k]).filter(t => t.function.name || t.function.arguments)
+      // 终态兜底(agent-loop-04,2026-09-07 审计):流结束时 content / tool_calls / finishReason
+      // 三皆空 = 上游异常终止(连 finish_reason 都没发),旧实现照样标 done——空终答无任何错误
+      // 提示。三条件任一在场即放行:tool_calls 在场 = 纯工具轮的正常形态(content 空是常态);
+      // finishReason 在场 = 正常终止(content 空是模型自由);有 content 更不在话下。守卫只在
+      // finalize 单点([DONE] 终止与自然断流两条终止路径共用),不误伤收尾轮/工具轮。
+      if (!content && !tool_calls.length && !finishReason) throw new Error('LLM 返回空响应')
       // reasoning(DeepSeek-R1/Qwen 深思考的 reasoning_content,OpenAI o 系列为 reasoning):
       // 思考 token 也回调/返回——此前整段丢弃,前端只能干等 35-40s"思考中"。
       // finish_reason 透传(2026-09-06,同 chat):'length' = 输出上限掐断。
@@ -100,6 +106,17 @@ export function createLlmClient({
           const payload = line.slice(5).trim()
           if (payload === '[DONE]') { reader.cancel?.().catch(() => {}); return finalize() }
           let obj; try { obj = JSON.parse(payload) } catch { continue }
+          // 流内 error 事件(agent-loop-04,2026-09-07 审计):上游/代理在流中段发 {"error":...}
+          // (sub2api/litellm 类代理故障的典型形态)此前落进「无 delta → continue」被无声跳过——
+          // 半截答案照样标 done,用户无从知晓中途故障。契约:error 在场且无 choices → 抛错。
+          // 抛出点在已吐 delta 之后:agent.mjs chatWithRetry 的 sawDelta 谓词据此不重试(流式
+          // 重试会从头再吐、前端已拼接内容重复),错误上抛交 workbench-agent 的 salvage 路径
+          // 保留半截内容并标 failed(与中断保全语义一致);error 无 message 字段以 JSON 串兜底。
+          // error 与 choices 并存的帧(个别代理混发)不拦,照常走 delta 处理。
+          if (obj.error && !obj.choices) {
+            reader.cancel?.().catch(() => {}) // 释放未读完的响应体(连接及时归还连接池)
+            throw new Error('LLM 流内错误: ' + (obj.error?.message || JSON.stringify(obj.error).slice(0, 200)))
+          }
           const delta = obj.choices?.[0]?.delta
           if (obj.choices?.[0]?.finish_reason) finishReason = obj.choices[0].finish_reason
           if (!delta) continue

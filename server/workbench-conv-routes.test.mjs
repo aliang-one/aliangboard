@@ -587,3 +587,46 @@ test('F6 即时生效:限额落库后下一请求现读即拒(无需重启,与 m
   assert.equal(h.sent.at(-1).status, 429, '配置后新请求即时生效')
   assert.equal(h.runs.length, 0)
 })
+
+// ── contracts-02(2026-09-07 审计):regenerate 对 removed===0 双形状拆分 ──
+//    旧实现一刀切 400:失败/取消轮零 assistant 产出时(user 仍是末条消息,removed 恒 0),
+//    前端错误轮恒亮的重试图标点了必被拒。放行(lastUserSeq>0 = user 消息仍在):
+//    buildHistory 以剩余消息(末条 user)重跑 = 原问题重答,语义自洽(裁决:服务端单点
+//    放宽优于前端绕行);无 user 消息(lastUserSeq=0)维持 400——无可重跑目标。
+test('regenerate: 失败轮无 assistant 产出(removed=0 但 user 仍在)→ 200 + run 启动', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' }) // 仅 user,无 assistant(失败轮零产出)
+  h.db.prepare("UPDATE workbench_conversations SET status='failed', error='LLM 流内错误: x' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/regenerate`), '路由命中')
+  assert.equal(h.sent.at(-1).status, 200, '失败轮重试放行(等价原问题重跑)')
+  assert.equal(h.sent.at(-1).json.status, 'running')
+  assert.equal(h.runs.length, 1, 'detached run 已启动')
+  assert.equal(getConversation(h.db, conv.id).status, 'running')
+  assert.equal(getConversation(h.db, conv.id).error, '', '上轮失败原因复位')
+  assert.equal(listMessages(h.db, conv.id).length, 1, 'user 消息保留(buildHistory 数据源)')
+})
+
+test('regenerate: 正常轮(user+assistant)→ 200,截掉旧回复后重跑(既有行为回归)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: 'a1-bad', trace: '[]' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/regenerate`), '路由命中')
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.equal(h.runs.length, 1)
+  const msgs = listMessages(h.db, conv.id)
+  assert.equal(msgs.length, 1, '旧回复被截,末轮 user 保留')
+  assert.equal(msgs[0].content, 'q1')
+})
+
+test('regenerate: 无 user 消息(空消息表)→ 仍 400', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'x' })
+  h.db.prepare('DELETE FROM workbench_messages WHERE conversationId=?').run(conv.id)
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/regenerate`), '路由命中')
+  assert.equal(h.sent.at(-1).status, 400, '连 user 都没有 → 无可重跑目标')
+  assert.equal(h.runs.length, 0)
+})

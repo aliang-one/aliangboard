@@ -375,8 +375,13 @@ export function createWorkbenchConvRoutes(deps) {
         // F6:并发门一道(排除自身行;不查总数)。放在 truncate 之前——429 不截消息(零副作用)。
         const quota = quotaHit(ps.userId, { excludeConvId: id })
         if (quota) { sendQuota429(req, res, quota); return true }
-        const { removed, lastUserSeq } = truncateAfterLastUser(db, id)
-        if (removed === 0) { sendJson(res, 400, { message: msg(req, 'wbc.noRegenTarget') }); return true }
+        // contracts-02(2026-09-07 审计):removed===0 有两形状——无 user 消息(lastUserSeq=0,
+        // 无可重跑目标,维持 400)vs 失败/取消轮零 assistant 产出(user 仍是末条消息,removed
+        // 恒 0;前端错误轮恒亮重试图标,旧实现一刀切 400 = 点了必被拒)。后者放行:buildHistory
+        // 以剩余消息(末条 user)重跑 = 原问题重答,不重复计 user 轮,语义自洽(裁决:服务端
+        // 单点放宽优于前端绕行)。lastUserSeq 两形状都有效,水位钳制照常喂。
+        const { lastUserSeq } = truncateAfterLastUser(db, id)
+        if (!lastUserSeq) { sendJson(res, 400, { message: msg(req, 'wbc.noRegenTarget') }); return true }
         setActiveConversation(db, conv.projectId, id)
         // 水位钳制(dev29):seq 复用 × summarizedUpTo 互踩——不钳的话原问题会被当"已进 recap"跳过,重答偏题
         updateConversation(db, id, { status: 'running', content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, summarizedUpTo: regenWatermark(conv.summarizedUpTo, lastUserSeq) })
