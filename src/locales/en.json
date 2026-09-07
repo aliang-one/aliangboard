@@ -681,7 +681,8 @@
       "stepUpTitle": "Re-verify Identity",
       "stepUpHint": "This action requires re-verification — enter a code or a recovery code",
       "stepUpConfirm": "Verify",
-      "disable": "Disable"
+      "disable": "Disable",
+      "regen": "Regenerate recovery codes"
     },
     "kubectl": {
       "title": "kubectl access",

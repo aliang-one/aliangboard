@@ -681,7 +681,8 @@
       "stepUpTitle": "身份重验证",
       "stepUpHint": "该操作需要重新验证身份,请输入验证码或恢复码",
       "stepUpConfirm": "验证",
-      "disable": "禁用"
+      "disable": "禁用",
+      "regen": "重新生成恢复码"
     },
     "kubectl": {
       "title": "kubectl 访问",

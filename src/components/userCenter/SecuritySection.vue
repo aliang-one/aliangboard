@@ -1,7 +1,7 @@
 <script setup>
 // 安全卡(2026-09-04 Wave1 §3.1,自 UserProfile.vue 原样迁入):改密 + 会话列表/分页/吊销 + ConfirmDialog。
 // W3 Task 4(2026-09-07)增:两步验证(MFA)区——扫码启用(二维码/密钥/otpauth 三通道)→ 恢复码
-// 一次性弹窗;已启用态徽章 + 禁用(409 stepUpRequired → StepUpDialog 验过重放)。
+// 一次性弹窗;已启用态徽章 + 重新生成恢复码 + 禁用(账户安全面 409 stepUpRequired → StepUpDialog 验过重放)。
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import QRCode from 'qrcode'
@@ -38,7 +38,15 @@ async function changePassword() {
     const res = await authApi.changePassword(pwdForm.value.current, pwdForm.value.next)
     pwdForm.value = { current: '', next: '', confirm: '' }
     notify('success', t('userCenter.passwordChanged', { n: res.revoked ?? 0 }))
-  } catch (e) { notify('error', e.message || t('common.opFailed')) }
+  } catch (e) {
+    // step-up 周界(W3 §1.4):stepUpAt 过期 → 409 {stepUpRequired};弹 StepUpDialog,验过重放同一次改密
+    if (e?.status === 409 && e?.details?.stepUpRequired) {
+      pendingStepUpAction.value = changePassword
+      showStepUp.value = true
+      return   // finally 复位 loading;表单保留(密码不丢),验过重放
+    }
+    notify('error', e.message || t('common.opFailed'))
+  }
   finally { pwdLoading.value = false }
 }
 
@@ -116,6 +124,27 @@ async function startEnroll() {
     enrollQr.value = raw.startsWith('data:') ? raw : `data:image/svg+xml;utf8,${encodeURIComponent(raw)}`
     showEnroll.value = true
   } catch (e) { notify('error', e.message || t('common.opFailed')) }
+}
+// 重新生成恢复码(spec §1.4):已启用者 setup 必 409 step-up → 验过重放 setup(新 secret)→ 复用启用
+// 弹窗走完整 enable——server W3-A 裁决:已启用再 enable = 同时轮换 TOTP 密钥 + 恢复码组(旧恢复码全作废)。
+async function regenRecoveryCodes() {
+  try {
+    const res = await authApi.mfaSetup()
+    enrollCode.value = ''
+    enrollError.value = ''
+    enrollSecret.value = res.secret
+    enrollUri.value = res.otpauthUri
+    const raw = await QRCode.toString(res.otpauthUri, { type: 'svg', margin: 1 })
+    enrollQr.value = raw.startsWith('data:') ? raw : `data:image/svg+xml;utf8,${encodeURIComponent(raw)}`
+    showEnroll.value = true
+  } catch (e) {
+    if (e?.status === 409 && e?.details?.stepUpRequired) {
+      pendingStepUpAction.value = regenRecoveryCodes
+      showStepUp.value = true
+      return
+    }
+    notify('error', e.message || t('common.opFailed'))
+  }
 }
 async function confirmEnroll() {
   const code = enrollCode.value.trim()
@@ -230,9 +259,14 @@ async function onStepUpDone() {
       <button v-if="!mfaEnrolled" data-testid="mfa-enable-btn"
         class="shrink-0 px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm"
         @click="startEnroll">{{ $t('userCenter.mfa.enable') }}</button>
-      <button v-else data-testid="mfa-disable-btn"
-        class="shrink-0 px-md py-sm border border-error/40 text-error rounded-lg font-semibold text-body-sm hover:bg-error/10"
-        @click="openDisable">{{ $t('userCenter.mfa.disable') }}</button>
+      <div v-else class="shrink-0 flex items-center gap-sm">
+        <button data-testid="mfa-regen-btn"
+          class="px-md py-sm border border-outline-variant rounded-lg font-semibold text-body-sm text-on-surface-variant hover:bg-surface-container-high"
+          @click="regenRecoveryCodes">{{ $t('userCenter.mfa.regen') }}</button>
+        <button data-testid="mfa-disable-btn"
+          class="px-md py-sm border border-error/40 text-error rounded-lg font-semibold text-body-sm hover:bg-error/10"
+          @click="openDisable">{{ $t('userCenter.mfa.disable') }}</button>
+      </div>
     </div>
 
     <div class="flex items-center justify-between mt-lg mb-sm">
