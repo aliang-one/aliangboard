@@ -163,6 +163,7 @@ async function confirmEnroll() {
   try {
     const res = await authApi.mfaEnable({ secret: enrollSecret.value, code })
     recoveryCodes.value = res.recoveryCodes || []
+    usedCodes.value = [] // 新码组下发:划掉标记重置
     showEnroll.value = false
     showRecovery.value = true
     mfaEnrolled.value = true
@@ -184,10 +185,14 @@ async function confirmEnroll() {
 // 不引导重复 enable)
 const showRecovery = ref(false)
 const recoveryCodes = ref([])
+// 逐个划掉(残余收尾 fix 2):纯前端「我已抄录这条」标记,新码下发/关闭弹窗即重置
+const usedCodes = ref([])
+function markUsed(code) { if (!usedCodes.value.includes(code)) usedCodes.value.push(code) }
 // 关闭即清空:恢复码明文不滞留组件态/DOM(review round 1 minor)
 function closeRecovery() {
   showRecovery.value = false
   recoveryCodes.value = []
+  usedCodes.value = []
 }
 async function copyRecoveryCodes() {
   try {
@@ -359,7 +364,10 @@ async function onStepUpDone() {
       <p class="text-body-sm text-error font-medium">{{ $t('userCenter.mfa.recoveryHint') }}</p>
       <ul data-testid="mfa-recovery-codes"
         class="grid grid-cols-2 gap-x-md gap-xs bg-surface-container-low rounded-lg p-md font-mono text-body-sm">
-        <li v-for="(c, i) in recoveryCodes" :key="i" class="break-all">{{ c }}</li>
+        <li v-for="(c, i) in recoveryCodes" :key="i" :data-testid="`recovery-code-${i}`"
+          :data-used="usedCodes.includes(c) || undefined" :title="$t('userCenter.mfa.markUsedHint')"
+          :class="['break-all cursor-pointer select-none', usedCodes.includes(c) ? 'line-through text-on-surface-variant' : 'hover:text-primary']"
+          @click="markUsed(c)">{{ c }}</li>
       </ul>
       <p v-if="mfaRestricted" data-testid="mfa-relogin-hint"
         class="flex items-start gap-xs text-body-sm text-primary bg-primary/10 rounded-lg px-md py-sm">

@@ -581,6 +581,7 @@
     "resultError": "出错",
     "activityWindow": "展示最近 {n} 天记录",
     "activityEmpty": "暂无活动记录",
+    "toolFilterPlaceholder": "按工具名过滤,如 platform_login/my_key_mint",
     "logoutConfirmTitle": "退出登录",
     "logoutConfirmMessage": "确定要退出当前账号吗?未提交的编辑与进行中的终端会话将中断。",
     "title": "个人中心",
@@ -683,7 +684,8 @@
       "stepUpHint": "该操作需要重新验证身份,请输入验证码或恢复码",
       "stepUpConfirm": "验证",
       "disable": "禁用",
-      "regen": "重新生成恢复码"
+      "regen": "重新生成恢复码",
+      "markUsedHint": "点击标记为已抄录"
     },
     "kubectl": {
       "title": "kubectl 访问",
@@ -3345,7 +3347,14 @@
       "saved": "授权已保存",
       "saveFailed": "授权保存失败",
       "noGroups": "暂无组",
-      "openNoIsolation": "open 模式集群不提供 namespace 隔离:{names}"
+      "openNoIsolation": "open 模式集群不提供 namespace 隔离:{names}",
+      "nsModeLabel": "命名空间授权模式",
+      "nsModeOpen": "全开",
+      "nsModeAllowlist": "白名单",
+      "nsModeConfirmTitle": "切换命名空间授权模式",
+      "nsModeToAllowlist": "切换到白名单模式后,未获授权的用户将立即只能看到被授权的命名空间。请先确认已配好组授权,避免用户失联。",
+      "nsModeToOpen": "切回全开模式将恢复所有用户对全部命名空间的访问,不再提供隔离。",
+      "nsModeSwitched": "授权模式已切换"
     },
     "agent": {
       "title": "AI 控制台",

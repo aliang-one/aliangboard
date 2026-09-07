@@ -13,6 +13,8 @@ const windowDays = ref(90)
 const page = ref(1)
 const pageSize = 50
 const resultFilter = ref('')
+// 残余收尾 fix 3:tool 文本过滤器(server /api/my/activity 已收 tool 参数,精确匹配;回车提交)
+const toolFilter = ref('')
 
 async function load() {
   loading.value = true
@@ -20,6 +22,8 @@ async function load() {
     const params = {}
     if (page.value > 1) { params.page = page.value; params.size = pageSize }
     if (resultFilter.value) params.result = resultFilter.value
+    const tool = toolFilter.value.trim()
+    if (tool) params.tool = tool
     const res = await authApi.myActivity(params)
     items.value = res.items || []
     total.value = res.total || 0
@@ -35,12 +39,18 @@ onMounted(load)
   <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg">
     <div class="flex items-center justify-between mb-md flex-wrap gap-sm">
       <h3 class="text-headline-sm font-bold">{{ $t('userCenter.activityTitle') }}</h3>
-      <select v-model="resultFilter" data-testid="activity-result-filter" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-xs text-body-sm" @change="onFilter">
-        <option value="">{{ $t('userCenter.filterAll') }}</option>
-        <option value="ok">{{ $t('userCenter.resultOk') }}</option>
-        <option value="denied">{{ $t('userCenter.resultDenied') }}</option>
-        <option value="error">{{ $t('userCenter.resultError') }}</option>
-      </select>
+      <div class="flex items-center gap-sm flex-wrap">
+        <input v-model="toolFilter" data-testid="activity-tool-filter" type="text"
+          :placeholder="$t('userCenter.toolFilterPlaceholder')"
+          class="w-52 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-xs text-body-sm font-mono"
+          @keyup.enter="onFilter" />
+        <select v-model="resultFilter" data-testid="activity-result-filter" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-xs text-body-sm" @change="onFilter">
+          <option value="">{{ $t('userCenter.filterAll') }}</option>
+          <option value="ok">{{ $t('userCenter.resultOk') }}</option>
+          <option value="denied">{{ $t('userCenter.resultDenied') }}</option>
+          <option value="error">{{ $t('userCenter.resultError') }}</option>
+        </select>
+      </div>
     </div>
     <p class="text-body-xs text-on-surface-variant mb-md" data-testid="activity-window">{{ $t('userCenter.activityWindow', { n: windowDays }) }}</p>
 

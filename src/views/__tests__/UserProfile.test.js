@@ -257,6 +257,24 @@ test('活动 tab:空列表渲染空态', async () => {
   w.unmount()
 })
 
+// 残余收尾 fix 3:tool 文本过滤器(params.tool 精确匹配,回车提交)
+test('活动 tab:输入 tool 名回车 → myActivity 带 {tool};清空回车 → 回到无过滤', async () => {
+  apiMocks.myActivity.mockResolvedValue({ items: [], total: 0, page: 1, size: 50, windowDays: 90 })
+  const w = mountPage('activity')
+  await flushPromises()
+  expect(apiMocks.myActivity).toHaveBeenLastCalledWith({})
+  const input = w.find('[data-testid="activity-tool-filter"]')
+  await input.setValue('  platform_login  ')
+  await input.trigger('keyup.enter')
+  await flushPromises()
+  expect(apiMocks.myActivity).toHaveBeenLastCalledWith({ tool: 'platform_login' })
+  await input.setValue('')
+  await input.trigger('keyup.enter')
+  await flushPromises()
+  expect(apiMocks.myActivity).toHaveBeenLastCalledWith({})
+  w.unmount()
+})
+
 // === Task 11: 访问令牌 tab ===
 test('令牌 tab:挂载拉 key 列表 + 集群列表,渲染行(含过期/吊销态)', async () => {
   apiMocks.myKeysList.mockResolvedValue({ apikeys: [
@@ -580,5 +598,26 @@ test('启用流 enable 409(双 tab 失配)→ StepUpDialog 验过 → 同 secret
   expect(apiMocks.mfaEnable).toHaveBeenCalledTimes(2)
   expect(apiMocks.mfaEnable).toHaveBeenLastCalledWith({ secret: 'SECRET2345X', code: '123456' })
   expect(bq('[data-testid="mfa-recovery-codes"]').textContent).toContain('rc-aaaa-bbbb')
+  w.unmount()
+})
+
+// === 残余收尾 fix 2:恢复码逐个划掉(纯前端「我已抄录这条」标记) ===
+test('恢复码:点击某码 → 该行 line-through + data-used,其余行不变;复制全部钮保留', async () => {
+  const w = mountPage('security')
+  await flushPromises()
+  await w.find('[data-testid="mfa-enable-btn"]').trigger('click')
+  await flushPromises()
+  await setInput('[data-testid="mfa-code-input"]', '123456')
+  bq('[data-testid="mfa-confirm"]').click()
+  await flushPromises()
+  expect(bq('[data-testid="mfa-recovery-copy"]')).toBeTruthy()
+  const rows = () => Array.from(document.body.querySelectorAll('[data-testid^="recovery-code-"]'))
+  expect(rows()).toHaveLength(2)
+  rows()[0].click()
+  await nextTick()
+  expect(rows()[0].className).toContain('line-through')
+  expect(rows()[0].hasAttribute('data-used')).toBe(true)
+  expect(rows()[1].className).not.toContain('line-through')
+  expect(rows()[1].hasAttribute('data-used')).toBe(false)
   w.unmount()
 })
