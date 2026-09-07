@@ -2,7 +2,9 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
-import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps } from './workbench-ai-config.mjs'
+import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps,
+  getMaxRunningConversationsConfig, validateMaxRunningConversations,
+  getMaxConversationsPerProjectConfig, validateMaxConversationsPerProject } from './workbench-ai-config.mjs'
 
 function makeDb(settings = {}) {
   const db = new DatabaseSync(':memory:')
@@ -77,4 +79,61 @@ test('validateMaxSteps:null=不改;0..200 整数过;非整数/越界拒', () => 
   assert.equal(validateMaxSteps(-1).ok, false)
   assert.equal(validateMaxSteps(2.5).ok, false)
   assert.equal(validateMaxSteps('abc').ok, false)
+})
+
+// ===== 对话限额(2026-09-07 审计 F6):并发默认 5(0..20)、每项目默认 50(0..500);0=不限制 =====
+// 语义逐字同 maxSteps:落库值(范围内整数)优先 → env(WB_CONV_MAX_RUNNING_PER_USER /
+// WB_CONV_MAX_PER_PROJECT,env 0/垃圾回默认——0=不限制仅经落库值表达)→ 默认。
+test('getMaxRunningConversationsConfig:缺键走 env 通道;env 0/垃圾回默认 5', () => {
+  assert.equal(getMaxRunningConversationsConfig(makeDb(), ''), 5)
+  assert.equal(getMaxRunningConversationsConfig(makeDb(), '8'), 8)
+  assert.equal(getMaxRunningConversationsConfig(makeDb(), '20'), 20)
+  assert.equal(getMaxRunningConversationsConfig(makeDb(), 'abc'), 5)
+  assert.equal(getMaxRunningConversationsConfig(makeDb(), '0'), 5, 'env 0 回落默认(与 maxSteps env 语义逐字一致)')
+})
+
+test('getMaxRunningConversationsConfig:落库值优先于 env;0=不限制;垃圾/越界/非整数回 env 链', () => {
+  assert.equal(getMaxRunningConversationsConfig(makeDb({ 'workbench.maxRunningConversations': '7' }), '5'), 7)
+  assert.equal(getMaxRunningConversationsConfig(makeDb({ 'workbench.maxRunningConversations': '0' }), '5'), 0)
+  assert.equal(getMaxRunningConversationsConfig(makeDb({ 'workbench.maxRunningConversations': 'abc' }), '5'), 5)
+  assert.equal(getMaxRunningConversationsConfig(makeDb({ 'workbench.maxRunningConversations': '21' }), '5'), 5)
+  assert.equal(getMaxRunningConversationsConfig(makeDb({ 'workbench.maxRunningConversations': '2.5' }), '5'), 5)
+})
+
+test('validateMaxRunningConversations:null=不改;0..20 整数过;非整数/越界拒', () => {
+  assert.deepEqual(validateMaxRunningConversations(null), { ok: true, value: null })
+  assert.deepEqual(validateMaxRunningConversations(undefined), { ok: true, value: null })
+  assert.equal(validateMaxRunningConversations(0).ok, true)
+  assert.equal(validateMaxRunningConversations(0).value, 0)
+  assert.equal(validateMaxRunningConversations('8').ok, true)
+  assert.equal(validateMaxRunningConversations('8').value, 8)
+  assert.equal(validateMaxRunningConversations(20).ok, true)
+  assert.equal(validateMaxRunningConversations(21).ok, false)
+  assert.equal(validateMaxRunningConversations(-1).ok, false)
+  assert.equal(validateMaxRunningConversations(2.5).ok, false)
+  assert.equal(validateMaxRunningConversations('abc').ok, false)
+})
+
+test('getMaxConversationsPerProjectConfig:env 通道/落库优先/0=不限制/越界回链(默认 50)', () => {
+  assert.equal(getMaxConversationsPerProjectConfig(makeDb(), ''), 50)
+  assert.equal(getMaxConversationsPerProjectConfig(makeDb(), '80'), 80)
+  assert.equal(getMaxConversationsPerProjectConfig(makeDb(), '0'), 50, 'env 0 回落默认')
+  assert.equal(getMaxConversationsPerProjectConfig(makeDb(), 'abc'), 50)
+  assert.equal(getMaxConversationsPerProjectConfig(makeDb({ 'workbench.maxConversationsPerProject': '100' }), '80'), 100)
+  assert.equal(getMaxConversationsPerProjectConfig(makeDb({ 'workbench.maxConversationsPerProject': '0' }), '80'), 0)
+  assert.equal(getMaxConversationsPerProjectConfig(makeDb({ 'workbench.maxConversationsPerProject': '501' }), '80'), 80)
+  assert.equal(getMaxConversationsPerProjectConfig(makeDb({ 'workbench.maxConversationsPerProject': '1.5' }), '80'), 80)
+})
+
+test('validateMaxConversationsPerProject:null=不改;0..500 整数过;非整数/越界拒', () => {
+  assert.deepEqual(validateMaxConversationsPerProject(null), { ok: true, value: null })
+  assert.deepEqual(validateMaxConversationsPerProject(undefined), { ok: true, value: null })
+  assert.equal(validateMaxConversationsPerProject(0).ok, true)
+  assert.equal(validateMaxConversationsPerProject(0).value, 0)
+  assert.equal(validateMaxConversationsPerProject(500).ok, true)
+  assert.equal(validateMaxConversationsPerProject('100').value, 100)
+  assert.equal(validateMaxConversationsPerProject(501).ok, false)
+  assert.equal(validateMaxConversationsPerProject(-1).ok, false)
+  assert.equal(validateMaxConversationsPerProject(1.5).ok, false)
+  assert.equal(validateMaxConversationsPerProject('abc').ok, false)
 })

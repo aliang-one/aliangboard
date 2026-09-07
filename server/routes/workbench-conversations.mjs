@@ -8,7 +8,7 @@
 // 参见 server/authz.mjs),同文件域的 @server 搜索分支(workbench-projects.mjs)已同门槛收紧。
 // 前端侧入口(AppLayout 悬浮 ChatPresence / WorkbenchDetail Agent 模式)对非 admin 隐藏。
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
-import { getWorkbenchAiConfig } from '../workbench-ai-config.mjs'
+import { getWorkbenchAiConfig, getMaxRunningConversationsConfig, getMaxConversationsPerProjectConfig } from '../workbench-ai-config.mjs'
 import { registry, SSH_HIDDEN_TOOLS } from '../tool-registry.mjs'
 import { listSshServers } from '../ssh/store.mjs'
 import {
@@ -70,6 +70,44 @@ export function createWorkbenchConvRoutes(deps) {
   function clusterEntitled(ps, clusterId) {
     if (!clusterId) return true
     return canAccessCluster(db, { userId: ps.userId }, clusterId)
+  }
+
+  // F6(2026-09-07 审计):对话限额双门,触发 run 前现读配置(admin 改完即时生效,与 maxSteps
+  // 同款「每次 run 现读」语义)。归属口径:会话无独立属主列 → 项目 ownerId(records/summary 的
+  // listConversationsByOwner 同口径);DB count 重启安全(非内存计数)。0 = 不限制(逃生阀,
+  // admin 不豁免——统一门)。计数查询 try/catch fail-open:限额是防滥用闸非鉴权不变式,
+  // 异构 schema(测试夹具/旧库)不该把端点打成 500。
+  // quotaHit 的 excludeConvId:并发计数排除自身会话行——自身 running 行属取代语义不占新名额
+  // (messages/regenerate/edit 都有 busy 守卫先行,自身实际到不了 running;排除是按审计契约
+  // 防守卫顺序变化后误计自身;对空闲会话则如实占新名额)。
+  function quotaHit(userId, { excludeConvId = null, projectId = null } = {}) {
+    const maxRunning = getMaxRunningConversationsConfig(db)
+    if (maxRunning > 0) {
+      try {
+        const sql = `SELECT COUNT(*) AS n FROM workbench_conversations c
+          JOIN workbench_projects p ON p.id = c.projectId
+          WHERE p.ownerId = ? AND c.status = 'running'${excludeConvId ? ' AND c.id != ?' : ''}`
+        const row = excludeConvId ? db.prepare(sql).get(userId, excludeConvId) : db.prepare(sql).get(userId)
+        if (row.n >= maxRunning) return { kind: 'running', limit: maxRunning }
+      } catch { /* fail-open(见上注) */ }
+    }
+    if (projectId != null) { // 仅 create 查总数(messages/regenerate/edit 不新建行,不查)
+      const maxPerProject = getMaxConversationsPerProjectConfig(db)
+      if (maxPerProject > 0) {
+        try {
+          const n = db.prepare('SELECT COUNT(*) AS n FROM workbench_conversations WHERE projectId=?').get(projectId).n
+          if (n >= maxPerProject) return { kind: 'project', limit: maxPerProject }
+        } catch { /* fail-open */ }
+      }
+    }
+    return null
+  }
+
+  // 超限 429:文案带当前生效上限值(前端 errorBanner 直显服务端 message,用户可自证门值)
+  function sendQuota429(req, res, hit) {
+    sendJson(res, 429, { message: hit.kind === 'running'
+      ? msg(req, 'wbc.convRunningLimit', { limit: hit.limit })
+      : msg(req, 'wbc.convProjectLimit', { limit: hit.limit }) })
   }
 
   // P0(E):审批准入 = 原子 CAS——UPDATE..WHERE status='paused' 命中 0 行即拒绝。
@@ -221,6 +259,11 @@ export function createWorkbenchConvRoutes(deps) {
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
         const llmClient = createLlmClient(cfg)
 
+        // F6:并发 + 每项目总数双门(触发 run 前现读;0=不限制为逃生阀,admin 不豁免)。
+        // 429 不建行不启动 run——quota-abuse 审计的原攻击面(detached run 烧 LLM key)被关死。
+        const quota = quotaHit(ps.userId, { projectId: input.projectId })
+        if (quota) { sendQuota429(req, res, quota); return true }
+
         // @-mention references:首屏给前端 fetch 一次 ResourceCard(buildRefsContext 单次拉取,去重);
         // system 只存工作台 prompt 原文(不含 refContext——每轮 chat 前由 run/resumeConversation 内部
         // refreshSystem 钩子重新 fetch,避免吃首轮旧快照)。T5 + main 去重。
@@ -266,6 +309,10 @@ export function createWorkbenchConvRoutes(deps) {
         if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
+        // F6:并发门一道(排除自身行;不查总数——续接不新建行)。放在任何写(setActiveConversation/
+        // append/置 running)之前,429 零副作用。
+        const quota = quotaHit(ps.userId, { excludeConvId: id })
+        if (quota) { sendQuota429(req, res, quota); return true }
         // 续接的线程持久化为活跃对话(刷新后回到该线程,而非之前持久化的线程)。
         setActiveConversation(db, conv.projectId, id)
         // 1) @-ref 资源拉取(先拉,enrich refs 存完整资源 → 刷新后 ResourceCard 不丢)
@@ -325,6 +372,9 @@ export function createWorkbenchConvRoutes(deps) {
         if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
+        // F6:并发门一道(排除自身行;不查总数)。放在 truncate 之前——429 不截消息(零副作用)。
+        const quota = quotaHit(ps.userId, { excludeConvId: id })
+        if (quota) { sendQuota429(req, res, quota); return true }
         const { removed, lastUserSeq } = truncateAfterLastUser(db, id)
         if (removed === 0) { sendJson(res, 400, { message: msg(req, 'wbc.noRegenTarget') }); return true }
         setActiveConversation(db, conv.projectId, id)
@@ -374,6 +424,9 @@ export function createWorkbenchConvRoutes(deps) {
         if (!content.trim()) { sendJson(res, 400, { message: msg(req, 'wbc.editContentRequired') }); return true }
         const anchor = db.prepare('SELECT id, seq, refs FROM workbench_messages WHERE id=? AND conversationId=? AND role=?').get(String(input.messageId || ''), id, 'user')
         if (!anchor) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
+        // F6:并发门一道(排除自身行;不查总数)。放在 refs 拉取(await 窗口)之前,429 不截断不落消息。
+        const quota = quotaHit(ps.userId, { excludeConvId: id })
+        if (quota) { sendQuota429(req, res, quota); return true }
         // refs:body.references 替换;缺省沿用锚消息 refs(原始对象形状,appendMessage 直存)
         let refsValue = Array.isArray(input.references) ? input.references : null
         if (!refsValue && anchor.refs) { try { const p = JSON.parse(anchor.refs); if (Array.isArray(p)) refsValue = p } catch { refsValue = null } }

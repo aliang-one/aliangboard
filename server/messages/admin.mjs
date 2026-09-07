@@ -45,6 +45,9 @@ export const TABLE = {
   'admin.aiToolsNotArray': { zh: 'disabledTools 必须为字符串数组', en: 'disabledTools must be an array of strings' },
   'admin.aiToolUnknown': { zh: 'disabledTools 含未知工具名', en: 'disabledTools contains unknown tool name' },
   'admin.aiMaxStepsInvalid': { zh: '最大执行步数必须是 {lo}-{hi} 的整数(0 = 不限制)', en: 'Max agent steps must be an integer between {lo} and {hi} (0 = unlimited)' },
+  // 对话限额(F6,2026-09-07):与 aiMaxStepsInvalid 同款双语文案(0=不限制)
+  'admin.aiMaxRunningInvalid': { zh: '并发对话上限必须是 {lo}-{hi} 的整数(0 = 不限制)', en: 'Concurrent conversation limit must be an integer between {lo} and {hi} (0 = unlimited)' },
+  'admin.aiMaxPerProjectInvalid': { zh: '每项目对话上限必须是 {lo}-{hi} 的整数(0 = 不限制)', en: 'Per-project conversation limit must be an integer between {lo} and {hi} (0 = unlimited)' },
   'admin.sshPolicyInvalid': { zh: '非法的策略值:{field}(须为 0–10080 的整数分钟)', en: 'Invalid policy value: {field} (must be an integer 0–10080 minutes)' },
   'admin.passwordPolicyInvalid': { zh: '密码策略非法:最小长度不得小于 8', en: 'Invalid password policy: minLength must be at least 8' },
   'admin.tokenPolicyInvalid': { zh: '令牌有效期上限须在 1-365 天', en: 'Token max TTL must be 1-365 days' },

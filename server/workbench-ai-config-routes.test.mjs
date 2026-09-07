@@ -1,10 +1,21 @@
 // workbench-ai-config 端点契约(admin GET/PUT + 用户 GET;2026-08-25 设计)。
-import { test } from 'node:test'
+import { test, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { createAdminRoutes } from './routes/admin.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { createWorkbenchSchema, createConversation, getConversation } from './workbench-projects.mjs'
+
+// 对话限额(F6)env 通道消毒:deployment 侧可设 WB_CONV_MAX_RUNNING_PER_USER/WB_CONV_MAX_PER_PROJECT,
+// 设了的机器路由测试会红 → 模块级摘除,after 恢复(镜像 maxSteps 用例的临时摘除手法)。
+const _savedQuotaEnv = [process.env.WB_CONV_MAX_RUNNING_PER_USER, process.env.WB_CONV_MAX_PER_PROJECT]
+delete process.env.WB_CONV_MAX_RUNNING_PER_USER
+delete process.env.WB_CONV_MAX_PER_PROJECT
+after(() => {
+  for (const [k, v] of [['WB_CONV_MAX_RUNNING_PER_USER', _savedQuotaEnv[0]], ['WB_CONV_MAX_PER_PROJECT', _savedQuotaEnv[1]]]) {
+    if (v !== undefined) process.env[k] = v
+  }
+})
 
 const U = p => new URL(p, 'http://x')
 
@@ -174,4 +185,53 @@ test('admin PUT:maxSteps 缺省不修改旧值;非法 → 400 双语文案(zh �
   await b.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
   assert.equal(b.sent[0].status, 400)
   assert.equal(b.sent[0].json.message, '最大执行步数必须是 0-200 的整数(0 = 不限制)')
+})
+
+// ===== 对话限额(F6,2026-09-07 审计):GET 回显已解析值;PUT 缺省不改/0=不限制/非法 400 =====
+test('admin GET:回显对话限额已解析值(缺省 5 / 50)', async () => {
+  const { routes, sent } = adminHarness()
+  await routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(sent[0].status, 200)
+  assert.equal(sent[0].json.maxRunningConversations, 5)
+  assert.equal(sent[0].json.maxConversationsPerProject, 50)
+
+  const e = adminHarness({ settings: { 'workbench.maxRunningConversations': '7', 'workbench.maxConversationsPerProject': '80' } })
+  await e.routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(e.sent[0].json.maxRunningConversations, 7, '落库值回显(所见即所发)')
+  assert.equal(e.sent[0].json.maxConversationsPerProject, 80)
+})
+
+test('admin PUT:对话限额落库读回;0=不限制读回 0;缺省不修改旧值', async () => {
+  const a = adminHarness({ body: { maxRunningConversations: 8, maxConversationsPerProject: 100 } })
+  await a.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(a.sent[0].status, 200)
+  await a.routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(a.sent[1].json.maxRunningConversations, 8)
+  assert.equal(a.sent[1].json.maxConversationsPerProject, 100)
+
+  const b = adminHarness({ body: { maxRunningConversations: 0, maxConversationsPerProject: 0 } })
+  await b.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(b.sent[0].status, 200)
+  await b.routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(b.sent[1].json.maxRunningConversations, 0, '0=不限制,原样读回')
+  assert.equal(b.sent[1].json.maxConversationsPerProject, 0)
+
+  const c = adminHarness({ settings: { 'workbench.maxRunningConversations': '6', 'workbench.maxConversationsPerProject': '60' }, body: { additionalInstructions: 'x' } })
+  await c.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(c.sent[0].status, 200)
+  await c.routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(c.sent[1].json.maxRunningConversations, 6, '缺键 → 不修改')
+  assert.equal(c.sent[1].json.maxConversationsPerProject, 60)
+})
+
+test('admin PUT:对话限额非法 → 400 双语文案(zh 无头默认)', async () => {
+  const a = adminHarness({ body: { maxRunningConversations: 21 } })
+  await a.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(a.sent[0].status, 400)
+  assert.equal(a.sent[0].json.message, '并发对话上限必须是 0-20 的整数(0 = 不限制)')
+
+  const b = adminHarness({ body: { maxConversationsPerProject: 501 } })
+  await b.routes.handle({ method: 'PUT' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(b.sent[0].status, 400)
+  assert.equal(b.sent[0].json.message, '每项目对话上限必须是 0-500 的整数(0 = 不限制)')
 })
