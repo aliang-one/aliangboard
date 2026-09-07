@@ -565,8 +565,9 @@ function sendJson(res, status, payload) {
 }
 
 // 文本响应(W3 Task 6:kubeconfig YAML 下发;sendJson 只包 JSON,此为同 header 语义的
-// text/plain 版本)。与 sendJson 同款 headersSent 免疫与 CORS 头。
-function sendText(res, status, text) {
+// text/plain 版本)。与 sendJson 同款 headersSent 免疫与 CORS 头;extraHeaders 追加覆盖
+// (review round 1 I2:kubeconfig 响应加 cache-control: no-store)。
+function sendText(res, status, text, extraHeaders) {
   if (res.headersSent) { try { res.end() } catch { /* 已断 */ } return }
   res.writeHead(status, {
     'content-type': 'text/plain; charset=utf-8',
@@ -574,6 +575,7 @@ function sendText(res, status, text) {
     'access-control-allow-origin': corsOrigin(),
     'access-control-allow-headers': 'content-type, authorization',
     'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    ...(extraHeaders || {}),
   })
   res.end(text)
 }
@@ -582,9 +584,11 @@ function sendText(res, status, text) {
 const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
 
 // W3 Task 6:kubeconfig/k8s-proxy 薄路由(routes/k8s-proxy.mjs;透传管线注入 handleK8sPassthrough
-// —— 函数声明提升,此处引用安全)。无状态,模块级一次构造。
+// —— 函数声明提升,此处引用安全)。无状态,模块级一次构造。requestKubernetes 供 I1 裁决的
+// discovery 根直读;sessionTtl/removePersistedSession 供 I3 的会话守卫复检(sessionFromRequest 同语义)。
 const k8sProxyRoutes = createK8sProxyRoutes({
   db, sendJson, sendText, requirePlatform, sessions, extractPlatformToken,
+  requestKubernetes, sessionTtl, removePersistedSession,
   handlePassthrough: handleK8sPassthrough,
 })
 

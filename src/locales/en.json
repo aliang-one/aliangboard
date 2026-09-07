@@ -690,7 +690,7 @@
       "generate": "Generate kubeconfig",
       "copy": "Copy",
       "download": "Download",
-      "expiryHint": "Credential note: the token in this kubeconfig is your current platform login credential — it expires with your platform session (sign-out, forced logout, or password change invalidates it immediately). Cluster access follows your platform grants; do not share the file.",
+      "expiryHint": "Credential note: the token in this kubeconfig is your current platform login credential — it expires with your platform session (sign-out, forced logout, or password change invalidates it immediately). Cluster access follows your platform grants; do not share the file. Note: kubectl exec / port-forward and server-side apply (kubectl apply --server-side) are not routed through this proxy (parity with the browser surface).",
       "noClusters": "No accessible clusters (ask an administrator for assignment)"
     }
   },

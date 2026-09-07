@@ -24,13 +24,17 @@ const selectCluster = (w, id) => w.find('select').setValue(id)
 
 beforeEach(() => { kubeconfigMock.mockReset() })
 
-test('卡片渲染:集群下拉来自 myClusters,失效说明常显', async () => {
+test('卡片渲染:集群下拉来自 myClusters,失效说明常显(含不支持操作提示)', async () => {
   setActivePinia(createPinia())
   const w = mount(KubectlCard, { global: { plugins: [i18n] } })
   await flushPromises()
   const options = w.find('select').findAll('option')
   expect(options.map((o) => o.attributes('value'))).toEqual(['', 'c1', 'c2'])
-  expect(w.find('[data-testid="kubectl-expiry-hint"]').exists()).toBe(true)
+  const hint = w.find('[data-testid="kubectl-expiry-hint"]')
+  expect(hint.exists()).toBe(true)
+  expect(hint.text()).toContain('exec')
+  expect(hint.text()).toContain('port-forward')
+  expect(hint.text()).toContain('--server-side')
 })
 
 test('生成:选中集群 → 调 myKubeconfig(clusterId) → readonly textarea 显示 YAML + 复制按钮', async () => {

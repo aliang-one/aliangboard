@@ -42,10 +42,12 @@ function makeDb() {
 function makeHarness(db, over = {}) {
   const sent = []
   const passthrough = []
+  const upstream = []
+  const persistedDeletes = []
   const deps = {
     db,
     sendJson: (r, status, json) => sent.push({ status, json }),
-    sendText: (r, status, text) => sent.push({ status, text, contentType: 'text/plain; charset=utf-8' }),
+    sendText: (r, status, text, extraHeaders) => sent.push({ status, text, contentType: 'text/plain; charset=utf-8', headers: extraHeaders || {} }),
     requirePlatform: (req, res) => {
       const tok = req.headers['x-platform-token'] || req.headers.authorization?.replace(/^Bearer\s+/i, '')
       const ps = db.prepare('SELECT * FROM platform_sessions WHERE token=?').get(tok)
@@ -55,18 +57,21 @@ function makeHarness(db, over = {}) {
     extractPlatformToken: (req) => req.headers['x-platform-token'] || (req.headers.authorization && /^Bearer\s+/i.test(req.headers.authorization) ? req.headers.authorization.replace(/^Bearer\s+/i, '') : ''),
     sessions: new Map(),
     handlePassthrough: async (req, res, session, kubernetesPath) => { passthrough.push({ session, kubernetesPath }) },
+    // review round 1 I1/I3 注入面:discovery 直读 + 会话守卫复检
+    requestKubernetes: async (session, path) => { upstream.push({ session, path }); return { status: 200, body: { kind: 'APIVersions', versions: ['v1'] } } },
+    sessionTtl: 8 * 60 * 60 * 1000,
+    removePersistedSession: (tok) => persistedDeletes.push(tok),
     ...over,
   }
   const routes = createK8sProxyRoutes(deps)
-  const calls = { sent, passthrough }
   const call = (method, path, headers) => routes.handle(
     { method, headers: { 'x-platform-token': 'tok-u1', ...headers }, socket: {}, url: path },
     {}, new URL(path, 'http://gw.example'))
-  return { routes, sent, passthrough, call }
+  return { routes, sent, passthrough, upstream, persistedDeletes, call }
 }
 
-function connectSeed(db, sessions, { token = 'tok-u1', k8sToken = 'k8s-tok-1', clusterId = 'c1', lastSeenAt = 100 } = {}) {
-  sessions.set(k8sToken, { apiServer: 'http://k8s:6443', userId: 'u1', clusterId })
+function connectSeed(db, sessions, { token = 'tok-u1', k8sToken = 'k8s-tok-1', clusterId = 'c1', lastSeenAt = 100, createdAt } = {}) {
+  sessions.set(k8sToken, { apiServer: 'http://k8s:6443', userId: 'u1', clusterId, createdAt: createdAt ?? Date.now() })
   db.prepare('UPDATE platform_sessions SET k8sSessionToken=? , lastSeenAt=? WHERE token=?').run(k8sToken, lastSeenAt, token)
 }
 
@@ -96,6 +101,7 @@ test('GET /api/my/kubeconfig:200 text/plain + YAML(server 路径含 clusterId + 
   await h.call('GET', '/api/my/kubeconfig?clusterId=c1')
   assert.equal(h.sent[0].status, 200)
   assert.match(h.sent[0].contentType, /text\/plain; ?charset=utf-8/)
+  assert.equal(h.sent[0].headers['cache-control'], 'no-store', '凭据响应禁缓存(review round 1 I2)')
   const yaml = h.sent[0].text
   assert.ok(yaml.includes('/api/k8s-proxy/c1'), 'server 路径带 clusterId')
   assert.ok(yaml.includes('token: tok-u1'), 'token = 请求头平台 token')
@@ -167,6 +173,62 @@ test('代理解析矩阵:无行 → 401 noClusterSession;行在 Map 无 → 401 
   assert.equal(h.passthrough.length, 2, 'Bearer 平台 token 命中同一解析路径')
 })
 
+// ---------- review round 1 ----------
+
+// I1(controller ruling):四个 discovery 根路径(GET /api、/apis、/api/v1、/apis/<g>/<v>)在
+// **仅代理面**放行——集群元数据读(kubectl 先决条件),直读 requestKubernetes 不过透传门
+// (parseApiPath 不认这些形状,走门必 403 unparseable-path);ns 资源路径照旧全走透传门。
+test('I1 discovery 根放行(仅代理面):GET /api、/apis、/api/v1、/apis/apps/v1 → 直读上游 200;ns 路径仍走透传门', async () => {
+  const db = makeDb()
+  db.prepare("INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES ('tok-u1','u1','alice','user',1)").run()
+  const sessions = new Map()
+  const h = makeHarness(db, { sessions })
+  connectSeed(db, sessions)
+  for (const p of ['/api/k8s-proxy/c1/api', '/api/k8s-proxy/c1/apis', '/api/k8s-proxy/c1/api/v1', '/api/k8s-proxy/c1/apis/apps/v1']) {
+    await h.call('GET', p)
+  }
+  assert.equal(h.sent.length, 4)
+  for (const r of h.sent) {
+    assert.equal(r.status, 200)
+    assert.equal(r.json.kind, 'APIVersions', '上游 body 原样透传')
+  }
+  assert.deepEqual(h.upstream.map((u) => u.path), ['/api', '/apis', '/api/v1', '/apis/apps/v1'], '直读上游且子路径重写正确')
+  assert.equal(h.passthrough.length, 0, 'discovery 不经透传门(否则 unparseable 403)')
+  // ns 资源路径不受放行影响:仍交给透传管线(ns 授权门在彼处执法)
+  await h.call('GET', '/api/k8s-proxy/c1/api/v1/namespaces/default/pods')
+  assert.equal(h.passthrough.length, 1)
+  assert.equal(h.upstream.length, 4, 'ns 路径不走直读')
+  // 非 GET 的 discovery 形状不放行(交给透传门照旧拒)
+  await h.call('POST', '/api/k8s-proxy/c1/api')
+  assert.equal(h.passthrough.length, 2, 'POST /api 走透传门(parseApiPath null → 403)')
+})
+
+// I3:代理解析补 sessionFromRequest 同款逐请求复检——TTL 过期(先落轮换墓碑)与归属失效
+// (禁用/删除/失配集群分配)都视为死会话,当场从内存 Map + 持久层移除,不留僵尸。
+test('I3 会话守卫:TTL 过期 → 401 sessionExpired + Map/持久层移除;属主被禁用 → 同款处置', async () => {
+  const db = makeDb()
+  db.prepare("INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES ('tok-u1','u1','alice','user',1)").run()
+  const sessions = new Map()
+  const h = makeHarness(db, { sessions })
+  // ① TTL 过期(createdAt = 9h 前 > 8h)
+  connectSeed(db, sessions, { k8sToken: 'k8s-old', createdAt: Date.now() - 9 * 60 * 60 * 1000 })
+  await h.call('GET', '/api/k8s-proxy/c1/api/v1/namespaces/default/pods')
+  assert.equal(h.sent[0].status, 401)
+  assert.equal(h.sent[0].json.message, KUBECFG_MSG['kubecfg.sessionExpired'].zh)
+  assert.equal(sessions.has('k8s-old'), false, '过期会话当场从内存移除')
+  assert.deepEqual(h.persistedDeletes, ['k8s-old'], '持久层同步移除')
+  assert.equal(h.upstream.length, 0, '死会话不触上游')
+  assert.equal(h.passthrough.length, 0)
+  // ② 属主被禁用(平台 token 仍在 → 解析层兜底拦截,与 sessionFromRequest 同语义)
+  connectSeed(db, sessions, { k8sToken: 'k8s-disabled' })
+  db.prepare('UPDATE platform_users SET disabled=1 WHERE id=?').run('u1')
+  await h.call('GET', '/api/k8s-proxy/c1/api/v1/namespaces/default/pods')
+  assert.equal(h.sent[1].status, 401)
+  assert.equal(h.sent[1].json.message, KUBECFG_MSG['kubecfg.sessionExpired'].zh)
+  assert.equal(sessions.has('k8s-disabled'), false, '归属失效会话同样移除')
+  assert.deepEqual(h.persistedDeletes, ['k8s-old', 'k8s-disabled'])
+})
+
 // ---------- 活体层 ----------
 
 const ports = () => [
@@ -180,7 +242,9 @@ async function startGateway(t) {
   const DIR = mkdtempSync(join(tmpdir(), 'k8s-kubecfg-'))
   const k8s = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(req.url === '/version' ? '{"gitVersion":"v1.31.4"}' : '{"kind":"PodList","apiVersion":"v1","items":[]}')
+    if (req.url === '/version') return res.end('{"gitVersion":"v1.31.4"}')
+    if (req.url === '/api' || req.url.split('?')[0] === '/api') return res.end('{"kind":"APIVersions","versions":["v1"]}')
+    res.end('{"kind":"PodList","apiVersion":"v1","items":[]}')
   })
   await new Promise((r) => k8s.listen(K8S_PORT, '127.0.0.1', r))
   t.after(() => { k8s.close(); try { rmSync(DIR, { recursive: true, force: true }) } catch { /* noop */ } })
@@ -244,6 +308,12 @@ test('代理面 ns 门生效:view 用户经 /api/k8s-proxy GET 未授权 ns → 
   const ok = await fetch(`${base}/api/k8s-proxy/${clusterId}/api/v1/namespaces/allowed/pods`, { headers: { authorization: `Bearer ${viewerTok}` } })
   assert.equal(ok.status, 200, `authorized ns via proxy: ${ok.status}`)
   assert.equal((await ok.json()).kind, 'PodList')
+
+  // ②b(review round 1 I1 裁决):discovery 根在代理面放行——allowlist 普通用户 GET /api
+  //     也能拿集群元数据(kubectl 先决条件;浏览器 /api/k8s 面照旧拒,不在此测——见 route 层)
+  const disc = await fetch(`${base}/api/k8s-proxy/${clusterId}/api`, { headers: { authorization: `Bearer ${viewerTok}` } })
+  assert.equal(disc.status, 200, `discovery root via proxy: ${disc.status}`)
+  assert.equal((await disc.json()).kind, 'APIVersions')
 
   // ③ kubeconfig:平台 token 下发 YAML(text/plain),server 指向代理路径,token=平台 token
   const kcfg = await fetch(`${base}/api/my/kubeconfig?clusterId=${clusterId}`, { headers: { 'x-platform-token': viewerTok } })
