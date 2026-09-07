@@ -38,21 +38,37 @@ export function resolveApiKey(db, req) {
     if (u.role !== 'admin') {
       const assigned = db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(row.ownerUserId, row.clusterId)
       if (!assigned) return null
-      // W2 Phase C(Task 1):owner 非 admin 且集群 nsAuthMode='allowlist' 时,key 的有效 ns
-      // 被请求时收权为 key effectiveNamespaces ∩ owner effectiveGrants 该集群 ns。
-      // 交集空 → key 即刻失效(null);否则挂 row._nsScope(消费方 Phase C+ 接入)。
+      // W2 Phase C(Task 1)+ 审计 P0-②(2026-09-07):owner 非 admin 且集群 nsAuthMode='allowlist'
+      // 时,key 的有效 ns 被请求时收权为 key effectiveNamespaces ∩ owner effectiveGrants 该集群 ns。
+      // 交集空 → key 即刻失效(null);部分收权 → _nsScope(消费方 = nsScopeOf,runBoundedTool/
+      // assertPathInNs/apply_yaml 全部经它取运行时 ns 集,原状零消费方=死代码已接线)。
+      // 档位映射(spec §6.1):read key 需该 ns ≥ view;operator/admin key 需 operate——
+      // 不足即按该 ns 不可用处理(防 operator key 在 owner 仅 view 的 ns 照跑 operator)。
       let mode = 'open'
       try { mode = db.prepare('SELECT nsAuthMode FROM clusters WHERE id=?').get(row.clusterId)?.nsAuthMode || 'open' } catch { /* 旧库无 clusters 表 → 视作 open */ }
       if (mode === 'allowlist') {
         const ownerNs = effectiveGrants(db, { userId: row.ownerUserId }).clusters.get(row.clusterId)?.ns
+        const need = row.tier === 'read' ? 'view' : 'operate'
         const intersect = new Set()
-        if (ownerNs) for (const ns of effectiveNamespaces(row)) if (ownerNs.has(ns)) intersect.add(ns)
+        if (ownerNs) for (const ns of effectiveNamespaces(row)) {
+          const lvl = ownerNs.get(ns)
+          if (lvl === 'operate' || (need === 'view' && lvl)) intersect.add(ns)
+        }
         if (intersect.size === 0) return null
         row._nsScope = intersect
       }
     }
   }
   return row
+}
+
+// W2 审计 P0-②(2026-09-07):key 的运行时有效 ns 单源——resolveApiKey 算出的部分收权交集
+// (_nsScope)优先,无交集路径(open 集群/admin owner/服务 key)回退 key 自身 ns 集。
+// 原状:_nsScope 算完零消费方,执行门(runBoundedTool/assertPathInNs/apply_yaml)仍用 key
+// 自身集,「owner 失去单 ns 只收窄该 ns」承诺是死代码。SA RBAC 供给(provisionSa)刻意仍用
+// key 自身集:网关是执法点,供给偏宽不放大权限,收窄由 drift 检测收敛(spec §9.5)。
+export function nsScopeOf(keyRow) {
+  return keyRow?._nsScope ?? effectiveNamespaces(keyRow)
 }
 
 // 发现 apiserver issuer(= token audience,prefund 验证),按 apiServer 缓存。
@@ -130,7 +146,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
     const intent = { keyId: keyRow.id, owner: keyRow.owner, clusterId: keyRow.clusterId, namespace, verb, resource, tool, source, requestSummary: summary }
     const decision = authorize(keyRow, tool)
     if (!decision.allowed) { finalizeAudit(db, intent, { result: 'denied', reason: decision.reason }); throw new PermissionDeniedError(decision.reason, { tool, detail: `工具 '${tool}' 不在当前 API key 的允许工具集(tier='${keyRow.tier}'${keyRow.tool_overrides ? ' + tool_overrides 覆盖' : ''} 决定;在 平台管理 → API Keys 配置)` }) }
-    const allowedNs = effectiveNamespaces(keyRow)
+    const allowedNs = nsScopeOf(keyRow) // P0-②:含 owner 部分收权交集(触网前执法)
     if (!allowedNs.has(namespace)) { finalizeAudit(db, intent, { result: 'denied', reason: 'policy' }); throw new PermissionDeniedError('policy', { tool, detail: `namespace '${namespace}' 不在该 key 允许的 namespace 集([${[...allowedNs].join(', ')}]);绑定 ns + 额外 ns 在 平台管理 → API Keys 配置,SA 的各 ns RoleBinding 自建` }) }
     reserveAudit(db, intent)
     try {
@@ -189,7 +205,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         return runBoundedTool({ keyRow, cluster, tool: 'list_resources', source, namespace: a.namespace, verb: 'list', resource: a.path, summary: `path=${a.path.slice(0, 80)}`,
           fn: async (saCtx) => {
             const p = assertSafeApiPath(a.path)
-            assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+            assertPathInNs(p.decoded, nsScopeOf(keyRow)) // P0-②:部分收权交集
             const { body } = await requestFn(saCtx, p.raw)
             const all = body?.items || []
             const items = all.slice(0, LIST_MAX).map(it => ({ name: it.metadata?.name, kind: it.kind, apiVersion: it.apiVersion, path: `${a.path}/${it.metadata?.name}` }))
@@ -226,7 +242,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       fn: async (saCtx) => {
         if (!a.path) throw new Error('get_resource_yaml 缺 path(K8s 资源路径,如 /apis/networking.k8s.io/v1/namespaces/default/ingresses/foo)')
         const p = assertSafeApiPath(a.path)
-        assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+        assertPathInNs(p.decoded, nsScopeOf(keyRow)) // P0-②:部分收权交集
         const { body } = await requestFn(saCtx, p.raw)
         if (body?.metadata?.managedFields) delete body.metadata.managedFields // 去噪
         const full = yamlDump(maskSecretResource(body)) // 脱敏 T3:Secret 值掩码后再 dump
@@ -429,7 +445,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
         if (!a.yaml || !a.yaml.trim()) throw new Error('apply_yaml 缺 yaml')
         // ns 闸门(与 delete_resource 的 assertPathInNs 闭环):apply 正文里的 namespace 是攻击者可控的 metadata.namespace,
         // 必须显式声明且 ∈ allowedNs。缺 ns(集群级资源,或落 default)→ 拒;他 ns → 拒。applyYamlFn 拿到的是已校验过的 yaml。
-        const allowedNs = effectiveNamespaces(keyRow)
+        const allowedNs = nsScopeOf(keyRow) // P0-②:含 owner 部分收权交集(触网前执法)
         yamlLoadAll(a.yaml, (o) => {
           if (!o) return
           const ns = o?.metadata?.namespace
@@ -448,7 +464,7 @@ export function createApiKeyTools({ db, requestFn, execFn, applyYamlFn, ephemera
       fn: async (saCtx) => {
         if (!a.path) throw new Error('delete_resource 缺 path(K8s 资源路径,如 /apis/apps/v1/namespaces/default/deployments/nginx)')
         const p = assertSafeApiPath(a.path)
-        assertPathInNs(p.decoded, effectiveNamespaces(keyRow))
+        assertPathInNs(p.decoded, nsScopeOf(keyRow)) // P0-②:部分收权交集
         await requestFn(saCtx, p.raw, { method: 'DELETE' })
         return { deleted: a.path }
       } }),

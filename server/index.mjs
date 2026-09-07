@@ -1531,6 +1531,11 @@ async function handle(req, res) {
     const ctx = {
         readLedger: async () => {
           if (!project.clusterId) return '(项目未绑定集群:可写 manifests 草稿、SSH 服务器运维;绑定集群后此处为集群能力台账)'
+          // W2 审计 P0-③(2026-09-07):集群 entitlement 门——台账 INDEX.md 是全集群 14 维 survey
+          //(全部 namespaces/nodes/集群级 kind/全 ns 工作负载),此前零门 = 仅授单 ns view 的
+          // principal 绑项目即可经对话免审拿全集群清单。与 HTTP 面 GET /api/workbench/ledger 的
+          // clusterEntitled 同判(F4 authz-entitlement-04):分配内可读,未分配/禁用拒。
+          gate.entitled('read_ledger')
           let out = ''
           try { out += await wbReadFile(ledgerRepo, 'INDEX.md') } catch {}
           try { const l = await wbReadFile(ledgerRepo, 'learnings.md'); if (l && l.trim()) out += '\n\n# Learnings（团队知识/踩坑）\n' + l } catch {}

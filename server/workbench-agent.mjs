@@ -313,9 +313,11 @@ const CK_TIME_MS = 500
         return
       }
       busEmit(convId, { type: 'status', status: 'running' })
-      // principal(W2 Phase C Task 5):actor 由路由线程({userId, username, role}),
-      // 供 buildWbCtx 工具执行面授权门执法——detached runner 无法依赖请求上下文。
-      const principal = { userId: actor?.userId, role: actor?.role }
+      // principal(W2 审计 P0-① 2026-09-07):授权主体恒取 conv→project.ownerId(spec §6.3
+      // 「不得把当前管理员身份误当项目 owner」)——admin 代触发他人对话不得继承 admin 全权;
+      // 逐调用门以 owner 的 userId 现查 DB 执法(authz 不信任 principal.role;owner 失权/禁用
+      // → 门全拒,fail-closed)。actor 仅审计留痕(谁触发),不再进入授权链。
+      const principal = { userId: project.ownerId }
       const { ctx } = buildWbCtx(project, principal)
       // SSH 接线(Task 11,2026-08-28):动态审批按服务器策略(needsApproval 纯函数,checkpoint/resume 两处
       // 都会被咨询,不得有副作用);零暴露服务器时直接隐藏 wb_ssh_* 两工具。
@@ -413,7 +415,9 @@ const CK_TIME_MS = 500
       }
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
       busEmit(convId, { type: 'status', status: 'running' })
-      const principal = { userId: actor?.userId, role: actor?.role } // Phase C:同 run,审批续跑同样过门
+      // P0-① 同 run:审批续跑的授权主体恒取 project.ownerId——admin 审批受限用户的 paused
+      // 对话不得让队列剩余工具按 admin 全权执行;actor 仅审计留痕。
+      const principal = { userId: project.ownerId }
       const { ctx } = buildWbCtx(project, principal)
       // SSH 接线同 runConversation(resume 侧同样咨询 needsApproval——必须纯/幂等)。
       const sshBridge = ctx.ssh || null

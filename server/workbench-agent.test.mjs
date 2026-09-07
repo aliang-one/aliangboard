@@ -173,6 +173,57 @@ test('resumeConversation: 从 paused 续跑 → done', async () => {
   assert.equal(row.pendingApproval, null)
 })
 
+// W2 审计 P0-①(2026-09-07):授权主体恒取 conv→project.ownerId(spec §6.3「不得把当前管理员
+// 身份误当项目 owner」)——admin 代触发/代审批他人对话不得继承 admin 全权;逐调用门以 owner
+// 的 userId 现查 DB 执法(authz 不信任 principal.role,userId 即授权线程)。actor 仅审计留痕。
+test('run: admin 代触发 → buildWbCtx principal 仍为 project.ownerId(不继承 admin 全权)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'done', content: 'answer', trace: [], steps: 1, messages: [], queue: [], denied: [],
+  }))
+  const principals = []
+  const agent = createWorkbenchAgent({
+    db,
+    buildWbCtx: (project, principal) => { principals.push(principal); return { ctx: {} } },
+    buildK8sSession: () => ({}),
+    fetchRefContext: async () => '',
+    createAgentRunner, busEmit, busDispose,
+  })
+
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'admin1', username: 'admin1', role: 'admin' })
+
+  assert.equal(principals.length, 1)
+  assert.equal(principals[0].userId, 'u1', 'principal 必须是 project.ownerId(u1),不是触发者 admin')
+})
+
+test('resume(审批续跑): admin 审批他人对话 → principal 仍为 project.ownerId', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, {
+    status: 'paused',
+    messages: JSON.stringify([{ role: 'assistant', content: '审批?' }]),
+    queue: JSON.stringify([{ name: 'apply' }]),
+    denied: JSON.stringify([]),
+    pendingApproval: JSON.stringify({ toolCallId: 'tc1', name: 'apply', args: {} }),
+    steps: 1,
+  })
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'done', content: '已执行', trace: [], steps: 2, messages: [], queue: [], denied: [],
+  }))
+  const principals = []
+  const agent = createWorkbenchAgent({
+    db,
+    buildWbCtx: (project, principal) => { principals.push(principal); return { ctx: {} } },
+    buildK8sSession: () => ({}),
+    fetchRefContext: async () => '',
+    createAgentRunner, busEmit, busDispose,
+  })
+
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) }, { userId: 'admin1', username: 'admin1', role: 'admin' })
+
+  assert.equal(principals.length, 1)
+  assert.equal(principals[0].userId, 'u1', '审批续跑的授权主体必须是 owner——一次审批不得解锁 admin 全权')
+})
+
 // ═══ 用户取消(停止→修改重发):cancelConversation + agent 结果丢弃守卫 ═══
 test('cancelConversation: running → cancelled + bus 事件(status cancelled + end + dispose);非运行态拒绝', async () => {
   const { db, conv, busEmit, busDispose } = setup()

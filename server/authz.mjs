@@ -84,16 +84,26 @@ export function gateApplyNamespaces(gate, docNss, tool = 'wb_apply') {
 // K8s 出站前调 gate.check;集群级 kind 用 clusterWide;无 ns 列表用 namespaces() 过滤。
 //   - clusterId 空(未绑定项目)→ 零门(K8s 工具本就 natural fail,不放大也不收紧)。
 //   - check:拒 → throw PermissionDeniedError('rbac')(wb 工具错误面走 {error} 形状)。
+//   - entitled:集群 entitlement(canAccessCluster,不看 ns)——read_ledger 等平台级资产读取面。
 //   - clusterWide:open 集群或 admin 放行;allowlist 非 admin 拒(集群级 kind 会绕过 ns 授权面)。
 //   - namespaces:null = 不受限(open/admin);Set = 仅这些 ns 可见(结果过滤用);空 Set = 全拒。
 export function wbToolGate(db, principal, clusterId) {
   if (!clusterId) {
-    return { check() {}, clusterWide() {}, namespaces: () => null }
+    return { check() {}, clusterWide() {}, entitled() {}, namespaces: () => null }
   }
   return {
     check(ns, level, tool) {
       if (!canAccessNs(db, principal, clusterId, ns, level)) {
         throw new PermissionDeniedError('rbac', { tool, ns, level })
+      }
+    },
+    // W2 审计 P0-③(2026-09-07):集群 entitlement 档——与 HTTP 面 GET /api/workbench/ledger 的
+    // clusterEntitled 同判(canAccessCluster 单源:admin 放行 / 须 user_clusters 分配 / 禁用拒,
+    // 不看 ns 粒度)。read_ledger 是台账读取的工具面对等物:分配内可读(HTTP 面既有语义,
+    // 知识库=平台级资产裁决 §6.2 D),未分配/禁用拒——工具面不得绕过 entitlement。
+    entitled(tool) {
+      if (!canAccessCluster(db, principal, clusterId)) {
+        throw new PermissionDeniedError('rbac', { tool, ns: null, level: 'view' })
       }
     },
     clusterWide(tool) {
