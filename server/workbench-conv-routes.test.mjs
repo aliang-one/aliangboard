@@ -659,3 +659,165 @@ test('regenerate: 无 user 消息(空消息表)→ 仍 400', async () => {
   assert.equal(h.sent.at(-1).status, 400, '连 user 都没有 → 无可重跑目标')
   assert.equal(h.runs.length, 0)
 })
+
+// ═══ 批次三(2026-09-07 审计)Task 1:路由健壮性七件 ═══
+
+// ── conv-lifecycle-04:续接/编辑成功 done 不复位 conv.error ──
+// regenerate 的置 running patch 已带 error: ''(contracts-02 测试在案),messages/edit 漏了——
+// 上轮失败原因残留到本轮:轮询端点恒回旧 error,前端错误横幅跨轮不消。
+
+test('conv-lifecycle-04 messages: 续接复位 conv.error——上轮失败原因不残留', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='failed', error='LLM 流内错误: x' WHERE id=?").run(conv.id)
+  h.setBody({ message: '重试一次' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.equal(getConversation(h.db, conv.id).error, '', '上轮 error 复位(与 regenerate 同款)')
+})
+
+test('conv-lifecycle-04 edit: 编辑重发复位 conv.error——上轮失败原因不残留', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  const anchor = appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='failed', error='LLM 流内错误: x' WHERE id=?").run(conv.id)
+  h.setBody({ messageId: anchor.id, content: '改后的问题' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`)
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.equal(getConversation(h.db, conv.id).error, '', '上轮 error 复位(与 regenerate 同款)')
+})
+
+// ── cancel-races-06:approve/deny 无 try/catch——CAS 翻 running 后抛错悬挂 running ──
+// stampApprover/writeAudit/createLlmClient 任一抛错:异常直穿全局兜底变 500 的同时,
+// 对话悬在 running(resume 未启动,无人再写终态,只能重启网关抢救)。修复:兜住 + 回滚 paused。
+
+function seedPaused(h) {
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'hi' })
+  h.db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval=?, queue='[]', messages='[]', denied='[]' WHERE id=?")
+    .run(JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }), conv.id)
+  return conv
+}
+
+test('cancel-races-06 approve: 留痕抛错(writeAudit)→ 500 且回滚 paused,不悬 running', async () => {
+  const h = makeHarness({ overrides: { writeAudit: () => { throw new Error('audit chain down') } } })
+  const conv = seedPaused(h)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/approve`)
+  assert.equal(h.sent.at(-1).status, 500, '留痕失败 500(而非异常直穿)')
+  const row = getConversation(h.db, conv.id)
+  assert.equal(row.status, 'paused', '回滚 paused——resume 未启动,审批载荷未动,恢复后可重试')
+  assert.ok(row.pendingApproval, 'pendingApproval 完好')
+})
+
+test('cancel-races-06 deny: createLlmClient 抛错 → 500 且回滚 paused,不悬 running', async () => {
+  const h = makeHarness({ overrides: { createLlmClient: () => { throw new Error('llm client boom') } } })
+  const conv = seedPaused(h)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/deny`)
+  assert.equal(h.sent.at(-1).status, 500)
+  assert.equal(getConversation(h.db, conv.id).status, 'paused', '回滚 paused,不悬 running')
+})
+
+test('cancel-races-06 approve: 正常路径不回归(200 + resume 一次)', async () => {
+  const resumed = []
+  const h = makeHarness({ overrides: { writeAudit: () => {}, wbAgent: { runConversation: async () => {}, resumeConversation: async (...a) => { resumed.push(a[0]) }, cancelConversation: () => ({ ok: true }) } } })
+  const conv = seedPaused(h)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/approve`)
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.deepEqual(resumed, [conv.id], 'resume 恰一次')
+  assert.equal(getConversation(h.db, conv.id).status, 'running')
+})
+
+// ── conv-lifecycle-07:compact 与 PATCH rename 无 try/catch——readBody 413/400 被兜底改 500 ──
+// readBody 抛错自带 .status(413 超限/400 坏 JSON);无 try/catch 的端点直穿全局兜底统一 500,
+// 状态码语义丢失(前端无法区分「体太大」与「服务器炸了」)。
+
+const err413 = () => { throw Object.assign(new Error('请求体过大'), { status: 413 }) }
+
+test('conv-lifecycle-07 compact: readBody 413 → 保留 413(不被兜底改 500)', async () => {
+  const h = makeHarness({ overrides: { readBody: async () => err413() } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/compact`)
+  assert.equal(h.sent.at(-1).status, 413, '413 保码')
+})
+
+test('conv-lifecycle-07 rename: readBody 413 → 保留 413(不被兜底改 500)', async () => {
+  const h = makeHarness({ overrides: { readBody: async () => err413() } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q' })
+  await h.call('PATCH', `/api/workbench/conversations/${conv.id}`)
+  assert.equal(h.sent.at(-1).status, 413, '413 保码')
+})
+
+// ── conv-lifecycle-05:写路径非事务×3——中途抛错留孤儿行 ──
+// create(conv 行+active 指针+首消息)、messages(append+置 running)、regenerate(截断+置 running)
+// 都是多语句写,任一中途失败即半状态:running 孤儿行毒化并发限额 / 孤儿 user 消息污染
+// buildHistory / 截断后白丢旧回复。对照 DELETE 既有事务模式(失败注入用 SQLite 触发器)。
+
+test('conv-lifecycle-05 create: 中途写失败整体回滚——不留 running 孤儿行/active 不指孤儿', async () => {
+  const h = makeHarness()
+  const before = convCount(h)
+  h.db.exec("CREATE TRIGGER boom_msg BEFORE INSERT ON workbench_messages BEGIN SELECT RAISE(ABORT, 'boom'); END")
+  h.setBody({ projectId: h.pid, message: 'q' })
+  await h.call('POST', '/api/workbench/conversations')
+  assert.equal(h.sent.at(-1).status, 500)
+  assert.equal(convCount(h), before, '事务回滚:conv 行不留孤儿(否则 running 孤儿永久毒化并发限额)')
+  assert.equal(h.db.prepare('SELECT activeConversationId FROM workbench_projects WHERE id=?').get(h.pid).activeConversationId, null, 'active 指针不指向已消失的孤儿')
+})
+
+test('conv-lifecycle-05 messages: append 后置 running 失败整体回滚——不落孤儿 user 消息', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  h.db.exec("CREATE TRIGGER boom_run BEFORE UPDATE ON workbench_conversations WHEN NEW.status='running' BEGIN SELECT RAISE(ABORT, 'boom'); END")
+  h.setBody({ message: '追问' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 500)
+  assert.equal(listMessages(h.db, conv.id).length, 1, '回滚:追问不落孤儿行(孤儿 user 行会污染 buildHistory)')
+  assert.equal(getConversation(h.db, conv.id).status, 'done', '状态未动')
+})
+
+test('conv-lifecycle-05 regenerate: 截断后置 running 失败整体回滚——旧回复不被白截', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: 'a1', trace: '[]' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  h.db.exec("CREATE TRIGGER boom_active BEFORE UPDATE ON workbench_projects BEGIN SELECT RAISE(ABORT, 'boom'); END")
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/regenerate`)
+  assert.equal(h.sent.at(-1).status, 500)
+  assert.equal(listMessages(h.db, conv.id).length, 2, '回滚:截断恢复,旧回复不丢')
+  assert.equal(getConversation(h.db, conv.id).status, 'done', '状态未动')
+})
+
+// ── conv-lifecycle-09:列表 SELECT 剔除 content(全文不随列表回传) ──
+// 消费端核对在案:唯一列表消费方 WorkbenchDetail 侧栏只读 id/status/updatedAt/steps/title/
+// userMessage(title||userMessage 无标题回退 ×3 处)——content(全文可达 64KB+)每 10s 活刷新
+// 全量回传是纯带宽浪费;单条全文走 GET /:id。
+
+test('conv-lifecycle-09: 列表响应行不含 content 字段(userMessage 等侧栏字段保留)', async () => {
+  const h = makeHarness()
+  createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q' })
+  await h.call('GET', `/api/workbench/conversations?projectId=${h.pid}`)
+  assert.equal(h.sent.at(-1).status, 200)
+  const rows = h.sent.at(-1).json.conversations
+  assert.equal(rows.length, 1)
+  assert.ok(!('content' in rows[0]), '列表行不含 content')
+  for (const k of ['id', 'status', 'title', 'userMessage', 'steps', 'updatedAt'])
+    assert.ok(k in rows[0], `侧栏消费字段保留: ${k}`)
+})
+
+// ── contracts-10:rename 服务端截断 100 字与响应/回读一致 ──
+// 服务端 slice(0,100) 落库且响应回带同值(客户端回显以响应为准,测试在
+// WorkbenchDetail.lifecycle.test.js);本测试锁服务端两侧一致性契约。
+
+test('contracts-10: 200 字 rename → 响应标题=截断 100 字=回读值(两侧一致)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q' })
+  h.setBody({ title: '标'.repeat(200) })
+  await h.call('PATCH', `/api/workbench/conversations/${conv.id}`)
+  assert.equal(h.sent.at(-1).status, 200)
+  const { json } = h.sent.at(-1)
+  assert.equal(json.title.length, 100, '响应回带截断后标题')
+  assert.equal(json.title, getConversation(h.db, conv.id).title, '响应与落库一致')
+})

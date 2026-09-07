@@ -119,9 +119,11 @@ async function confirmRename(convId) {
   renamingId.value = null
   if (!title) return
   try {
-    await workbenchApi.conversations.rename(convId, title)
+    // contracts-10(2026-09-07 审计批次三):回显以服务端响应为准——服务端截断 100 字,
+    // 回填本地原文会让侧栏与库/回读漂移(显示 200 字直到下次刷新)。
+    const r = await workbenchApi.conversations.rename(convId, title)
     const c = conversations.value.find(x => x.id === convId)
-    if (c) c.title = title
+    if (c) c.title = r?.title ?? title
     notify('success', t('workbench.detail.convRenamed'))
   } catch (e) { notify('error', e.message || t('workbench.detail.renameFailed')) }
 }

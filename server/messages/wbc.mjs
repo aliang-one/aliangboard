@@ -16,6 +16,11 @@ export const TABLE = {
   'wbc.regenFailed': { zh: '重新生成失败', en: 'Failed to regenerate' },
   'wbc.deleteFailed': { zh: '删除失败', en: 'Failed to delete' },
   'wbc.titleRequired': { zh: 'title 不能为空', en: 'title is required' },
+  // cancel-races-06(2026-09-07 审计批次三):approve/deny 的 CAS 后留痕/构造抛错兜底文案
+  'wbc.approveFailed': { zh: '审批失败', en: 'Failed to approve' },
+  'wbc.denyFailed': { zh: '拒绝失败', en: 'Failed to deny' },
+  // conv-lifecycle-07:rename 的 readBody 保码兜底文案(413/400 之外的意外错误)
+  'wbc.renameFailed': { zh: '重命名失败', en: 'Failed to rename' },
   'wbc.projectIdRequired': { zh: '缺 projectId', en: 'projectId is required' },
   'wbc.cancelFailed': { zh: '取消失败', en: 'Failed to cancel' },
   'wbc.compactShort': { zh: '对话太短,无需压缩', en: 'Conversation too short to compact' },

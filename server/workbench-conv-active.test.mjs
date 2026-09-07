@@ -10,7 +10,7 @@ import {
 } from './workbench-projects.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 
-function makeHarness({ requireAdmin, settings } = {}) {
+function makeHarness({ requireAdmin, requirePlatform, settings } = {}) {
   const db = new DatabaseSync(':memory:')
   createWorkbenchSchema(db)
   db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )`)
@@ -25,6 +25,9 @@ function makeHarness({ requireAdmin, settings } = {}) {
     sendJson: (r, status, json) => { sent.push({ status, json }) },
     readBody: async () => ({}),
     requireAdmin: requireAdmin || (() => ({ userId: 'u1', username: 'u', role: 'admin' })),
+    // 仅在显式传入时覆盖——缺省走工厂默认(requirePlatform=requireAdmin),
+    // 「requireAdmin 拒绝」用例的既有语义依赖该缺省链。
+    ...(requirePlatform ? { requirePlatform } : {}),
     wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }) },
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
@@ -120,4 +123,29 @@ test('requireAdmin 拒绝 → 分支不再写 json', async () => {
   createConversation(h.db, { projectId: h.p1, system: '', userMessage: 'q' })
   assert.ok(await h.call('GET', '/api/workbench/conversations/active'))
   assert.equal(h.sent.length, 0)
+})
+
+// conv-lifecycle-11(2026-09-07 审计批次三):active 列表 LIMIT 先于 owner 过滤——
+// 旧 SQL 全局 Top-N 后才由路由按 owner 过滤,他人 10 条 running 可把非 admin 自己的
+// running/paused 整体挤出 cap(活跃入口失明,自己的对话「消失」)。修复契约:owner
+// 过滤前移进 SQL(LIMIT 之前),非 admin 的 running/paused 恒在。
+test('conv-lifecycle-11: 他人 10 条 running 挤不出非 admin 自己的 running(cap=5)', async () => {
+  const h = makeHarness({ requirePlatform: () => ({ userId: 'u2', username: 'u2', role: 'user' }) })
+  const mine = createProject(h.db, { name: 'mine', clusterId: 'c1', ownerId: 'u2' })
+  const now = Date.now()
+  // 自己 1 条 running(最旧);他人(u1 的 p1)10 条 running 全部更新——全局 Top-5 全被他人占
+  const own = createConversation(h.db, { projectId: mine.id, system: '', userMessage: '我自己的' })
+  h.set(own.id, 'running', now - 60_000)
+  for (let i = 0; i < 10; i++) {
+    const c = createConversation(h.db, { projectId: h.p1, system: '', userMessage: `别人的${i}` })
+    h.set(c.id, 'running', now - i * 1000)
+  }
+  await h.call('GET', '/api/workbench/conversations/active')
+  assert.equal(h.sent[0].status, 200)
+  const ids = h.sent[0].json.conversations.map(r => r.id)
+  assert.ok(ids.includes(own.id), `自己的 running 恒在(LIMIT 须在 owner 过滤之后),收到: ${JSON.stringify(h.sent[0].json.conversations)}`)
+  for (const r of h.sent[0].json.conversations) {
+    const proj = h.db.prepare('SELECT ownerId FROM workbench_projects WHERE id=?').get(r.projectId)
+    assert.equal(proj.ownerId, 'u2', '只见自己项目的行')
+  }
 })

@@ -8,7 +8,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 const workbenchApi = vi.hoisted(() => ({
   getProject: vi.fn(),
-  conversations: { list: vi.fn() },
+  conversations: { list: vi.fn(), rename: vi.fn() },
 }))
 
 // Agent 模式/对话域是 admin 专属(审计#7):本文件既有用例全部是 admin 视角(可见性零变化),
@@ -267,4 +267,19 @@ test('项目 GET 网络失败 → 显示加载失败而非项目不存在;重试
   await w.vm.retryLoad()
   await flushPromises()
   expect(w.text()).not.toContain('加载失败')
+})
+
+// contracts-10(2026-09-07 审计批次三):rename 服务端截断 100 字,客户端此前回填原文——
+// 侧栏显示 200 字原文、库/回读是 100 字,两侧漂移直到下次刷新。修复:回显以服务端响应为准。
+test('contracts-10: 重命名回显以服务端响应为准(>100 字被截断,侧栏不回填原文)', async () => {
+  workbenchApi.conversations.list.mockResolvedValue({ conversations: [{ id: 'conv-a', userMessage: 'hello', status: 'done' }] })
+  const truncated = '标'.repeat(100)
+  workbenchApi.conversations.rename.mockResolvedValue({ id: 'conv-a', title: truncated })
+  const w = await mountDetail()
+  w.vm.renameText = '标'.repeat(200) // 用户输入 200 字
+  await w.vm.confirmRename('conv-a')
+  await flushPromises()
+  const item = w.vm.conversations.find(c => c.id === 'conv-a')
+  expect(item.title).toBe(truncated, '回显 = 服务端截断后的响应标题,不是本地原文')
+  expect(item.title.length).toBe(100)
 })

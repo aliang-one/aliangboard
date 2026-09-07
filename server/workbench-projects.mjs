@@ -126,7 +126,10 @@ export function updateConversation(db, id, patch, { touch = true } = {}) {
 export function listConversations(db, projectId) {
   // updatedAt DESC(活跃度):续接/运行中的对话浮顶——createdAt 排序下旧对话永远沉底,
   // 与「打开看到最新」的直觉相反(2026-08-16 交互审查)
-  return db.prepare(`SELECT id,status,steps,userMessage,title,content,error,createdAt,updatedAt
+  // conv-lifecycle-09(2026-09-07 审计批次三):列表 SELECT 剔除 content——全文(可达 64KB+)
+  // 随 10s 活刷新全量回传是纯带宽浪费,单条全文走 GET /:id。userMessage 刻意保留:唯一列表
+  // 消费方 WorkbenchDetail 侧栏以 title||userMessage 为无标题回退(3 处消费,grep 核对在案)。
+  return db.prepare(`SELECT id,status,steps,userMessage,title,error,createdAt,updatedAt
     FROM workbench_conversations WHERE projectId=? ORDER BY updatedAt DESC`).all(projectId)
 }
 
@@ -152,12 +155,18 @@ export function getPresenceConfig(db) {
 
 // 近期动态模型:running/paused 永在;终态(done/failed/cancelled)窗口内有动态才在;
 // Top-N 由调用方按配置传入。窗口过滤单一事实源在服务端,前端只做「正在看的项目」排除。
-export function listActiveConversations(db, { now = Date.now(), windowMs = 30 * 60 * 1000, cap = 5 } = {}) {
+// conv-lifecycle-11(2026-09-07 审计批次三):ownerId(非 null 时)在 SQL 内先过滤再 LIMIT
+// ——旧实现全局 Top-N 后才由路由按 owner 过滤,他人 10 条 running 可把非 admin 自己的
+// running/paused 整体挤出 cap(活跃入口失明)。null = 不过滤(admin/全量),旧语义。
+export function listActiveConversations(db, { now = Date.now(), windowMs = 30 * 60 * 1000, cap = 5, ownerId = null } = {}) {
+  const ownerClause = ownerId ? 'AND p.ownerId = ?' : ''
+  const params = ownerId ? [now - windowMs, ownerId, cap] : [now - windowMs, cap]
   return db.prepare(`SELECT c.id, c.projectId, p.name AS projectName, c.title, c.status, c.updatedAt
     FROM workbench_conversations c JOIN workbench_projects p ON p.id = c.projectId
-    WHERE c.status IN ('running','paused')
-       OR (c.status IN ('done','failed','cancelled') AND c.updatedAt > ?)
-    ORDER BY c.updatedAt DESC LIMIT ?`).all(now - windowMs, cap)
+    WHERE (c.status IN ('running','paused')
+       OR (c.status IN ('done','failed','cancelled') AND c.updatedAt > ?))
+       ${ownerClause}
+    ORDER BY c.updatedAt DESC LIMIT ?`).all(...params)
 }
 
 // conv.trace 滚动上限(2026-09-06 审计#12a;对抗审查修订):防长对话无界增长(生产实测
