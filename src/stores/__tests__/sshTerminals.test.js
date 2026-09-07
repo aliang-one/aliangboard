@@ -8,7 +8,7 @@
 // ⑤groups computed:同 serverId 聚合(任务栏分组 chip 数据源)
 // ⑥genSid 三级降级(非安全上下文无 randomUUID 仍可用,2026-08-28 真机事故)
 // ⑦openExternal 确定性窗口名(= sid);重入/focusExternal 无 win 引用时按名重开(聚焦真实标签页),
-//   绝不在本页复活浮窗;弹窗墓碑→最小化+宽限后仅移除本地记录(不杀会话);存活信标→复位/重建
+//   绝不在本页复活浮窗;弹窗墓碑→最小化且保留记录(2026-09-06 v2,不杀会话);存活信标→复位/重建
 import { test, expect, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useSshTerminalStore } from '../sshTerminals'
@@ -139,7 +139,10 @@ test('focusExternal 无 win 引用(opener 刷新过):按名重开 → true + 复
   } finally { window.open = _open }
 })
 
-test('弹窗墓碑:立即最小化,宽限期后仅移除本地记录(不杀网关会话);存活信标(F5)取消收尾', async () => {
+// 2026-09-06 收敛 v2:pagehide 三态(F5/浏览器丢弃/真关闭)不可分 → 墓碑只降最小化、
+// **保留记录**(discard 标签也发 pagehide,摘记录=「离开一会 chip 少一个」生产事故);
+// 移除唯一入口=显式关闭(closeWindow);未附着会话由网关 detachedIdle 兜底(sweep 状态修复)。
+test('弹窗墓碑:立即最小化且记录保留(宽限后也不摘);不杀网关会话;信标到达复位 external', async () => {
   fresh()
   vi.useFakeTimers()
   const kill = vi.spyOn(sshApi, 'killSession').mockResolvedValue({ ok: true })
@@ -149,17 +152,12 @@ test('弹窗墓碑:立即最小化,宽限期后仅移除本地记录(不杀网�
     store.openExternal(w.id)
     firePopup(POPUP_CLOSED_KEY, { kind: 'ssh', sid: w.id })
     expect(w.status).toBe('minimized')   // 即刻视觉反馈
+    await vi.advanceTimersByTimeAsync(GONE_GRACE_MS + 10)
+    expect(store.windows.length).toBe(1) // 记录保留:丢弃的标签被点开即由信标复位
+    expect(kill).not.toHaveBeenCalled()  // 杀会话是弹窗「关闭窗口」按钮专属
+    // 标签重载(F5/丢弃后再点开):存活信标 → 复位 external
     firePopup(POPUP_ALIVE_KEY, { kind: 'ssh', sid: w.id, meta: { serverId: 'sv1', name: 'web' } })
-    await vi.advanceTimersByTimeAsync(GONE_GRACE_MS + 10)
-    expect(store.windows.length).toBe(1)   // 信标复活 → 不收尾(F5 刷新场景)
     expect(w.status).toBe('external')
-    // 标签页没了:墓碑后无信标 → 宽限到 → 仅摘本地记录;杀会话是弹窗「关闭窗口」按钮专属
-    // (2026-09-04 关闭语义收敛:pagehide ≠ 关闭意图,F5/标签页丢弃绝不误杀多开中的会话)
-    firePopup(POPUP_CLOSED_KEY, { kind: 'ssh', sid: w.id })
-    await vi.advanceTimersByTimeAsync(GONE_GRACE_MS + 10)
-    expect(store.windows.length).toBe(0)
-    expect(kill).not.toHaveBeenCalled()
-    expect(store.isRecentlyClosed(w.id)).toBe(true)   // 仍降噪:会话活着到 reap 前,任务栏不标红
   } finally { vi.restoreAllMocks(); vi.useRealTimers() }
 })
 
@@ -248,4 +246,29 @@ test('删除墓碑(复审 F4):closeWindow 落跨页墓碑;冻结页醒来 persis
   setActivePinia(createPinia())                          // 模拟刷新:全新 pinia 装载
   const storeB = useSshTerminalStore()
   expect(storeB.windows.find(w => w.id === w1.id)).toBeUndefined()   // 装载同样被墓碑过滤
+})
+
+// 孤儿重附(2026-09-06):网关有会话而本地记录已丢 → 重建窗口记录+弹窗重开同 sid(回放历史)。
+test('reattachOrphan:记录缺失时按快照重建并 openExternal;已有记录则直接重开', async () => {
+  fresh()
+  const fakeWin = { closed: false, focus: vi.fn() }
+  window.open = vi.fn(() => fakeWin)
+  try {
+    const store = useSshTerminalStore()
+    // 记录缺失(孤儿):重建 + external + 弹窗重开(确定性窗口名 = sid)
+    store.reattachOrphan({ id: 'ssh-lost', serverId: 'sv1', name: 'web-1' })
+    const w = store.windows.find(x => x.id === 'ssh-lost')
+    expect(w).toBeTruthy()
+    expect(w.serverId).toBe('sv1')
+    expect(w.status).toBe('external')
+    expect(window.open).toHaveBeenCalledTimes(1)
+    expect(window.open.mock.calls[0][1]).toBe('ssh-lost')
+    expect(JSON.parse(localStorage.getItem(LS_KEY)).map(r => r.id)).toContain('ssh-lost')   // 记录落盘,刷新不再失明
+    // 记录已存在:不重复建;弹窗已在 → 幂等聚焦,不再 window.open
+    w.status = 'minimized'
+    store.reattachOrphan({ id: 'ssh-lost', serverId: 'sv1', name: 'web-1' })
+    expect(store.windows.filter(x => x.id === 'ssh-lost')).toHaveLength(1)
+    expect(window.open).toHaveBeenCalledTimes(1)   // 幂等:已开的弹窗只聚焦
+    expect(fakeWin.focus).toHaveBeenCalled()
+  } finally { window.open = _open }
 })

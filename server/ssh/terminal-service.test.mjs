@@ -333,3 +333,44 @@ test('评审#5:onIrreversible 收窄到 CLOSED/LOST——attach/detach 不再刷
   svc.markLost('t1', 'x')                        // DETACHED→LOST
   assert.deepEqual(events, ['LOST'], '分级审计:只有不可逆终态进审计,高频 attach/detach 走行内字段')
 })
+
+// ===== 2026-09-06 生产事故:卡死 ATTACHED 对回收器不可见(永生会话)=====
+// 实测:两个弹窗终端 WS 断后卡 ATTACHED+browserCount=0,idleMs 5.9h 无人管——
+// detachedIdle 只认 DETACHED 状态,卡死即全盲。sweep 每轮自愈状态并补 CREATING 悬挂清道。
+test('状态修复:ATTACHED 且零连接零等待 → 每轮 sweep 自愈为 DETACHED,随后 detached-idle 正常接管', async () => {
+  let clock = 1000
+  const svc = createTerminalService({ now: () => clock })
+  const { terminal: t } = svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  svc.bindChannel('t1', { close() {} }); svc.readyForOwner('t1').resolve()
+  await svc.attach('t1', 'c1', { close() {} })
+  t.connIds.clear()   // 模拟 WS close 事件丢失:连接没了但状态卡在 ATTACHED
+  t.status = 'ATTACHED'
+  const ev = svc.sweep({}, clock)   // 空策略也要修复状态(修复不受策略 0=禁用影响)
+  assert.equal(t.status, 'DETACHED')
+  assert.deepEqual(ev, [{ tid: 't1', action: 'reconcile-detached' }])
+  // 自愈后 detachedSince=now,+10min+1s → 阶段一照常回收
+  clock += 10 * 60 * 1000 + 1
+  const ev2 = svc.sweep({ detachedIdleMin: 10 }, clock)
+  assert.equal(t.status, 'DETACHED_TIMEOUT')
+  assert.deepEqual(ev2, [{ tid: 't1', action: 'timeout-stage1' }])
+})
+
+test('状态修复:有附着/有等待者的 ATTACHED 不误伤;CREATING 悬挂超 60s → LOST', async () => {
+  let clock = 1000
+  const svc = createTerminalService({ now: () => clock })
+  const a = svc.getOrCreate('a', () => svc.newTerminal({ id: 'a', owner: 'u', serverId: 'sv' })).terminal
+  a.status = 'ATTACHED'; a.connIds.set('w1', { socket: {} })   // 有连接:不动
+  svc.sweep({}, clock)
+  assert.equal(a.status, 'ATTACHED')
+  const c = svc.getOrCreate('c', () => svc.newTerminal({ id: 'c', owner: 'u', serverId: 'sv' })).terminal
+  svc.sweep({}, clock + 30_000)                                 // 30s:未超时不动
+  assert.equal(c.status, 'CREATING')
+  const ev = svc.sweep({}, clock + 61_000)                      // 61s+零等待 → LOST
+  assert.equal(c.status, 'LOST')
+  assert.deepEqual(ev, [{ tid: 'c', action: 'reconcile-create-timeout' }])
+  // 有等待者的 CREATING(重连者排队)不清理
+  const d = svc.getOrCreate('d', () => svc.newTerminal({ id: 'd', owner: 'u', serverId: 'sv' })).terminal
+  d.waiters = 1
+  svc.sweep({}, clock + 61_000)
+  assert.equal(d.status, 'CREATING')
+})
