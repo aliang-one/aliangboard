@@ -5,21 +5,29 @@
 // 会把「超时」误读成「资源已删」,LLM 可能据此给出错误诊断。withTimeout 输家的 Error 带
 // isTimeout 标记供分流;404/网络错误仍标 not found(漂移感知语义不变)。
 import { normalizeKind } from './kindAlias.mjs'
-import { getApiPath } from './kind-paths.mjs'
+import { getApiPath, isClusterScopedKind } from './kind-paths.mjs'
 import { maskSecretResource } from './secret-mask.mjs'
 import { formatRefBlock, createRefContextBudget } from './ref-context.mjs'
 import { REFS_CTX_HEADER, REFS_GUARD_NOTE } from './refs-context.mjs'
 import { buildServerRefBlock } from './ssh/ref-block.mjs'
-import { canAccessNs } from './authz.mjs'
+import { canAccessNs, wbToolGate } from './authz.mjs'
 
 // W2 Phase C(Task 6):@mention 引用门单一事实源。fetchRefContext(system 每轮注入)与
 // buildRefsContext(首屏 ResourceCard)两份实现逐 ref 调用;不过 → 静默跳过(零注入,不中断)。
 //   - @server ref 恒放行(服务器暴露面维持 exposeToAi 闸,此处不再叠门);
 //   - k8s ref → canAccessNs(view)(open 集群/admin 全通,allowlist 按授权);
 //   - projectClusterId 空(未绑定项目)→ 放行(K8s ref 后续自然标注无集群,不放大也不收紧)。
+//   - 集群级 kind(2026-09-07 审计 F5,refs-injection-05)→ wbToolGate.clusterWide(与 wb
+//     工具面 Phase C 同门):本无 namespace,旧逻辑统一 canAccessNs → 伪造 ref.namespace
+//     (填自己有授权的 ns)即可越过 clusterWide 拒绝越权读取集群级资源。拒绝形状是 throw,
+//     此处转 false(静默跳过语义不变);非 PERMISSION_DENIED 异常照抛(fail-open 不可取)。
 export function refAllowed(db, principal, ref, projectClusterId) {
   if (!ref || ref.kind === 'server') return true
   if (!projectClusterId) return true
+  if (isClusterScopedKind(normalizeKind(ref.kind))) {
+    try { wbToolGate(db, principal, projectClusterId).clusterWide('refs'); return true }
+    catch (e) { if (e?.code !== 'PERMISSION_DENIED') throw e; return false }
+  }
   return canAccessNs(db, principal, projectClusterId, ref.namespace || '', 'view')
 }
 

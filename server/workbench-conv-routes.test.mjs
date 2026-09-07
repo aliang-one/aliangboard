@@ -4,7 +4,7 @@
 // 修复契约:content 干净落库;新 refs 并入对话级 "references"(refreshSystem 每轮注入 system,
 // agent.mjs:127 每轮重写 messages[0],上下文等价且更新鲜);历史已污染行由 GET /:id 出参剥前缀。
 // HTTP 层直测路由 handler(deps 全注入):db 用真 :memory:,requestKubernetes/llm 用桩。
-import { test } from 'node:test'
+import { test, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import {
@@ -13,6 +13,17 @@ import {
 } from './workbench-projects.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { stripRefsContext, REFS_CTX_HEADER, REFS_GUARD_NOTE } from './refs-context.mjs'
+
+// F6(对话限额)env 通道消毒:deployment 侧可设 WB_CONV_MAX_*;模块级摘除保测试确定性,
+// after 恢复(镜像 workbench-ai-config-routes.test.mjs 的 maxSteps 手法)。
+const _savedQuotaEnv = [process.env.WB_CONV_MAX_RUNNING_PER_USER, process.env.WB_CONV_MAX_PER_PROJECT]
+delete process.env.WB_CONV_MAX_RUNNING_PER_USER
+delete process.env.WB_CONV_MAX_PER_PROJECT
+after(() => {
+  for (const [k, v] of [['WB_CONV_MAX_RUNNING_PER_USER', _savedQuotaEnv[0]], ['WB_CONV_MAX_PER_PROJECT', _savedQuotaEnv[1]]]) {
+    if (v !== undefined) process.env[k] = v
+  }
+})
 
 // ── 路由测试装置:真 db + 桩 deps,POST/GET 走真实 handler ──
 function makeHarness({ overrides = {} } = {}) {
@@ -470,4 +481,109 @@ test('审计#10 消息校验:续接空 message → 400 不落消息', async () =
   await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
   assert.equal(h.sent.at(-1).status, 400, '空白消息 400')
   assert.equal(listMessages(h.db, conv.id).filter(m => m.role === 'user').length, 0, '不落空消息行')
+})
+
+// ── F6(2026-09-07 审计):对话限额双门——create 查并发+每项目总数;messages/regenerate/edit
+//    只查并发且计数排除自身行;触发 run 前现读(即时生效);0=不限制;admin 不豁免 ──
+
+function setQuota(h, { running, perProject } = {}) {
+  h.db.exec('CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )')
+  if (running !== undefined) h.db.prepare("INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES ('workbench.maxRunningConversations',?,?)").run(String(running), Date.now())
+  if (perProject !== undefined) h.db.prepare("INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES ('workbench.maxConversationsPerProject',?,?)").run(String(perProject), Date.now())
+}
+const convCount = h => h.db.prepare('SELECT COUNT(*) AS n FROM workbench_conversations').get().n
+
+test('F6 create:并发达上限 → 429 文案带生效上限(admin 不豁免),不建行不启动 run', async () => {
+  const h = makeHarness()
+  setQuota(h, { running: 2 })
+  createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'r1' })
+  createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'r2' }) // u1 名下 2 running 占满
+  h.setBody({ projectId: h.pid, message: '第三个' })
+  assert.ok(await h.call('POST', '/api/workbench/conversations'))
+  assert.equal(h.sent.at(-1).status, 429, '并发满 → 429(u1 是 admin——统一门不豁免)')
+  assert.match(h.sent.at(-1).json.message, /上限\(2\)/, '文案含当前生效上限值')
+  assert.equal(h.runs.length, 0, '不启动 detached run')
+  assert.equal(convCount(h), 2, '不建对话行(429 不留半行)')
+})
+
+test('F6 create:每项目总数达上限 → 429 提示删旧对话;并发未满也拒', async () => {
+  const h = makeHarness()
+  setQuota(h, { running: 0, perProject: 2 }) // 并发显式不限,隔离总数门
+  const c1 = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'a' })
+  createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'b' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(c1.id) // running=1 未满
+  h.setBody({ projectId: h.pid, message: '第三条' })
+  assert.ok(await h.call('POST', '/api/workbench/conversations'))
+  assert.equal(h.sent.at(-1).status, 429)
+  assert.match(h.sent.at(-1).json.message, /删除旧对话/, '总数门提示可删旧会话')
+  assert.equal(h.runs.length, 0)
+})
+
+test('F6 create:0=不限制放行(逃生阀)——并发与总数都为 0', async () => {
+  const h = makeHarness()
+  setQuota(h, { running: 0, perProject: 0 })
+  for (let i = 0; i < 6; i++) createConversation(h.db, { projectId: h.pid, system: '', userMessage: `r${i}` }) // 6 running 超默认并发
+  h.setBody({ projectId: h.pid, message: '仍可建' })
+  assert.ok(await h.call('POST', '/api/workbench/conversations'))
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.equal(h.runs.length, 1)
+})
+
+test('F6 messages/regenerate/edit:并发达上限 → 429;计数排除自身行(空闲自身不占新名额语义)', async () => {
+  const h = makeHarness()
+  setQuota(h, { running: 2 })
+  const own = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'own' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(own.id) // 自身空闲
+  const other1 = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'r1' })
+  createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'r2' }) // 他人 2 running 占满
+  appendMessage(h.db, { conversationId: own.id, role: 'user', content: '首轮' })
+  appendMessage(h.db, { conversationId: own.id, role: 'assistant', content: '答', trace: '[]' })
+  const anchor = listMessages(h.db, own.id).find(m => m.role === 'user')
+
+  h.setBody({ message: '追问' })
+  await h.call('POST', `/api/workbench/conversations/${own.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 429, 'messages:并发满 → 429')
+  assert.match(h.sent.at(-1).json.message, /上限\(2\)/)
+  assert.equal(h.runs.length, 0)
+
+  await h.call('POST', `/api/workbench/conversations/${own.id}/regenerate`)
+  assert.equal(h.sent.at(-1).status, 429, 'regenerate:同款并发门')
+  assert.equal(h.runs.length, 0)
+  assert.equal(listMessages(h.db, own.id).length, 2, 'regenerate 不截消息(门在截断之前)')
+
+  h.setBody({ messageId: anchor.id, content: '改后的问题' })
+  await h.call('POST', `/api/workbench/conversations/${own.id}/edit`)
+  assert.equal(h.sent.at(-1).status, 429, 'edit:同款并发门')
+  assert.equal(h.runs.length, 0)
+  assert.equal(listMessages(h.db, own.id).length, 2, 'edit 不落新消息')
+
+  // 释放一个名额(r1 转终态)→ 计数 1 < 2,messages 放行(空闲会话续接如实占名额)
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(other1.id)
+  h.setBody({ message: '追问' }) // 上一次 setBody 是 edit 形状(messageId/content),messages 需 message
+  await h.call('POST', `/api/workbench/conversations/${own.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.equal(h.runs.length, 1)
+})
+
+test('F6 即时生效:限额落库后下一请求现读即拒(无需重启,与 maxSteps 同款)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  h.setBody({ message: '首轮追问' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 200, '缺省限额 5,0 running → 放行')
+  h.runs.length = 0
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id) // 复位空闲
+
+  setQuota(h, { running: 1 }) // admin 落库:并发 1(当前 0 running)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 200, '1 个名额可用 → 放行,自身转 running')
+  h.runs.length = 0
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+
+  // 此时他人 1 running 占满唯一名额 → 再续接 429
+  createConversation(h.db, { projectId: h.pid, system: '', userMessage: '占用名额' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 429, '配置后新请求即时生效')
+  assert.equal(h.runs.length, 0)
 })

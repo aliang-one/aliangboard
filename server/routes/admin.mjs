@@ -9,7 +9,9 @@ import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 import { clampPresence, getPresenceConfig } from '../workbench-projects.mjs'
 import { msg } from '../messages.mjs'
 import { resolvePasswordPolicy, firstFailedRule, normalizePolicy } from '../password-policy.mjs'
-import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps, MAX_STEPS_RANGE } from '../workbench-ai-config.mjs'
+import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps, MAX_STEPS_RANGE,
+  getMaxRunningConversationsConfig, validateMaxRunningConversations, MAX_RUNNING_CONVERSATIONS_RANGE,
+  getMaxConversationsPerProjectConfig, validateMaxConversationsPerProject, MAX_CONVERSATIONS_PER_PROJECT_RANGE } from '../workbench-ai-config.mjs'
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { registry } from '../tool-registry.mjs'
 import { isValidMinutes } from '../ssh/reap-policy.mjs'
@@ -254,6 +256,9 @@ export function createAdminRoutes(deps) {
         disabledTools: cfg.disabledTools,
         projectMemory: cfg.projectMemory, // 项目记忆开关(T2):回显让前端所见即所发
         maxSteps: getMaxStepsConfig(db), // 最大执行步数(2026-09-03):回显已解析值(0=不限制),所见即所发
+        // 对话限额(F6,2026-09-07):同款回显已解析值(0=不限制),所见即所发
+        maxRunningConversations: getMaxRunningConversationsConfig(db),
+        maxConversationsPerProject: getMaxConversationsPerProjectConfig(db),
         toolCatalog: registry.workbenchTools(),
         effectivePreview: buildWorkbenchSystemPrompt(cfg),
       })
@@ -278,6 +283,13 @@ export function createAdminRoutes(deps) {
         const ms = validateMaxSteps(input.maxSteps)
         if (!ms.ok) { sendJson(res, 400, { message: msg(req, 'admin.aiMaxStepsInvalid', { lo: MAX_STEPS_RANGE.lo, hi: MAX_STEPS_RANGE.hi }) }); return true }
         if (ms.value != null) setSetting('workbench.maxSteps', String(ms.value))
+        // 对话限额(F6,2026-09-07):同款接线——校验 400 双语文案 → setSetting 落键;0 = 不限制
+        const mr = validateMaxRunningConversations(input.maxRunningConversations)
+        if (!mr.ok) { sendJson(res, 400, { message: msg(req, 'admin.aiMaxRunningInvalid', { lo: MAX_RUNNING_CONVERSATIONS_RANGE.lo, hi: MAX_RUNNING_CONVERSATIONS_RANGE.hi }) }); return true }
+        if (mr.value != null) setSetting('workbench.maxRunningConversations', String(mr.value))
+        const mp = validateMaxConversationsPerProject(input.maxConversationsPerProject)
+        if (!mp.ok) { sendJson(res, 400, { message: msg(req, 'admin.aiMaxPerProjectInvalid', { lo: MAX_CONVERSATIONS_PER_PROJECT_RANGE.lo, hi: MAX_CONVERSATIONS_PER_PROJECT_RANGE.hi }) }); return true }
+        if (mp.value != null) setSetting('workbench.maxConversationsPerProject', String(mp.value))
         sendJson(res, 200, { ok: true })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.saveFailed') }); return true }

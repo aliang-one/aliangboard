@@ -57,6 +57,12 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
   // 纯(仅同步 DB 读):静态 requiresApproval 命中后由 agent-runner 咨询。
   async function needsApproval(name, args) {
     if (name === 'write_server_notes') return true   // 台账写恒人审(平台级,不走服务器策略)
+    // 双保险(2026-09-07 审计 F1 P0):非 SSH 工具名恒人审。路由层已改白名单(非 SSH 工具
+    // 不再被分到本桥),此处再拦一道防未来路由错配——本桥的裁决完全由 server 命中行的
+    // aiApprovalPolicy 决定,而 server 是 LLM 生成参数,对非 SSH 工具毫无语义;放它进来
+    // 等于「伪造 server 指向 none/readonly 策略服即免审」(审计真模块复现)。SSH 工具名
+    // 白名单 = wb_ssh_ 前缀(write_server_notes 已在上方恒 true)。
+    if (!String(name || '').startsWith('wb_ssh_')) return true
     const r = resolve(args?.server)
     if (!r.ok) return true                        // 解析失败:安全默认走人审(错误信息随后由 exec 给出)
     if (r.row.aiApprovalPolicy === 'none') return false

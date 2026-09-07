@@ -45,6 +45,37 @@ test('refAllowed:k8s ref = canAccessNs(view)——u1 仅 team-a / u2 仅 team-b 
   assert.equal(refAllowed(db, { userId: 'a1', role: 'admin' }, podA, 'c1'), true)
 })
 
+// ===== 2026-09-07 审计 F5(refs-injection-05):集群级 kind 走 clusterWide 门 =====
+// 集群级 kind(nodes/PV/clusterroles…)本无 namespace——旧逻辑统一 canAccessNs,伪造
+// ref.namespace(填自己有授权的 ns)即可越过 wb 工具侧 Phase C 的 clusterWide 拒绝。
+// 修复:与工具面同门(wbToolGate.clusterWide 单一事实源:admin/open 集群放行,
+// allowlist 非 admin 拒;Phase C 无 per-user clusterWide 授权档,allowlist 用户仅能靠
+// admin 身份或集群切 open 拿到集群级面)。kind 判定经 normalizeKind + kind-paths 单源。
+const nodeRef = { kind: 'nodes', namespace: 'team-a', name: 'node-1' }       // 伪造 ns = 自己有授权的 team-a
+const pvRef = { kind: 'persistentvolumes', namespace: 'team-a', name: 'pv-1' }
+const crRef = { kind: 'clusterrole', namespace: 'team-a', name: 'view' }     // 单数形态(前端/LLM 可能传)
+
+test('refAllowed:集群级 kind 伪造 namespace(填自己有授权的 ns)→ allowlist 非 admin 拒', () => {
+  const db = fixture()
+  assert.equal(refAllowed(db, { userId: 'u1', role: 'user' }, nodeRef, 'c1'), false)
+  assert.equal(refAllowed(db, { userId: 'u1', role: 'user' }, pvRef, 'c1'), false)
+  assert.equal(refAllowed(db, { userId: 'u2', role: 'user' }, { kind: 'nodes', namespace: 'team-b', name: 'n' }, 'c1'), false)
+  assert.equal(refAllowed(db, { userId: 'u1', role: 'user' }, crRef, 'c1'), false, '单数 clusterrole 也须归一后按集群级拒')
+})
+
+test('refAllowed:集群级 kind admin / open 集群放行(clusterWide 授权的两种形态)', () => {
+  const db = fixture()
+  assert.equal(refAllowed(db, { userId: 'a1', role: 'admin' }, nodeRef, 'c1'), true) // admin
+  assert.equal(refAllowed(db, { userId: 'u1', role: 'user' }, nodeRef, 'c2'), true)  // open 集群(u1 已分配)
+})
+
+test('refAllowed:namespaced kind 既有行为回归不变(pods/deployments 仍走 canAccessNs)', () => {
+  const db = fixture()
+  assert.equal(refAllowed(db, { userId: 'u1', role: 'user' }, podA, 'c1'), true)
+  assert.equal(refAllowed(db, { userId: 'u1', role: 'user' }, podB, 'c1'), false)
+  assert.equal(refAllowed(db, { userId: 'u1', role: 'user' }, { kind: 'deployments', namespace: 'team-a', name: 'web' }, 'c1'), true)
+})
+
 // ===== 实现一:fetchRefContext(refreshSystem 每轮注入面) =====
 
 test('fetchRefContext 带 gate:无权 ref 静默跳过(零注入),有权 ref 正常注入', async () => {
@@ -57,6 +88,20 @@ test('fetchRefContext 带 gate:无权 ref 静默跳过(零注入),有权 ref 正
   const out = await fetcher.fetchRefContext([podA, podB], {}, gate)
   assert.match(out, /team-a\/web-a/)
   assert.doesNotMatch(out, /team-b\/web-b/, 'team-b 无授权 → 不得注入')
+})
+
+// F5 集成面:伪造 ns 的集群级 ref 在 fetchRefContext 同样零注入、不触网(门在拉取之前)。
+test('fetchRefContext 带 gate:集群级 ref 无 clusterWide 授权 → 静默跳过且不触网', async () => {
+  const db = fixture()
+  const seen = []
+  const fetcher = createRefContextFetcher({
+    requestKubernetes: async (s, path) => { seen.push(path); return { status: 200, headers: {}, body: { kind: 'Node', metadata: { name: 'node-1' } } } },
+    listSshServers: () => [],
+  })
+  const gate = { db, principal: { userId: 'u1', role: 'user' }, clusterId: 'c1' }
+  const out = await fetcher.fetchRefContext([nodeRef], {}, gate)
+  assert.doesNotMatch(out, /node-1/, '伪造 ns 的 nodes ref 不得注入')
+  assert.ok(!seen.some(p => p.includes('/nodes/')), 'nodes 不得触网拉取')
 })
 
 test('fetchRefContext 无 gate(旧调用形状)→ 零过滤(向后兼容)', async () => {

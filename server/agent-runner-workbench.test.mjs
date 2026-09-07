@@ -327,36 +327,76 @@ test('workbenchExcludeTools:未绑定裁 16 个 K8s 依赖工具;SSH 零暴露�
   for (const n of unbound) assert.ok(all.has(n), n)
 })
 
-// Task 6(2026-08-30):动态审批复合路由分流——wb_ssh_job_* 走任务桥,其余走同步桥。
-// 复合路由与 workbench-agent.mjs 两处装配同款(勿漂移);断言核心是路由分流而非审批值。
-test('routeDynamicApproval 纯函数分流:任务工具→jobs 桥,其余→ssh 桥,缺桥收紧', async () => {
+// Task 6(2026-08-30)→ 2026-09-07 审计 F1 P0 白名单化:wb_ssh_job_* 走任务桥,其余 wb_ssh_*/
+// write_server_notes 走同步桥,**非 SSH 工具恒人审不进任何桥**——旧「其余走同步桥」兜底让 LLM
+// 给 wb_scale/wb_exec 等写工具伪造 server 参数即可借 none/readonly 策略服务器免审(见下方 P0 用例)。
+// 白名单路由与 workbench-agent.mjs 两处装配同款(勿漂移);断言核心是路由分流而非审批值。
+test('routeDynamicApproval 白名单分流:job_*→jobs 桥,其余 wb_ssh_*/write_server_notes→ssh 桥,非 SSH 恒人审,缺桥收紧', async () => {
   const seen = []
   const ssh = { needsApproval: async (n) => { seen.push(['ssh', n]); return 'ssh-verdict' } }
   const jobs = { needsApproval: async (n) => { seen.push(['jobs', n]); return 'jobs-verdict' } }
-  assert.equal(await routeDynamicApproval('wb_ssh_run', {}, ssh, jobs), 'jobs-verdict')
-  assert.equal(await routeDynamicApproval('wb_ssh_job_out', {}, ssh, jobs), 'jobs-verdict')
+  assert.equal(await routeDynamicApproval('wb_ssh_job_write', {}, ssh, jobs), 'jobs-verdict')
+  // wb_ssh_run 2026-09-07 起从任务桥移回同步桥(两桥对其裁决语义同款:none/readonly 分类器/always)
+  assert.equal(await routeDynamicApproval('wb_ssh_run', {}, ssh, jobs), 'ssh-verdict')
   assert.equal(await routeDynamicApproval('wb_ssh_exec', {}, ssh, jobs), 'ssh-verdict')
-  assert.equal(await routeDynamicApproval('write_project_file', {}, ssh, jobs), 'ssh-verdict')
-  assert.deepEqual(seen, [['jobs', 'wb_ssh_run'], ['jobs', 'wb_ssh_job_out'], ['ssh', 'wb_ssh_exec'], ['ssh', 'write_project_file']])
-  // 单桥缺位:任务工具无 jobs 桥 → 收紧 true;同步工具无 ssh 桥 → 收紧 true
-  assert.equal(await routeDynamicApproval('wb_ssh_run', {}, ssh, null), true)
+  assert.equal(await routeDynamicApproval('wb_ssh_read_file', {}, ssh, jobs), 'ssh-verdict')
+  assert.equal(await routeDynamicApproval('write_server_notes', {}, ssh, jobs), 'ssh-verdict')
+  // 非 SSH 工具恒 true:根本不进任何桥(旧兜底把它们喂给同步桥 = P0 绕过面)
+  assert.equal(await routeDynamicApproval('wb_scale', {}, ssh, jobs), true)
+  assert.equal(await routeDynamicApproval('wb_exec', {}, ssh, jobs), true)
+  assert.equal(await routeDynamicApproval('write_project_file', {}, ssh, jobs), true)
+  assert.equal(await routeDynamicApproval('apply_project_manifests', {}, ssh, jobs), true)
+  assert.deepEqual(seen, [['jobs', 'wb_ssh_job_write'], ['ssh', 'wb_ssh_run'], ['ssh', 'wb_ssh_exec'], ['ssh', 'wb_ssh_read_file'], ['ssh', 'write_server_notes']])
+  // 单桥缺位:被路由的桥缺谁走收紧 true
+  assert.equal(await routeDynamicApproval('wb_ssh_job_write', {}, ssh, null), true)
   assert.equal(await routeDynamicApproval('wb_ssh_exec', {}, null, jobs), true)
 })
 
-test('动态审批路由:wb_ssh_run→sshJobs.needsApproval;wb_ssh_job_write→sshJobs;wb_ssh_exec→ssh.needsApproval', async () => {
+// ═══ 2026-09-07 审计 F1 P0(agent-loop-01):伪造 server 参数绕过人审 ═══
+// args 是 LLM 生成 JSON——wb_scale/wb_exec/write_project_file 等非 SSH 写工具的 schema 里根本没有
+// server 字段,但旧路由把它们的裁决喂给同步桥,而同步桥的裁决完全由 resolve(args.server) 命中
+// 服务器的 aiApprovalPolicy 决定(none 直接免审)。审计真模块端到端复现:wb_scale/wb_exec 带
+// server:'dev-1'(none 策略暴露服务器)免审直执行。白名单修复后:非 SSH 工具不进任何桥,
+// 裁决与服务器策略彻底解耦,恒 checkpoint。
+test('P0 审计 F1:非 SSH 需审工具伪造 server 指向 none/readonly 策略服 → 桥恒 false 也不放宽,且不问任何桥', async () => {
+  const asked = []
+  // 双桩均模拟「none 策略暴露服务器」会给出的裁决(恒放宽)——桥愿意放行,路由不得问它
+  const permissive = { needsApproval: async (n) => { asked.push(['ssh', n]); return false } }
+  const permissiveJobs = { needsApproval: async (n) => { asked.push(['jobs', n]); return false } }
+  const forged = (name, args) => routeDynamicApproval(name, { server: 'dev-1', ...args }, permissive, permissiveJobs)
+  assert.equal(await forged('wb_scale', { namespace: 'default', kind: 'deployments', name: 'nginx', replicas: 5 }), true)
+  assert.equal(await forged('wb_exec', { namespace: 'default', pod: 'nginx-1', command: 'cat /etc/shadow' }), true)
+  assert.equal(await forged('write_project_file', { path: 'a.yaml', content: 'x' }), true)
+  assert.equal(await forged('apply_project_manifests', {}), true)
+  assert.deepEqual(asked, [], '非 SSH 工具不得进任何桥——裁决与服务器策略解耦是修复本体')
+})
+
+test('P0 审计 F1:wb_scale 携伪造 server → runner 仍 pending_approval(修复前借桥免审直执行)', async () => {
+  const scales = []
+  const wb = { readLedger: async () => '', readFile: async () => '', writeFile: async () => {}, scale: async (...a) => { scales.push(a); return { ok: true } } }
+  const llmClient = { chat: seqChat([tc('1', 'wb_scale', { server: 'dev-1', namespace: 'default', kind: 'deployments', name: 'nginx', replicas: 5 }), fin('已扩容')]) }
+  const permissive = { needsApproval: async () => false }   // none 策略服的裁决
+  const { run } = createAgentRunner({ llmClient, workbench: wb, dynamicApproval: (n, args) => routeDynamicApproval(n, args, permissive, { needsApproval: async () => false }) })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval', '伪造 server 不再借桥免审——必须 checkpoint 人审')
+  assert.deepEqual(scales, [], '未批准不执行')
+})
+
+test('动态审批路由:wb_ssh_run→ssh.needsApproval;wb_ssh_job_write→sshJobs;wb_ssh_exec→ssh.needsApproval', async () => {
   const calls = []
   const jobRuns = []
   const sshExecs = []
   const workbench = {
     ssh: { exec: async (a) => { sshExecs.push(a); return { ok: true } },
-      needsApproval: async (n) => { calls.push(['ssh', n]); return false } }, // wb_exec 放宽 → 直执行
+      // wb_ssh_run 收紧 → checkpoint;wb_ssh_exec 放宽 → 直执行(同一桥按工具名给两种裁决)
+      needsApproval: async (n) => { calls.push(['ssh', n]); return n === 'wb_ssh_run' } },
     sshJobs: { run: async (a) => { jobRuns.push(a); return { jobId: 'j1' } },
       needsApproval: async (n) => { calls.push(['jobs', n]); return true } }, // 任务工具收紧 → checkpoint
   }
   const sshBridge = workbench.ssh, sshJobs = workbench.sshJobs
   // 用装配点同一事实源(workbench-agent.mjs 导出),防谓词复刻漂移
   const dynamicApproval = (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs)
-  // ① wb_ssh_run(静态需审)→ 路由到任务桥 → 收紧 → checkpoint,resume 批准后 ctx.sshJobs.run 才被调
+  // ① wb_ssh_run(静态需审)→ 2026-09-07 起路由到同步桥 → 收紧 → checkpoint,resume 批准后 ctx.sshJobs.run 才被调
   let r = createAgentRunner({ llmClient: { chat: seqChat([tc('1', 'wb_ssh_run', { server: 's1', command: 'x' }), fin('已起')]) }, workbench, dynamicApproval })
   let cp = await r.run({ history: [{ role: 'user', content: '跑个长任务' }] })
   assert.equal(cp.status, 'pending_approval')
@@ -365,17 +405,17 @@ test('动态审批路由:wb_ssh_run→sshJobs.needsApproval;wb_ssh_job_write→s
   let out = await r.run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
   assert.equal(out.content, '已起')
   assert.equal(jobRuns.length, 1)
-  // ② wb_ssh_job_write(静态需审)同样路由到任务桥
+  // ② wb_ssh_job_write(静态需审)路由到任务桥
   r = createAgentRunner({ llmClient: { chat: seqChat([tc('2', 'wb_ssh_job_write', { server: 's1', jobId: 'j1', text: 'y' }), fin('ok')]) }, workbench, dynamicApproval })
   cp = await r.run({ history: [] })
   assert.equal(cp.status, 'pending_approval')
-  // ③ wb_ssh_exec(静态需审)→ 路由到同步桥 → 放宽 → 直执行(不经 checkpoint)
+  // ③ wb_ssh_exec(静态需审)→ 同步桥 → 放宽 → 直执行(不经 checkpoint)
   r = createAgentRunner({ llmClient: { chat: seqChat([tc('3', 'wb_ssh_exec', { server: 's1', command: 'echo hi' }), fin('done')]) }, workbench, dynamicApproval })
   out = await r.run({ history: [] })
   assert.equal(out.content, 'done')
   assert.equal(sshExecs.length, 1, '放宽后直执行')
-  // 路由分流总账:任务工具全部进 jobs,同步工具进 ssh
-  assert.deepEqual(calls, [['jobs', 'wb_ssh_run'], ['jobs', 'wb_ssh_job_write'], ['ssh', 'wb_ssh_exec']])
+  // 路由分流总账:job_* 全进 jobs,其余 SSH 族进 ssh(非 SSH 工具不进任何桥,由上方 P0 用例锁)
+  assert.deepEqual(calls, [['ssh', 'wb_ssh_run'], ['jobs', 'wb_ssh_job_write'], ['ssh', 'wb_ssh_exec']])
 })
 
 // 2026-09-03:maxSteps 0 = 不设限——旧 `maxSteps ? ...` 会把 0 当缺省丢回 8,必须 != null 透传

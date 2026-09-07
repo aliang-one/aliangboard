@@ -24,4 +24,7 @@ export const TABLE = {
   'wbc.editContentRequired': { zh: '消息内容不能为空', en: 'Message content required' },
   'wbc.editAnchorInvalid': { zh: '编辑目标无效:须为本对话的 user 消息', en: 'Invalid edit target: must be a user message in this conversation' },
   'wbc.editFailed': { zh: '编辑重发失败', en: 'Edit-resend failed' },
+  // 对话限额(F6,2026-09-07 审计):429 文案必须含当前生效上限值(前端 errorBanner 直显服务端 message)
+  'wbc.convRunningLimit': { zh: '并发运行中的对话已达上限({limit}),请等待运行结束、取消部分对话,或在 AI 配置中调高上限', en: 'Concurrent running conversations have reached the limit ({limit}). Wait for runs to finish, cancel some conversations, or raise the limit in AI config' },
+  'wbc.convProjectLimit': { zh: '该项目对话总数已达上限({limit}),请删除旧对话,或在 AI 配置中调高上限', en: 'This project has reached its conversation quota ({limit}). Delete old conversations, or raise the limit in AI config' },
 }

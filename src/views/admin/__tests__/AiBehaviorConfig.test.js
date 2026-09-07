@@ -38,7 +38,7 @@ test('保存:payload 含指令与禁用名单;保存后重载预览', async () =
   await flushPromises()
   await w.find('[data-testid="save-btn"]').trigger('click')
   await flushPromises()
-  expect(adminApi.workbenchAiConfig.save).toHaveBeenCalledWith({ additionalInstructions: '生产谨慎', disabledTools: ['wb_exec'], projectMemory: true, maxSteps: 16 })
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenCalledWith({ additionalInstructions: '生产谨慎', disabledTools: ['wb_exec'], projectMemory: true, maxSteps: 16, maxRunningConversations: 5, maxConversationsPerProject: 50 })
   expect(adminApi.workbenchAiConfig.get).toHaveBeenCalledTimes(2) // 保存后 load() 刷新预览
 })
 
@@ -93,4 +93,47 @@ test('maxSteps 保存:开不限制 → payload 0;改 40 → payload 40', async (
   await w2.find('[data-testid="save-btn"]').trigger('click')
   await flushPromises()
   expect(adminApi.workbenchAiConfig.save).toHaveBeenLastCalledWith(expect.objectContaining({ maxSteps: 40 }))
+})
+
+// ===== 对话限额(F6,2026-09-07):并发/每项目两输入回显 + 保存 payload(0=不限制) =====
+test('对话限额回显:服务端 3/60 → 输入框回填;缺省回落 5/50', async () => {
+  adminApi.workbenchAiConfig.get.mockResolvedValue({ ...FIXTURE, maxRunningConversations: 3, maxConversationsPerProject: 60 })
+  const w = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  expect(w.find('[data-testid="conv-max-running"]').element.value).toBe('3')
+  expect(w.find('[data-testid="conv-max-per-project"]').element.value).toBe('60')
+
+  adminApi.workbenchAiConfig.get.mockResolvedValue(FIXTURE) // 缺两键 → 回落默认
+  const w2 = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  expect(w2.find('[data-testid="conv-max-running"]').element.value).toBe('5', '缺省回落默认 5')
+  expect(w2.find('[data-testid="conv-max-per-project"]').element.value).toBe('50', '缺省回落默认 50')
+})
+
+test('对话限额保存:改 8/0 → payload 含两键;0=不限制原样提交', async () => {
+  adminApi.workbenchAiConfig.get.mockResolvedValue(FIXTURE)
+  adminApi.workbenchAiConfig.save.mockResolvedValue({ ok: true })
+  const w = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  await w.find('[data-testid="conv-max-running"]').setValue(8)
+  await w.find('[data-testid="conv-max-per-project"]').setValue(0)
+  await w.find('[data-testid="save-btn"]').trigger('click')
+  await flushPromises()
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenLastCalledWith(
+    expect.objectContaining({ maxRunningConversations: 8, maxConversationsPerProject: 0 }))
+})
+
+// 终审 F1(2026-09-07):清空输入(v-model.number 得 '')不得伪装成 0=不限制——Number('')===0
+// 会穿过整数门,反滥用配额被静默放到最宽;空值必须回落默认 5/50
+test('对话限额清空保存:两输入清空 → payload 回落默认 5/50(而非 0=不限制)', async () => {
+  adminApi.workbenchAiConfig.get.mockResolvedValue({ ...FIXTURE, maxRunningConversations: 8, maxConversationsPerProject: 60 })
+  adminApi.workbenchAiConfig.save.mockResolvedValue({ ok: true })
+  const w = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  await w.find('[data-testid="conv-max-running"]').setValue('')
+  await w.find('[data-testid="conv-max-per-project"]').setValue('')
+  await w.find('[data-testid="save-btn"]').trigger('click')
+  await flushPromises()
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenLastCalledWith(
+    expect.objectContaining({ maxRunningConversations: 5, maxConversationsPerProject: 50 }))
 })

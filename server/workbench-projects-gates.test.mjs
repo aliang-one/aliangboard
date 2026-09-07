@@ -209,3 +209,31 @@ test('reconcile:撤分配后 allowlist → 仍是 clusterForbidden 403(先于 ns
   assert.equal(h.sent[0].status, 403)
   assert.equal(h.sent[0].json.message, FORBIDDEN_MSG)
 })
+
+// ===== 2026-09-07 审计 F4(authz-entitlement-04):ledger GET 集群门 =====
+// GET /api/workbench/ledger 原先只有 requirePlatform——任意平台用户可读任意集群的全集群
+// survey 台账(含待审蒸馏稿 pending),与兄弟端点(POST 创建/PUT cluster/commit/reconcile)
+// 的 clusterEntitled 门不齐。补齐后与兄弟端点逐字同款(403 wbp.clusterForbidden)。
+// 夹具补 pending_distills:ledger 响应尾部的 getPendingDistill 直查该表,缺表会炸路由。
+function withPendingDistill(h, clusterId, proposed = 'proposed-x') {
+  h.db.exec(`CREATE TABLE IF NOT EXISTS pending_distills (clusterId TEXT PRIMARY KEY, proposed TEXT, current TEXT, summary TEXT, stats TEXT, ts INTEGER NOT NULL)`)
+  h.db.prepare(`INSERT OR REPLACE INTO pending_distills VALUES (?,?,?,?,?,?)`).run(clusterId, proposed, 'current-x', 'sum-x', '{}', 1)
+  return h
+}
+
+test('ledger:无该集群授权的平台用户 → 403 clusterForbidden(待审蒸馏稿不可达)', async () => {
+  const h = withPendingDistill(makeHarness(), 'c2')
+  await h.call('GET', '/api/workbench/ledger?clusterId=c2') // u1 只分配了 c1
+  assert.equal(h.sent[0].status, 403)
+  assert.equal(h.sent[0].json.message, FORBIDDEN_MSG)
+})
+
+test('ledger:已分配用户 200 且 pending 蒸馏稿同门可达;admin 豁免未分配集群也 200', async () => {
+  const h = withPendingDistill(makeHarness(), 'c1')
+  await h.call('GET', '/api/workbench/ledger?clusterId=c1') // u1 已分配 c1(open)
+  assert.equal(h.sent[0].status, 200)
+  assert.equal(h.sent[0].json.pending?.proposed, 'proposed-x')
+  const ha = withPendingDistill(makeHarness({ userId: 'admin', role: 'admin' }), 'c2')
+  await ha.call('GET', '/api/workbench/ledger?clusterId=c2') // admin 未分配 c2 → 豁免
+  assert.equal(ha.sent[0].status, 200)
+})

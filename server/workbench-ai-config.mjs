@@ -59,3 +59,46 @@ export function validateMaxSteps(input) {
   if (!Number.isInteger(n) || n < MAX_STEPS_RANGE.lo || n > MAX_STEPS_RANGE.hi) return { ok: false }
   return { ok: true, value: n }
 }
+
+// ===== 对话限额(2026-09-07 审计 F6):create 查「并发 running」+「每项目总数」双门, =====
+// messages/regenerate/edit 只查并发(计数排除自身行);超限 429;admin 不豁免,0=不限制为逃生阀。
+// 语义逐字同 maxSteps:落库值(范围内整数)优先 → env(WB_CONV_MAX_RUNNING_PER_USER /
+// WB_CONV_MAX_PER_PROJECT,部署侧预置通道;env 0/垃圾回默认——0=不限制仅经落库值表达,
+// 与 maxSteps 的 env 语义一致)→ 默认(5 / 50)。每次 run 前现读,admin 改配置即时生效。
+export const MAX_RUNNING_CONVERSATIONS_RANGE = { lo: 0, hi: 20 }
+export const MAX_CONVERSATIONS_PER_PROJECT_RANGE = { lo: 0, hi: 500 }
+
+export function getMaxRunningConversationsConfig(db, envRaw = process.env.WB_CONV_MAX_RUNNING_PER_USER) {
+  let raw = null
+  try { raw = db.prepare('SELECT value FROM platform_settings WHERE key=?').get('workbench.maxRunningConversations')?.value ?? null } catch { raw = null }
+  if (raw != null) {
+    const n = Number(raw)
+    if (Number.isInteger(n) && n >= MAX_RUNNING_CONVERSATIONS_RANGE.lo && n <= MAX_RUNNING_CONVERSATIONS_RANGE.hi) return n
+  }
+  return Math.max(1, Number(envRaw) || 5)
+}
+
+export function getMaxConversationsPerProjectConfig(db, envRaw = process.env.WB_CONV_MAX_PER_PROJECT) {
+  let raw = null
+  try { raw = db.prepare('SELECT value FROM platform_settings WHERE key=?').get('workbench.maxConversationsPerProject')?.value ?? null } catch { raw = null }
+  if (raw != null) {
+    const n = Number(raw)
+    if (Number.isInteger(n) && n >= MAX_CONVERSATIONS_PER_PROJECT_RANGE.lo && n <= MAX_CONVERSATIONS_PER_PROJECT_RANGE.hi) return n
+  }
+  return Math.max(1, Number(envRaw) || 50)
+}
+
+// PUT 校验:null/undefined = 不修改(与 maxSteps 语义一致);否则必须范围内整数(0=不限制)
+export function validateMaxRunningConversations(input) {
+  if (input == null) return { ok: true, value: null }
+  const n = Number(input)
+  if (!Number.isInteger(n) || n < MAX_RUNNING_CONVERSATIONS_RANGE.lo || n > MAX_RUNNING_CONVERSATIONS_RANGE.hi) return { ok: false }
+  return { ok: true, value: n }
+}
+
+export function validateMaxConversationsPerProject(input) {
+  if (input == null) return { ok: true, value: null }
+  const n = Number(input)
+  if (!Number.isInteger(n) || n < MAX_CONVERSATIONS_PER_PROJECT_RANGE.lo || n > MAX_CONVERSATIONS_PER_PROJECT_RANGE.hi) return { ok: false }
+  return { ok: true, value: n }
+}
