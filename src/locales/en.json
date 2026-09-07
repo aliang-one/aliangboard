@@ -735,7 +735,20 @@
     "mfaStepSubmit": "Verify and Sign In",
     "mfaStepMissing": "Enter the verification code",
     "mfaStepInvalid": "Invalid or expired code — please sign in again",
-    "mfaStepBack": "Back to sign in"
+    "mfaStepBack": "Back to sign in",
+    "ssoLogin": "Sign in with SSO",
+    "ssoOrLocal": "or use a local account",
+    "oidcExchangeFailed": "SSO sign-in failed — please try again",
+    "oidcError": {
+      "disabled": "SSO sign-in is not enabled — ask an administrator to configure it in Settings",
+      "state": "SSO session is no longer valid — please start sign-in again",
+      "denied": "The identity provider denied this sign-in",
+      "token": "Could not obtain a token from the identity provider — please retry",
+      "verify": "Identity token verification failed — please retry or contact an administrator",
+      "usernameTaken": "SSO username conflicts with an existing local account — contact an administrator",
+      "jit": "Failed to provision the SSO account — contact an administrator",
+      "ratelimited": "Too many attempts — please try again later"
+    }
   },
   "cluster": {
     "title": "Cluster Overview",
@@ -3542,6 +3555,26 @@
       "mfaRequired": "Require two-factor verification",
       "mfaRequiredHint": "When enabled, users who have not enrolled in two-factor verification can only reach the enrollment guide after login; everything else stays restricted until they enroll",
       "mfaRequiredLogoutHint": "After enabling, force-logout existing sessions on the Users page so the restriction takes effect immediately"
+    },
+    "oidc": {
+      "title": "SSO sign-in (OIDC)",
+      "hint": "Configure an external identity provider for single sign-on; turning it off falls back to local password sign-in (break-glass)",
+      "enabled": "Enable SSO sign-in",
+      "enabledHint": "Issuer and Client ID are required to enable; the client secret is write-only — saving it empty keeps the current value",
+      "issuer": "Issuer URL",
+      "clientId": "Client ID",
+      "clientSecret": "Client Secret",
+      "clientSecretSet": "Set (leave empty to keep)",
+      "scopes": "Scopes",
+      "groupsClaim": "Groups Claim",
+      "usernameClaim": "Username Claim",
+      "redirectUri": "Redirect URI",
+      "test": "Test connection",
+      "testOk": "Connection OK",
+      "testFailed": "Connection failed — check the issuer URL and network",
+      "authEndpoint": "Authorization endpoint",
+      "tokenEndpoint": "Token endpoint",
+      "jwksKeys": "JWKS keys"
     }
   },
   "network": {

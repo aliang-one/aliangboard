@@ -735,7 +735,20 @@
     "mfaStepSubmit": "验证并登录",
     "mfaStepMissing": "请输入验证码",
     "mfaStepInvalid": "验证码错误或已过期,请重新登录",
-    "mfaStepBack": "返回重新登录"
+    "mfaStepBack": "返回重新登录",
+    "ssoLogin": "使用 SSO 登录",
+    "ssoOrLocal": "或使用本地账号登录",
+    "oidcExchangeFailed": "SSO 登录失败,请重试",
+    "oidcError": {
+      "disabled": "SSO 登录未启用,请联系管理员在设置中配置",
+      "state": "登录会话已失效,请重新发起 SSO 登录",
+      "denied": "身份提供方拒绝了本次登录",
+      "token": "无法从身份提供方获取令牌,请重试",
+      "verify": "身份令牌校验失败,请重试或联系管理员",
+      "usernameTaken": "SSO 用户名与本地账号冲突,请联系管理员",
+      "jit": "SSO 账号开通失败,请联系管理员",
+      "ratelimited": "尝试过于频繁,请稍后再试"
+    }
   },
   "cluster": {
     "title": "Cluster Overview",
@@ -3542,6 +3555,26 @@
       "mfaRequired": "强制两步验证",
       "mfaRequiredHint": "开启后，未启用两步验证的用户登录只进入两步验证引导，其余操作一律受限，直至完成启用",
       "mfaRequiredLogoutHint": "建议开启后立即在用户管理页强制下线存量会话，使限制即时生效"
+    },
+    "oidc": {
+      "title": "SSO 登录(OIDC)",
+      "hint": "配置外部身份提供方实现单点登录;关闭开关即回退本地密码登录(break-glass)",
+      "enabled": "启用 SSO 登录",
+      "enabledHint": "开启前须填写 Issuer 与 Client ID;Client Secret 只写不读,留空保存=保持现值",
+      "issuer": "Issuer 地址",
+      "clientId": "Client ID",
+      "clientSecret": "Client Secret",
+      "clientSecretSet": "已设置(留空保持不变)",
+      "scopes": "Scopes",
+      "groupsClaim": "Groups Claim",
+      "usernameClaim": "Username Claim",
+      "redirectUri": "回调 URI",
+      "test": "测试连接",
+      "testOk": "连接成功",
+      "testFailed": "连接失败,请检查 Issuer 地址与网络",
+      "authEndpoint": "授权端点",
+      "tokenEndpoint": "令牌端点",
+      "jwksKeys": "JWKS 密钥数"
     }
   },
   "network": {

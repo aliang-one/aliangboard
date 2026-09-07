@@ -2,10 +2,11 @@
 // 平台登录页（Layer 1）：用户名/密码 → 平台 session → 跳转集群选择
 // W3 Task 4(2026-09-07):已启用 MFA 者两步——密码步返 {mfaRequired,mfaTicket} → 二步表单
 // (验证码/恢复码一框)→ POST /api/auth/login/mfa → 同形响应 {token,user,prefs} → 复用落地逻辑。
-import { ref } from 'vue'
+// W4 Task 5(2026-09-07):SSO 登录——?oidcCode= 挂载即兑换;?oidcError= 行内错误条;SSO 钮恒显示。
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { authApi } from '@/api/client'
+import { authApi, purgeSession } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
 import { safeRedirectPath } from '@/utils/safeRedirect'
@@ -121,6 +122,37 @@ function backToPassword() {
   mfaCode.value = ''
   errorMessage.value = ''
 }
+
+// === W4 OIDC:SSO 回跳续接 ===
+// 服务端 302 码白名单(与 server/routes/auth.mjs 一一对应;表外码走通用文案,不渲染裸键路径)。
+const OIDC_ERROR_CODES = ['disabled', 'state', 'denied', 'token', 'verify', 'usernameTaken', 'jit', 'ratelimited']
+onMounted(async () => {
+  const err = String(route.query.oidcError || '')
+  if (err) {
+    errorMessage.value = OIDC_ERROR_CODES.includes(err) ? t(`login.oidcError.${err}`) : t('login.oidcExchangeFailed')
+  }
+  const code = String(route.query.oidcCode || '')
+  if (!code) return
+  loading.value = true
+  try {
+    const res = await authApi.oidcExchange(code)
+    // 与 store.login 同构的账号切换语义:W3 mfa 分支由密码步(store.login 内 purgeSession)代劳,
+    // OIDC 无密码步,这里自己补——清上一账号 K8s token/暂存,防跨账号复用与窗口记录继承。
+    purgeSession()
+    applyLogin(res)
+    await landing()
+  } catch (error) {
+    errorMessage.value = error?.message || t('login.oidcExchangeFailed')
+  } finally {
+    loading.value = false
+  }
+})
+
+// SSO 起跳(R2 裁决:恒显示零配置探测——未启用时服务端 302 回 oidcError=disabled 错误条,
+// 前端不必先探测配置;本地密码表单恒在是 D4,与本钮无关)。
+function ssoLogin() {
+  window.location.href = '/api/auth/oidc/login'
+}
 </script>
 
 <template>
@@ -135,6 +167,15 @@ function backToPassword() {
 
       <!-- Login Form -->
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-xl shadow-card">
+        <!-- SSO 登录(W4):恒显示(R2 零配置探测),置于本地表单上方;两步(MFA)态同样可见 -->
+        <button data-testid="sso-login" @click="ssoLogin"
+          class="w-full flex items-center justify-center gap-sm px-md py-sm border border-outline-variant text-primary rounded-lg font-semibold hover:bg-surface-container-low active:scale-[0.98] transition-all">
+          <span class="material-symbols-outlined">key</span>{{ $t('login.ssoLogin') }}
+        </button>
+        <div class="flex items-center gap-sm my-md text-body-xs text-on-surface-variant">
+          <span class="h-px bg-outline-variant flex-1"></span>{{ $t('login.ssoOrLocal') }}<span class="h-px bg-outline-variant flex-1"></span>
+        </div>
+
         <!-- MFA 二步:验证码/恢复码一框(单输入) -->
         <div v-if="mfaStep" class="flex flex-col gap-md">
           <div class="text-center">
@@ -177,7 +218,7 @@ function backToPassword() {
           <p v-if="errorMessage" class="text-body-sm text-error bg-error-container/10 rounded-lg px-md py-sm flex items-center gap-sm">
             <span class="material-symbols-outlined text-base">error</span>{{ errorMessage }}
           </p>
-          <button @click="handleLogin" :disabled="loading"
+          <button data-testid="login-submit" @click="handleLogin" :disabled="loading"
             class="w-full flex items-center justify-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50">
             <span v-if="loading" class="material-symbols-outlined animate-spin">progress_activity</span>
             <span v-else class="material-symbols-outlined">login</span>

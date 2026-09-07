@@ -352,6 +352,10 @@ export const authApi = {
   mfaEnable: payload => mfaHttp.request('/api/auth/mfa/enable', { method: 'POST', body: JSON.stringify(payload) }),
   mfaDisable: code => mfaHttp.request('/api/auth/mfa/disable', { method: 'POST', body: JSON.stringify({ code }) }),
   mfaLogin: (username, mfaTicket, code) => platformHttp.request('/api/auth/login/mfa', { method: 'POST', body: JSON.stringify({ username, mfaTicket, code }) }),
+  // —— W4 OIDC(2026-09-07):callback 302 回 /login?oidcCode= 后前端兑换码换平台 session。
+  // 401(错码/过期/重放)= 兑换码失效,交登录页行内提示(platformHttp 对非 /api/auth/login 前缀
+  // 的 401 会清平台 token——登录页本无有效 token,clearPlatformToken 在此无害)。
+  oidcExchange: code => platformHttp.request('/api/auth/oidc/exchange', { method: 'POST', body: JSON.stringify({ code }) }),
   stepUp: code => mfaHttp.request('/api/auth/step-up', { method: 'POST', body: JSON.stringify({ code }) }),
   logout: () => platformHttp.request('/api/auth/logout', { method: 'POST' }),
   updateMe: patch => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify(patch) }),
@@ -480,6 +484,13 @@ export const adminApi = {
   workbenchAiConfig: {
     get: () => platformHttp.request('/api/admin/workbench-ai-config'),
     save: payload => platformHttp.request('/api/admin/workbench-ai-config', { method: 'PUT', body: JSON.stringify(payload) }),
+  },
+  // SSO 登录(OIDC)配置(W4):GET → publicConfig+redirectUri(clientSecret 永不回传,只回 hasSecret);
+  // PUT 空 clientSecret=保持现值(llm.apiKey 同惯例);test 走 discovery+JWKS(GET,200+ok:false 是数据不是错误)
+  oidcConfig: {
+    get: () => platformHttp.request('/api/admin/oidc-config'),
+    save: payload => platformHttp.request('/api/admin/oidc-config', { method: 'PUT', body: JSON.stringify(payload) }),
+    test: () => platformHttp.request('/api/admin/oidc-config/test'),
   },
 }
 

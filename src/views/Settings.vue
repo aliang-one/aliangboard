@@ -157,6 +157,60 @@ async function loadSecurityPolicy() {
   try { const r = await adminApi.passwordPolicy.get(); pwPolicy.value = { ...pwPolicy.value, ...r.policy } } catch { /* 非 admin 静默 */ }
   try { const r = await adminApi.tokenPolicy.get(); tokenTtl.value = r.maxTtlDays } catch { /* 非 admin 静默 */ }
   try { const r = await adminApi.mfaPolicy.get(); mfaRequired.value = !!r.enabled } catch { /* 非 admin 静默 */ }
+  loadOidcConfig()
+}
+
+// === SSO 登录(OIDC)(W4 Task 5):安全策略 tab 第四卡 ===
+// GET 只回 publicConfig(clientSecret 永不回传,只回 hasSecret);表单 secret 恒空,占位=已设置,
+// 留空保存=保持现值(与 llm.apiKey 同惯例);redirectUri 服务端推导,只读展示+复制。
+const oidc = ref({ enabled: false, issuer: '', clientId: '', clientSecret: '', scopes: '', groupsClaim: '', usernameClaim: '' })
+const oidcHasSecret = ref(false)
+const oidcRedirectUri = ref('')
+const oidcSaving = ref(false)
+const oidcTesting = ref(false)
+const oidcTest = ref(null) // null=未测 | {ok:true,...} | {ok:false,error}
+async function loadOidcConfig() {
+  try {
+    const r = await adminApi.oidcConfig.get()
+    oidc.value = {
+      enabled: !!r.enabled,
+      issuer: r.issuer || '',
+      clientId: r.clientId || '',
+      clientSecret: '',   // GET 不回传,表单恒空
+      scopes: r.scopes || '',
+      groupsClaim: r.groupsClaim || '',
+      usernameClaim: r.usernameClaim || '',
+    }
+    oidcHasSecret.value = !!r.hasSecret
+    oidcRedirectUri.value = r.redirectUri || ''
+  } catch { /* 非 admin 静默 */ }
+}
+async function saveOidcConfig() {
+  oidcSaving.value = true
+  try {
+    const payload = {
+      enabled: !!oidc.value.enabled,
+      issuer: oidc.value.issuer.trim(),
+      clientId: oidc.value.clientId.trim(),
+      scopes: oidc.value.scopes.trim(),
+      groupsClaim: oidc.value.groupsClaim.trim(),
+      usernameClaim: oidc.value.usernameClaim.trim(),
+    }
+    // 空 secret 不发键 = 服务端保持现值;填了才下发
+    if (oidc.value.clientSecret) payload.clientSecret = oidc.value.clientSecret
+    await adminApi.oidcConfig.save(payload)
+    notify('success', t('admin.securityPolicy.saved'))
+    oidcTest.value = null            // 配置已变,旧测试结果作废
+    await loadOidcConfig()           // 刷新回显(hasSecret 翻转)
+  } catch (e) { notify('error', e.message || t('common.opFailed')) }
+  finally { oidcSaving.value = false }
+}
+// 测试连接:打的是「已保存」配置(服务端读库),不是表单草稿——先保存再测
+async function testOidcConnection() {
+  oidcTesting.value = true
+  try { oidcTest.value = await adminApi.oidcConfig.test() }
+  catch (e) { oidcTest.value = { ok: false, error: e?.message || 'network' } }
+  finally { oidcTesting.value = false }
 }
 // 强制两步验证开关(W3 §1.5,外评 2026-09-07 修复 1):开后未启用用户登录只进 MFA 引导(受限 token)。
 // 回传态为权威(成功即翻转本地态)。
@@ -570,6 +624,77 @@ const { catalog, resetAll } = useTableColumns()
                   <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow-sm"
                     :class="mfaRequired ? 'translate-x-6' : 'translate-x-0'"></span>
                 </button>
+              </div>
+            </div>
+            <!-- SSO 登录(OIDC)第四卡(W4):开关随保存生效;回调 URI 只读+复制;测试连接打已保存配置 -->
+            <div data-testid="oidc-card" class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+              <p class="text-body-sm font-semibold text-on-surface">{{ t('admin.oidc.title') }}</p>
+              <p class="text-body-xs text-on-surface-variant">{{ t('admin.oidc.hint') }}</p>
+              <label class="flex items-center gap-sm text-body-sm text-on-surface-variant cursor-pointer">
+                <input v-model="oidc.enabled" type="checkbox" class="accent-primary w-4 h-4" />
+                {{ t('admin.oidc.enabled') }}
+              </label>
+              <p class="text-body-xs text-on-surface-variant">{{ t('admin.oidc.enabledHint') }}</p>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.issuer') }}</label>
+                <input v-model="oidc.issuer" data-testid="oidc-issuer" type="text" placeholder="https://idp.example.com"
+                  class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              </div>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.clientId') }}</label>
+                <input v-model="oidc.clientId" data-testid="oidc-client-id" type="text"
+                  class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              </div>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.clientSecret') }}</label>
+                <input v-model="oidc.clientSecret" data-testid="oidc-client-secret" type="password" autocomplete="new-password"
+                  :placeholder="oidcHasSecret ? t('admin.oidc.clientSecretSet') : ''"
+                  class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              </div>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.scopes') }}</label>
+                <input v-model="oidc.scopes" data-testid="oidc-scopes" type="text" placeholder="openid profile email"
+                  class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              </div>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.groupsClaim') }}</label>
+                <input v-model="oidc.groupsClaim" data-testid="oidc-groups-claim" type="text"
+                  class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              </div>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.usernameClaim') }}</label>
+                <input v-model="oidc.usernameClaim" data-testid="oidc-username-claim" type="text"
+                  class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
+              </div>
+              <div class="flex items-center gap-sm">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.redirectUri') }}</label>
+                <div class="flex flex-1 min-w-0 items-center gap-xs">
+                  <input :value="oidcRedirectUri" data-testid="oidc-redirect-uri" type="text" readonly
+                    class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-low/60 text-code-sm font-mono text-on-surface-variant" />
+                  <button @click="copyText(oidcRedirectUri)" type="button"
+                    class="flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined text-sm">content_copy</span>{{ t('common.copy') }}
+                  </button>
+                </div>
+              </div>
+              <div class="flex items-center gap-sm">
+                <button data-testid="oidc-save" @click="saveOidcConfig" :disabled="oidcSaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.save') }}</button>
+                <button data-testid="oidc-test" @click="testOidcConnection" :disabled="oidcTesting" class="px-sm py-1 rounded-md border border-outline-variant text-body-xs font-semibold hover:bg-surface-container disabled:opacity-50">
+                  <span v-if="oidcTesting" class="material-symbols-outlined text-sm align-middle animate-spin">progress_activity</span>
+                  <span v-else class="material-symbols-outlined text-sm align-middle">network_check</span>
+                  {{ t('admin.oidc.test') }}
+                </button>
+              </div>
+              <!-- 测试结果:ok → 端点/JWKS 密钥数/kty;!ok → 失败行(错误码为内部归因,统一文案) -->
+              <div v-if="oidcTest" data-testid="oidc-test-result" class="text-body-xs rounded-md px-sm py-sm border"
+                :class="oidcTest.ok ? 'border-status-running/30 bg-status-running/5 text-on-surface' : 'border-error/30 bg-error-container/10 text-error'">
+                <template v-if="oidcTest.ok">
+                  <p class="font-semibold">{{ t('admin.oidc.testOk') }}</p>
+                  <p class="break-all mt-xs">{{ t('admin.oidc.authEndpoint') }}: {{ oidcTest.authorizationEndpoint }}</p>
+                  <p class="break-all">{{ t('admin.oidc.tokenEndpoint') }}: {{ oidcTest.tokenEndpoint }}</p>
+                  <p>{{ t('admin.oidc.jwksKeys') }}: {{ oidcTest.jwksKeys }} · {{ (oidcTest.algorithms || []).join(', ') }}</p>
+                </template>
+                <p v-else class="font-semibold">{{ t('admin.oidc.testFailed') }}</p>
               </div>
             </div>
           </div>
