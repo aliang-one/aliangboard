@@ -58,4 +58,7 @@ export const TABLE = {
   'admin.grantInvalid': { zh: '授权参数非法', en: 'Invalid grant parameters' },
   'admin.nsModeInvalid': { zh: '模式须为 open 或 allowlist', en: 'Mode must be open or allowlist' },
   'admin.mfaPolicyInvalid': { zh: 'enabled 必须为布尔值', en: 'enabled must be a boolean' },
+  // Wave 4 OIDC(SSO 登录,§D1 配置卡)
+  'admin.oidcIssuerInvalid': { zh: 'issuer 必须是以 http:// 或 https:// 开头、且不以 / 结尾的 URL', en: 'issuer must be an http:// or https:// URL without a trailing slash' },
+  'admin.oidcIssuerClientRequired': { zh: '启用 SSO 前必须填写 issuer 与 clientId', en: 'issuer and clientId are required before enabling SSO' },
 }

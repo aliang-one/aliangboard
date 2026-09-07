@@ -24,6 +24,7 @@ export function createAdminRoutes(deps) {
     clusterProber, clusterCerts, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
+    oidcProvider, // W4 OIDC:index.mjs 注入的 provider 单例(publicConfig/discovery/jwksFor)
   } = deps
 
   // ===== W2 Phase E(Task 3):组 RoleBinding 驱动(grants 变更 → 集群侧绑定收敛)=====
@@ -159,6 +160,58 @@ export function createAdminRoutes(deps) {
         sendJson(res, 200, { ok: true, enabled: input.enabled !== false })
         return true
       } catch (e) { sendJson(res, 400, { message: e.message }); return true }
+    }
+    // ====== SSO 登录(OIDC)配置(Wave 4 §D1):GET(轻量,无 discovery)+ PUT + 测试连接 ======
+    if (url.pathname === '/api/admin/oidc-config' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      // publicConfig:clientSecret 永不回传,只回 hasSecret;redirectUri 与 auth.mjs 同推导(配置卡展示/复制用)
+      sendJson(res, 200, {
+        ...(oidcProvider?.getPublicConfig() || {}),
+        redirectUri: `${req.socket?.encrypted ? 'https' : 'http'}://${req.headers.host || 'localhost'}/api/auth/oidc/callback`,
+      })
+      return true
+    }
+    if (url.pathname === '/api/admin/oidc-config' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const enabled = input.enabled === true || input.enabled === '1' || input.enabled === 1 ? '1' : '0'
+        const issuer = String(input.issuer ?? '').trim()
+        const clientId = String(input.clientId ?? '').trim()
+        // 校验(W4-A 前瞻裁决 4):issuer 非 http(s):// 形状或带尾斜杠 → 400 就地上拒——否则 discovery 的
+        // issuer+path 拼接处会静默畸形(W4-A 审查遗留项:尾斜杠 issuer 让 discovery 恒 503 难排查)。
+        if (issuer && !/^https?:\/\/.+[^/]$/.test(issuer)) { sendJson(res, 400, { message: msg(req, 'admin.oidcIssuerInvalid') }); return true }
+        if (enabled === '1' && (!issuer || !clientId)) { sendJson(res, 400, { message: msg(req, 'admin.oidcIssuerClientRequired') }); return true }
+        setSetting('oidc.enabled', enabled)
+        setSetting('oidc.issuer', issuer)
+        setSetting('oidc.clientId', clientId)
+        if (typeof input.clientSecret === 'string' && input.clientSecret) setSetting('oidc.clientSecret', input.clientSecret) // 留空 = 不修改(llm.apiKey 同惯例)
+        setSetting('oidc.scopes', String(input.scopes ?? '').trim())
+        setSetting('oidc.groupsClaim', String(input.groupsClaim ?? '').trim())
+        setSetting('oidc.usernameClaim', String(input.usernameClaim ?? '').trim())
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'admin_oidc_config', result: 'ok', requestSummary: `enabled=${enabled} issuer=${issuer || '(none)'}`, source: 'platform' })
+        sendJson(res, 200, { ok: true })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.saveFailed') }); return true }
+    }
+    if (url.pathname === '/api/admin/oidc-config/test' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      // 测试连接:discovery + jwks 走 provider 缓存;未配置/任何失败统一 { ok:false, error:'discovery' }
+      // (200 + ok:false,与 llm-config/test 同形状——结果是数据不是错误)。
+      const cfg = oidcProvider?.getFullConfig?.() || null
+      if (!cfg?.issuer) { sendJson(res, 200, { ok: false, error: 'discovery' }); return true }
+      try {
+        const doc = await oidcProvider.discovery(cfg.issuer)
+        const jwks = await oidcProvider.jwksFor(cfg.issuer)
+        sendJson(res, 200, {
+          ok: true,
+          authorizationEndpoint: doc.authorization_endpoint,
+          tokenEndpoint: doc.token_endpoint,
+          jwksKeys: jwks.keys.length,
+          algorithms: [...new Set(jwks.keys.map((k) => k?.kty).filter(Boolean))],
+        })
+      } catch { sendJson(res, 200, { ok: false, error: 'discovery' }) }
+      return true
     }
 
     // ====== Pod 文件传输限额(上传/下载共用;默认 1GB,1-10240MB)======

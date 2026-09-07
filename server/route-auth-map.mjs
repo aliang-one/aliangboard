@@ -21,6 +21,9 @@ export const ROUTE_AUTH = [
   { method: 'POST',   pattern: '/api/auth/login', auth: 'none' },
   { method: 'POST',   pattern: '/api/auth/login/mfa', auth: 'none' }, // W3 §1.3:登录二步第二步(票据+验证码;自身独立限流,handler 内验)
   { method: 'POST',   pattern: '/api/auth/logout', auth: 'none' }, // 幂等:无 token 也 200
+  { method: 'GET',    pattern: '/api/auth/oidc/login',    auth: 'none' }, // W4 OIDC:SSO 起跳(未启用回 302 oidcError=disabled;handler 内签 state/nonce/PKCE)
+  { method: 'GET',    pattern: '/api/auth/oidc/callback', auth: 'none' }, // W4 OIDC:IdP 回跳(state 单次读即删+PKCE 兑换+nonce 全验;失败一律 302 错误码)
+  { method: 'POST',   pattern: '/api/auth/oidc/exchange', auth: 'none' }, // W4 OIDC:兑换码换平台会话(handler 内独立限流 oidcx|ip,码单次+绑 IP)
   { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204(POST /api/session 已下线:CSO #1 未认证 SSRF 链)
   // --- 平台 ---
   { method: 'GET',  pattern: '/api/auth/me',            auth: 'platform' },

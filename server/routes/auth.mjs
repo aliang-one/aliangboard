@@ -9,6 +9,8 @@ import { resolvePasswordPolicy, firstFailedRule } from '../password-policy.mjs'
 import { queryAuditLog } from '../audit.mjs'
 import { effectiveGrants } from '../authz.mjs'
 import { generateTotpSecret, otpauthUri, verifyTotp, generateRecoveryCodes, hashRecoveryCode } from '../totp.mjs'
+import { oidcSubjectOf, upsertOidcUser, syncGroupsFromClaims } from '../oidc-provision.mjs'
+import { createHash, randomBytes } from 'node:crypto'
 import { unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,6 +26,22 @@ const MFA_TICKET_TTL_MS = 5 * 60_000
 const MFA_PENDING_SECRET_TTL_MS = 5 * 60_000
 const STEP_UP_MAX_AGE_MS = 10 * 60_000
 
+// ===== Wave 4 OIDC(SSO):模块级单次票据(单进程网关不变式,与 mfaTickets 同政策) =====
+// oidcStates:login 起跳签发 → callback 消费(读即删)。10min TTL、单次;nonce / PKCE verifier /
+//   redirectUri 绑定在 entry 上(state 不是裸游标——防错绑与 redirect_uri 篡改)。
+// oidcCodes:callback 成功签发 → exchange 消费(读即删)。60s TTL、单次、绑 IP——兑换码经浏览器 302
+//   落地(可能进 Referrer),换 IP 即失效。导出仅供测试播种(过期用例),生产只经三端点触碰。
+export const oidcStates = new Map() // state -> { nonce, verifier, redirectUri, exp }
+export const oidcCodes = new Map()  // code  -> { userId, username, role, ip, exp }
+const OIDC_STATE_TTL_MS = 10 * 60_000
+const OIDC_CODE_TTL_MS = 60_000
+
+// 回调地址从请求推导:socket 直连事实(encrypted→https),不信任 X-Forwarded-* 系头(与限流 IP 同口径);
+// 反向代理场景由代理层保证 Host 正确(部署文档职责)。
+function deriveOidcRedirectUri(req) {
+  return `${req.socket?.encrypted ? 'https' : 'http'}://${req.headers.host || 'localhost'}/api/auth/oidc/callback`
+}
+
 export function createAuthRoutes(deps) {
   const {
     // 首管一次性凭证文件所在目录(默认 <repo>/data;改密成功即删,CSO #13)
@@ -37,6 +55,7 @@ export function createAuthRoutes(deps) {
     removeSessionRecord,
     hashPassword, extractPlatformToken,
     impersonationProbe, // W2 Phase E(可选):connect-cluster 成功后 fire-and-forget 探测集群 impersonate 能力
+    oidcProvider, // W4 OIDC:index.mjs 注入的 provider 单例(discovery/JWKS/exchange;缺省=端点回 disabled)
   } = deps
 
   // 读用户 prefs:SELECT/parse 全程容错——存量库无 prefs 列、坏 JSON 均回 {}(node:sqlite 拒绝非法绑定,这里只读标量)。
@@ -93,6 +112,29 @@ export function createAuthRoutes(deps) {
     auditOk()
     // totpEnabled(W3 Task 4):前端安全卡/登录页据渲染二步态;!! 化避免明文 secret 出响应。
     sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt, totpEnabled: !!user.totpSecret }, prefs: readPrefs(db, user.id) })
+  }
+
+  // OIDC 会话落成(W4 §D3):响应形状与 finishLogin 一致(token/user/prefs)+ stepUpAt=now(IdP 认证即
+  // 最近一次强认证)。**不设 mfaPending(裁决 R1)**——OIDC 用户已由 IdP 完成认证,本地 MFA 强制开关
+  // (auth.mfa.required)是「本地口令 + 本地第二因子」的配对语义,对外部身份不适用;恒 0。
+  // disabled 用户拒绝(W4-A 前瞻裁决 1):upsert 建户 ≠ 放行——禁用的 OIDC 用户不得获得会话;返 false
+  // 由调用方按各自面(302 错误码 / 401)处理。
+  function finishOidcSession(req, res, user, ip, auditOk) {
+    if (!user || user.disabled) return false
+    const token = randomUUID()
+    const psNow = Date.now()
+    const userAgent = String(req.headers['user-agent'] || '')
+    const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: psNow, k8sSessionToken: null, ip, userAgent, lastSeenAt: psNow, mfaPending: 0, stepUpAt: psNow }
+    platformSessions.set(token, ps)
+    db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt,mfaPending,stepUpAt) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(token, user.id, user.username, user.role, psNow, ip, userAgent, psNow, 0, psNow)
+    try {
+      enforceSessionCap?.({ platformSessions, db, sessions, userId: user.id, owner: user.username,
+        max: maxPlatformSessionsPerUser, keepToken: token, now: psNow, writeAudit })
+    } catch (e) { console.error('[auth] 会话上限强制失败(降级不踢):', e?.message || e) }
+    auditOk()
+    sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt, totpEnabled: !!user.totpSecret }, prefs: readPrefs(db, user.id) })
+    return true
   }
 
   // 匹配 auth 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -172,6 +214,169 @@ export function createAuthRoutes(deps) {
           sendJson(res, 401, { message: msg(req, 'auth.mfaCodeInvalid') }); return true
         }
         finishLogin(req, res, user, ip, () => auditMfa('ok', `via=${via}`))
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
+    }
+
+    // ===== Wave 4 OIDC(SSO)三端点(ROUTE_AUTH class none,精确登记;302 一律 writeHead+end 不经 sendJson) =====
+    // GET /api/auth/oidc/login — SSO 起跳:未启用(开关缺省关=存量零感知)回 302 oidcError=disabled
+    // (前端按钮恒显示,零配置探测);启用则 discovery→签 state/nonce/PKCE→302 授权 URL。
+    if (url.pathname === '/api/auth/oidc/login' && req.method === 'GET') {
+      try {
+        if (!oidcProvider?.isEnabled()) {
+          writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'disabled', requestSummary: `ip=${req.socket?.remoteAddress || 'unknown'}`, source: 'platform' })
+          res.writeHead(302, { location: '/login?oidcError=disabled' }); res.end()
+          return true
+        }
+        const cfg = oidcProvider.getFullConfig()
+        // 授权 URL 需要 authorization_endpoint → discovery;上游不可用统一回 token(白名单码里上游网络面的归属)
+        const doc = await oidcProvider.discovery(cfg.issuer)
+        const state = randomUUID()
+        const nonce = randomUUID()
+        const verifier = randomBytes(32).toString('base64url') // RFC 7636 code_verifier:43-128 字符
+        const codeChallenge = createHash('sha256').update(verifier).digest('base64url')
+        const redirectUri = deriveOidcRedirectUri(req)
+        oidcStates.set(state, { nonce, verifier, redirectUri, exp: Date.now() + OIDC_STATE_TTL_MS })
+        res.writeHead(302, { location: oidcProvider.buildAuthUrl({ doc, clientId: cfg.clientId, redirectUri, state, nonce, codeChallenge, scopes: cfg.scopes }) })
+        res.end()
+        return true
+      } catch (e) {
+        res.writeHead(302, { location: '/login?oidcError=token' }); res.end()
+        return true
+      }
+    }
+
+    // GET /api/auth/oidc/callback — IdP 回跳。顺序:IdP error 参数(用户在 IdP 侧拒绝)先于一切 → denied;
+    // state 消费(读即删,过期/未知/缺 code → state)→ PKCE 兑换(网络/端点面失败 → token)→ id_token 全验
+    // (nonce 显式传入;验签/claims 面 → verify)→ JIT 建户(usernameTaken 拒接管;建库面异常 → jit)→
+    // disabled 拒(W4-A 裁决 1)→ 组同步 → 签 60s 单次兑换码 → 302 /login?oidcCode=<code>。
+    if (url.pathname === '/api/auth/oidc/callback' && req.method === 'GET') {
+      try {
+        const ip = req.socket?.remoteAddress || 'unknown'
+        const q = url.searchParams
+        const auditOidc = (result, reason = null, summary = `ip=${ip}`, owner = null) =>
+          writeAudit?.(db, { owner, verb: 'login', tool: 'oidc_login', result, reason, requestSummary: summary, source: 'platform' })
+        // IdP 侧拒绝(用户取消授权等):不进兑换流程;state 若带回即行作废(单次语义)
+        const idpError = q.get('error')
+        if (idpError) {
+          const errState = q.get('state')
+          if (errState) oidcStates.delete(errState)
+          auditOidc('denied', 'denied', `ip=${ip} idpError=${idpError}`)
+          res.writeHead(302, { location: '/login?oidcError=denied' }); res.end()
+          return true
+        }
+        const state = q.get('state'), code = q.get('code')
+        const st = state ? oidcStates.get(state) : null
+        if (state) oidcStates.delete(state) // 读即删(单次;未知 state 同报 state——不泄漏存在性)
+        if (!code || !st || st.exp < Date.now()) {
+          auditOidc('denied', 'state')
+          res.writeHead(302, { location: '/login?oidcError=state' }); res.end()
+          return true
+        }
+        const cfg = oidcProvider?.getFullConfig()
+        if (!cfg) { // 起跳后配置被清(异常窗口)——视同未启用
+          auditOidc('denied', 'disabled')
+          res.writeHead(302, { location: '/login?oidcError=disabled' }); res.end()
+          return true
+        }
+        let claims
+        try {
+          const doc = await oidcProvider.discovery(cfg.issuer)
+          const { idToken } = await oidcProvider.exchangeCode({ doc, clientId: cfg.clientId, clientSecret: cfg.clientSecret, redirectUri: st.redirectUri, code, codeVerifier: st.verifier })
+          // W4-A 前瞻裁决 2:nonce 恒显式传入——undefined 会让 verifyIdToken 跳过 nonce 校验(重放洞)
+          ;({ claims } = await oidcProvider.verifyCallbackIdToken(idToken, cfg.issuer, cfg.clientId, st.nonce))
+        } catch (e) {
+          // 错误码映射:discovery/exchange 面 → token;id_token 验签/claims 面(jwt-verify 各码)→ verify
+          const rc = e?.message === 'token' || e?.message === 'discovery' ? 'token' : 'verify'
+          auditOidc('denied', rc)
+          res.writeHead(302, { location: `/login?oidcError=${rc}` }); res.end()
+          return true
+        }
+        // claims 提取:usernameClaim 缺省 preferred_username,claim 缺失回退 sub;groups claim 缺失视为 []
+        // (裁决 R3);present 但非 string[] → 整次登录拒(→ verify:claims 形状校验失败,先于建户防半拉供给)。
+        const username = String(claims[cfg.usernameClaim || 'preferred_username'] ?? claims.sub ?? '')
+        const displayName = typeof claims.name === 'string' ? claims.name : null
+        const rawGroups = claims[cfg.groupsClaim || 'groups']
+        const groups = rawGroups === undefined || rawGroups === null ? [] : rawGroups
+        if (!claims.sub || typeof claims.sub !== 'string' || !username || !Array.isArray(groups) || !groups.every((g) => typeof g === 'string')) {
+          auditOidc('denied', 'verify', `sub=${claims?.sub ?? '?'} reason=claims-shape`)
+          res.writeHead(302, { location: '/login?oidcError=verify' }); res.end()
+          return true
+        }
+        // JIT 建户 + 组同步(upsert 三路:已知 subject 更新 / username 被占拒接管 / 新建;组全量对齐)
+        const existed = !!db.prepare('SELECT id FROM platform_users WHERE oidcSubject=?').get(oidcSubjectOf(cfg.issuer, claims.sub))
+        let user
+        try {
+          const out = upsertOidcUser(db, { issuer: cfg.issuer, sub: claims.sub, username, displayName }, { hashPassword, randomUUID })
+          if (out.error === 'usernameTaken') {
+            auditOidc('denied', 'usernameTaken', `sub=${claims.sub} username=${username}`)
+            res.writeHead(302, { location: '/login?oidcError=usernameTaken' }); res.end()
+            return true
+          }
+          user = out.user
+          syncGroupsFromClaims(db, user.id, groups) // 形状已在前置校验;此处 throw 只剩 DB 面 → jit
+        } catch (e) {
+          auditOidc('denied', 'jit', `sub=${claims.sub} reason=${e?.message || 'error'}`)
+          res.writeHead(302, { location: '/login?oidcError=jit' }); res.end()
+          return true
+        }
+        // W4-A 前瞻裁决 1:disabled 检查在 upsert 之后——建户 ≠ 放行,禁用的 OIDC 用户不得进入会话轨道
+        if (user.disabled) {
+          auditOidc('denied', 'disabled', `sub=${claims.sub} created=${existed ? 0 : 1}`)
+          res.writeHead(302, { location: '/login?oidcError=disabled' }); res.end()
+          return true
+        }
+        // 兑换码(60s 单次、绑 IP):浏览器经 302 拿码 → 前端 POST exchange 换平台会话
+        const exchangeCode = randomUUID()
+        oidcCodes.set(exchangeCode, { userId: user.id, username: user.username, role: user.role, ip, exp: Date.now() + OIDC_CODE_TTL_MS })
+        auditOidc('ok', null, `sub=${claims.sub} created=${existed ? 0 : 1} groups=${groups.length}`, user.username)
+        res.writeHead(302, { location: `/login?oidcCode=${exchangeCode}` }); res.end()
+        return true
+      } catch (e) {
+        // 未预期异常兜底:不给 500(登录页期望 302),落 jit 码 + 审计
+        writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'jit', requestSummary: `error=${e?.message || 'unknown'}`, source: 'platform' })
+        res.writeHead(302, { location: '/login?oidcError=jit' }); res.end()
+        return true
+      }
+    }
+
+    // POST /api/auth/oidc/exchange {code} — 兑换码换平台会话。独立限流键 `oidcx|<ip>`(容量 5/10s 回 1,
+    // 复用 checkLoginRate 桶但键空间隔离);码读即删=单次(重放 401)、绑 IP(经 Referrer 泄漏到他处失效)。
+    if (url.pathname === '/api/auth/oidc/exchange' && req.method === 'POST') {
+      try {
+        const { code } = await readBody(req)
+        if (!code) { sendJson(res, 400, { message: msg(req, 'auth.oidcCodeRequired') }); return true }
+        const ip = req.socket?.remoteAddress || 'unknown'
+        const rl = checkLoginRate(`oidcx|${ip}`)
+        if (!rl.allowed) {
+          writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'ratelimited', reason: 'too-many-attempts', requestSummary: `ip=${ip}`, source: 'platform' })
+          sendJson(res, 429, { message: msg(req, 'auth.rateLimited'), retryAfter: rl.retryAfter })
+          return true
+        }
+        const entry = typeof code === 'string' ? oidcCodes.get(code) : null
+        oidcCodes.delete(String(code)) // 读即删(单次;未知码同 401——不泄漏存在性)
+        if (!entry || entry.exp < Date.now() || entry.ip !== ip) {
+          writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'bad-code', requestSummary: `ip=${ip}`, source: 'platform' })
+          sendJson(res, 401, { message: msg(req, 'auth.oidcCodeInvalid') })
+          return true
+        }
+        const user = db.prepare('SELECT * FROM platform_users WHERE id=?').get(entry.userId)
+        if (!user) {
+          writeAudit?.(db, { owner: entry.username, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'bad-code', requestSummary: 'user-gone', source: 'platform' })
+          sendJson(res, 401, { message: msg(req, 'auth.oidcCodeInvalid') })
+          return true
+        }
+        // 纵深:callback 已拒 disabled;60s 兑换窗口内被禁用的兜底(finishOidcSession 内再核)
+        if (user.disabled) {
+          writeAudit?.(db, { owner: user.username, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'disabled', requestSummary: 'via=exchange', source: 'platform' })
+          sendJson(res, 401, { message: msg(req, 'auth.oidcAccountDisabled') })
+          return true
+        }
+        // ok 审计在 callback 已写(sub/created/groups 口径);exchange 成功不重复计数
+        if (!finishOidcSession(req, res, user, ip, () => {})) {
+          writeAudit?.(db, { owner: user.username, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'disabled', requestSummary: 'via=exchange', source: 'platform' })
+          sendJson(res, 401, { message: msg(req, 'auth.oidcAccountDisabled') })
+        }
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.loginFailed') }); return true }
     }

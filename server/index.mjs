@@ -49,6 +49,7 @@ import { createAdminRoutes } from './routes/admin.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
+import { createOidcProvider } from './oidc.mjs'
 import { createMyKeyRoutes } from './routes/my-keys.mjs'
 import { createK8sProxyRoutes } from './routes/k8s-proxy.mjs'
 import { touchSession } from './session-touch.mjs'
@@ -308,6 +309,9 @@ function getSetting(key) { const r = db.prepare('SELECT value FROM platform_sett
 function setSetting(key, value) { db.prepare('INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES (?,?,?)').run(key, String(value ?? ''), Date.now()) }
 // W3 §1.5:布尔语义设置「关」= 删键(而非存 '0'),让默认值与「从未配置」不可区分(读侧恒 ==='1' 判开)。
 function deleteSetting(key) { db.prepare('DELETE FROM platform_settings WHERE key=?').run(key) }
+// Wave 4 OIDC(SSO 登录):provider 单例——settings 键现读(开关改动即刻生效),discovery/JWKS 缓存
+// 在模块内(12h TTL,单进程不变式);fetch 走 oidc.mjs 缺省的 globalThis(网关出网同 undici 池)。
+const oidcProvider = createOidcProvider({ getSetting })
 // Pod 文件传输限额(单文件,上传下载共用):默认 1GB,admin 可经 /api/admin/podfile-config 调整
 function getPodfileLimitBytes() {
   const mb = limitMbFromValue(getSetting('podfile.limitMb')) ?? PODFILE_LIMIT_DEFAULT_MB
@@ -1841,6 +1845,7 @@ async function handle(req, res) {
     removeSessionRecord,
     hashPassword, extractPlatformToken,
     impersonationProbe, // W2 Phase E:connect-cluster 成功后 fire-and-forget 探测该集群 impersonate 能力
+    oidcProvider, // W4 OIDC:SSO login/callback/exchange 三端点共用
   })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
@@ -1848,6 +1853,7 @@ async function handle(req, res) {
     clusterProber, clusterCerts, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
+    oidcProvider, // W4 OIDC:oidc-config GET/PUT/test 配置卡
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
     provisionCluster: async (row, spec) => {
       if (!row) throw new Error(msg(req, 'api.clusterNotFound'))

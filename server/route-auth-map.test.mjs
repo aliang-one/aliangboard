@@ -55,10 +55,13 @@ test('公有(none)路由集合与显式清单逐项一致——多一条都是�
   const noneSet = ROUTE_AUTH.filter(r => r.auth === 'none').map(r => `${r.method || '*'} ${r.pattern ?? r.prefix}`).sort()
   assert.deepEqual(noneSet, [
     'DELETE /api/session',   // 幂等登出:无 token 也 204
+    'GET /api/auth/oidc/callback', // W4 OIDC:IdP 回跳(state 单次读即删+PKCE+nonce,失败一律 302 错误码)
+    'GET /api/auth/oidc/login',    // W4 OIDC:SSO 起跳(未启用回 302 oidcError=disabled)
     'GET /api/health',       // 存活探针
     'POST /api/auth/login',
     'POST /api/auth/login/mfa',  // W3 §1.3:MFA 二步(票据+验证码;handler 内独立限流+验票)
     'POST /api/auth/logout',
+    'POST /api/auth/oidc/exchange', // W4 OIDC:兑换码换平台会话(独立限流 oidcx|ip,码单次+绑 IP)
   ])
 })
 
