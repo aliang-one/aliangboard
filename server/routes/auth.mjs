@@ -91,7 +91,8 @@ export function createAuthRoutes(deps) {
         max: maxPlatformSessionsPerUser, keepToken: token, now: psNow, writeAudit })
     } catch (e) { console.error('[auth] 会话上限强制失败(降级不踢):', e?.message || e) }
     auditOk()
-    sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt }, prefs: readPrefs(db, user.id) })
+    // totpEnabled(W3 Task 4):前端安全卡/登录页据渲染二步态;!! 化避免明文 secret 出响应。
+    sendJson(res, 200, { token, user: { id: user.id, username: user.username, role: user.role, displayName: user.displayName, createdAt: user.createdAt, totpEnabled: !!user.totpSecret }, prefs: readPrefs(db, user.id) })
   }
 
   // 匹配 auth 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
@@ -282,14 +283,17 @@ export function createAuthRoutes(deps) {
     }
 
     // GET /api/auth/me — 当前登录用户信息(含 grants 下发,仅展示)
+    // W3 Task 4:user.totpEnabled(安全卡二步验证态;SELECT 加 totpSecret 但显式重建响应对象,
+    // 明文 secret 永不出端点)+ 顶层 mfaPending(受限 token 判定:enable 成功后前端据此引导重新登录)。
     if (url.pathname === '/api/auth/me' && req.method === 'GET') {
       const ps = requirePlatform(req, res); if (!ps) return true
-      const user = db.prepare('SELECT id,username,role,displayName,createdAt FROM platform_users WHERE id=?').get(ps.userId)
+      const row = db.prepare('SELECT id,username,role,displayName,createdAt,totpSecret FROM platform_users WHERE id=?').get(ps.userId)
+      const user = { id: row.id, username: row.username, role: row.role, displayName: row.displayName, createdAt: row.createdAt, totpEnabled: !!row.totpSecret }
       const az = effectiveGrants(db, { userId: ps.userId, role: ps.role })
       const grants = az.role === 'admin'
         ? { role: 'admin' }
         : { role: 'user', clusters: Object.fromEntries([...az.clusters.entries()].map(([cid, { mode, ns }]) => [cid, { mode, namespaces: [...ns.entries()].map(([namespace, level]) => ({ namespace, level })) }])) }
-      sendJson(res, 200, { user, prefs: readPrefs(db, ps.userId), grants })
+      sendJson(res, 200, { user, prefs: readPrefs(db, ps.userId), grants, mfaPending: ps.mfaPending === 1 })
       return true
     }
 

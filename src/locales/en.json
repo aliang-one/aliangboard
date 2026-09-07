@@ -657,6 +657,31 @@
       "statusRevoked": "Revoked",
       "revokeConfirmTitle": "Revoke this token?",
       "revokeConfirmMessage": "Integrations using it stop working immediately"
+    },
+    "mfa": {
+      "title": "Two-Factor Verification",
+      "desc": "Once enabled, sign-in also requires an authenticator code or recovery code",
+      "enable": "Enable",
+      "enrolled": "Enabled",
+      "enrollTitle": "Scan to Enable 2FA",
+      "enrollHint": "Scan the QR code with an authenticator app (e.g. Google Authenticator), or enter the key manually",
+      "secretLabel": "Manual entry key",
+      "otpauthLabel": "otpauth URI",
+      "codePlaceholder": "6-digit code",
+      "codeMissing": "Enter the verification code",
+      "enrollConfirm": "Confirm Enable",
+      "recoveryTitle": "Recovery Codes (shown once)",
+      "recoveryHint": "Save these now: each code works once, for sign-in when your authenticator is lost",
+      "copyAll": "Copy All",
+      "recoveryDone": "I've Saved Them",
+      "reloginHint": "Restricted session enrolled — sign out and sign in again for full access",
+      "disableTitle": "Disable 2FA",
+      "disableHint": "Enter a code to confirm; account-security actions require re-verification",
+      "disableConfirm": "Confirm Disable",
+      "stepUpTitle": "Re-verify Identity",
+      "stepUpHint": "This action requires re-verification — enter a code or a recovery code",
+      "stepUpConfirm": "Verify",
+      "disable": "Disable"
     }
   },
   "layout": {
@@ -691,7 +716,14 @@
     "submit": "Login",
     "loggingIn": "Logging in…",
     "loginFailed": "Login failed",
-    "missingRequired": "Enter username and password"
+    "missingRequired": "Enter username and password",
+    "mfaStepTitle": "Two-Step Verification",
+    "mfaStepHint": "Enter the 6-digit code from your authenticator, or any recovery code",
+    "mfaStepPlaceholder": "Code or recovery code",
+    "mfaStepSubmit": "Verify and Sign In",
+    "mfaStepMissing": "Enter the verification code",
+    "mfaStepInvalid": "Invalid or expired code — please sign in again",
+    "mfaStepBack": "Back to sign in"
   },
   "cluster": {
     "title": "Cluster Overview",

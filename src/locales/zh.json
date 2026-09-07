@@ -657,6 +657,31 @@
       "statusRevoked": "已吊销",
       "revokeConfirmTitle": "吊销该令牌?",
       "revokeConfirmMessage": "使用它的集成将立即失效"
+    },
+    "mfa": {
+      "title": "两步验证",
+      "desc": "启用后,登录需额外输入认证器验证码或恢复码",
+      "enable": "启用",
+      "enrolled": "已启用",
+      "enrollTitle": "扫码启用两步验证",
+      "enrollHint": "使用认证器应用(如 Google Authenticator)扫描二维码,或手动输入密钥",
+      "secretLabel": "手动输入密钥",
+      "otpauthLabel": "otpauth URI",
+      "codePlaceholder": "6 位验证码",
+      "codeMissing": "请输入验证码",
+      "enrollConfirm": "确认启用",
+      "recoveryTitle": "恢复码(仅显示一次)",
+      "recoveryHint": "请立即妥善保存:每个恢复码只能使用一次,丢失验证器时用于登录",
+      "copyAll": "复制全部",
+      "recoveryDone": "我已保存",
+      "reloginHint": "当前为受限会话,两步验证已启用——请退出并重新登录以获得完整访问",
+      "disableTitle": "禁用两步验证",
+      "disableHint": "输入验证码确认禁用;账户安全操作需要重新验证身份",
+      "disableConfirm": "确认禁用",
+      "stepUpTitle": "身份重验证",
+      "stepUpHint": "该操作需要重新验证身份,请输入验证码或恢复码",
+      "stepUpConfirm": "验证",
+      "disable": "禁用"
     }
   },
   "layout": {
@@ -691,7 +716,14 @@
     "submit": "登录",
     "loggingIn": "登录中…",
     "loginFailed": "登录失败",
-    "missingRequired": "请输入用户名和密码"
+    "missingRequired": "请输入用户名和密码",
+    "mfaStepTitle": "两步验证",
+    "mfaStepHint": "输入认证器 6 位验证码,或任一恢复码",
+    "mfaStepPlaceholder": "验证码或恢复码",
+    "mfaStepSubmit": "验证并登录",
+    "mfaStepMissing": "请输入验证码",
+    "mfaStepInvalid": "验证码错误或已过期,请重新登录",
+    "mfaStepBack": "返回重新登录"
   },
   "cluster": {
     "title": "Cluster Overview",

@@ -106,6 +106,18 @@ const platformHttp = createHttp({
   },
 })
 
+// MFA 账户安全面专用(W3 Task 4):mfa/disable / step-up 的 401 = 验码失败(会话仍有效),
+// 走 platformHttp 会被 401 全局处理清平台 token + 跳登录——错一次码就整页登出。
+// 此实例 401 不做全局副作用,错误交调用方行内提示;鉴权 header 与 platformHttp 同源。
+const mfaHttp = createHttp({
+  baseUrl,
+  resolveAuth: () => {
+    const t = getPlatformToken()
+    return t ? { 'x-platform-token': t } : {}
+  },
+  onUnauthorized: () => {},
+})
+
 // 导出任意资源的真实 YAML（kubectl get -o yaml）：拉取 live 对象 → 去 managedFields → dump → 下载
 export async function exportYaml(k8sPath, filename = 'resource.yaml') {
   const obj = await k8sHttp.request(`/api/k8s${k8sPath}`)
@@ -322,6 +334,13 @@ export const workbenchApi = {
 export const authApi = {
   login: payload => platformHttp.request('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => platformHttp.request('/api/auth/me'),
+  // —— W3 MFA(2026-09-07 Task 4):setup/enable 走 mfaHttp(401 无全局副作用,见实例注释);
+  // login/mfa 走 platformHttp(其 401=票据/验码失败,已被 /api/auth/login 前缀豁免全局登出) ——
+  mfaSetup: () => mfaHttp.request('/api/auth/mfa/setup', { method: 'POST' }),
+  mfaEnable: payload => mfaHttp.request('/api/auth/mfa/enable', { method: 'POST', body: JSON.stringify(payload) }),
+  mfaDisable: code => mfaHttp.request('/api/auth/mfa/disable', { method: 'POST', body: JSON.stringify({ code }) }),
+  mfaLogin: (username, mfaTicket, code) => platformHttp.request('/api/auth/login/mfa', { method: 'POST', body: JSON.stringify({ username, mfaTicket, code }) }),
+  stepUp: code => mfaHttp.request('/api/auth/step-up', { method: 'POST', body: JSON.stringify({ code }) }),
   logout: () => platformHttp.request('/api/auth/logout', { method: 'POST' }),
   updateMe: patch => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify(patch) }),
   changePassword: (currentPassword, newPassword) => platformHttp.request('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
