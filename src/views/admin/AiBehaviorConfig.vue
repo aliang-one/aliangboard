@@ -15,6 +15,10 @@ const projectMemory = ref(true)   // 项目记忆注入(T4,2026-08-29):新对话
 // 最大执行步数(2026-09-03):0=不限制;输入框在勾选不限制时禁用
 const maxSteps = ref(16)
 const maxStepsUnlimited = ref(false)
+// 对话限额(F6,2026-09-07 审计):并发 running 上限(默认 5,0..20)/每项目总数上限(默认 50,0..500);
+// 0=不限制;每次 run 前服务端现读,保存即时生效
+const maxRunningConversations = ref(5)
+const maxConversationsPerProject = ref(50)
 const catalog = ref([])
 const preview = ref('')
 // 悬浮对话入口(2026-08-29 自 WorkbenchConfig 迁入):展示条数/隐去时间,保存约 10s 内全端生效。
@@ -34,6 +38,8 @@ async function load() {
     projectMemory.value = s.projectMemory !== false   // 服务端缺省视为开
     maxStepsUnlimited.value = s.maxSteps === 0
     maxSteps.value = s.maxSteps > 0 ? s.maxSteps : 16
+    maxRunningConversations.value = s.maxRunningConversations ?? 5     // 缺省回落默认(与 maxSteps 同族)
+    maxConversationsPerProject.value = s.maxConversationsPerProject ?? 50
     catalog.value = s.toolCatalog || []
     preview.value = s.effectivePreview || ''
   } catch (e) {
@@ -70,7 +76,12 @@ async function save() {
   try {
     const n = Number(maxSteps.value)
     const maxStepsPayload = maxStepsUnlimited.value ? 0 : (Number.isInteger(n) && n > 0 ? Math.min(n, 200) : 16)
-    await adminApi.workbenchAiConfig.save({ additionalInstructions: instructions.value.slice(0, 4000), disabledTools: disabled.value, projectMemory: projectMemory.value, maxSteps: maxStepsPayload })
+    // 对话限额(F6):与 maxSteps 同款钳制(合法整数原样/钳上限;非法回落默认),0=不限制原样提交
+    const mr = Number(maxRunningConversations.value)
+    const mp = Number(maxConversationsPerProject.value)
+    const maxRunningPayload = Number.isInteger(mr) && mr >= 0 ? Math.min(mr, 20) : 5
+    const maxPerProjectPayload = Number.isInteger(mp) && mp >= 0 ? Math.min(mp, 500) : 50
+    await adminApi.workbenchAiConfig.save({ additionalInstructions: instructions.value.slice(0, 4000), disabledTools: disabled.value, projectMemory: projectMemory.value, maxSteps: maxStepsPayload, maxRunningConversations: maxRunningPayload, maxConversationsPerProject: maxPerProjectPayload })
     notify('success', t('common.saved'))
     await load() // 保存后刷新预览(服务端拼装,所见即所发)
   } catch (e) {
@@ -129,6 +140,24 @@ async function save() {
             </label>
           </div>
           <p class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.maxStepsHint') }}</p>
+        </div>
+
+        <!-- 对话限额(F6,2026-09-07 审计):并发/每项目双门,0=不限制;保存即时生效(每次 run 现读) -->
+        <div class="flex flex-col gap-xs">
+          <p class="text-body-xs font-semibold text-on-surface-variant">{{ $t('admin.aiBehavior.convLimitTitle') }}</p>
+          <div class="flex items-end gap-md flex-wrap">
+            <label class="flex flex-col gap-xs">
+              <span class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.convMaxRunningLabel') }}</span>
+              <input v-model.number="maxRunningConversations" type="number" min="0" max="20" data-testid="conv-max-running"
+                class="w-24 bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-sm" />
+            </label>
+            <label class="flex flex-col gap-xs">
+              <span class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.convMaxPerProjectLabel') }}</span>
+              <input v-model.number="maxConversationsPerProject" type="number" min="0" max="500" data-testid="conv-max-per-project"
+                class="w-24 bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-sm" />
+            </label>
+          </div>
+          <p class="text-body-xs text-on-surface-variant">{{ $t('admin.aiBehavior.convLimitHint') }}</p>
         </div>
       </div>
 
