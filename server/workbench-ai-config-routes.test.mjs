@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createAdminRoutes } from './routes/admin.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { createWorkbenchSchema, createConversation, getConversation } from './workbench-projects.mjs'
+import { UNCLUSTERED_TOOLS } from './tool-registry.mjs'
 
 // 对话限额(F6)env 通道消毒:deployment 侧可设 WB_CONV_MAX_RUNNING_PER_USER/WB_CONV_MAX_PER_PROJECT,
 // 设了的机器路由测试会红 → 模块级摘除,after 恢复(镜像 maxSteps 用例的临时摘除手法)。
@@ -142,6 +143,33 @@ test('POST /conversations:创建时烘焙 buildWorkbenchSystemPrompt(getWorkbenc
   const system = getConversation(db, sent[0].json.id).system
   assert.ok(system.includes('SMOKE_EXTRA_MARKER'), '追加指令烘焙进 system')
   assert.ok(!system.includes('**wb_exec**'), '禁用工具不出现于 system 工具清单')
+})
+
+// context-assembly-04(2026-09-07 审计批次三):未绑集群项目——实际 offering 裁掉 16 个 K8s
+// 依赖工具(workbenchExcludeTools),烘焙提示词同源不列(与 disabledTools/SSH 维度同款过滤)。
+test('POST /conversations:未绑集群项目 → 烘焙 system 无被剔除的 K8s 工具段条目', async () => {
+  const { routes, sent, db } = userHarness({ body: { projectId: 'p0', message: 'hi' } })
+  db.prepare('INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES (?,?,?,?,?)')
+    .run('p0', 'unbound-project', '', 'u1', Date.now())
+  await routes.handle({ method: 'POST' }, null, U('/api/workbench/conversations'))
+  assert.equal(sent[0].status, 200)
+  const system = getConversation(db, sent[0].json.id).system
+  for (const n of UNCLUSTERED_TOOLS) assert.ok(!system.includes(`**${n}**`), `未绑集群 system 不列 ${n}`)
+  assert.ok(system.includes('**read_project_file**'), '非集群依赖工具保留')
+})
+
+// context-assembly-06(2026-09-07 审计批次三):admin 预览(所见即所发)与运行时装配同源——
+// 有 AI 暴露服务器时预览含 SSH 服务器段(此前 admin GET 漏传 sshServers,预览恒无 SSH 段而
+// 实际发送有,两副面孔)。防御面:ssh_servers 表缺失(旧库/夹具)降级空清单不 500(既有用例覆盖)。
+test('admin GET effectivePreview:含 SSH 服务器段与服务器名(与运行时提示词同源)', async () => {
+  const { routes, sent, db } = adminHarness()
+  db.exec(`CREATE TABLE ssh_servers (id TEXT PRIMARY KEY, name TEXT, host TEXT, port INTEGER, username TEXT, authMethod TEXT, description TEXT, clusterRef TEXT, exposeToAi INTEGER DEFAULT 1, aiApprovalPolicy TEXT, tags TEXT, hostKeyFingerprint TEXT, status TEXT, osId TEXT, osName TEXT, lastTestedAt INTEGER, notes TEXT, encPassword TEXT, encPrivateKey TEXT, encPassphrase TEXT, encSudoPassword TEXT, createdBy TEXT, createdAt INTEGER, updatedAt INTEGER)`)
+  db.prepare(`INSERT INTO ssh_servers (id,name,host,port,username,authMethod,exposeToAi) VALUES ('s1','prod-web','10.0.0.1',22,'root','password',1)`).run()
+  await routes.handle({ method: 'GET' }, null, U('/api/admin/workbench-ai-config'))
+  assert.equal(sent[0].status, 200)
+  assert.ok(sent[0].json.effectivePreview.includes('## 可管理的 SSH 服务器'), '预览含 SSH 服务器段')
+  assert.ok(sent[0].json.effectivePreview.includes('prod-web'), '服务器名入预览')
+  assert.ok(sent[0].json.effectivePreview.includes('**wb_ssh_exec**'), 'SSH 工具文档同步出现(零暴露虚列是另一病,此处有暴露)')
 })
 
 // ===== 最大执行步数(2026-09-03):GET 回显已解析值;PUT 缺省不改/0=不限制/非法 400 =====

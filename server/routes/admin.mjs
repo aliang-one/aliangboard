@@ -11,7 +11,7 @@ import { msg } from '../messages.mjs'
 import { resolvePasswordPolicy, firstFailedRule, normalizePolicy } from '../password-policy.mjs'
 import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps, MAX_STEPS_RANGE,
   getMaxRunningConversationsConfig, validateMaxRunningConversations, MAX_RUNNING_CONVERSATIONS_RANGE,
-  getMaxConversationsPerProjectConfig, validateMaxConversationsPerProject, MAX_CONVERSATIONS_PER_PROJECT_RANGE } from '../workbench-ai-config.mjs'
+  getMaxConversationsPerProjectConfig, validateMaxConversationsPerProject, MAX_CONVERSATIONS_PER_PROJECT_RANGE, sshPromptServers } from '../workbench-ai-config.mjs'
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { registry } from '../tool-registry.mjs'
 import { isValidMinutes } from '../ssh/reap-policy.mjs'
@@ -313,7 +313,10 @@ export function createAdminRoutes(deps) {
         maxRunningConversations: getMaxRunningConversationsConfig(db),
         maxConversationsPerProject: getMaxConversationsPerProjectConfig(db),
         toolCatalog: registry.workbenchTools(),
-        effectivePreview: buildWorkbenchSystemPrompt(cfg),
+        // context-assembly-06(2026-09-07 审计批次三):预览传 sshPromptServers(db)(与对话创建/
+        // 透明面板同一事实源)——有 AI 暴露服务器时预览含 SSH 段,「所见即所发」;防御式降级
+        // 见 sshPromptServers 注释(表缺失 → 空清单,不 500)。
+        effectivePreview: buildWorkbenchSystemPrompt({ ...cfg, sshServers: sshPromptServers(db) }),
       })
       return true
     }

@@ -365,7 +365,11 @@ test('maybeSummarizeProject:LLM 抛错 → 不动库返回 false', async () => {
   assert.equal(row.historyWatermark, 42)
 })
 
-test('unsummarizedProjectHistory:只取 ts > watermark,升序', () => {
+// context-assembly-08(含 gap2-03,2026-09-07 审计批次三):水位读法 `ts > watermark` 把与水位
+// 同毫秒的迟并行(竞态窗口内 append 的行)永久排除——done 链路 appendHistory(user)+
+// appendHistory(assistant) 同毫秒是常态。`>=` 读法把边界毫秒行重新纳入;「已摘行不重摘」由
+// maybeSummarizeProject 的 in-memory 已摘 rowid 上限守住(见下一用例)。
+test('unsummarizedProjectHistory:ts >= 水位(边界毫秒的并列行纳入),升序', () => {
   const db = freshDb()
   const id = p1Id(db)
   insertHistory(db, id, 'user', 'a', 100)
@@ -374,8 +378,7 @@ test('unsummarizedProjectHistory:只取 ts > watermark,升序', () => {
   assert.deepEqual(unsummarizedProjectHistory(db, id).map(r => r.ts), [100, 200, 300], '水位 0 全量升序')
   db.prepare('UPDATE workbench_projects SET historyWatermark=? WHERE id=?').run(200, id)
   const rows = unsummarizedProjectHistory(db, id)
-  assert.equal(rows.length, 1)
-  assert.deepEqual(rows.map(r => r.content), ['c'])
+  assert.deepEqual(rows.map(r => r.content), ['b', 'c'], 'ts==水位 的行纳入(同毫秒迟并行不再永久跳过)')
 })
 
 // 毒记忆事故加固(2026-08-31):瞬时能力结论禁止固化成持久先验。
@@ -433,6 +436,8 @@ test('maybeSummarizeProject:超长摘要硬钳 ≤2000+截断标记', async () =
 // maybeSummarizeProject 可完成并写入更新的 recap+水位;旧任务完成后无条件 UPDATE 会把新
 // recap 覆写回旧内容(内容回退;水位因 MAX 不回退,丢失的增量被跳过,无法自愈)。
 // 契约:落库为条件写(WHERE COALESCE(historyWatermark,0) < maxTs),changes=0 → 本次丢弃 return false。
+// gap2-01 后注:生产路径并发同项目触发已被 in-flight Set 去重,本用例注入独立 Set 复现
+//「双双重入」(防重摘/条件写守卫是 in-flight 之外的纵深防御——直接调用方/未来新增触发点)。
 test('maybeSummarizeProject:摘要竞态——旧任务后完成不覆写新摘要', async () => {
   const db = freshDb()
   const id = p1Id(db)
@@ -448,13 +453,13 @@ test('maybeSummarizeProject:摘要竞态——旧任务后完成不覆写新摘�
     await gateA
     return { content: '旧任务产的旧摘要' }
   } }
-  const taskA = maybeSummarizeProject(db, id, llmA)
+  const taskA = maybeSummarizeProject(db, id, llmA, { inflight: new Set() })
   // maybeSummarizeProject 同步跑到首个 await(chat 调用本身同步执行)——此刻 A 的 pending 已固化
   assert.ok(aEnteredChat, '任务A已读到 pending 并挂在其 chat 上')
 
   // 任务B:同批内容先完成写入(水位=本批最大 ts 7007,recap=新)
   const llmB = { chat: async () => ({ content: '新任务产的新摘要' }) }
-  assert.equal(await maybeSummarizeProject(db, id, llmB), true)
+  assert.equal(await maybeSummarizeProject(db, id, llmB, { inflight: new Set() }), true)
   let row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
   assert.equal(row.projectRecap, '新任务产的新摘要')
   assert.equal(row.historyWatermark, 7007)
@@ -526,4 +531,113 @@ test('maybeSummarizeProject 回归:人工清空发生在快照前 → 摘照常�
   assert.equal(row.projectRecap, '第二轮摘要')
   assert.equal(row.historyWatermark, 9307)
   assert.equal(row.recapRev, 1, 'rev 只数人工写(两轮摘要后仍 1)')
+})
+
+// ═══ 2026-09-07 审计批次三 PT4:上下文与记忆(context-assembly-03/08、gap2-01/04)═══
+
+// context-assembly-03:recap 写点 64KB 硬钳。maybeSummarize 是追加式写点(`${旧}\n\n${新}` 每轮
+// 滚动增长,LLM 不服从「不超过 300 字」时无界)——旧 recap 已 65k 字 + 一段新增即超限落库,
+// 每轮全量注入放大。契约:三写点(此/compact/setProjectRecap)统一 clamp 64KB chars。
+test('maybeSummarize:追加式 recap 超 64KB → 落库为截断值(clamp 而非无界)', async () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'x' })
+  const conv = listConversations(db, p1Id(db))[0]
+  updateConversation(db, conv.id, { recap: '旧'.repeat(66_000) })
+  for (let i = 0; i < 10; i++) {
+    appendMessage(db, { conversationId: conv.id, role: 'user', content: `q${i}` })
+    appendMessage(db, { conversationId: conv.id, role: 'assistant', content: `a${i}` })
+  }
+  const llm = { chat: async () => ({ content: '新增段'.repeat(100) }) }
+  await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 })
+  const recap = getConversation(db, conv.id).recap
+  assert.ok(recap.length <= 65_536 + '…(截断)'.length, `落库硬钳 64KB(实际 ${recap.length})`)
+  assert.ok(recap.includes('…(截断)'), '截断标记')
+  // 保头截尾(clampRecap 统一语义):追加式写点超限时尾部新增段被裁属预期——recap 瘦身的
+  // 正路是 compact(全量重摘要,自身同钳),钳的承诺只是「不上限穿透」而非「保留最新」。
+  assert.ok(recap.startsWith('旧'), '保头截尾,总量封顶')
+})
+
+test('compactConversation:LLM 超长摘要 → 落库为 64KB 截断值(整体替换写点同钳)', async () => {
+  const { db, conv } = compactFixture()
+  const llm = { chat: async () => ({ content: 'x'.repeat(70_000) }) }
+  const out = await compactConversation(db, conv.id, llm)
+  assert.equal(out.ok, true)
+  const recap = getConversation(db, conv.id).recap
+  assert.ok(recap.length <= 65_536 + '…(截断)'.length, `落库硬钳(实际 ${recap.length})`)
+  assert.ok(recap.includes('…(截断)'), '截断标记')
+})
+
+// context-assembly-08 同毫秒迟并行端到端:第一批摘要落库(水位=107)后,与水位同毫秒的
+// 迟并行行(竞态窗口内 append)在旧 `ts > 水位` 读法下永久跳过;第二批摘要输入必须含它。
+// 同时锁定防重摘:边界毫秒的已摘行(第一批7)不重喂 LLM。
+test('maybeSummarizeProject:同毫秒迟并行不再永久跳过;边界已摘行不重摘', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `第一批${i}`, 100 + i)
+  const llm1 = { chat: async () => ({ content: '第一批摘要' }) }
+  assert.equal(await maybeSummarizeProject(db, id, llm1), true)
+  assert.equal(db.prepare('SELECT historyWatermark FROM workbench_projects WHERE id=?').get(id).historyWatermark, 107)
+  // 迟并行:与水位同毫秒(ts=107)追加(done 链路 user/assistant 同毫秒的常态形状)
+  insertHistory(db, id, 'user', '迟并行STRAGGLER', 107)
+  for (let i = 0; i < 7; i++) insertHistory(db, id, 'user', `第二批${i}`, 200 + i)
+  let transcript = null
+  const llm2 = { chat: async ({ messages }) => { transcript = messages[1].content; return { content: '第二批摘要' } } }
+  assert.equal(await maybeSummarizeProject(db, id, llm2), true, '过滤已摘行后仍满阈值(8 行)')
+  assert.ok(transcript.includes('迟并行STRAGGLER'), '同毫秒迟并行进入摘要输入(不再被 ts>水位 永久跳过)')
+  assert.ok(!transcript.includes('第一批7'), '边界毫秒的已摘行不重摘(防重摘键)')
+  assert.equal(db.prepare('SELECT historyWatermark FROM workbench_projects WHERE id=?').get(id).historyWatermark, 206)
+})
+
+// gap2-01:per-project in-flight 去重。messages 路由与 agent done 两触发点 fire-and-forget
+// 并发到达时,旧实现双双读 pending → 两路 LLM → 条件写只留一路(一次 LLM 白烧)。
+test('gap2-01:并发两触发 → 一次 LLM(in-flight 去重);run 结束清除后可再摘', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `m${i}`, 4000 + i)
+  const h = hangLlm('第一次摘要')
+  const taskA = maybeSummarizeProject(db, id, h.llm)
+  assert.ok(h.entered, 'A 已在途')
+  let bCalls = 0
+  const llmB = { chat: async () => { bCalls++; return { content: 'x' } } }
+  assert.equal(await maybeSummarizeProject(db, id, llmB), false, 'in-flight 期间第二触发直接放弃')
+  assert.equal(bCalls, 0, '第二触发不调 LLM')
+  h.release()
+  assert.equal(await taskA, true)
+  // run 结束(出函)清除:新一批照常可摘
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `n${i}`, 5000 + i)
+  assert.equal(await maybeSummarizeProject(db, id, { chat: async () => ({ content: '第二次摘要' }) }), true)
+})
+
+// gap2-04:摘要失败全链路静默 → 可见。内层 catch(maybeSummarize/maybeSummarizeProject)落
+// console.error(带定位前缀,与 [compact]/[workbench-agent] 惯例同款);不改语义仍返 false。
+test('gap2-04:轮次/项目摘要失败落 console.error(可见性,不改返回语义)', async (t) => {
+  const logs = []
+  const errMock = t.mock.method(console, 'error', (...a) => logs.push(a.map(String).join(' ')))
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'x' })
+  const conv = listConversations(db, p1Id(db))[0]
+  for (let i = 0; i < 10; i++) {
+    appendMessage(db, { conversationId: conv.id, role: 'user', content: `q${i}` })
+    appendMessage(db, { conversationId: conv.id, role: 'assistant', content: `a${i}` })
+  }
+  assert.equal(await maybeSummarize(db, conv.id, { chat: async () => { throw new Error('LLM down A') } }, { thresholdTurns: 12, recentKeep: 8 }), false)
+  assert.ok(logs.some(l => /摘要失败.*LLM down A/.test(l)), '轮次摘要失败落日志(带前缀)')
+  for (let i = 0; i < 8; i++) insertHistory(db, p1Id(db), 'user', `m${i}`, 8000 + i)
+  assert.equal(await maybeSummarizeProject(db, p1Id(db), { chat: async () => { throw new Error('LLM down B') } }), false)
+  assert.ok(logs.some(l => /摘要失败.*LLM down B/.test(l)), '项目摘要失败落日志(带前缀)')
+  assert.ok(getConversation(db, conv.id).recap == null, '语义不变:失败不落库')
+})
+
+// gap2-04 静态守卫:摘要 fire-and-forget 装配点不得再 `.catch(() => {})` 静默吞错
+//(routes/workbench-conversations ×2 + workbench-agent ×2,四点全带日志 catch)。
+test('gap2-04 静态守卫:两装配文件的摘要 fire-and-forget 全带错误日志,无静默吞错', async () => {
+  for (const f of ['./routes/workbench-conversations.mjs', './workbench-agent.mjs']) {
+    const src = await readFile(new URL(f, import.meta.url), 'utf8')
+    const silent = [...src.matchAll(/maybeSummarize(?:Project)?\([^)]*\)\s*\.catch\(\(\)\s*=>\s*\{\}\)/g)]
+    assert.equal(silent.length, 0, `${f} 摘要 fire 不得静默吞错(实际 ${silent.length} 处)`)
+    const fires = [...src.matchAll(/maybeSummarize(?:Project)?\([^)]*\)\s*\.catch\(/g)].length
+    const logged = [...src.matchAll(/maybeSummarize(?:Project)?\([^)]*\)\s*\.catch\(\s*[a-zA-Z]+/g)].length
+    assert.ok(fires > 0, `${f} 应有摘要 fire 点`)
+    assert.equal(fires, logged, `${f}:全部摘要 fire 均带错误参数 catch(${fires}/${logged})`)
+  }
 })

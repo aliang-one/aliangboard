@@ -402,7 +402,9 @@ const CK_TIME_MS = 500
       }
       handleAgentResult(convId, project, out, tracker, JSON.stringify(turnTrace))
       finalizeConvEmit(convId, out)
-      maybeSummarizeProject(db, conv.projectId, llmClient).catch(() => {}) // 项目记忆:done 后补 fire(A2;append 处保留兜底,水位幂等)
+      // gap2-04(2026-09-07 审计批次三):摘要 fire 不再静默吞错——内层 catch 已落日志,此处兜
+      // detached reject(不吞=未捕获 rejection 杀进程;只记不阻对话)。
+      maybeSummarizeProject(db, conv.projectId, llmClient).catch(e => console.error('[workbench-agent] 项目摘要失败:', e?.message || e)) // 项目记忆:done 后补 fire(A2;append 处保留兜底,水位幂等)
     } catch (err) {
       // 取消中止分支(2026-09-06 审计#3,先于 safeSalvage):shouldAbort 检查点抛错 = run 期间
       // 用户点了「停止」——保留已流出内容后收尾,不写 failed(详见 cancelledCatchGuard 注释)。
@@ -504,7 +506,7 @@ const CK_TIME_MS = 500
       // 的中间文本/工具事件(交错渲染不断章),排除历史轮(2026-09-06 前整包拉 conv.trace 全对话累积)。
       handleAgentResult(convId, project, out, tracker, JSON.stringify(currentTurnTrace(convId)))
       finalizeConvEmit(convId, out)
-      maybeSummarizeProject(db, project.id, llmClient).catch(() => {}) // 项目记忆:resume done 后补 fire(A2;水位幂等)
+      maybeSummarizeProject(db, project.id, llmClient).catch(e => console.error('[workbench-agent] 项目摘要失败:', e?.message || e)) // gap2-04:同 run 路径,吞错改日志
     } catch (err) {
       // 取消中止分支(2026-09-06 审计#3,先于 safeSalvage,与 run 路径对称)。
       if (isSuperseded(convId, myEpoch)) return // 被新 run 取代:静默退出——不 safeSalvage(会把新 run 标 failed)、不发事件(bus 属新 run)(对抗审查收口)

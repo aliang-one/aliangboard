@@ -244,13 +244,24 @@ export function getProject(db, id) {
 }
 
 // 项目对话历史(跨会话)。append 一条;recent 取最近 n 条(最旧在前,喂给 agent 当 history)。
+// context-assembly-07(2026-09-07 审计批次三)去重:同角色最近一行同文本不再落——done 链路每轮
+// append user(conv.userMessage)+assistant 两行,regenerate 重答同问(userMessage 不变)会把同一
+// 提问再落一行,项目摘要输入读成 Q/A1/Q/A2。比对锚=最近一条同角色行(紧邻重复);隔了新内容后
+// 同文本再问照常落(提问历史不丢,只去 regenerate 形态的紧邻重复)。
 export function appendHistory(db, projectId, role, content) {
-  db.prepare('INSERT INTO workbench_history (projectId,role,content,ts) VALUES (?,?,?,?)').run(projectId, role, String(content ?? ''), Date.now())
+  const text = String(content ?? '')
+  const dup = db.prepare('SELECT content FROM workbench_history WHERE projectId=? AND role=? ORDER BY ts DESC, rowid DESC LIMIT 1').get(projectId, role)
+  if (dup && dup.content === text) return
+  db.prepare('INSERT INTO workbench_history (projectId,role,content,ts) VALUES (?,?,?,?)').run(projectId, role, text, Date.now())
 }
-// 未并入项目摘要的 history(ts > 水位,升序)——条数判定与摘要输入共用(项目记忆 T1)
+// 未并入项目摘要的 history(ts >= 水位,升序)——条数判定与摘要输入共用(项目记忆 T1)。
+// context-assembly-08(含 gap2-03,2026-09-07 审计批次三):旧 `ts >` 把与水位同毫秒的迟并行
+// (竞态窗口内 append 的行)永久排除——done 链路 appendHistory(user)+appendHistory(assistant)
+// 同毫秒是常态。`>=` 读法把边界毫秒行重新纳入;「已摘行不重摘」由 workbench-summarize 的
+// in-memory 已摘 rowid 上限守住(单进程不变式),故 SELECT 带 rowid(AS rid)供该防线消费。
 export function unsummarizedProjectHistory(db, projectId) {
   const wm = db.prepare('SELECT historyWatermark FROM workbench_projects WHERE id=?').get(projectId)?.historyWatermark ?? 0
-  return db.prepare('SELECT role, content, ts FROM workbench_history WHERE projectId=? AND ts>? ORDER BY ts ASC').all(projectId, wm)
+  return db.prepare('SELECT rowid AS rid, role, content, ts FROM workbench_history WHERE projectId=? AND ts>=? ORDER BY ts ASC, rowid ASC').all(projectId, wm)
 }
 export function recentHistory(db, projectId, n = 30) {
   const rows = db.prepare('SELECT role,content FROM workbench_history WHERE projectId=? ORDER BY ts DESC LIMIT ?').all(projectId, n)
@@ -430,14 +441,24 @@ export function deleteProject(db, { workbenchDir, projectId, removeDir = rmSync 
   return { ok: true, removedConversations, removedMessages, repoRemoved, repoError }
 }
 
+// recap 存储 64KB 硬钳单一事实源(context-assembly-03,2026-09-07 审计批次三):三写点
+// (setProjectRecap 人工写 / maybeSummarize 轮次追加 / compactConversation 整体替换)统一
+// clamp——LLM 不服从「不超过 N 字」时不能无界落库(recap 每轮全量注入,无界=上下文放大器)。
+// 人工超长输入由 400 整单拒绝改为截断落库(与摘要写点同语义:recap 是喂给 LLM 的记忆,截断
+// 优于拒绝;边界值恰好 65536 原样通过不加标记)。
+export const RECAP_MAX_CHARS = 65536
+export function clampRecap(text) {
+  const s = String(text ?? '')
+  return s.length > RECAP_MAX_CHARS ? s.slice(0, RECAP_MAX_CHARS) + '…(截断)' : s
+}
+
 // 项目 recap 人工写(2026-08-31 生命周期):非空覆写不动水位(自动摘要继续增量);
-// 空串=清空并归零 historyWatermark(下次蒸馏从头吞全量)。上限 65536(与摘要存储同量级)。
+// 空串=清空并归零 historyWatermark(下次蒸馏从头吞全量)。超长 clamp 64KB(clampRecap 单源)。
 // 两分支均推进 recapRev(gap2-02 乐观锁):在途摘要器按快照 rev 条件写,changes=0 丢弃——
 // 人工清空的毒 recap 不被迟到摘要复活、人工精编不被静默覆盖(清空归零水位后,摘要器的
 // 水位守卫「< maxTs」反而放行,rev 是唯一拦截线)。COALESCE 兜底裸库手插的 NULL 行。
 export function setProjectRecap(db, projectId, recap) {
-  const text = String(recap ?? '')
-  if (text.length > 65536) return { ok: false, status: 400 }
+  const text = clampRecap(recap)
   if (text === '') {
     db.prepare('UPDATE workbench_projects SET projectRecap=NULL, historyWatermark=0, recapRev=COALESCE(recapRev,0)+1 WHERE id=?').run(projectId)
   } else {

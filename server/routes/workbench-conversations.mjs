@@ -13,16 +13,15 @@
 // WorkbenchDetail Agent 模式)对全部平台会话可见(与前端测试 AppLayout.chat-presence-entry /
 // WorkbenchDetail.lifecycle 对齐)。
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
-import { getWorkbenchAiConfig, getMaxRunningConversationsConfig, getMaxConversationsPerProjectConfig } from '../workbench-ai-config.mjs'
+import { getWorkbenchAiConfig, getMaxRunningConversationsConfig, getMaxConversationsPerProjectConfig, sshPromptServers } from '../workbench-ai-config.mjs'
 import { registry, SSH_HIDDEN_TOOLS } from '../tool-registry.mjs'
-import { listSshServers } from '../ssh/store.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
   truncateAfterLastUser, regenWatermark, listActiveConversations, getPresenceConfig,
   buildHistory, truncateFromMessage,
 } from '../workbench-projects.mjs'
-import { contextWindowFor, estTokens } from '../model-context.mjs'
+import { contextWindowFor, estTokensFromCounts, countCjkChars } from '../model-context.mjs'
 import { maybeSummarize, maybeSummarizeProject, compactConversation } from '../workbench-summarize.mjs'
 import { stripRefsContext, REFS_CTX_HEADER, REFS_GUARD_NOTE } from '../refs-context.mjs'
 import { maskSecretResource } from '../secret-mask.mjs'
@@ -162,18 +161,26 @@ export function createWorkbenchConvRoutes(deps) {
   }
 
   // 上下文余量(spec §4.3,服务端单一计算源):estTokens ≈ buildHistory 装配 + conv.system
-  // + 项目记忆段(pm 精确)+ @refs 注入(估算)的总字符 × 折中比例。
-  // 近似说明:refs 为估算——动态拉取体积不落库,按每资源 2KB 常数近似(REF_EST_CHARS);
-  // pm 为精确值(≤2000 字恒注入段,A1 口径补全 2026-08-29)。
-  const REF_EST_CHARS = 2048 // 每个 @-ref 资源 JSON 注入的估算字符数
+  // + 项目记忆段(pm 精确)+ @refs 注入(估算)。
+  // context-assembly-05(2026-09-07 审计批次三)CJK 感知:逐块按 CJK/非 CJK 字数累计再
+  // estTokensFromCounts 汇总(cjk≈1 token/字、其余≈1 token/4字符)——旧 chars/2 在纯中文上
+  // 低估 ~2 倍,willTrim 漏报。
+  // 近似说明:refs 为估算——动态拉取体积不落库,按每资源 2KB 常数近似(REF_EST_CHARS,按
+  // 非 CJK 计:K8s JSON 主体);pm 为精确值(≤2000 字恒注入段,A1 口径补全 2026-08-29)。
+  const REF_EST_CHARS = 2048 // 每个 @-ref 资源 JSON 注入的估算字符数(非 CJK 口径)
   function contextInfo(conv) {
     const history = buildHistory(db, conv)
-    const pmChars = (getProject(db, conv.projectId)?.projectRecap || '').length // 项目记忆恒注入段(精确)
+    const pmRecap = getProject(db, conv.projectId)?.projectRecap || '' // 项目记忆恒注入段(精确)
     let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
-    const refChars = Array.isArray(refs) ? refs.length * REF_EST_CHARS : 0 // @refs 估算
-    const chars = conv.system.length + pmChars + refChars + history.reduce((n, m) => n + JSON.stringify(m).length, 0)
+    let cjk = 0
+    let other = Array.isArray(refs) ? refs.length * REF_EST_CHARS : 0 // @refs 估算(非 CJK 计)
+    for (const piece of [conv.system, pmRecap, ...history.map(m => JSON.stringify(m))]) {
+      const c = countCjkChars(piece)
+      cjk += c.cjk
+      other += c.other
+    }
     const windowTokens = contextWindowFor(getLlmConfig().model)
-    const est = estTokens(chars)
+    const est = estTokensFromCounts(cjk, other)
     const budgetTokens = Math.floor(windowTokens * 0.7)
     return { estTokens: est, windowTokens, budgetTokens, recapUpTo: conv.summarizedUpTo ?? 0, willTrim: est > budgetTokens }
   }
@@ -254,17 +261,9 @@ export function createWorkbenchConvRoutes(deps) {
     return { ctx: `${REFS_CTX_HEADER}${REFS_GUARD_NOTE}${blocks.join('\n\n')}`, resources }
   }
 
-  // 提示词可用的 SSH 清单(仅 id/name/description/clusterRef,凭据不进 prompt)。
-  // 防御式:ssh_servers 表可能尚未建(旧库/测试夹具)——SSH 清单不可用不该让对话创建
-  // 或 admin 预览整体 500,失败降级为空清单(= 提示词无 SSH 段,零暴露语义不变)。
-  function sshPromptServers() {
-    try {
-      return listSshServers(db, { exposedOnly: true }).map(s => ({ id: s.id, name: s.name, description: s.description, clusterRef: s.clusterRef }))
-    } catch (e) {
-      console.error('[wb-conversations] SSH 清单读取失败,提示词按无 SSH 服务器装配:', e?.message || e)
-      return []
-    }
-  }
+  // 提示词可用的 SSH 清单:workbench-ai-config.sshPromptServers 单一事实源(context-assembly-06,
+  // 2026-09-07 审计批次三)——admin 预览/对话创建/透明面板三面共源,所见即所发;防御式降级
+  // 空清单(= 无 SSH 段,零暴露语义不变)见该函数注释。
 
   // 匹配工作台对话路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
   // 注:原 index.mjs 各分支用 `return sendJson(...)` 早退 + 终结响应;此处等价改为
@@ -277,7 +276,7 @@ export function createWorkbenchConvRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const cfg = getWorkbenchAiConfig(db)
       const disabled = new Set(cfg.disabledTools)
-      const sshServers = sshPromptServers()
+      const sshServers = sshPromptServers(db)
       const sshless = sshServers.length === 0
       sendJson(res, 200, {
         effectivePrompt: buildWorkbenchSystemPrompt({ ...cfg, sshServers }),
@@ -331,8 +330,11 @@ export function createWorkbenchConvRoutes(deps) {
 
         // system 创建时烘焙入库(2026-08-25 设计决策):admin 改配置只影响新对话;
         // conv.system 即逐对话审计证据,透明面板据此展示"本对话实际用的提示词"。
-        const sshServers = sshPromptServers()
-        const system = buildWorkbenchSystemPrompt({ ...getWorkbenchAiConfig(db), sshServers })
+        // context-assembly-04(2026-09-07 审计批次三):hasCluster 随项目传给 builder——未绑
+        // 集群时工具段与实际 offering 同源裁掉 16 个 K8s 依赖工具(与 disabledTools/SSH 维度
+        // 同款过滤,不再虚列 AI 调不了的工具)。
+        const sshServers = sshPromptServers(db)
+        const system = buildWorkbenchSystemPrompt({ ...getWorkbenchAiConfig(db), sshServers, hasCluster: !!project.clusterId })
 
         // conv-lifecycle-05(2026-09-07 审计批次三):三语句写包事务(对照 DELETE 既有事务模式)
         // ——中途失败不留半状态:running 孤儿 conv 行会永久毒化并发限额(F6 计数按 status
@@ -439,8 +441,10 @@ export function createWorkbenchConvRoutes(deps) {
         updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, userMessage: cleanMessage })
         db.exec('COMMIT')
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
-        maybeSummarize(db, id, llmClient).catch(() => {}) // 异步摘要,失败静默
-        maybeSummarizeProject(db, conv.projectId, llmClient).catch(() => {}) // 项目记忆滚动摘要(spec §3.2,fire-and-forget)
+        // gap2-04(2026-09-07 审计批次三):摘要 fire-and-forget 不再静默吞错——内层 catch 已落
+        // 日志,此处兜 detached reject(不吞=未捕获 rejection 杀进程;只记不阻响应)。
+        maybeSummarize(db, id, llmClient).catch(e => console.error('[wb-conversations] 异步轮次摘要失败:', e?.message || e)) // 异步摘要,失败不阻塞
+        maybeSummarizeProject(db, conv.projectId, llmClient).catch(e => console.error('[wb-conversations] 异步项目摘要失败:', e?.message || e)) // 项目记忆滚动摘要(spec §3.2,fire-and-forget)
         auditConv(ps, 'message', id, conv.projectId)
         sendJson(res, 200, { status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, id)) })
         return true

@@ -586,7 +586,9 @@ test('GET /:id 带 projectRecap;append 路由 fire maybeSummarizeProject', async
 })
 
 // ── A1 回顾审计:contextInfo 余量口径补全——项目记忆段(pm 精确)+ @refs 估算(refs×REF_EST_CHARS)──
-test('A1:estTokens 单调递增,差值≈projectRecap/2 与 refs×2048/2(±100 JSON 包装噪声)', async () => {
+// context-assembly-05(2026-09-07 审计批次三)CJK 感知:pm 用中文夹具(1 token/字;旧 chars/2
+// 在中文上低估 2 倍——本用例即该修复的 route 级钉),refs 估算按非 CJK 计(1 token/4字符)。
+test('A1:estTokens 单调递增,差值=中文 pm×1 与 refs×2048/4(±100 JSON 包装噪声)', async () => {
   const h = makeHttpHarness()
   const conv = createConversation(h.db, { projectId: h.pid, system: 'sys', userMessage: 'q1' })
   appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
@@ -596,17 +598,17 @@ test('A1:estTokens 单调递增,差值≈projectRecap/2 与 refs×2048/2(±100 J
     return h.sent[h.sent.length - 1].json.context.estTokens
   }
   const e0 = await getEst()                                    // 空项目 / 无 refs 基线
-  h.db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run('P'.repeat(4000), h.pid)
-  const e1 = await getEst()                                    // +项目记忆 4000 字(精确)
+  h.db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run('项'.repeat(4000), h.pid)
+  const e1 = await getEst()                                    // +项目记忆 4000 中文字(精确,cjk≈1 token/字)
   h.db.prepare('UPDATE workbench_conversations SET "references"=? WHERE id=?').run(
     JSON.stringify([
       { kind: 'pods', namespace: 'default', name: 'a' },
       { kind: 'services', namespace: 'default', name: 'b' },
       { kind: 'configmaps', namespace: 'default', name: 'c' },
     ]), conv.id)
-  const e2 = await getEst()                                    // +3 refs(估算 3×2048)
+  const e2 = await getEst()                                    // +3 refs(估算 3×2048,非 CJK 计)
   assert.ok(e1 > e0, '项目记忆进余量口径(estTokens 递增)')
-  assert.ok(Math.abs((e1 - e0) - 4000 / 2) <= 100, `pm 差值≈2000 tokens(实际 ${e1 - e0})`)
+  assert.ok(Math.abs((e1 - e0) - 4000) <= 100, `中文 pm 差值≈4000 tokens(cjk 1 token/字;实际 ${e1 - e0})`)
   assert.ok(e2 > e1, 'refs 进余量口径(estTokens 递增)')
-  assert.ok(Math.abs((e2 - e1) - (3 * 2048) / 2) <= 100, `refs 差值≈3072 tokens(实际 ${e2 - e1})`)
+  assert.ok(Math.abs((e2 - e1) - (3 * 2048) / 4) <= 100, `refs 差值≈1536 tokens(实际 ${e2 - e1})`)
 })

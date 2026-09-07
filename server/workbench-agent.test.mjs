@@ -629,7 +629,9 @@ test('runConversation: budgetChars 按 llmClient.model 派生传入 runner', asy
   const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
   const llmClient = { chat: async () => ({}), model: 'qwen-max' }   // 128k 窗口
   await agent.runConversation(conv.id, llmClient)
-  assert.equal(capturedBudget, 179_200, '128k×0.7×2=179200 字符')
+  // context-assembly-05(2026-09-07 审计批次三)校准:按 CJK 最坏密度(1 token/字)折算——
+  // 旧 ×2(2字/token 折中)对纯中文超发 2 倍预算,硬裁兜底失效。
+  assert.equal(capturedBudget, 89_600, '128k×0.7=89600 字符(CJK 最坏密度校准)')
 })
 
 // ── 项目记忆 T2:refreshSystem 拼入 projectRecap;projectMemory=false 不拼 ──
@@ -703,6 +705,26 @@ test('A2:run done 后 fire 项目摘要——7 条预置 + done 追加 2 = 9 ≥
   assert.equal(recap, '项目摘要X', 'done 后项目摘要异步落库')
   // done 本身不受 fire 阻塞/失败影响(状态与消息先行落定)
   assert.equal(getConversation(db, conv.id).status, 'done')
+})
+
+// ── context-assembly-07(2026-09-07 审计批次三):regenerate 不重复落项目历史提问 ──
+// done 链路 handleAgentResult 每轮 append user(conv.userMessage)+assistant;regenerate 重答
+// 同问(userMessage 不变、messages 截断由路由负责)会把同一提问再落一行 → 项目摘要输入读成
+// Q/A1/Q/A2。契约:appendHistory 同角色同文本紧邻去重 → 提问单条、两轮答案各留。
+test('regenerate(done×2 同问)→ 项目历史提问单条(context-assembly-07)', async () => {
+  const { db, project, conv, busEmit, busDispose, makeRunner } = setup()
+  let call = 0
+  const { createAgentRunner } = makeRunner(async () => {
+    call++
+    return { status: 'done', content: `答案${call}`, trace: [], steps: 1, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  // regenerate:同问重跑(userMessage 'hi' 不变;截断/复位由路由负责,此处直证 done 落 history 链路)
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  const n = role => db.prepare('SELECT COUNT(*) n FROM workbench_history WHERE projectId=? AND role=?').get(project.id, role).n
+  assert.equal(n('user'), 1, '提问单条(regenerate 重答不重复落 user 行)')
+  assert.equal(n('assistant'), 2, '两轮答案各自落库')
 })
 
 // ═══ 终审 I5:P0(F) 不变式对流式运行无效——DELETE 项目后 in-flight run 的结果不许写孤儿行 ═══
