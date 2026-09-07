@@ -16,6 +16,15 @@ const emit = defineEmits(['regenerate', 'reopen-approval', 'edit'])
 const { t } = useI18n()
 
 const root = ref(null)
+
+// ── refs 来源集群标识(gap3-01,2026-09-07 审计批次二)──
+// 服务端落库 refs 时盖 clusterId/clusterName 戳(创建时刻定格):项目换绑集群后,旧消息的
+// @refs 快照须标注来源集群,否则同名资源串味/旧快照被当新集群现状。无戳(存量老行/@server
+// 平台清单域)→ null = 不渲染徽标,零回归。展示值 clusterName 优先,缺失回退 id(老行补戳无名)。
+function refSourceLabel(r) {
+  if (!r || typeof r.clusterId !== 'string' || !r.clusterId) return null
+  return r.clusterName || r.clusterId
+}
 // Prism 懒加载(镜像 CodeViewer.vue):首屏不拉 ~200KB;命中后缓存。languages 覆盖 chat 常见代码。
 // 2026-08-28 扩充:此前仅 yaml/json/bash/js——LLM 输出的 go/python/ts/sql/toml/docker/diff/ini
 // 全不上色(用户报告「代码语法没有正确展示」的一环)。typescript 依赖 javascript、docker 依赖
@@ -246,8 +255,10 @@ function onRootClick(e) {
     <div v-if="turn.role === 'user'" class="mx-md rounded-xl bg-primary/[0.06] border border-primary/15 px-md py-sm flex flex-col gap-xs">
       <div v-if="turn.refs && turn.refs.length" class="flex flex-col gap-xs">
         <template v-for="(r, i) in turn.refs" :key="i">
-          <ResourceCard v-if="r.resource" :resource="r.resource" />
-          <span v-else class="text-body-xs font-mono text-primary bg-primary/10 border border-primary/20 rounded px-xs py-0.5 self-start">@{{ r.kind }}:{{ r.name }}</span>
+          <ResourceCard v-if="r.resource" :resource="r.resource" :source-cluster="refSourceLabel(r)" />
+          <span v-else class="text-body-xs font-mono text-primary bg-primary/10 border border-primary/20 rounded px-xs py-0.5 self-start">
+            @{{ r.kind }}:{{ r.name }}<template v-if="refSourceLabel(r)">&nbsp;<span data-testid="resource-source-cluster" class="opacity-80">[{{ t('component.resourceCard.sourceCluster', { name: refSourceLabel(r) }) }}]</span></template>
+          </span>
         </template>
       </div>
       <p class="text-body-sm whitespace-pre-wrap break-words leading-relaxed">{{ turn.content }}</p>

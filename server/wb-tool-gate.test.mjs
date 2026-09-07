@@ -91,6 +91,19 @@ test('wbToolGate.clusterWide:未分配 user_clusters 的 principal 在 open 集�
   assert.throws(() => wbToolGate(db, { userId: 'u2', role: 'user' }, 'c2').clusterWide('wb_top'), /PERMISSION_DENIED/)
 })
 
+// F4(authz-entitlement-03,2026-09-07 审计):bootstrap_ledger = 全集群 14 维 survey + 重写
+// 台账 INDEX.md,集群级面——此前零授权门,allowlist 非 admin 可经对话触发,与 wb_top nodes
+// 的 clusterWide 拒绝语义不一致。补门后同判:open/admin 放行,allowlist 非 admin 拒
+// (PermissionDeniedError → agent 循环 formatToolError 转工具失败错误面,AI 可读不再重试)。
+test('wbToolGate.clusterWide:bootstrap_ledger 集群级门(allowlist 非 admin 拒 / admin·open 放行)', () => {
+  const db = fixture()
+  assert.throws(() => wbToolGate(db, { userId: 'u1', role: 'user' }, 'c1').clusterWide('wb_bootstrap_ledger'), /PERMISSION_DENIED: rbac/)
+  try { wbToolGate(db, { userId: 'u1', role: 'user' }, 'c1').clusterWide('wb_bootstrap_ledger'); assert.fail('should throw') }
+  catch (e) { assert.equal(e.tool, 'wb_bootstrap_ledger'); assert.equal(e.reason, 'rbac') }
+  wbToolGate(db, { userId: 'a1', role: 'admin' }, 'c1').clusterWide('wb_bootstrap_ledger') // admin(allowlist 亦放行)
+  wbToolGate(db, { userId: 'u1', role: 'user' }, 'c2').clusterWide('wb_bootstrap_ledger') // open
+})
+
 test('wbToolGate.namespaces: open/admin → null(不限);allowlist → 授权 ns 集合;未分配 → 空集', () => {
   const db = fixture()
   assert.equal(wbToolGate(db, { userId: 'u1', role: 'user' }, 'c2').namespaces(), null)
@@ -159,8 +172,10 @@ test('buildWbCtx 构造 wbToolGate(principal 从参数线程进来)', () => {
 })
 
 // 每个 ns 型工具实现体内必须有 gate 调用(check/clusterWide/checkKind)。
+// bootstrapLedger 是集群级面(F4):实现体首行 gate.clusterWide(与 wb_top nodes 同判)。
 const TOOL_GATES = [
   ['listResources', /gate\.(check|clusterWide|namespaces)\(|gateKind\(/],
+  ['bootstrapLedger', /gate\.clusterWide\(/],
   ['getPodLogs', /gate\.check\(/],
   ['readPodFile', /gate\.check\(/],
   ['describeResource', /gate\.(check|clusterWide)\(|gateKind\(/],
@@ -180,6 +195,15 @@ test('全部 ns 型 wb 工具实现体内接线 gate(新增 K8s 工具时同步�
     assert.ok(m, `未截取到工具实现体: ${name}`)
     assert.match(m[0], re, `${name} 实现体内缺少 gate 调用——每个 ns 型工具必须在 K8s 出站前过 canAccessNs`)
   }
+})
+
+// F4 接线守卫(authz-entitlement-03,专属):bootstrapLedger 此前零授权门。通用 TOOL_GATES 扫描
+// 对「单行闭包」会前向误匹配后续工具体内的 gate 调用(假绿),故锚定闭包开头精确断言顺序:
+// gate.clusterWide 必须先于实际 survey 调用(bootstrapLedgerForCluster)——拒绝先于副作用。
+test('接线守卫:bootstrapLedger 闭包先过 clusterWide 门再 survey(集群级面授权)', () => {
+  const m = region.match(/bootstrapLedger: async \(\) => \{([\s\S]*?)bootstrapLedgerForCluster\(/)
+  assert.ok(m, '未截取到 bootstrapLedger 闭包体(签名变了请同步守卫)')
+  assert.match(m[1], /gate\.clusterWide\('wb_bootstrap_ledger'\)/, 'bootstrapLedger 必须在 survey 前过 gate.clusterWide——集群级面,allowlist 非 admin 拒')
 })
 
 // workbench-agent 必须把 actor 线程进 buildWbCtx(detached runner 才有 principal 可执法)

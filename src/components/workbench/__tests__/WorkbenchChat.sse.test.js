@@ -25,7 +25,7 @@ import WorkbenchChat from '../WorkbenchChat.vue'
 
 const i18n = createI18n({
   legacy: false, locale: 'zh',
-  messages: { zh: { workbench: { chat: {
+  messages: { zh: { common: { copy: '复制' }, workbench: { chat: {
     userMessage: 'Type...', title: 'AI', hint: 'hint', noAnswer: '(无回答)',
     stop: '停止', stopped: '已停止', agentFailed: 'Agent 调用失败', thinking: '思考中',
     loadFailed: '对话加载失败', reconnecting: '连接中断,重试中…',
@@ -266,3 +266,115 @@ test('pollOnce:cancelled → 停轮询,thinking turn 置已停止', async () => 
     vi.unstubAllGlobals()
   }
 })
+
+// ── 2026-09-07 批次二:前端聊天终态与审批四件 ──
+
+// frontend-chat-01:SSE 主路径 step.assistant 把轮文本清进 trace、content 归零——done 后
+// turn.content 恒空,复制按钮对每条刚完成的回答复制空串(刷新走 DB 重建 content 又非空,
+// 前后不一致)。契约:done 兜底以 trace 末个 assistant 块回填 content,复制得到终答全文。
+// 用活体 SSE 事件序列(中间轮 + 终答 + status done)锁 content 形状。
+test('SSE done:step.assistant 终答块回填 content,复制按钮复制终答而非空串', async () => {
+  const writeText = vi.fn(async () => {})
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, writable: true, configurable: true })
+  try {
+    const w = await mountChat()
+    const es = await sendAndStream(w)
+    expect(es).toBeTruthy()
+
+    // 活体序列:中间轮文本 → 工具 → 终答块 → done(applyStreamEvent 在 step.assistant 清 content)
+    es.emit({ type: 'step', step: { type: 'assistant', content: '我先看看资源状态', ts: 1 } })
+    es.emit({ type: 'step', step: { type: 'tool', name: 'wb_get_pod_logs', args: {}, result: { logs: 'L1' }, ts: 2 } })
+    es.emit({ type: 'step', step: { type: 'assistant', content: '最终答案全文', ts: 3 } })
+    es.emit({ type: 'status', status: 'done' })
+    await flushPromises()
+
+    const copyBtn = w.find('[title="复制"]')
+    expect(copyBtn.exists(), 'done turn 渲染复制按钮').toBe(true)
+    await copyBtn.trigger('click')
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText.mock.calls[0][0]).toBe('最终答案全文')
+  } finally {
+    delete navigator.clipboard
+  }
+})
+
+// contracts-01:SSE status:cancelled 不更新 convStatus——跨实例取消后状态栏恒「运行中」。
+// 契约:cancelled 与 done/failed 同款透传,状态栏对齐「已取消」(排队消息出队见下一测)。
+test('SSE status:cancelled → convStatus 透传,状态栏显示已取消(跨实例取消)', async () => {
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-1', status: 'running', content: '', trace: '[]', steps: 1, recap: '',
+    messages: [{ id: 'm1', role: 'user', content: '第一问', createdAt: 1 }],
+  })
+  const w = await mountChat({ conversationId: 'conv-1', activeConversationId: 'conv-1' })
+  await flushPromises()
+  const es = FakeEventSource.instances.at(-1)
+  expect(es).toBeTruthy()
+  expect(w.html()).toContain('执行中')   // 取消前:运行中
+
+  // 另一实例取消 → 本实例 SSE 收到 status:cancelled(修复前:无透传分支,状态栏恒「执行中」)
+  es.emit({ type: 'status', status: 'cancelled' })
+  await flushPromises()
+
+  expect(w.html()).toContain('已取消')
+  expect(w.html()).not.toContain('执行中')
+  expect(w.text()).toContain('已停止')   // thinking turn 对齐取消态(applyStreamEvent)
+})
+
+// contracts-01(续):cancelled 不入 SSE 终态处理 → sending 不清,drainQueue 的 sending 守卫
+// 恒拦——排队消息永不自动出队。契约:cancelled 与 done/failed 同款终态处理,排队消息出队续发。
+test('SSE status:cancelled → 排队消息自动出队续发(跨实例取消后队列不死)', async () => {
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-1', status: 'running', content: '', trace: '[]', steps: 1, recap: '',
+    messages: [{ id: 'm1', role: 'user', content: '第一问', createdAt: 1 }],
+  })
+  api.conversations.append.mockResolvedValue({ references: [] })
+  const w = await mountChat({ conversationId: 'conv-1', activeConversationId: 'conv-1' })
+  await flushPromises()
+  const es = FakeEventSource.instances.at(-1)
+  expect(es).toBeTruthy()
+
+  // 运行中追加:入队上屏 chip,不触 append
+  await w.find('textarea').setValue('排队消息')
+  await w.find('textarea').trigger('keydown', { key: 'Enter', keyCode: 13 })
+  await flushPromises()
+  expect(api.conversations.append).not.toHaveBeenCalled()
+  expect(w.find('[data-testid="queue-panel"]').exists()).toBe(true)
+
+  // 另一实例取消 → 本实例 SSE 收到 status:cancelled → 终态 + drainQueue → send/append
+  es.emit({ type: 'status', status: 'cancelled' })
+  await flushPromises()
+  await flushPromises() // drainQueue 走 nextTick(send)
+
+  expect(api.conversations.append).toHaveBeenCalledTimes(1)
+  expect(api.conversations.append.mock.calls[0][1].message).toBe('排队消息')
+  expect(w.find('[data-testid="queue-panel"]').exists()).toBe(false)
+})
+
+// contracts-03:审批被他端决策(另一实例 approve/deny)后,本实例的审批 modal 不消失、
+// 输入框保持禁用——SSE running/终态事件只清黄条不清弹窗。契约:APPROVAL_CONSUMED 态
+// (running/done/failed/cancelled)到达即撤 pendingApproval,modal 消失、输入解禁。
+test('SSE:审批被他端决策(running/done)→ 本实例 modal 消失、输入解禁', async () => {
+  const w = await mountChat()
+  const es = await sendAndStream(w)
+
+  es.emit({ type: 'approval', pending: { toolCallId: 'tc1', name: 'wb_exec', args: { command: 'ls' } } })
+  await flushPromises()
+  expect(w.find('[data-testid="modal"]').exists()).toBe(true)
+  expect(w.find('textarea').attributes('disabled')).toBeDefined()
+
+  // 另一实例批准 → resume running:modal 撤下、输入解禁
+  es.emit({ type: 'status', status: 'running' })
+  await flushPromises()
+  expect(w.find('[data-testid="modal"]').exists()).toBe(false)
+  expect(w.find('textarea').attributes('disabled')).toBeUndefined()
+
+  // 终态分支同款:下一道审批被别处 deny 后对话直接 done
+  es.emit({ type: 'approval', pending: { toolCallId: 'tc2', name: 'wb_exec', args: { command: 'ls' } } })
+  await flushPromises()
+  expect(w.find('[data-testid="modal"]').exists()).toBe(true)
+  es.emit({ type: 'status', status: 'done' })
+  await flushPromises()
+  expect(w.find('[data-testid="modal"]').exists()).toBe(false)
+  expect(w.find('textarea').attributes('disabled')).toBeUndefined()
+})
+

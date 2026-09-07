@@ -289,3 +289,91 @@ test('chatStream: \\r\\n 跨 chunk 断裂不产生假事件/不丢事件', async
   assert.deepEqual(deltas, ['甲', '乙'], '断在行尾中间不产出假 delta、拼齐后不丢 delta')
   assert.equal(msg.content, '甲乙')
 })
+
+// ── agent-loop-04(2026-09-07 审计):流内 error 事件与空终态不得静默吞 ──
+// 旧解析层两条静默路径:JSON 合法但无 delta → continue——上游在流中段发 {"error":...} 事件
+// (sub2api/litellm 类代理故障的典型形态)被无声跳过,半截答案照样标 done,用户无从知晓;
+// 流结束 content/tool_calls/finishReason 三皆空也照样标 done。契约:前者抛「LLM 流内错误」
+// (抛出点在已吐 delta 之后,agent.mjs chatWithRetry 的 sawDelta 谓词据此不重试,上抛交
+// workbench-agent 的 salvage 路径保留半截内容并标 failed);后者抛「LLM 返回空响应」。
+// 反向守卫:tool_calls 在场(纯工具轮)或 finishReason 在场(正常终止,content 空是模型
+// 自由)都不算空,不抛。
+test('chatStream: 流内 error 事件(已吐 delta 后)→ 抛「LLM 流内错误」,已吐内容先行送达', async () => {
+  const deltas = []
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":"答案前半"}}]}\n\n',
+    'data: {"error":{"message":"upstream provider exploded"}}\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  await assert.rejects(
+    () => c.chatStream({ messages: [] }, { onDelta: t => deltas.push(t) }),
+    /LLM 流内错误: upstream provider exploded/,
+  )
+  assert.deepEqual(deltas, ['答案前半'], '抛错前已吐 delta 全部送达(salvage 半截内容的数据来源)')
+})
+
+test('chatStream: 流内 error 无 message 字段 → JSON 串兜底,不抛 "undefined"', async () => {
+  const chunks = ['data: {"error":{"code":502,"type":"upstream_error"}}\n\n']
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  await assert.rejects(() => c.chatStream({ messages: [] }), /LLM 流内错误: \{"code":502/)
+})
+
+// 终审修复(2026-09-07 批次二):error 与「空 choices 数组」并存的帧——旧谓词 `!obj.choices`
+// 对空数组取 false,故障帧绕过抛错、落回本批刚杀掉的静默吞路径(空数组无 delta 可处理,继续
+// 走 delta 处理等于整帧丢弃,半截答案照样标 done)。契约:空 choices 与缺席同形,同样抛。
+test('chatStream: 流内 error 且 choices 为空数组 → 同样抛(空数组不豁免)', async () => {
+  const deltas = []
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":"半截"}}]}\n\n',
+    'data: {"error":{"message":"provider died mid-stream"},"choices":[]}\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  await assert.rejects(
+    () => c.chatStream({ messages: [] }, { onDelta: t => deltas.push(t) }),
+    /LLM 流内错误: provider died mid-stream/,
+  )
+  assert.deepEqual(deltas, ['半截'], '已吐 delta 照常先行送达(salvage 数据来源)')
+})
+
+// 反向边界守卫:error 与非空 choices 并存(个别代理混发正常 delta 附带 error 字段)不拦——
+// 防过度收紧把合法帧误杀。
+test('chatStream: error 与非空 choices 并存 → 不拦,照常走 delta 处理', async () => {
+  const chunks = [
+    'data: {"error":{"message":"soft warning"},"choices":[{"delta":{"content":"正常"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] })
+  assert.equal(msg.content, '正常', '混发帧的 delta 正常产出,不误抛')
+})
+
+test('chatStream: [DONE] 终止但三皆空(无 content/tool_calls/finishReason)→ 抛「LLM 返回空响应」', async () => {
+  const chunks = ['data: [DONE]\n\n']
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  await assert.rejects(() => c.chatStream({ messages: [] }), /LLM 返回空响应/)
+})
+
+test('chatStream: 自然断流(无 [DONE])三皆空同样抛「LLM 返回空响应」', async () => {
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream([]) }) // 流立即 close,零事件
+  await assert.rejects(() => c.chatStream({ messages: [] }), /LLM 返回空响应/)
+})
+
+test('chatStream: 空终态守卫不误伤——纯工具轮(content 空 + tool_calls 在场)不抛', async () => {
+  const chunks = [
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"list_pods","arguments":"{}"}}]}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] })
+  assert.equal(msg.tool_calls.length, 1, '工具轮正常返回(agent 循环据此排工具队列)')
+})
+
+test('chatStream: 空终态守卫不误伤——content 空但 finish_reason 在场(正常终止形态)不抛', async () => {
+  const chunks = [
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] })
+  assert.equal(msg.finishReason, 'stop', '正常终止照常返回,不因 content 空误判')
+})

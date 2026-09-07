@@ -145,3 +145,136 @@ test('手机档:审批按钮全宽大目标(拒绝/批准各 flex-1 ≥44px)', a
   expect(deny.classes()).toContain('max-sm:text-body-md')
   w.unmount()
 })
+
+// ── 2026-09-07 批次二:审批参数盲区(approval-flow-01)+ 他端决策撤弹窗(contracts-03) ──
+
+// contracts-03:审批被他端决策后,本实例(轮询通路)的 modal 不消失、输入框保持禁用——
+// pollOnce 终态分支只清黄条不清弹窗。契约:done/failed/cancelled 对齐即撤 pendingApproval。
+test('审批被他端决策:pollOnce 对齐 done → modal 消失、输入解禁', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-xdec', name: 'wb_exec',
+    args: { namespace: 'default', pod: 'nginx-1', command: 'ls' },
+  })
+  expect(w.find('textarea').attributes('disabled'), '审批期间输入禁用').toBeDefined()
+
+  // 另一实例决策完毕 → 本实例下一次 pollOnce 对齐 done
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-ap', status: 'done', content: '终答', trace: '[]', steps: 2, recap: '', messages: [],
+  })
+  await w.vm.pollOnce('conv-ap')
+  await flushPromises()
+
+  expect(w.find('[data-testid="approval-approve"]').exists(), '过期 modal 撤下').toBe(false)
+  expect(w.find('textarea').attributes('disabled'), '输入解禁').toBeUndefined()
+})
+
+// approval-flow-01:wb_ssh_job_write 应答此前无渲染分支——人只看到工具名+批准钮,往哪个任务
+// 写了什么全盲。契约:server+jobId 目标行 + 将写入 stdin 的应答文本。
+test('wb_ssh_job_write 审批:server+jobId 目标行 + stdin 应答文本(不再盲批)', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-jw', name: 'wb_ssh_job_write',
+    args: { server: 'prod-db', jobId: 'job-42', text: 'y' },
+  })
+  const text = w.text()
+  expect(text).toContain('prod-db')
+  expect(text).toContain('job-42')
+  expect(text).toContain(zh.workbench.chat.approvalJobText)
+  expect(w.findAll('pre').some(p => p.text() === 'y'), '应答文本入 pre 展示').toBe(true)
+})
+
+// approval-flow-01:write_server_notes 台账备注此前无渲染分支(approvalTarget 也不认 scope)。
+// 契约:scope 目标行 + notes 正文 pre 展示。
+test('write_server_notes 审批:scope 目标行 + 台账备注正文', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-wn', name: 'write_server_notes',
+    args: { scope: 'gw-1', notes: '网关机:nginx 入口 + certbot 续期' },
+  })
+  const text = w.text()
+  expect(text).toContain('gw-1')
+  expect(text).toContain(zh.workbench.chat.approvalNotes)
+  expect(text).toContain('nginx 入口 + certbot 续期')
+})
+
+// approval-flow-01 兜底:无任何匹配分支的 requiresApproval 工具(未来新增/参数面变迁)此前
+// 只显示工具名——盲批。契约:完整 args JSON(截断)兜底渲染,任何审批工具至少可见完整参数。
+test('未知审批工具:兜底渲染完整 args JSON,不盲批', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-fb', name: 'wb_future_tool',
+    args: { region: 'z1', force: true },
+  })
+  const text = w.text()
+  expect(text).toContain(zh.workbench.chat.approvalArgs)
+  expect(text).toContain('"region": "z1"')
+  expect(text).toContain('"force": true')
+})
+
+// approval-flow-01:command 传数组(LLM 违 schema 传 argv 形态)时 {{ }} 直插渲染成 "a,b,c"
+// 逗号粘连,人审读不了。契约:数组 join(' ') 归一后渲染。
+test('command 数组归一:join(" ") 渲染,不再逗号粘连', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-ca', name: 'wb_ssh_exec',
+    args: { server: 'prod-db', command: ['apt-get', 'install', '-y', 'nginx'] },
+  })
+  const text = w.text()
+  expect(text).toContain('apt-get install -y nginx')
+  expect(text).not.toContain('apt-get,install')
+})
+
+// 兜底不叠加:已有结构化展示(command/path/content/应答/notes/target 行)的工具不再多渲染
+// 一份 args JSON(同屏双显是噪音)。
+test('兜底不叠加:wb_exec(目标+命令已有)不再渲染 args JSON', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-noDup', name: 'wb_exec',
+    args: { namespace: 'default', pod: 'nginx-1', command: 'kubectl get pods' },
+  })
+  expect(w.text()).not.toContain(zh.workbench.chat.approvalArgs)
+})
+
+// ── 终审修复(2026-09-07 批次二 fix wave)──
+
+// 旧门 `jobId != null && text != null`:LLM 违 schema 漏发 jobId 时应答文本被挤没——文本
+// 无处渲染(approvalTarget 因 a.server 在场恒真,兜底 JSON 也被压掉)= 盲批照旧。契约:
+// text 在场即渲染;jobId 段仅在场时显示。
+test('wb_ssh_job_write 无 jobId(违 schema):应答文本仍可见,jobId 段不渲染', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-jw-noId', name: 'wb_ssh_job_write',
+    args: { server: 'prod-db', text: 'y' },
+  })
+  const text = w.text()
+  expect(text).toContain('prod-db')
+  expect(text).toContain(zh.workbench.chat.approvalJobText)
+  expect(w.findAll('pre').some(p => p.text() === 'y'), '应答文本入 pre 展示').toBe(true)
+  expect(text).not.toContain('jobId:')
+})
+
+// text 对象形态(违 schema):String() 直插渲染 [object Object] 人审读不了。契约:JSON 归一。
+test('wb_ssh_job_write text 为对象(违 schema):JSON 归一渲染,不出现 [object Object]', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-jw-obj', name: 'wb_ssh_job_write',
+    args: { server: 'prod-db', jobId: 'job-7', text: { line: 'y' } },
+  })
+  const text = w.text()
+  expect(text).toContain('{"line":"y"}')
+  expect(text).not.toContain('[object Object]')
+})
+
+// 他端 approve 后 paused→running:contracts-03 终态分支管不到运行中,降级轮询/看门狗通路
+// 的过期 modal 会挂满整轮运行期。契约:pollOnce 对齐 running 即撤 pendingApproval(与 SSE
+// 通路 APPROVAL_CONSUMED_STATUSES 含 running 同语义);轮询/看门狗不停(运行仍在进行)。
+test('他端 approve 后运行中:pollOnce 对齐 running → 过期 modal 撤下、输入解禁', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-xrun', name: 'wb_exec',
+    args: { namespace: 'default', pod: 'nginx-1', command: 'ls' },
+  })
+  expect(w.find('textarea').attributes('disabled'), '审批期间输入禁用').toBeDefined()
+
+  // 另一实例批准完毕 → 本实例(轮询通路)下一次 pollOnce 对齐 running
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-ap', status: 'running', content: '', trace: '[]', steps: 2, recap: '', messages: [],
+  })
+  await w.vm.pollOnce('conv-ap')
+  await flushPromises()
+
+  expect(w.find('[data-testid="approval-approve"]').exists(), '运行中过期 modal 撤下').toBe(false)
+  expect(w.find('textarea').attributes('disabled'), '输入解禁(禁用键= pendingApproval/paused)').toBeUndefined()
+})

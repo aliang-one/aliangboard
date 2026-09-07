@@ -189,6 +189,40 @@ test('集群 entitlement:创建对话也须项目集群已分配(未分配 403;�
   assert.equal(r.status, 200, JSON.stringify(r.json))
 })
 
+// F4(authz-entitlement-02,2026-09-07 审计):edit/approve/deny 补集群分配门——审计实测失权
+// owner 对未分配集群的对话 edit 200+run 启动(messages/regenerate 403)的绕道。三面同门:
+// 未分配 → 403 wbp.clusterForbidden 且零副作用(先于截断/CAS);admin 无行短路 200。
+test('集群 entitlement:edit/approve/deny 须项目集群已分配(未分配 403 零副作用;admin 无行 200)', async () => {
+  // 授权回归(门不得过紧):已分配 owner 三面照常通——edit 用真实 user 锚(截断重发全流程)
+  const hEdit = makeHarness({ userId: 'u1', role: 'user' })
+  const anchor = hEdit.db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq LIMIT 1").get(hEdit.c.done).id
+  const rEdit = await hEdit.call('POST', `/api/workbench/conversations/${hEdit.c.done}/edit`, { messageId: anchor, content: '改写后的问题' })
+  assert.equal(rEdit.status, 200, JSON.stringify(rEdit.json))
+  assert.equal(hEdit.runCalls.length, 1, '授权 edit 照常触发 run')
+  const hA = makeHarness({ userId: 'u1', role: 'user' })
+  assert.equal((await hA.call('POST', `/api/workbench/conversations/${hA.c.paused}/approve`)).status, 200)
+  assert.equal(hA.resumeCalls.length, 1)
+  const hD = makeHarness({ userId: 'u1', role: 'user' })
+  assert.equal((await hD.call('POST', `/api/workbench/conversations/${hD.c.paused}/deny`)).status, 200)
+  assert.equal(hD.resumeCalls[0].approved, false)
+  // 未分配(owner 过 ownership 后 entitlement 拒)→ 三面 403;messageId 故意用 'nope'
+  // 证明门先于锚校验(若门在锚校验之后,edit 会 400 而非 403)
+  const h2 = makeHarness({ userId: 'u1', role: 'user', assignedCluster: false })
+  for (const [key, suffix, body] of [['done', '/edit', { messageId: 'nope', content: 'x' }], ['paused', '/approve', {}], ['paused', '/deny', {}]]) {
+    const r = await h2.call('POST', `/api/workbench/conversations/${h2.c[key]}${suffix}`, body)
+    assert.equal(r.status, 403, `${suffix} → 期望 403,实得 ${r.status}`)
+    assert.match(String(r.json?.message), /未分配|not assigned/, `${suffix} 须是集群 entitlement 门(非 ownership 门)`)
+  }
+  assert.equal(h2.runCalls.length, 0, '被拒不得触发 run')
+  assert.equal(h2.resumeCalls.length, 0, '被拒不得触发 resume')
+  assert.equal(h2.db.prepare(`SELECT status FROM workbench_conversations WHERE id='${h2.c.paused}'`).get().status, 'paused', '审批拒绝须先于 CAS,状态不动')
+  // admin 短路(未分配也通):edit + approve 各验一面
+  const h3 = makeHarness({ userId: 'adm', role: 'admin', assignedCluster: false })
+  const a3 = h3.db.prepare("SELECT id FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq LIMIT 1").get(h3.c.done).id
+  assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.done}/edit`, { messageId: a3, content: 'x' })).status, 200)
+  assert.equal((await h3.call('POST', `/api/workbench/conversations/${h3.c.paused}/approve`)).status, 200)
+})
+
 test('列表面:GET ?projectId 非owner 403/owner 200;/active 非 admin 只见自己项目的活跃', async () => {
   const h = makeHarness({ userId: 'u2', role: 'user' })
   assert.equal((await h.call('GET', '/api/workbench/conversations?projectId=' + h.pid)).status, 403)

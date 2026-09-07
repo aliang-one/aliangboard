@@ -1544,7 +1544,16 @@ async function handle(req, res) {
           let prev = ''; try { prev = await wbReadFile(learn.dir, learn.file) } catch {}
           await wbWriteFile(learn.dir, learn.file, (prev && prev.trim() ? prev.trimEnd() + '\n' : '# Learnings\n\n') + `- ${content}\n`)
         },
-        bootstrapLedger: async () => { if (!cluster) throw new Error(msg(req, 'api.clusterMissingForProject')); return bootstrapLedgerForCluster(cluster) },
+        // F4(authz-entitlement-03,2026-09-07 审计):台账 bootstrap = 全集群 14 维 survey +
+        // 重写台账 INDEX.md,集群级面——此前零授权门,allowlist 非 admin 可经对话触发(与
+        // wb_top nodes 的拒绝语义不一致)。首行 clusterWide(单源):open/admin 放行、
+        // allowlist 非 admin 拒(PermissionDeniedError → agent 工具失败 {error} 面,AI 读
+        // reason=rbac 不再无脑重试)。未绑定项目(clusterId '')gate 为零门工厂,不放大不收紧。
+        bootstrapLedger: async () => {
+          gate.clusterWide('wb_bootstrap_ledger')
+          if (!cluster) throw new Error(msg(req, 'api.clusterMissingForProject'))
+          return bootstrapLedgerForCluster(cluster)
+        },
         // === K8s 调查(workbench-principal,直连集群凭据) ===
         listResources: async (kind, namespace) => {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))

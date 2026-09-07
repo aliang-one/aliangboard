@@ -56,6 +56,14 @@ let turnSeq = 0
 const conversationId = ref(null)
 const pollTimer = ref(null)
 const convStatus = ref(null)
+// ── 状态清单单源(2026-09-07 contracts-01/03)──
+// 此前 done/failed/cancelled 与 running 消费态在 SSE 透传、审批清理、drainQueue、compact 闸
+// 各自手写内联数组,清单漂移已致实伤(cancelled 只在审批清理有、SSE 透传漏——跨实例取消后
+// 状态栏恒「运行中」、排队消息永不自动出队)。全部收编到这两个常量。
+const TERMINAL_STATUSES = ['done', 'failed', 'cancelled']
+// 审批消费态 = 终态 + running(resume):到达即撤审批 modal 与黄条重开入口。
+// SSE 事件(status/hello)与 pollOnce 终态分支共用同一语义。
+const APPROVAL_CONSUMED_STATUSES = ['running', ...TERMINAL_STATUSES]
 // 服务端下发的上下文余量(Task 3 口径:{ estTokens, windowTokens, budgetTokens, recapUpTo, willTrim })
 const ctxInfo = ref(null)
 const recap = ref('')   // 上一段对话摘要(多轮续接时由 pollOnce 填充,顶部折叠卡渲染)
@@ -286,12 +294,43 @@ const approvalTarget = computed(() => {
   if (a.pod) target = `${ns}${a.pod}${a.container ? ` (${a.container})` : ''}`
   else if (a.kind && a.name) target = `${ns}${a.kind}/${a.name}`
   else if (a.server) target = String(a.server) // SSH 远程主机目标
+  else if (a.scope) target = String(a.scope)   // write_server_notes:服务器名或 __global__(全局备注)
   const intents = []
   if (a.sudo) intents.push('sudo')
   if (a.replicas != null) intents.push(`replicas=${a.replicas}`)
   if (a.image) intents.push(`image=${a.image}`)
   if (a.toRevision != null) intents.push(`rev=${a.toRevision}`)
   return target ? `${target}${intents.length ? ' → ' + intents.join(', ') : ''}` : ''
+})
+// approval-flow-01(2026-09-07):command 可能是数组(LLM 违 schema 传 argv 形态,exec 族常见)
+// ——{{ }} 直插数组渲染成 "a,b,c" 逗号粘连,人审读不了;归一 join(' ') 后再渲染。
+const approvalCommand = computed(() => {
+  const c = pendingApproval.value?.args?.command
+  if (Array.isArray(c)) return c.map(String).join(' ')
+  return c ? String(c) : ''
+})
+// approval-flow-01:wb_ssh_job_write 应答——人必须看到"往哪个任务写什么",否则盲批安装器应答。
+// 终审修复(2026-09-07 批次二):门只看 text——旧条件 jobId!=null && text!=null 在 LLM 违
+// schema 漏发 jobId 时把应答文本挤没(approvalTarget 因 a.server 在场恒真,兜底 JSON 也被压
+// 掉 → 无处渲染 = 盲批照旧)。jobId 段改由模板按在场渲染;text 对象形态 JSON 归一(防
+// [object Object])。
+const approvalJobText = computed(() => {
+  const a = pendingApproval.value?.args || {}
+  if (a.text == null) return ''
+  return typeof a.text === 'string' ? a.text : JSON.stringify(a.text)
+})
+// approval-flow-01 兜底:无任何匹配分支的 requiresApproval 工具(未来新增/参数面变迁)此前只显示
+// 工具名 = 盲批。完整 args JSON(截断)兜底,任何审批工具至少可见完整参数;已有结构化展示
+// (command/path/content/应答/notes/target 行)的工具不再叠一份 JSON(同屏双显是噪音)。
+const approvalArgsFallback = computed(() => {
+  const a = pendingApproval.value?.args
+  if (!a || typeof a !== 'object' || !Object.keys(a).length) return ''
+  if (approvalCommand.value || approvalJobText.value || approvalTarget.value) return ''
+  if (a.path != null || a.content != null || a.notes != null) return ''
+  try {
+    const s = JSON.stringify(a, null, 2)
+    return s.length > 2000 ? s.slice(0, 2000) + '…' : s
+  } catch { return '' }
 })
 
 const HINTS = computed(() => [
@@ -391,7 +430,7 @@ async function loadConversation(convId) {
       startStreaming(convId)
     }
     // 重挂载恢复的排队消息 × 已终态对话:没有 running→terminal 的跳变,须手动触发一次出队
-    if (['done', 'failed', 'cancelled'].includes(convStatus.value)) drainQueue()
+    if (TERMINAL_STATUSES.includes(convStatus.value)) drainQueue()
   } finally {
     if (!unmounted) convLoading.value = false
   }
@@ -647,6 +686,7 @@ async function pollOnce(id) {
       stopPolling()
       stopWatchdog()
       lastApproval.value = null   // 离开 paused:黄条重开入口下线
+      pendingApproval.value = null // contracts-03:审批被他端决策后,过期 modal 撤下、输入解禁
       // R1:done 时 conv.reasoning(终值)一并对齐到 turn——轮询降级路径无 reasoning 事件流。
       // 终答兜底(2026-08-28):交错模式终答显示唯一依赖 trace 的 assistant 终答块;本对齐路径
       // (看门狗/降级轮询,SSE 死亡窗口后)本地 trace 缺终答块时,只写 content 会让终答在交错
@@ -664,6 +704,7 @@ async function pollOnce(id) {
       stopPolling()
       stopWatchdog()
       lastApproval.value = null   // 离开 paused:黄条重开入口下线
+      pendingApproval.value = null // contracts-03:同 done
       // 落库 error 可能是上游网关整页 HTML(如 nginx 502)——显示前净化,原文留在库里供诊断
       const errMsg = sanitizeChatError(conv.error) || t('workbench.chat.agentFailed')
       errorBanner.value = errMsg
@@ -675,8 +716,16 @@ async function pollOnce(id) {
       stopPolling()
       stopWatchdog()
       lastApproval.value = null
+      pendingApproval.value = null // contracts-03:同 done
       if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: t('workbench.chat.stopped') })
       sending.value = false
+    } else if (conv.status === 'running') {
+      // 终审修复(2026-09-07 批次二):他端 approve 后 paused→running——终态分支(contracts-03)
+      // 管不到运行中,降级轮询/看门狗通路的过期 modal 会挂满整轮运行期。与 SSE 通路
+      // APPROVAL_CONSUMED_STATUSES(含 running)同语义:撤过期弹窗 + 黄条重开入口下线;
+      // 轮询/看门狗/sending 不动(运行仍在进行,textarea 禁用键是 pendingApproval/paused)。
+      lastApproval.value = null
+      pendingApproval.value = null
     }
     pollFailStreak = 0
     if (netLost.value) netLost.value = false
@@ -722,7 +771,9 @@ function startStreaming(id) {
     // 极端空态)时它们必须仍然生效。
     if (evt.type === 'hello' || evt.type === 'status') {
       if (evt.status === 'running') convStatus.value = 'running'
-      else if (evt.status === 'done' || evt.status === 'failed' || evt.status === 'paused') convStatus.value = evt.status
+      // contracts-01(2026-09-07):cancelled 此前漏在透传清单外——跨实例取消后状态栏恒「运行中」、
+      // 排队消息永不自动出队(convStatus watch 永不触发 drain)。与 hello 同款全量透传。
+      else if (evt.status === 'paused' || TERMINAL_STATUSES.includes(evt.status)) convStatus.value = evt.status
     }
     // 审批事件:弹 modal(I:SSE 重连 replay 已决策的审批不重弹)
     if (evt.type === 'approval' && evt.pending) {
@@ -732,12 +783,19 @@ function startStreaming(id) {
         pendingApproval.value = pa
       }
     }
-    // 审批已被消费(离开 paused:resume 的 running / 终态)→ 黄条重开入口下线。
+    // 审批已被消费(离开 paused:resume 的 running / 终态)→ 黄条重开入口下线 + 撤过期弹窗
+    // (contracts-03:审批被他端决策后本实例 modal 不消失、输入框保持禁用)。
+    // pendingApproval 清空只撤过期弹窗;decidedApprovals 语义不变(重放压制按 toolCallId)。
     // hello 也算:重连补齐时对话可能已 running/终态(断线窗口内审批被别处决策)。
-    if ((evt.type === 'status' || evt.type === 'hello') && ['running', 'done', 'failed', 'cancelled'].includes(evt.status)) lastApproval.value = null
+    if ((evt.type === 'status' || evt.type === 'hello') && APPROVAL_CONSUMED_STATUSES.includes(evt.status)) {
+      lastApproval.value = null
+      pendingApproval.value = null
+    }
     // 终态:关流;failed 同步亮顶部横幅(与轮询降级路径对齐——此前 SSE 路径只写 turn 内小红块)。
     // 事件到达本身证明连接活着 → 熄 netLost(终态后轮询/看门狗即停,不清则横幅永久残留)
-    if (evt.type === 'status' && (evt.status === 'done' || evt.status === 'failed')) {
+    // contracts-01:cancelled 同入终态处理——sending 不清则 drainQueue 的 sending 守卫恒拦,
+    // 排队消息在跨实例取消后永不自动出队(与 pollOnce cancelled 分支同款收尾)。
+    if (evt.type === 'status' && TERMINAL_STATUSES.includes(evt.status)) {
       if (evt.status === 'failed') errorBanner.value = sanitizeChatError(evt.error) || t('workbench.chat.agentFailed')
       netLost.value = false; pollFailStreak = 0
       stopStreaming(); stopWatchdog(); sending.value = false; followBottom()
@@ -773,6 +831,14 @@ function startStreaming(id) {
     if (evt.type === 'status' && evt.status === 'done') {
       const hasText = !!(next.content || '').trim() || (next.trace || []).some(e => e?.type === 'assistant' && e.content)
       if (!hasText) next.content = t('workbench.chat.noAnswer')
+      // frontend-chat-01(2026-09-07):SSE 主路径 step.assistant 把轮文本清进 trace、content 归零
+      // ——done 后 turn.content 恒空,复制按钮对每条刚完成的回答复制空串(刷新走 DB 重建 content
+      // 又非空,前后不一致)。以 trace 末个 assistant 块回填 content(与 ensureFinalAnswerBlock
+      // 反向同源:那边 content→补块,这边块→补 content);交错渲染只读 trace 块,不会双显。
+      else if (!(next.content || '').trim()) {
+        const finalBlock = [...(next.trace || [])].reverse().find(e => e?.type === 'assistant' && e.content)
+        if (finalBlock) next.content = finalBlock.content
+      }
     }
     updateTurn(agentTurn._id, next)
     // delta 事件:贴底跟随(上翻读历史不拽)
@@ -825,7 +891,7 @@ const compactInstruction = ref('')
 const compacting = ref(false)
 const ctxPct = computed(() => ctxInfo.value ? Math.min(100, Math.round(ctxInfo.value.estTokens / ctxInfo.value.windowTokens * 100)) : 0)
 const ctxLevel = computed(() => ctxPct.value >= 90 ? 'red' : ctxPct.value >= 70 ? 'yellow' : 'gray')
-const compactDisabled = computed(() => !['done', 'failed', 'cancelled'].includes(convStatus.value))
+const compactDisabled = computed(() => !TERMINAL_STATUSES.includes(convStatus.value))
 async function doCompact() {
   if (!conversationId.value || compacting.value) return
   compacting.value = true
@@ -900,7 +966,7 @@ function drainQueue() {
   nextTick(() => send())
 }
 watch(convStatus, (s, o) => {
-  if (['done', 'failed', 'cancelled'].includes(s) && !['done', 'failed', 'cancelled'].includes(o || '')) drainQueue()
+  if (TERMINAL_STATUSES.includes(s) && !TERMINAL_STATUSES.includes(o || '')) drainQueue()
 })
 watch(() => props.activeConversationId, () => loadQueue())
 loadQueue()
@@ -1334,19 +1400,39 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         <p v-if="pendingApproval.name === 'apply_project_manifests'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.applyManifestsDesc')"></p>
         <p v-else-if="pendingApproval.name === 'bootstrap_ledger'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.bootstrapLedgerDesc')"></p>
         <p v-else-if="pendingApproval.name === 'wb_exec'" class="text-body-sm text-on-surface-variant" v-html="t('workbench.chat.execDesc')"></p>
-        <!-- wb_* 运维工具目标行(kind/name 或 pod),wb_exec 的 ns/pod/container 归入命令块上方的目标行 -->
-        <p v-if="approvalTarget && !pendingApproval.args?.command" class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget }}</span></p>
-        <!-- CSO #5:凡 args.command 存在(wb_exec/wb_ssh_exec)一律渲染 目标+命令+sudo,SSH root 命令不再盲批 -->
-        <template v-if="pendingApproval.args?.command">
+        <!-- wb_* 运维工具目标行(kind/name 或 pod),wb_exec 的 ns/pod/container 归入命令块上方的目标行;
+             命令块/应答块/备注块自带目标行,此处排除防同屏双目标行 -->
+        <p v-if="approvalTarget && !approvalCommand && !approvalJobText && pendingApproval.args?.notes == null" class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget }}</span></p>
+        <!-- CSO #5:凡 args.command 存在(wb_exec/wb_ssh_exec)一律渲染 目标+命令+sudo,SSH root 命令不再盲批。
+             approval-flow-01:command 数组归一 join(' ') 后渲染(argv 形态不再逗号粘连) -->
+        <template v-if="approvalCommand">
           <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span></p>
           <p v-if="pendingApproval.args?.sudo" class="text-body-sm font-semibold text-status-warning">{{ t('workbench.chat.sudoLabel') }}</p>
-          <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args?.command }}</pre>
+          <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalCommand }}</pre>
+        </template>
+        <!-- approval-flow-01:wb_ssh_job_write 应答——server(+jobId 若在场)目标行 + 将写入 stdin 的文本;
+             终审修复:jobId 段仅在场时渲染(LLM 违 schema 漏发 jobId 不再把整块应答展示挤没) -->
+        <template v-if="approvalJobText">
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span><template v-if="pendingApproval.args?.jobId != null"> · jobId: <span class="font-mono text-on-surface">{{ pendingApproval.args?.jobId }}</span></template></p>
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.approvalJobText') }}</p>
+          <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalJobText }}</pre>
+        </template>
+        <!-- approval-flow-01:write_server_notes 台账备注——scope 目标行 + notes 正文(整体覆盖) -->
+        <template v-if="pendingApproval.args?.notes != null">
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span></p>
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.approvalNotes') }}</p>
+          <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.notes }}</pre>
         </template>
         <template v-if="pendingApproval.args?.path">
           <p class="text-body-sm text-on-surface-variant">Path: <span class="font-mono text-on-surface">{{ pendingApproval.args.path }}</span></p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>
         </template>
         <pre v-else-if="pendingApproval.args?.content" class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>
+        <!-- approval-flow-01 兜底:无任何匹配分支的审批工具渲染完整 args JSON(截断)——盲批最后防线 -->
+        <template v-if="approvalArgsFallback">
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.approvalArgs') }}</p>
+          <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalArgsFallback }}</pre>
+        </template>
       </div>
       <template #actions>
         <button data-testid="approval-deny" @click="decideApproval(false)" :disabled="sending"

@@ -449,7 +449,8 @@
       "kind": "类型",
       "unknownKind": "未知",
       "noAttributes": "暂无属性",
-      "justNow": "刚刚"
+      "justNow": "刚刚",
+      "sourceCluster": "来源集群 {name}"
     },
     "kvRows": {
       "add": "添加一行"
@@ -3783,6 +3784,9 @@
       "actionApprovalTitle": "集群变更审批",
       "execDesc": "命令将在目标容器内执行（kubectl exec，一次性、非交互、30 秒超时）。执行结果会回给 AI 继续分析；请确认命令无破坏性。",
       "targetLabel": "目标",
+      "approvalJobText": "将写入任务 stdin 的应答:",
+      "approvalNotes": "将写入台账的备注(整体覆盖):",
+      "approvalArgs": "完整参数:",
       "applyManifestsDesc": "平台直连集群凭据，把 manifests apply 到目标集群，并刷新 cluster ledger（只读 survey，不改其它集群资源）。",
       "bootstrapLedgerDesc": "平台直连集群凭据 survey 集群并重写 cluster ledger（INDEX.md / learnings.md），只读不改集群资源。",
       "path": "路径：",

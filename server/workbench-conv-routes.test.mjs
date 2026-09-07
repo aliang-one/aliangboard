@@ -96,9 +96,11 @@ test('续接 @-ref:新 refs 并入对话级 references(refreshSystem 每轮注�
   assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`))
 
   const row = getConversation(h.db, conv.id)
+  // gap3-01(2026-09-07 审计批次二):refs 落库带集群戳(clusterId 比对键 + clusterName 徽标
+  // 展示值;夹具集群名恰为 'c1');重 @ 同名 nginx = 原地替换重锚定(带新戳)。
   assert.deepEqual(JSON.parse(row.references), [
-    { kind: 'pods', namespace: 'default', name: 'nginx' },
-    { kind: 'deployments', namespace: 'default', name: 'api' },
+    { kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: 'c1' },
+    { kind: 'deployments', namespace: 'default', name: 'api', clusterId: 'c1', clusterName: 'c1' },
   ], '去重 + 追加;agent 每轮经 refreshSystem 看到全部引用资源')
 })
 
@@ -386,6 +388,33 @@ test('修复⑧:edit 重发保留/补齐 resource 载荷(沿用锚 refs 不剥;�
   assert.equal(refs[0]?.resource?.kind, 'Pod', `新 references 应补拉 enrich,收到: ${last.refs}`)
 })
 
+// 终审修复(2026-09-07 批次二):edit 并入对话级 references 此前整对象入列——沿用锚 refs 路径
+// 的 refsValue 带消息级 enrich 的完整 resource K8s 体,conv 级既膨胀(64KB 上限的落库行)
+// 又与 messages 路径的 5 字段干净形状漂移(refreshSystem/buildRefsContext 只消费锚定字段)。
+// 契约:并入/原地替换只落 {kind,namespace,name,clusterId,clusterName};消息级 refs 的
+// resource 载荷保留(修复⑧ 不回归)。
+test('edit 并入对话级 references 剥 resource 载荷(锚沿用路径与 messages 路径同形状)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  // 锚消息:refs 带戳 + 完整 resource(模拟 create/messages 路径 enrich 落库的真实形态)
+  const anchor = appendMessage(h.db, {
+    conversationId: conv.id, role: 'user', content: '原问题',
+    refs: [{ kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: 'c1',
+      resource: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' }, spec: { containers: [{ name: 'app', image: 'nginx:1.25' }] } } }],
+  })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: '答', trace: '[]' })
+  h.setBody({ messageId: anchor.id, content: '改后的问题' }) // 不传 references → 沿用锚 refs(preserve 路径)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+
+  const row = getConversation(h.db, conv.id)
+  assert.deepEqual(JSON.parse(row.references), [
+    { kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: 'c1' },
+  ], 'conv 级 references 无 resource 载荷(与 messages 路径同款 5 字段干净形状)')
+  const last = listMessages(h.db, conv.id).pop()
+  assert.equal(JSON.parse(last.refs || '[]')[0]?.resource?.kind, 'Pod', '消息级 refs 的 enrich 载荷保留(修复⑧ 不回归)')
+})
+
 // ── 审计修复(2026-09-06 静态审计 #1/#2/#4)──
 
 test('审计#1 并发双跑:refs 拉取期间对话被并发置 running → 400 且不落 user 消息、不启动 run', async () => {
@@ -585,5 +614,48 @@ test('F6 即时生效:限额落库后下一请求现读即拒(无需重启,与 m
   createConversation(h.db, { projectId: h.pid, system: '', userMessage: '占用名额' })
   await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
   assert.equal(h.sent.at(-1).status, 429, '配置后新请求即时生效')
+  assert.equal(h.runs.length, 0)
+})
+
+// ── contracts-02(2026-09-07 审计):regenerate 对 removed===0 双形状拆分 ──
+//    旧实现一刀切 400:失败/取消轮零 assistant 产出时(user 仍是末条消息,removed 恒 0),
+//    前端错误轮恒亮的重试图标点了必被拒。放行(lastUserSeq>0 = user 消息仍在):
+//    buildHistory 以剩余消息(末条 user)重跑 = 原问题重答,语义自洽(裁决:服务端单点
+//    放宽优于前端绕行);无 user 消息(lastUserSeq=0)维持 400——无可重跑目标。
+test('regenerate: 失败轮无 assistant 产出(removed=0 但 user 仍在)→ 200 + run 启动', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' }) // 仅 user,无 assistant(失败轮零产出)
+  h.db.prepare("UPDATE workbench_conversations SET status='failed', error='LLM 流内错误: x' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/regenerate`), '路由命中')
+  assert.equal(h.sent.at(-1).status, 200, '失败轮重试放行(等价原问题重跑)')
+  assert.equal(h.sent.at(-1).json.status, 'running')
+  assert.equal(h.runs.length, 1, 'detached run 已启动')
+  assert.equal(getConversation(h.db, conv.id).status, 'running')
+  assert.equal(getConversation(h.db, conv.id).error, '', '上轮失败原因复位')
+  assert.equal(listMessages(h.db, conv.id).length, 1, 'user 消息保留(buildHistory 数据源)')
+})
+
+test('regenerate: 正常轮(user+assistant)→ 200,截掉旧回复后重跑(既有行为回归)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: 'a1-bad', trace: '[]' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/regenerate`), '路由命中')
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.equal(h.runs.length, 1)
+  const msgs = listMessages(h.db, conv.id)
+  assert.equal(msgs.length, 1, '旧回复被截,末轮 user 保留')
+  assert.equal(msgs[0].content, 'q1')
+})
+
+test('regenerate: 无 user 消息(空消息表)→ 仍 400', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'x' })
+  h.db.prepare('DELETE FROM workbench_messages WHERE conversationId=?').run(conv.id)
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/regenerate`), '路由命中')
+  assert.equal(h.sent.at(-1).status, 400, '连 user 都没有 → 无可重跑目标')
   assert.equal(h.runs.length, 0)
 })

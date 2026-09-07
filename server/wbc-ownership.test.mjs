@@ -13,6 +13,15 @@ function makeHarness({ userId = 'u1', role = 'user' } = {}) {
   db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT, messages TEXT, queue TEXT, denied TEXT, "references" TEXT, system TEXT DEFAULT '', content TEXT DEFAULT '', reasoning TEXT DEFAULT '', trace TEXT DEFAULT '[]', recap TEXT, summarizedUpTo INTEGER)`)
   db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER, id TEXT PRIMARY KEY, role TEXT, content TEXT, createdAt INTEGER)`)
   db.exec(`CREATE TABLE platform_settings (key TEXT PRIMARY KEY, value TEXT)`)
+  // F4(authz-entitlement-02):approve/deny 补集群分配门(clusterEntitled→canAccessCluster)
+  // 后,夹具须有授权表——owner u1 分配 c1(admin 短路,admin1 无需行;u2 走 ownership 拒,
+  // 到不了 entitlement)。
+  db.exec(`CREATE TABLE platform_users (id TEXT PRIMARY KEY, username TEXT, role TEXT DEFAULT 'user', disabled INTEGER DEFAULT 0, createdAt INTEGER)`)
+  db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, PRIMARY KEY(userId, clusterId))`)
+  db.prepare(`INSERT INTO platform_users VALUES ('u1','u1','user',0,1)`).run()
+  db.prepare(`INSERT INTO platform_users VALUES ('u2','u2','user',0,1)`).run()
+  db.prepare(`INSERT INTO platform_users VALUES ('admin1','admin1','admin',0,1)`).run()
+  db.prepare(`INSERT INTO user_clusters VALUES ('u1','c1')`).run()
   db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p1','proj','c1','u1',1)`).run()
   const paused = (id) => db.prepare(`INSERT INTO workbench_conversations (id,projectId,status,createdAt,updatedAt,system,pendingApproval) VALUES (?,'p1','paused',1,2,'SYS',?)`).run(id, JSON.stringify({ toolCallId: 'tc1', name: 'wb_exec', args: {} }))
   paused('cA')
