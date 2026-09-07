@@ -416,12 +416,13 @@ function platformUserFromRequest(req, res) {
   // W3 §1.5:受限 token 拦截(admin 强制开关下未启用 MFA 的登录)——TTL 与删除/禁用检查之后、
   // 正常返回前;白名单外的请求 403 auth.mfaEnrollmentRequired(已写响应,req 标记防上层重复 401)。
   // 白名单单一事实源 isMfaPendingAllowed(route-auth-map.mjs):me / mfa/* / logout / preferences。
+  // code 字段(外评 2026-09-07 修复 2):前端 http 层靠它与普通权限不足 403 区分,引导跳 MFA 启用。
   if (ps.mfaPending === 1) {
     let pathname = String(req.url || '')
     try { pathname = new URL(req.url, 'http://x').pathname } catch { /* 保原始串 */ }
     if (!isMfaPendingAllowed(req.method, pathname)) {
       req.abMfaEnrollment403 = true
-      if (res) sendJson(res, 403, { message: msg(req, 'auth.mfaEnrollmentRequired') })
+      if (res) sendJson(res, 403, { message: msg(req, 'auth.mfaEnrollmentRequired'), code: 'MFA_ENROLLMENT_REQUIRED' })
       return null
     }
   }
