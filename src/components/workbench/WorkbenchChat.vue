@@ -310,9 +310,14 @@ const approvalCommand = computed(() => {
   return c ? String(c) : ''
 })
 // approval-flow-01:wb_ssh_job_write 应答——人必须看到"往哪个任务写什么",否则盲批安装器应答。
+// 终审修复(2026-09-07 批次二):门只看 text——旧条件 jobId!=null && text!=null 在 LLM 违
+// schema 漏发 jobId 时把应答文本挤没(approvalTarget 因 a.server 在场恒真,兜底 JSON 也被压
+// 掉 → 无处渲染 = 盲批照旧)。jobId 段改由模板按在场渲染;text 对象形态 JSON 归一(防
+// [object Object])。
 const approvalJobText = computed(() => {
   const a = pendingApproval.value?.args || {}
-  return a.jobId != null && a.text != null ? String(a.text) : ''
+  if (a.text == null) return ''
+  return typeof a.text === 'string' ? a.text : JSON.stringify(a.text)
 })
 // approval-flow-01 兜底:无任何匹配分支的 requiresApproval 工具(未来新增/参数面变迁)此前只显示
 // 工具名 = 盲批。完整 args JSON(截断)兜底,任何审批工具至少可见完整参数;已有结构化展示
@@ -714,6 +719,13 @@ async function pollOnce(id) {
       pendingApproval.value = null // contracts-03:同 done
       if (agentTurn) updateTurn(agentTurn._id, { status: 'error', error: t('workbench.chat.stopped') })
       sending.value = false
+    } else if (conv.status === 'running') {
+      // 终审修复(2026-09-07 批次二):他端 approve 后 paused→running——终态分支(contracts-03)
+      // 管不到运行中,降级轮询/看门狗通路的过期 modal 会挂满整轮运行期。与 SSE 通路
+      // APPROVAL_CONSUMED_STATUSES(含 running)同语义:撤过期弹窗 + 黄条重开入口下线;
+      // 轮询/看门狗/sending 不动(运行仍在进行,textarea 禁用键是 pendingApproval/paused)。
+      lastApproval.value = null
+      pendingApproval.value = null
     }
     pollFailStreak = 0
     if (netLost.value) netLost.value = false
@@ -1398,9 +1410,10 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
           <p v-if="pendingApproval.args?.sudo" class="text-body-sm font-semibold text-status-warning">{{ t('workbench.chat.sudoLabel') }}</p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalCommand }}</pre>
         </template>
-        <!-- approval-flow-01:wb_ssh_job_write 应答——server+jobId 目标行 + 将写入 stdin 的文本 -->
+        <!-- approval-flow-01:wb_ssh_job_write 应答——server(+jobId 若在场)目标行 + 将写入 stdin 的文本;
+             终审修复:jobId 段仅在场时渲染(LLM 违 schema 漏发 jobId 不再把整块应答展示挤没) -->
         <template v-if="approvalJobText">
-          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span> · jobId: <span class="font-mono text-on-surface">{{ pendingApproval.args?.jobId }}</span></p>
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span><template v-if="pendingApproval.args?.jobId != null"> · jobId: <span class="font-mono text-on-surface">{{ pendingApproval.args?.jobId }}</span></template></p>
           <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.approvalJobText') }}</p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalJobText }}</pre>
         </template>

@@ -523,8 +523,15 @@ export function createWorkbenchConvRoutes(deps) {
         const idxOf = new Map(mergedRefs.map((r, i) => [key(r), i]))
         for (const r of (refsValue || [])) {
           const k = key(r)
-          if (idxOf.has(k)) mergedRefs[idxOf.get(k)] = r
-          else { idxOf.set(k, mergedRefs.length); mergedRefs.push(r) }
+          // 终审修复(2026-09-07 批次二):并入 conv 级只落 5 字段干净形状(与 messages 路径
+          // stampedRefs 同形)——沿用锚 refs 的 refsValue 带消息级 enrich 的完整 resource K8s
+          // 体,整对象入列既膨胀落库行又形状漂移(refreshSystem/buildRefsContext 只消费锚定
+          // 字段;resource 只属于消息级 ResourceCard,appendMessage 那路照留)。
+          const clean = { kind: r.kind, namespace: r.namespace, name: r.name }
+          if (typeof r.clusterId === 'string') clean.clusterId = r.clusterId
+          if (typeof r.clusterName === 'string') clean.clusterName = r.clusterName
+          if (idxOf.has(k)) mergedRefs[idxOf.get(k)] = clean
+          else { idxOf.set(k, mergedRefs.length); mergedRefs.push(clean) }
         }
         const appendedAnchor = appendMessage(db, {
           conversationId: id, role: 'user', content,

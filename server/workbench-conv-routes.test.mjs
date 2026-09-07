@@ -388,6 +388,33 @@ test('修复⑧:edit 重发保留/补齐 resource 载荷(沿用锚 refs 不剥;�
   assert.equal(refs[0]?.resource?.kind, 'Pod', `新 references 应补拉 enrich,收到: ${last.refs}`)
 })
 
+// 终审修复(2026-09-07 批次二):edit 并入对话级 references 此前整对象入列——沿用锚 refs 路径
+// 的 refsValue 带消息级 enrich 的完整 resource K8s 体,conv 级既膨胀(64KB 上限的落库行)
+// 又与 messages 路径的 5 字段干净形状漂移(refreshSystem/buildRefsContext 只消费锚定字段)。
+// 契约:并入/原地替换只落 {kind,namespace,name,clusterId,clusterName};消息级 refs 的
+// resource 载荷保留(修复⑧ 不回归)。
+test('edit 并入对话级 references 剥 resource 载荷(锚沿用路径与 messages 路径同形状)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  // 锚消息:refs 带戳 + 完整 resource(模拟 create/messages 路径 enrich 落库的真实形态)
+  const anchor = appendMessage(h.db, {
+    conversationId: conv.id, role: 'user', content: '原问题',
+    refs: [{ kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: 'c1',
+      resource: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' }, spec: { containers: [{ name: 'app', image: 'nginx:1.25' }] } } }],
+  })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: '答', trace: '[]' })
+  h.setBody({ messageId: anchor.id, content: '改后的问题' }) // 不传 references → 沿用锚 refs(preserve 路径)
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+
+  const row = getConversation(h.db, conv.id)
+  assert.deepEqual(JSON.parse(row.references), [
+    { kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: 'c1' },
+  ], 'conv 级 references 无 resource 载荷(与 messages 路径同款 5 字段干净形状)')
+  const last = listMessages(h.db, conv.id).pop()
+  assert.equal(JSON.parse(last.refs || '[]')[0]?.resource?.kind, 'Pod', '消息级 refs 的 enrich 载荷保留(修复⑧ 不回归)')
+})
+
 // ── 审计修复(2026-09-06 静态审计 #1/#2/#4)──
 
 test('审计#1 并发双跑:refs 拉取期间对话被并发置 running → 400 且不落 user 消息、不启动 run', async () => {

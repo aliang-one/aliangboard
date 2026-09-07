@@ -318,6 +318,35 @@ test('chatStream: 流内 error 无 message 字段 → JSON 串兜底,不抛 "und
   await assert.rejects(() => c.chatStream({ messages: [] }), /LLM 流内错误: \{"code":502/)
 })
 
+// 终审修复(2026-09-07 批次二):error 与「空 choices 数组」并存的帧——旧谓词 `!obj.choices`
+// 对空数组取 false,故障帧绕过抛错、落回本批刚杀掉的静默吞路径(空数组无 delta 可处理,继续
+// 走 delta 处理等于整帧丢弃,半截答案照样标 done)。契约:空 choices 与缺席同形,同样抛。
+test('chatStream: 流内 error 且 choices 为空数组 → 同样抛(空数组不豁免)', async () => {
+  const deltas = []
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":"半截"}}]}\n\n',
+    'data: {"error":{"message":"provider died mid-stream"},"choices":[]}\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  await assert.rejects(
+    () => c.chatStream({ messages: [] }, { onDelta: t => deltas.push(t) }),
+    /LLM 流内错误: provider died mid-stream/,
+  )
+  assert.deepEqual(deltas, ['半截'], '已吐 delta 照常先行送达(salvage 数据来源)')
+})
+
+// 反向边界守卫:error 与非空 choices 并存(个别代理混发正常 delta 附带 error 字段)不拦——
+// 防过度收紧把合法帧误杀。
+test('chatStream: error 与非空 choices 并存 → 不拦,照常走 delta 处理', async () => {
+  const chunks = [
+    'data: {"error":{"message":"soft warning"},"choices":[{"delta":{"content":"正常"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })
+  const msg = await c.chatStream({ messages: [] })
+  assert.equal(msg.content, '正常', '混发帧的 delta 正常产出,不误抛')
+})
+
 test('chatStream: [DONE] 终止但三皆空(无 content/tool_calls/finishReason)→ 抛「LLM 返回空响应」', async () => {
   const chunks = ['data: [DONE]\n\n']
   const c = createLlmClient({ baseURL: 'http://x/v1', model: 'm', fetch: mockFetchStream(chunks) })

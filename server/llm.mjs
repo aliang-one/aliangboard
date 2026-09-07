@@ -112,8 +112,10 @@ export function createLlmClient({
           // 抛出点在已吐 delta 之后:agent.mjs chatWithRetry 的 sawDelta 谓词据此不重试(流式
           // 重试会从头再吐、前端已拼接内容重复),错误上抛交 workbench-agent 的 salvage 路径
           // 保留半截内容并标 failed(与中断保全语义一致);error 无 message 字段以 JSON 串兜底。
-          // error 与 choices 并存的帧(个别代理混发)不拦,照常走 delta 处理。
-          if (obj.error && !obj.choices) {
+          // error 与非空 choices 并存的帧(个别代理混发)不拦,照常走 delta 处理;空 choices
+          // 数组无 delta 可处理,与缺席同形照抛(终审修复:`!obj.choices` 对空数组取 false,
+          // 故障帧曾绕过抛错落回静默吞)。
+          if (obj.error && !obj.choices?.length) {
             reader.cancel?.().catch(() => {}) // 释放未读完的响应体(连接及时归还连接池)
             throw new Error('LLM 流内错误: ' + (obj.error?.message || JSON.stringify(obj.error).slice(0, 200)))
           }

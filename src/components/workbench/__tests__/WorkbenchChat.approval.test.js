@@ -229,3 +229,52 @@ test('兜底不叠加:wb_exec(目标+命令已有)不再渲染 args JSON', async
   })
   expect(w.text()).not.toContain(zh.workbench.chat.approvalArgs)
 })
+
+// ── 终审修复(2026-09-07 批次二 fix wave)──
+
+// 旧门 `jobId != null && text != null`:LLM 违 schema 漏发 jobId 时应答文本被挤没——文本
+// 无处渲染(approvalTarget 因 a.server 在场恒真,兜底 JSON 也被压掉)= 盲批照旧。契约:
+// text 在场即渲染;jobId 段仅在场时显示。
+test('wb_ssh_job_write 无 jobId(违 schema):应答文本仍可见,jobId 段不渲染', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-jw-noId', name: 'wb_ssh_job_write',
+    args: { server: 'prod-db', text: 'y' },
+  })
+  const text = w.text()
+  expect(text).toContain('prod-db')
+  expect(text).toContain(zh.workbench.chat.approvalJobText)
+  expect(w.findAll('pre').some(p => p.text() === 'y'), '应答文本入 pre 展示').toBe(true)
+  expect(text).not.toContain('jobId:')
+})
+
+// text 对象形态(违 schema):String() 直插渲染 [object Object] 人审读不了。契约:JSON 归一。
+test('wb_ssh_job_write text 为对象(违 schema):JSON 归一渲染,不出现 [object Object]', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-jw-obj', name: 'wb_ssh_job_write',
+    args: { server: 'prod-db', jobId: 'job-7', text: { line: 'y' } },
+  })
+  const text = w.text()
+  expect(text).toContain('{"line":"y"}')
+  expect(text).not.toContain('[object Object]')
+})
+
+// 他端 approve 后 paused→running:contracts-03 终态分支管不到运行中,降级轮询/看门狗通路
+// 的过期 modal 会挂满整轮运行期。契约:pollOnce 对齐 running 即撤 pendingApproval(与 SSE
+// 通路 APPROVAL_CONSUMED_STATUSES 含 running 同语义);轮询/看门狗不停(运行仍在进行)。
+test('他端 approve 后运行中:pollOnce 对齐 running → 过期 modal 撤下、输入解禁', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-xrun', name: 'wb_exec',
+    args: { namespace: 'default', pod: 'nginx-1', command: 'ls' },
+  })
+  expect(w.find('textarea').attributes('disabled'), '审批期间输入禁用').toBeDefined()
+
+  // 另一实例批准完毕 → 本实例(轮询通路)下一次 pollOnce 对齐 running
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-ap', status: 'running', content: '', trace: '[]', steps: 2, recap: '', messages: [],
+  })
+  await w.vm.pollOnce('conv-ap')
+  await flushPromises()
+
+  expect(w.find('[data-testid="approval-approve"]').exists(), '运行中过期 modal 撤下').toBe(false)
+  expect(w.find('textarea').attributes('disabled'), '输入解禁(禁用键= pendingApproval/paused)').toBeUndefined()
+})
