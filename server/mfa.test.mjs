@@ -11,6 +11,7 @@ import { createAuditSchema, writeAudit } from './audit.mjs'
 import { enforceSessionCap } from './platform-session-reaper.mjs'
 import { createRateLimiter } from './rate-limit.mjs'
 import { generateTotpSecret, totpCodeAt, hashRecoveryCode } from './totp.mjs'
+import { isMfaPendingAllowed } from './route-auth-map.mjs'
 import { TABLE as MSG } from './messages/auth.mjs'
 
 function makeDb() {
@@ -26,9 +27,13 @@ function makeDb() {
   db.exec(`CREATE TABLE mfa_recovery_codes (
     userId TEXT NOT NULL, codeHash TEXT NOT NULL, usedAt INTEGER,
     PRIMARY KEY (userId, codeHash))`)
-  db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT NOT NULL,
-    authHeader TEXT, ca TEXT, cert TEXT, key TEXT, insecure INTEGER DEFAULT 0, version TEXT, nsAuthMode TEXT DEFAULT 'open')`)
+  db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT NOT NULL, authMethod TEXT,
+    authHeader TEXT, ca TEXT, cert TEXT, key TEXT, insecure INTEGER DEFAULT 0, version TEXT, nsAuthMode TEXT DEFAULT 'open', createdAt INTEGER)`)
   db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
+  // /api/auth/me → effectiveGrants 消费(W2 Phase A)
+  db.exec(`CREATE TABLE groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, createdAt INTEGER NOT NULL, createdBy TEXT)`)
+  db.exec(`CREATE TABLE group_members (groupId TEXT NOT NULL, userId TEXT NOT NULL, addedBy TEXT, createdAt INTEGER NOT NULL, PRIMARY KEY (groupId, userId))`)
+  db.exec(`CREATE TABLE ns_grants (id TEXT PRIMARY KEY, subjectType TEXT NOT NULL, subjectId TEXT NOT NULL, clusterId TEXT NOT NULL, namespace TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'view', grantedBy TEXT, grantedAt INTEGER NOT NULL, UNIQUE(subjectType,subjectId,clusterId,namespace))`)
   createAuditSchema(db)
   return db
 }
@@ -43,7 +48,17 @@ function makeRoutes(db, over = {}) {
   const deps = {
     db, sendJson: (_res, status, payload) => sent.push({ status, payload }),
     readBody: async () => deps._body,
-    requirePlatform: (req) => db.prepare('SELECT * FROM platform_sessions WHERE token=?').get(req.headers['x-platform-token']),
+    // 受限 token 拦截镜像 index.mjs platformUserFromRequest(W3 §1.5):mfaPending=1 且路径不在
+    // 白名单 → 403 auth.mfaEnrollmentRequired。白名单判定用真实现 isMfaPendingAllowed。
+    requirePlatform: (req, res) => {
+      const ps = db.prepare('SELECT * FROM platform_sessions WHERE token=?').get(req.headers['x-platform-token'])
+      if (!ps) { deps.sendJson(res, 401, { message: 'not logged in' }); return null }
+      if (ps.mfaPending === 1 && !isMfaPendingAllowed(req.method, new URL(req.url, 'http://x').pathname)) {
+        deps.sendJson(res, 403, { message: MSG['auth.mfaEnrollmentRequired'].zh })
+        return null
+      }
+      return ps
+    },
     platformSessions: new Map(db.prepare('SELECT * FROM platform_sessions').all().map(r => [r.token, r])),
     sessions: new Map(), persistSession: () => {},
     verifyPassword: (p) => p === 'right-password',
@@ -289,3 +304,147 @@ test('登录启用 MFA 用户后自动登出语义:密码步不建会话(cap 不
   assert.equal(deps.platformSessions.has('t-me'), true, '旧会话不被 cap 踢(未进入尾段)')
 })
 
+// ===== Task 3:强制开关 + 受限 token + step-up =====
+
+test('isMfaPendingAllowed:白名单矩阵(me/logout/preferences 放行;my-clusters/change-password/其他拒)', () => {
+  assert.equal(isMfaPendingAllowed('GET', '/api/auth/me'), true)
+  assert.equal(isMfaPendingAllowed('POST', '/api/auth/logout'), true)
+  assert.equal(isMfaPendingAllowed('PUT', '/api/auth/preferences'), true)
+  assert.equal(isMfaPendingAllowed('POST', '/api/auth/mfa/setup'), true)
+  assert.equal(isMfaPendingAllowed('POST', '/api/auth/mfa/enable'), true)
+  assert.equal(isMfaPendingAllowed('POST', '/api/auth/mfa/disable'), true)
+  assert.equal(isMfaPendingAllowed('POST', '/api/auth/step-up'), false, 'step-up 不在裁决 R5 白名单(受限用户无 MFA 可验,端点对其实际 400)')
+  assert.equal(isMfaPendingAllowed('GET', '/api/my-clusters'), false)
+  assert.equal(isMfaPendingAllowed('POST', '/api/auth/change-password'), false)
+  assert.equal(isMfaPendingAllowed('GET', '/api/k8s/api/v1/pods'), false)
+  assert.equal(isMfaPendingAllowed('GET', '/api/auth/me/avatar'), false, '白名单按裁决 R5 精确四类(不含 avatar)')
+  assert.equal(isMfaPendingAllowed('PATCH', '/api/auth/me'), false, 'PATCH me 不在白名单')
+})
+
+test('强制开关开:未启用用户登录 → 受限 token(me 200 / my-clusters 403 mfaEnrollmentRequired)', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db, { getSetting: (k) => (k === 'auth.mfa.required' ? '1' : null) })
+  await login(routes, { username: 'alice', password: 'right-password' })
+  assert.equal(sent[0].status, 200)
+  assert.equal(db.prepare('SELECT mfaPending FROM platform_sessions WHERE token=?').get('uuid-x').mfaPending, 1, '会话 mfaPending=1')
+  await call(routes, 'GET', '/api/auth/me', undefined, { 'x-platform-token': 'uuid-x' })
+  assert.equal(sent[1].status, 200)
+  await call(routes, 'GET', '/api/my-clusters', undefined, { 'x-platform-token': 'uuid-x' })
+  assert.equal(sent[2].status, 403)
+  assert.equal(sent[2].payload.message, MSG['auth.mfaEnrollmentRequired'].zh)
+})
+
+test('强制开关开:受限 token 完成 enable 后转完整(mfaPending=0,my-clusters 200)', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db, { getSetting: (k) => (k === 'auth.mfa.required' ? '1' : null) })
+  await login(routes, { username: 'alice', password: 'right-password' })
+  const token = sent[0].payload.token
+  const secret = generateTotpSecret()
+  await call(routes, 'POST', '/api/auth/mfa/setup', {}, { 'x-platform-token': token })
+  await call(routes, 'POST', '/api/auth/mfa/enable', { secret, code: totpCodeAt(secret, Date.now()) }, { 'x-platform-token': token })
+  assert.equal(sent[2].status, 200)
+  assert.equal(db.prepare('SELECT mfaPending FROM platform_sessions WHERE token=?').get(token).mfaPending, 0, 'enable 成功 → mfaPending=0')
+  await call(routes, 'GET', '/api/my-clusters', undefined, { 'x-platform-token': token })
+  assert.equal(sent[3].status, 200)
+})
+
+test('强制开关关(默认):登录 mfaPending=0,一切照旧', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  await login(routes, { username: 'alice', password: 'right-password' })
+  assert.equal(db.prepare('SELECT mfaPending FROM platform_sessions WHERE token=?').get('uuid-x').mfaPending, 0)
+})
+
+test('step-up:对码 → 200 且 stepUpAt 刷新;错码 401;恢复码可验不即焚;未启用 400', async () => {
+  const db = makeDb(); seed(db)
+  const secret = generateTotpSecret()
+  db.prepare('UPDATE platform_users SET totpSecret=? WHERE id=?').run(secret, 'u1')
+  const rcHash = hashRecoveryCode('AAAAA-BBBBB')
+  db.prepare('INSERT INTO mfa_recovery_codes (userId,codeHash,usedAt) VALUES (?,?,NULL)').run('u1', rcHash)
+  db.prepare('UPDATE platform_sessions SET stepUpAt=? WHERE token=?').run(Date.now() - 11 * 60_000, 't-me')
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'POST', '/api/auth/step-up', { code: '000000' })
+  assert.equal(sent[0].status, 401)
+  // 恢复码 step-up:不消费(R2)
+  await call(routes, 'POST', '/api/auth/step-up', { code: 'AAAAA-BBBBB' })
+  assert.equal(sent[1].status, 200)
+  assert.equal(db.prepare('SELECT usedAt FROM mfa_recovery_codes WHERE codeHash=?').get(rcHash).usedAt, null, 'step-up 不消费恢复码')
+  const fresh = db.prepare('SELECT stepUpAt FROM platform_sessions WHERE token=?').get('t-me').stepUpAt
+  assert.ok(fresh > Date.now() - 60_000, 'stepUpAt=now 刷新')
+  // 刷新后 10min 内 disable 守卫放行(TOTP 码)
+  await call(routes, 'POST', '/api/auth/mfa/disable', { code: totpCodeAt(secret, Date.now()) })
+  assert.equal(sent[2].status, 200, 'step-up 刷新后守卫放行')
+  // 未启用用户 step-up → 400
+  await call(routes, 'POST', '/api/auth/step-up', { code: '000000' })
+  assert.equal(sent[3].status, 400)
+})
+
+test('change-password:MFA 用户 step-up 过期 → 409;无 MFA 用户不要求 step-up(照旧 200/401)', async () => {
+  const db = makeDb(); seed(db)
+  db.prepare('UPDATE platform_users SET totpSecret=? WHERE id=?').run(generateTotpSecret(), 'u1')
+  db.prepare('UPDATE platform_sessions SET stepUpAt=? WHERE token=?').run(Date.now() - 11 * 60_000, 't-me')
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'POST', '/api/auth/change-password', { currentPassword: 'right-password', newPassword: 'newpassword1' })
+  assert.equal(sent[0].status, 409)
+  assert.equal(sent[0].payload.stepUpRequired, true)
+  assert.equal(db.prepare('SELECT passwordHash FROM platform_users WHERE id=?').get('u1').passwordHash, 'good', '密码未动')
+  // 无 MFA 用户:无 step-up 要求,行为与 Wave 3 前一致
+  db.prepare('UPDATE platform_users SET totpSecret=NULL WHERE id=?').run('u1')
+  await call(routes, 'POST', '/api/auth/change-password', { currentPassword: 'right-password', newPassword: 'newpassword1' })
+  assert.equal(sent[1].status, 200, '无 MFA 用户改密不受 step-up 约束')
+})
+
+// ===== admin mfa-policy =====
+
+function makeAdminRoutes(db, over = {}) {
+  const sent = []
+  const deps = {
+    db, sendJson: (_r, s, p) => sent.push({ status: s, payload: p }),
+    readBody: async () => deps._body,
+    requireAdmin: (req, res) => db.prepare('SELECT s.*, u.role FROM platform_sessions s JOIN platform_users u ON u.id=s.userId WHERE s.token=? AND u.role=?').get(req.headers['x-platform-token'], 'admin') || (deps.sendJson(res, 403, { message: 'admin required' }), null),
+    getSetting: (k) => db.prepare('SELECT value FROM platform_settings WHERE key=?').get(k)?.value ?? null,
+    setSetting: (k, v) => db.prepare('INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES (?,?,?)').run(k, String(v ?? ''), Date.now()),
+    deleteSetting: (k) => db.prepare('DELETE FROM platform_settings WHERE key=?').run(k),
+    writeAudit,
+    ...over,
+  }
+  Object.assign(deps, over)
+  const router = createAdminRoutes(deps)
+  const wrapper = { get routes() { return router } }
+  Object.defineProperty(wrapper, '_body', { get() { return deps._body }, set(v) { deps._body = v } })
+  return { routes: wrapper, sent, deps }
+}
+
+function makeSettingsDb() {
+  const db = makeDb()
+  db.prepare("INSERT INTO platform_users (id,username,passwordHash,role,createdAt) VALUES ('a1','root','good','admin',1)").run()
+  db.prepare("INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES ('t-admin','a1','root','admin',1)").run()
+  db.exec('CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, value TEXT, updatedAt INTEGER NOT NULL )')
+  return db
+}
+
+const adminCall = (routes, method, path, body) => {
+  if (body !== undefined) routes._body = body
+  return routes.routes.handle({ method, headers: { 'x-platform-token': 't-admin' }, url: path }, {}, new URL(path, 'http://x'))
+}
+
+test("admin mfa-policy:GET 默认关;PUT true 落 '1' + 审计;PUT false 删键 + 审计;非法 body 400", async () => {
+  const db = makeSettingsDb()
+  const { routes, sent } = makeAdminRoutes(db)
+  await adminCall(routes, 'GET', '/api/admin/mfa-policy')
+  assert.equal(sent[0].status, 200)
+  assert.deepEqual(sent[0].payload, { enabled: false })
+  await adminCall(routes, 'PUT', '/api/admin/mfa-policy', { enabled: true })
+  assert.deepEqual(sent[1].payload, { enabled: true })
+  assert.equal(db.prepare("SELECT value FROM platform_settings WHERE key='auth.mfa.required'").get().value, '1')
+  await adminCall(routes, 'GET', '/api/admin/mfa-policy')
+  assert.deepEqual(sent[2].payload, { enabled: true })
+  await adminCall(routes, 'PUT', '/api/admin/mfa-policy', { enabled: false })
+  assert.deepEqual(sent[3].payload, { enabled: false })
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM platform_settings WHERE key='auth.mfa.required'").get().c, 0, '关 = 删键')
+  await adminCall(routes, 'PUT', '/api/admin/mfa-policy', { enabled: 'yes' })
+  assert.equal(sent[4].status, 400)
+  // node:sqlite 行是 null-prototype,断言映射为标量(auth-selfservice 同款手法)
+  const audit = db.prepare("SELECT result FROM audit_log WHERE tool='admin_mfa_policy' ORDER BY rowid").all()
+  assert.deepEqual(audit.map(a => a.result), ['ok', 'ok'], '两次 PUT 各写一行审计')
+})

@@ -27,4 +27,5 @@ export const TABLE = {
   'auth.mfaNotEnabled': { zh: '尚未启用两步验证', en: 'Two-factor authentication is not enabled' },
   'auth.mfaFailed': { zh: '两步验证操作失败', en: 'Two-factor operation failed' },
   'auth.stepUpRequired': { zh: '需要重新验证身份,请输入两步验证码', en: 'Recent authentication required, please enter your two-factor code' },
+  'auth.mfaEnrollmentRequired': { zh: '管理员已要求启用两步验证,请先完成启用后再继续', en: 'Your administrator requires two-factor authentication — enroll before continuing' },
 }

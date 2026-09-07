@@ -72,14 +72,17 @@ export function createAuthRoutes(deps) {
 
   // login 成功尾段(W3 起两处共用,防漂移:密码直接通过 / login/mfa 二步通过):
   // 建平台会话(内存+DB,stepUpAt=now——刚完成密码/MFA 认证)+ 会话上限 + 审计 + token/user/prefs 响应。
+  // W3 §1.5:admin 强制开关(auth.mfa.required='1')开 + 用户未启用 MFA → 受限 token(mfaPending=1,
+  // platformUserFromRequest 仅放行 MFA 引导白名单);MFA 用户二步通过即完整会话。开关关 → 恒 0(零感知)。
   function finishLogin(req, res, user, ip, auditOk) {
     const token = randomUUID()
     const psNow = Date.now()
     const userAgent = String(req.headers['user-agent'] || '')
-    const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: psNow, k8sSessionToken: null, ip, userAgent, lastSeenAt: psNow, stepUpAt: psNow }
+    const mfaPending = getSetting?.('auth.mfa.required') === '1' && !user.totpSecret ? 1 : 0
+    const ps = { token, userId: user.id, username: user.username, role: user.role, createdAt: psNow, k8sSessionToken: null, ip, userAgent, lastSeenAt: psNow, mfaPending, stepUpAt: psNow }
     platformSessions.set(token, ps)
-    db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt,stepUpAt) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(token, user.id, user.username, user.role, psNow, ip, userAgent, psNow, psNow)
+    db.prepare('INSERT INTO platform_sessions (token,userId,username,role,createdAt,ip,userAgent,lastSeenAt,mfaPending,stepUpAt) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(token, user.id, user.username, user.role, psNow, ip, userAgent, psNow, mfaPending, psNow)
     // 会话数量上限(2026-08-30 设计 §3.2):超出踢最久未活跃的旧会话,刚建的本会话永不踢;
     // 被踢会话的 K8s 凭据由 enforceSessionCap 一并回收。强制失败不阻断登录(降级不踢)。
     try {
@@ -207,10 +210,12 @@ export function createAuthRoutes(deps) {
           db.prepare('DELETE FROM mfa_recovery_codes WHERE userId=?').run(ps.userId) // 重复启用=换码组,旧恢复码全作废
           const ins = db.prepare('INSERT INTO mfa_recovery_codes (userId,codeHash,usedAt) VALUES (?,?,NULL)')
           for (const c of codes) ins.run(ps.userId, c.hash)
-          if (token) db.prepare('UPDATE platform_sessions SET stepUpAt=? WHERE token=?').run(now, token)
+          // W3 §1.5:受限 token 在此转正(mfaPending=0);stepUpAt=now(刚验过码)
+          if (token) db.prepare('UPDATE platform_sessions SET stepUpAt=?, mfaPending=0 WHERE token=?').run(now, token)
           db.exec('COMMIT')
         } catch (e) { db.exec('ROLLBACK'); throw e }
         ps.stepUpAt = now
+        ps.mfaPending = 0
         mfaPendingSecrets.delete(ps.userId)
         auditEnable('ok', `codes=${codes.length}`)
         sendJson(res, 200, { ok: true, recoveryCodes: codes.map(c => c.plaintext) })
@@ -239,6 +244,30 @@ export function createAuthRoutes(deps) {
           db.exec('COMMIT')
         } catch (e) { db.exec('ROLLBACK'); throw e }
         auditDisable('ok')
+        sendJson(res, 200, { ok: true })
+        return true
+      } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.mfaFailed') }); return true }
+    }
+
+    // POST /api/auth/step-up {code} — 重认证(W3 §2):TOTP/恢复码验过 → 会话 stepUpAt=now(内存+DB),
+    // 10min 内账户安全操作(改密/MFA disable/setup-重置)免再验。恢复码不即焚(裁决 R2:用户已持完整
+    // 会话,step-up 防的是 CSRF/偷拍屏,非首次身份证明;即焚仅在登录第二步)。
+    if (url.pathname === '/api/auth/step-up' && req.method === 'POST') {
+      const ps = requirePlatform(req, res); if (!ps) return true
+      try {
+        const { code } = await readBody(req)
+        const user = db.prepare('SELECT totpSecret FROM platform_users WHERE id=?').get(ps.userId)
+        if (!user?.totpSecret) { sendJson(res, 400, { message: msg(req, 'auth.mfaNotEnabled') }); return true }
+        const auditStepUp = (result, reason = null) => writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'platform_step_up', result, reason, source: 'platform' })
+        if (!code || (!verifyTotp(user.totpSecret, String(code)) && !checkRecoveryCode(ps.userId, code))) {
+          auditStepUp('denied', 'bad-code')
+          sendJson(res, 401, { message: msg(req, 'auth.mfaCodeInvalid') }); return true
+        }
+        const now = Date.now()
+        const token = extractPlatformToken(req)
+        if (token) db.prepare('UPDATE platform_sessions SET stepUpAt=? WHERE token=?').run(now, token)
+        ps.stepUpAt = now
+        auditStepUp('ok')
         sendJson(res, 200, { ok: true })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.mfaFailed') }); return true }
@@ -359,6 +388,9 @@ export function createAuthRoutes(deps) {
         const { currentPassword, newPassword } = await readBody(req)
         const user = db.prepare('SELECT * FROM platform_users WHERE id=?').get(ps.userId)
         const auditChange = (result, reason = null, summary = null) => writeAudit?.(db, { owner: ps.username, verb: 'change', tool: 'platform_change_password', result, reason, requestSummary: summary, source: 'platform' })
+        // W3 §2:改密属账户安全面——已启用 MFA 的用户须 step-up ≤10min(409 由前端拦截弹 TOTP 窗重放);
+        // 无 MFA 用户豁免(无码可验,当前密码本身即刚验证,spec §5.4)。
+        if (user?.totpSecret && !requireStepUp(req, ps, res)) return true
         if (!user || !currentPassword || !verifyPassword(String(currentPassword), user.passwordHash)) {
           auditChange('denied', 'bad-current-password')
           sendJson(res, 401, { message: msg(req, 'auth.currentPasswordWrong') }); return true

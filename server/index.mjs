@@ -54,7 +54,7 @@ import { touchSession } from './session-touch.mjs'
 import { touchKeyUsage } from './key-usage-touch.mjs'
 import { reapExpiredSessions, enforceSessionCap, removeSessionRecord } from './platform-session-reaper.mjs'
 import { seedAdminIfNeeded } from './admin-seed.mjs'
-import { authClassFor, createAuthGate } from './route-auth-map.mjs'
+import { authClassFor, createAuthGate, isMfaPendingAllowed } from './route-auth-map.mjs'
 import { acquireSingleProcessLock } from './single-process-lock.mjs'
 import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
@@ -299,6 +299,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS platform_settings ( key TEXT PRIMARY KEY, va
 try { db.exec('CREATE TABLE IF NOT EXISTS rotated_sessions (token TEXT PRIMARY KEY, userId TEXT NOT NULL, rotatedAt INTEGER NOT NULL)') } catch { /* 已存在 */ }
 function getSetting(key) { const r = db.prepare('SELECT value FROM platform_settings WHERE key=?').get(key); return r?.value ?? null }
 function setSetting(key, value) { db.prepare('INSERT OR REPLACE INTO platform_settings (key,value,updatedAt) VALUES (?,?,?)').run(key, String(value ?? ''), Date.now()) }
+// W3 §1.5:布尔语义设置「关」= 删键(而非存 '0'),让默认值与「从未配置」不可区分(读侧恒 ==='1' 判开)。
+function deleteSetting(key) { db.prepare('DELETE FROM platform_settings WHERE key=?').run(key) }
 // Pod 文件传输限额(单文件,上传下载共用):默认 1GB,admin 可经 /api/admin/podfile-config 调整
 function getPodfileLimitBytes() {
   const mb = limitMbFromValue(getSetting('podfile.limitMb')) ?? PODFILE_LIMIT_DEFAULT_MB
@@ -380,7 +382,7 @@ function loadPersistedPlatformSessions() {
 }
 // 提取平台 token:extractPlatformToken(抽出到 ./platform-auth.mjs 便于单测)。
 // 优先 x-platform-token header;缺失时回退 ?token= query(EventSource 不能加自定义 header,SSE 走 query)。
-function platformUserFromRequest(req) {
+function platformUserFromRequest(req, res) {
   const token = extractPlatformToken(req)
   if (!token) return null
   let ps = platformSessions.get(token)
@@ -400,6 +402,7 @@ function platformUserFromRequest(req) {
   }
   // CSO 2026-08-30 #3:授权必须复读用户行 —— 会话行里的 role 是登录时快照。
   // 删除/禁用即时踢出;降级即时生效。(每次请求一次主键查,SQLite 同步读,开销可忽略)
+  // 注意顺序(W3 §1.5):删除/禁用的 mfaPending 用户同样死在这里——受限拦截在其后。
   try {
     const u = db.prepare('SELECT role, disabled FROM platform_users WHERE id=?').get(ps.userId)
     if (!u || u.disabled) {
@@ -409,12 +412,27 @@ function platformUserFromRequest(req) {
     }
     if (u.role !== ps.role) ps.role = u.role
   } catch { /* 表不存在等边缘:维持旧行为 */ }
+  // W3 §1.5:受限 token 拦截(admin 强制开关下未启用 MFA 的登录)——TTL 与删除/禁用检查之后、
+  // 正常返回前;白名单外的请求 403 auth.mfaEnrollmentRequired(已写响应,req 标记防上层重复 401)。
+  // 白名单单一事实源 isMfaPendingAllowed(route-auth-map.mjs):me / mfa/* / logout / preferences。
+  if (ps.mfaPending === 1) {
+    let pathname = String(req.url || '')
+    try { pathname = new URL(req.url, 'http://x').pathname } catch { /* 保原始串 */ }
+    if (!isMfaPendingAllowed(req.method, pathname)) {
+      req.abMfaEnrollment403 = true
+      if (res) sendJson(res, 403, { message: msg(req, 'auth.mfaEnrollmentRequired') })
+      return null
+    }
+  }
   touchSession(db, ps)
   return ps
 }
 function requirePlatform(req, res) {
-  const ps = platformUserFromRequest(req)
-  if (!ps) { sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') }); return null }
+  const ps = platformUserFromRequest(req, res)
+  if (!ps) {
+    if (!req.abMfaEnrollment403) sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') })
+    return null
+  }
   return ps
 }
 // 审计标注(2026-08-31 ④):workbench 路由族的 ownerId 归属检查(POST messages/regenerate/
@@ -442,14 +460,20 @@ const authGate = createAuthGate({
       return true
     },
     platform: (req, res) => {
-      const ps = platformUserFromRequest(req)
-      if (!ps) { sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') }); return false }
+      const ps = platformUserFromRequest(req, res)
+      if (!ps) {
+        if (!req.abMfaEnrollment403) sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') })
+        return false
+      }
       req.abPlatform = ps
       return true
     },
     admin: (req, res) => {
-      const ps = platformUserFromRequest(req)
-      if (!ps) { sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') }); return false }
+      const ps = platformUserFromRequest(req, res)
+      if (!ps) {
+        if (!req.abMfaEnrollment403) sendJson(res, 401, { message: msg(req, 'api.notLoggedInPlatform') })
+        return false
+      }
       if (ps.role !== 'admin') { sendJson(res, 403, { message: msg(req, 'api.adminRequired') }); return false }
       req.abPlatform = ps
       return true
@@ -1698,7 +1722,7 @@ async function handle(req, res) {
   })
   const adminRoutes = createAdminRoutes({
     db, sendJson, readBody, requireAdmin,
-    getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
+    getSetting, setSetting, deleteSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, clusterCerts, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
@@ -2507,6 +2531,13 @@ httpServer.on('upgrade', (req, socket, head) => {
     const ps = token ? platformSessions.get(token) : null
     if (!ps || Date.now() - ps.createdAt > sessionTtl) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    // W3 §1.5:受限 token(mfaPending=1)同样拒——WS 升级不走 HTTP 门/platformUserFromRequest,
+    // 不补此处则受限会话可经 SSH 终端旁路白名单(R5「其余一律拒」)。
+    if (ps.mfaPending === 1) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
     }

@@ -84,6 +84,18 @@ export function authClassFor(method, pathname) {
   return undefined
 }
 
+// W3 §1.5 受限 token(mfaPending=1)放行白名单——单一事实源,index.mjs platformUserFromRequest
+// 与前端引导页共用语义。仅放行「自我认知 + 完成 MFA 启用 + 登出」四类(裁决 R5 精确清单,
+// 不含 avatar/PATCH me 等):GET /api/auth/me、POST /api/auth/mfa/*、POST /api/auth/logout、
+// PUT /api/auth/preferences(引导页保语言)。其余一律 403 auth.mfaEnrollmentRequired。
+export function isMfaPendingAllowed(method, pathname) {
+  if (method === 'GET' && pathname === '/api/auth/me') return true
+  if (method === 'POST' && pathname === '/api/auth/logout') return true
+  if (method === 'PUT' && pathname === '/api/auth/preferences') return true
+  if (method === 'POST' && pathname.startsWith('/api/auth/mfa/')) return true
+  return false
+}
+
 // 门机制:按 class 分发到注入的验证器。纯函数式(验证器/sendJson 均注入),可单测。
 // 验证器 (req, res) => boolean|Promise<boolean>:true=放行(可顺带把解析结果挂 req 供 handler 复用);
 // false=已写响应(401/403),门终止。未知 class fail-closed(500+吵,配置 bug 不能静默放行)。

@@ -18,7 +18,7 @@ import { revokeUserSessions, revokeUserClusterSessions, revokeClusterSessions } 
 export function createAdminRoutes(deps) {
   const {
     db, sendJson, readBody, requireAdmin,
-    getSetting, setSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
+    getSetting, setSetting, deleteSetting, getLlmConfig, createLlmClient, probeReasoningSupport,
     clusterProber, clusterCerts, randomUUID,
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
@@ -626,6 +626,24 @@ export function createAdminRoutes(deps) {
       setSetting('auth.passwordPolicy', JSON.stringify(policy))
       writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'admin_password_policy', result: 'ok', requestSummary: `minLength=${policy.minLength}`, source: 'platform' })
       sendJson(res, 200, { policy })
+      return true
+    }
+    // W3 §1.5:全局 MFA 强制开关——开后未启用用户登录只发受限 token(mfaPending=1,仅 MFA 引导页
+    // 白名单端点可用);已启用用户不受影响。读侧恒 getSetting('auth.mfa.required')==='1' 判开;
+    // 关 = 删键(与「从未配置」不可区分,存量部署默认关零感知)。
+    if (url.pathname === '/api/admin/mfa-policy' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      sendJson(res, 200, { enabled: getSetting('auth.mfa.required') === '1' })
+      return true
+    }
+    if (url.pathname === '/api/admin/mfa-policy' && req.method === 'PUT') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const input = await readBody(req)
+      if (typeof input?.enabled !== 'boolean') { sendJson(res, 400, { message: msg(req, 'admin.mfaPolicyInvalid') }); return true }
+      if (input.enabled) setSetting('auth.mfa.required', '1')
+      else deleteSetting?.('auth.mfa.required')
+      writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'admin_mfa_policy', result: 'ok', requestSummary: `enabled=${input.enabled}`, source: 'platform' })
+      sendJson(res, 200, { enabled: input.enabled })
       return true
     }
     if (url.pathname === '/api/admin/token-policy' && req.method === 'GET') {
