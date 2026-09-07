@@ -33,7 +33,7 @@ function makeHarness({ requireAdmin, requirePlatform, settings } = {}) {
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({}),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    busSubscribe: () => {}, busUnsubscribe: () => {},
   })
   return {
     db, p1, p2, sent,

@@ -297,7 +297,7 @@ function makeHttpHarness() {
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    busSubscribe: () => {}, busUnsubscribe: () => {},
   })
   return { db, pid, sent, call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)) }
 }
@@ -337,7 +337,7 @@ function makeEditHarness() {
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    busSubscribe: () => {}, busUnsubscribe: () => {},
   })
   return { db: h.db, pid: h.pid, sent, body, call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)) }
 }
@@ -488,7 +488,7 @@ function makeCompactHarness() {
     createLlmClient: () => ({ chat: async () => ({ content: '压缩后摘要' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    busSubscribe: () => {}, busUnsubscribe: () => {},
   })
   return { db, pid: h.pid, sent, call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)) }
 }
@@ -530,7 +530,7 @@ test('POST edit:非归属用户 → 403', async () => {
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    busSubscribe: () => {}, busUnsubscribe: () => {},
   })
   assert.ok(await routes.handle({ method: 'POST', on: () => {} }, res, new URL(`http://x/api/workbench/conversations/${conv.id}/edit`)))
   assert.equal(sent[sent.length - 1].status, 403, '非归属普通用户 → 403')
@@ -565,7 +565,7 @@ test('GET /:id 带 projectRecap;append 路由 fire maybeSummarizeProject', async
     createLlmClient: () => ({ chat: async () => ({ content: llmContent }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    busSubscribe: () => {}, busUnsubscribe: () => {},
   })
   const call2 = (method, pathname) => routes2.handle({ method, on: () => {} }, res2, new URL(`http://x${pathname}`))
   for (let i = 0; i < 8; i++) appendHistory(h2.db, h2.pid, i % 2 ? 'assistant' : 'user', `历史消息 ${i + 1}`)

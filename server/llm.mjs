@@ -12,10 +12,20 @@ import { fetch as defaultFetch } from 'undici'
 const EVENT_END = /\r\n\r\n|\r\r|\n\n/
 const LINE_END = /\r\n|\r|\n/
 
+// chatStream 总时限(agent-loop-05,2026-09-07 审计批次三):流式只设空闲超时的旧模型对
+// 「永远滴流的长尾流」无解——每 chunk 到达即重 arm 计时,间隔 < idleMs 的滴流(失控 run /
+// 代理重试风暴)可无限续命烧 LLM key。总限 10 分钟:流式足够宽松(深思考长答分钟级仍余量;
+// 多轮 run 各轮独立计时,总时长不受单轮限制),到点 abort 走与空闲超时同一条抛错路径
+// (→ workbench-agent catch → safeSalvage 保留已流出内容标 failed)。
+// 刻意常量、无 env 通道:admin 不应能把总限调成无限;测试经 createLlmClient 的 streamTotalMs
+// 参数注入短值(与 timeoutMs/idleMs 同为工厂参数 seam,零 env 依赖)。
+export const STREAM_TOTAL_MS = 10 * 60 * 1000
+
 export function createLlmClient({
   baseURL, apiKey, model, temperature, maxTokens, fetch = defaultFetch,
   timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 120000,
   idleMs = Number(process.env.LLM_STREAM_IDLE_MS) || 180000,
+  streamTotalMs = STREAM_TOTAL_MS,
 }) {
   if (!baseURL || !model) throw new Error('LLM 客户端缺 baseURL / model')
   const endpoint = baseURL.replace(/\/$/, '') + '/chat/completions'
@@ -46,17 +56,26 @@ export function createLlmClient({
 
   // chatStream:流式版 chat。逐 chunk 解 OpenAI 兼容 SSE;content 累积并回调 onDelta;
   // tool_calls 按 index 合并分片。返回结构与 chat 一致。
-  async function chatStream({ messages, tools, toolChoice } = {}, { onDelta, onReasoning } = {}) {
+  // signal(第二参数 bag,agent-loop-05 取消接线):外部 AbortSignal(用户取消:cancelConversation
+  // → AbortController.abort)与内部空闲/总限计时器共用同一 ac——任一触发即断流,abort reason
+  // 透传(fetch 以 reason 拒绝,取消语义不被泛型 AbortError 吞掉)。缺省(未传)零变化。
+  async function chatStream({ messages, tools, toolChoice } = {}, { onDelta, onReasoning, signal } = {}) {
     const body = { model, messages, stream: true, ...extras }
     if (tools?.length) { body.tools = tools; body.tool_choice = toolChoice || 'auto' }
-    // 空闲超时:每读到数据就重 arm;总时长不限。思考再久(深调查/长文)只要仍产 chunk 就活着。
+    // 空闲超时:每读到数据就重 arm。思考再久(深调查/长文)只要仍产 chunk 就活着。
+    // 总限(agent-loop-05):单次调用的硬上限,滴流长尾流到点即断(常量见 STREAM_TOTAL_MS 注)。
     const ac = new AbortController()
+    if (signal) {
+      if (signal.aborted) ac.abort(signal.reason)
+      else signal.addEventListener('abort', () => ac.abort(signal.reason), { once: true })
+    }
     let idleTimer = null
     const armIdle = () => {
       clearTimeout(idleTimer)
       idleTimer = setTimeout(() => ac.abort(Object.assign(new Error(`LLM 流式空闲超时(${Math.round(idleMs / 1000)}s 无数据)`), { name: 'IdleTimeoutError' })), idleMs)
     }
     armIdle()
+    const deadlineTimer = setTimeout(() => ac.abort(Object.assign(new Error(`LLM 流式总超时(${Math.round(streamTotalMs / 1000)}s 到点仍未终态)`), { name: 'StreamDeadlineError' })), streamTotalMs)
     try {
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -143,7 +162,7 @@ export function createLlmClient({
       }
     }
     return finalize()
-    } finally { clearTimeout(idleTimer) }
+    } finally { clearTimeout(idleTimer); clearTimeout(deadlineTimer) }
   }
   return { chat, chatStream, model, endpoint }
 }

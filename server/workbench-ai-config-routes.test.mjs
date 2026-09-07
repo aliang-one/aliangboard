@@ -94,7 +94,7 @@ function userHarness({ settings, body } = {}) {
     requireAdmin: (rq, rs) => ({ userId: 'u1', username: 't', role: 'user' }),
     wbAgent: { runConversation: async () => {}, resumeConversation: async () => {} }, getLlmConfig: () => ({ baseURL: 'http://x', apiKey: 'SECRET', model: 'm7' }),
     createLlmClient: () => ({}), buildCallContext: () => ({}), requestKubernetes: async () => ({}),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null, busDispose: () => {},
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busDispose: () => {},
   })
   return { routes, sent, db }
 }

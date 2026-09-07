@@ -145,7 +145,8 @@ export function createWorkbenchConvRoutes(deps) {
 
   // 当前轮快照(2026-08-25 闪变续修):trace = conv.trace 中「上一条消息行 createdAt 之后」的事件
   // (= 未落库的当前轮,覆盖 run+审批 resume 全程),assistant 全量形状瘦身为平铺——与消息级
-  // trace 同形状。替代终态发全对话 / running 发 bus 快照(按 run 重置,resume 丢暂停前半段)
+  // trace 同形状。替代终态发全对话 / running 发 bus 快照(按 run 重置,resume 丢暂停前半段;
+  // 该 bus 快照机制已于 cancel-races-07 退役删除,本函数即唯一快照源)
   // 两种口径不一的数据源;content/reasoning 用 conv 级检查点(已轮清零)。
   function turnSnapshot(id) {
     const conv = getConversation(db, id)
@@ -730,7 +731,18 @@ export function createWorkbenchConvRoutes(deps) {
         'connection': 'keep-alive',
         'x-accel-buffering': 'no',
       })
-      const send = (evt) => { try { res.write('data: ' + JSON.stringify(evt) + '\n\n') } catch { /* 客户端已断 */ } }
+      // cancel-races-08(2026-09-07 审计批次三):res.write 返回 false = 内核写缓冲满(慢消费者
+      // 不再读)——旧实现无背压检查,事件照投,缓冲无界堆积(网关内存押给最慢客户端)。
+      // 契约:false 即主动断连(bus 退订 + res.end),客户端既有重连机制接管;刻意不缓冲
+      // (为慢客户端缓存整轮输出 = 无界内存承诺)。onBackpressure 仅 running 分支装配
+      // (paused/done 分支随函数返回即 res.end,无需切断);幂等闸在 closeStream。
+      let onBackpressure = null
+      const send = (evt) => {
+        try {
+          const ok = res.write('data: ' + JSON.stringify(evt) + '\n\n')
+          if (ok === false && onBackpressure) onBackpressure()
+        } catch { /* 客户端已断 */ }
+      }
       send({ type: 'hello', convId: id, status: conv.status })
       // 连上时已 paused:approval 事件可能在 SSE 建连前 emit 丢失,补推当前 pendingApproval(治审批不弹)
       if (conv.status === 'paused') {
@@ -754,9 +766,31 @@ export function createWorkbenchConvRoutes(deps) {
         return true
       }
       // running:先订阅再补发快照(同步执行无竞态)——断线重连/晚连的客户端一键吃齐
-      // 此前已 emit 的 delta/step(conv.content 只在 done 落库,不补则中段文本永久丢失)
+      // 此前已 emit 的 delta/step(conv.content 只在 done 落库,不补则中段文本永久丢失)。
+      // 快照读库前同步 flush 在途 run 的检查点(cancel-races-05,2026-09-07 审计批次三):
+      // 检查点阈值(200 字/500ms)使 conv.content 至多滞后一段未落库文本,重连客户端要的是
+      // 「全量已出文本」——flush 后零滞后;与订阅/读库同处一个同步块,无新增竞态窗口。
+      // wbAgent.flushCheckpoint 可选(旧测试桩无此方法——可选链空操作)。
+      //
+      // closeStream 三消费方共用:keepalive 失权(conv-lifecycle-10)/ send 背压切断
+      // (cancel-races-08)/ req close;幂等(closed 闸);显式摘 req close 监听(流关闭后
+      // 不再留任何回调)。keepalive 用 let:closeStream 可能在 interval 装配前(首帧即背压)
+      // 被调用,null 守卫替代 TDZ。
+      let keepalive = null
+      let closed = false
+      const onReqClose = () => { if (keepalive) clearInterval(keepalive); busUnsubscribe(id, send) }
+      const closeStream = () => {
+        if (closed) return
+        closed = true
+        if (keepalive) clearInterval(keepalive)
+        busUnsubscribe(id, send)
+        req.removeListener('close', onReqClose)
+        try { res.end() } catch { /* 已断 */ }
+      }
+      onBackpressure = closeStream // 背压切断装配:running 分支的第一个 data 帧起生效
       busSubscribe(id, send)
-      const snap = turnSnapshot(id)   // 按轮切割(覆盖 resume 前半段,bus 快照按 run 重置会丢)
+      wbAgent.flushCheckpoint?.(id)
+      const snap = turnSnapshot(id)   // 按轮切割(覆盖 run+审批 resume 全程的当前轮)
       if (snap && (snap.content || snap.trace.length)) {
         send({ type: 'snapshot', content: snap.content, reasoning: snap.reasoning, trace: snap.trace, steps: snap.steps })
       }
@@ -767,20 +801,22 @@ export function createWorkbenchConvRoutes(deps) {
       // headersSent 后生产 sendJson 只 end(2026-08-16 断流修复语义),恰等价关流;closeStream
       // 再显式 end 兜底(测试桩 sendJson 不 end)。conv 行被删(DELETE)同样经 ownership 重验
       // 走 close(conv2 缺失 → proj2 null → 恒拒)。
-      const closeStream = () => {
-        clearInterval(keepalive)
-        busUnsubscribe(id, send)
-        try { res.end() } catch { /* 已断 */ }
+      // 已在快照帧被背压切断(closed=true)则不再装 keepalive/req 监听——生产里 res.end 后
+      // req close 也会清掉它,此处直接不装配更干净(测试桩 req 不发 close,装配即泄漏)。
+      if (!closed) {
+        keepalive = setInterval(() => {
+          const ps2 = requirePlatform(req, res)
+          if (!ps2) return closeStream()
+          const conv2 = getConversation(db, id)
+          const proj2 = conv2?.projectId ? getProject(db, conv2.projectId) : null
+          if (!conv2 || !proj2 || !assertProjectOwnership(ps2, proj2)) return closeStream()
+          try {
+            // 背压同款切断(慢消费者对 keepalive 写同样返回 false——同一信号,同一处置)
+            if (res.write(': keepalive\n\n') === false) return closeStream()
+          } catch { /* 客户端已断 */ }
+        }, 15000)
+        req.on('close', onReqClose)
       }
-      const keepalive = setInterval(() => {
-        const ps2 = requirePlatform(req, res)
-        if (!ps2) return closeStream()
-        const conv2 = getConversation(db, id)
-        const proj2 = conv2?.projectId ? getProject(db, conv2.projectId) : null
-        if (!conv2 || !proj2 || !assertProjectOwnership(ps2, proj2)) return closeStream()
-        try { res.write(': keepalive\n\n') } catch { /* 客户端已断 */ }
-      }, 15000)
-      req.on('close', () => { clearInterval(keepalive); busUnsubscribe(id, send) })
       return true
     }
 

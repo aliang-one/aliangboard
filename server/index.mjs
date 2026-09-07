@@ -33,7 +33,7 @@ import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
 import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB, UPLOAD_PROBE_SCRIPT, evaluateUploadProbe } from './podfile-stream.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
+import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
 import { scrubSecrets } from './secret-scrub.mjs'
 import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted, projectRepoPath, learningLedgerPath } from './workbench-projects.mjs'
 import { listApiPath, getApiPath, KIND_API } from './kind-paths.mjs'
@@ -1828,7 +1828,7 @@ async function handle(req, res) {
   const convRoutes = createWorkbenchConvRoutes({
     db, sendJson, readBody, requireAdmin, requirePlatform, wbAgent, writeAudit,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
-    busSubscribe, busUnsubscribe, busSnapshot, busDispose,
+    busSubscribe, busUnsubscribe, busDispose,
   })
   // SP3: 工作台对话端点 dispatcher(7 端点抽到 routes/workbench-conversations.mjs)。命中即 return。
   // 放在 convRoutes 构造后、项目 CRUD 前——无路径冲突,仅须早于 404 兜底。

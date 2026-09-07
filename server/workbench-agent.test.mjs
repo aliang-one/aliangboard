@@ -996,3 +996,57 @@ test('supersede 写点守卫:被取代 run 的残余 onDelta/onReasoning/onStep(
   assert.equal(db.prepare('SELECT COUNT(*) n FROM workbench_history').get().n, historyAfterB, '不追加 A 的项目历史')
   assert.equal(events.length, eventsAfterB, 'A 的残余 delta/reasoning/step 不发任何 bus 事件(bus/SSE 快照属新 run)')
 })
+
+// ═══ 批次三(2026-09-07 审计)Task 3:流与总线卫生——cancel 主动 abort + flushCheckpoint ═══
+
+// agent-loop-05:cancelConversation 主动 abort 在途 LLM 流。旧模型只置 DB cancelled +
+// shouldAbort 检查点(拦的是「下一个工具/下一轮 chat」),在途 fetch 任其烧完(深思考模型
+// 可达分钟级)。契约:run/resume 装配的 runner 收到 AbortSignal;cancel 即 abort;断流抛错
+// → catch → cancelledCatchGuard 走「保留 partial」分支——与 epoch 不 bump 语义正交(abort
+// 只断流,保留分支照常)。
+test('cancelConversation → runner 装配的 AbortSignal abort;断流抛错走保留分支(半截答案落库,状态 cancelled 不写 failed)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner, capturedRunnerArgs } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  const HEAD = '取消前已流出的半截'.repeat(10) // 90 字——刻意 <200 阈:证明保留分支读的是内存累计而非检查点
+  const { createAgentRunner } = makeRunner((opts) => {
+    const sig = capturedRunnerArgs().signal
+    opts.onDelta(HEAD)
+    // 模拟真实链路:chatStream 以 abort reason 拒绝(undici body read 随 signal abort 拒绝)
+    return new Promise((_, reject) => sig.addEventListener('abort', () => reject(sig.reason), { once: true }))
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const p = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+  const sig = capturedRunnerArgs().signal
+  assert.ok(sig, 'run 装配携带 AbortSignal(在途 fetch 的断流通道)')
+  assert.equal(sig.aborted, false, 'run 在途——signal 未 abort')
+  agent.cancelConversation(conv.id)
+  assert.equal(sig.aborted, true, '取消即 abort 在途流(不再等流自然烧完)')
+  await p
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'cancelled', '断流抛错走取消分支(catch → cancelledCatchGuard),不写 failed')
+  const msgs = db.prepare('SELECT role, content FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.at(-1).role, 'assistant')
+  assert.equal(msgs.at(-1).content, HEAD, '半截答案落 assistant 消息(保留分支不受 abort 影响)')
+})
+
+// cancel-races-05:SSE 重连快照零滞后。检查点阈值(200 字/500ms)意味着快照读库时至多滞后
+// 一段未落库的在途文本;flushCheckpoint 在快照前同步落一次检查点(窗口归零)。契约:在途
+// run 的未过阈累计同步落库;无在途 run / run 已结束 = 空操作。
+test('flushCheckpoint: 在途 run 未过阈(<200 字 & <500ms)的累计同步落库;无在途 run 空操作', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let runOpts
+  const { createAgentRunner } = makeRunner((opts) => { runOpts = opts; return new Promise(() => {}) })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+  runOpts.onDelta('才流了十个字')   // 6 字 <200 阈 & <500ms——无检查点(滞后窗口实存)
+  runOpts.onReasoning('想了一点')
+  assert.ok(!getConversation(db, conv.id).content, 'flush 前:未过阈不落库(滞后窗口实存,证明测试没踩在检查点上;建行初始 content=null)')
+  assert.equal(agent.flushCheckpoint('no-such-conv'), undefined, '无在途 run:空操作不抛')
+  agent.flushCheckpoint(conv.id)
+  const row = getConversation(db, conv.id)
+  assert.equal(row.content, '才流了十个字', 'flush 后同步落库(重连快照零滞后)')
+  assert.equal(row.reasoning, '想了一点')
+})

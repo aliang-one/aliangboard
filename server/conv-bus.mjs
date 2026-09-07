@@ -5,50 +5,15 @@ import { EventEmitter } from 'node:events'
 const bus = new EventEmitter()
 bus.setMaxListeners(100) // 同一 conv 可能多个 SSE 客户端(断线重连期间)
 
-// per-conv 增量快照(2026-08-16 断流修复):emit 时同步累积 content/trace/steps。
-// 动机:gap 期间的事件在 EventSource (重)建连前已 emit,而 conv.content 只在 done 落库——
-// 不补齐则断连/晚连客户端的中段 delta 永久丢失("回答到一半就没有后续流式")。
-// SSE 端点连上时先订阅再发快照(两者同步执行,Node 单线程无竞态:不漏不重)。
-// status=running(每轮首个事件)自动重置新一轮;dispose 只摘监听器、快照保留
-// (终态后重连仍可补齐全量输出)。
-const snapshots = new Map()
-
-// 快照容量上限(复查发现):dispose 保留快照供终态后重连补齐,但 Map 只增不减——
-// 网关长跑数周、对话数千条后全文+trace 常驻内存(泄漏)。超限按插入序淘汰最旧
-// (Map 保序;被淘汰对话已终态良久,客户端早拿到完整输出,重连时退回终态快照分支)。
-const SNAPSHOTS_MAX = 256
-function setSnapshot(convId, s) {
-  snapshots.set(convId, s)
-  if (snapshots.size > SNAPSHOTS_MAX) {
-    const oldest = snapshots.keys().next().value
-    if (oldest !== convId) snapshots.delete(oldest)
-  }
-}
-
-export function emit(convId, event) {
-  const e = event
-  if (e && typeof e === 'object') {
-    if (e.type === 'status' && e.status === 'running') {
-      setSnapshot(convId, { content: '', reasoning: '', trace: [], steps: 0, status: 'running', error: '', pending: null })
-    } else {
-      const s = snapshots.get(convId) || { content: '', reasoning: '', trace: [], steps: 0, status: '', error: '', pending: null }
-      if (e.type === 'delta') s.content = (s.content || '') + (e.text || '')
-      else if (e.type === 'reasoning') s.reasoning = (s.reasoning || '') + (e.text || '')
-      else if (e.type === 'step') { s.trace = [...(s.trace || []), e.step]; s.steps = (s.steps || 0) + 1 }
-      else if (e.type === 'status') { s.status = e.status; if (e.error) s.error = e.error }
-      else if (e.type === 'approval' && e.pending) s.pending = e.pending
-      setSnapshot(convId, s)
-    }
-  }
-  bus.emit(convId, event)
-}
-
-// 当前快照(只读副本;无则 null)。供 SSE 端点连上时补齐。
-export function snapshotsSize() { return snapshots.size }
-export function snapshot(convId) {
-  const s = snapshots.get(convId)
-  return s ? { ...s, trace: [...(s.trace || [])] } : null
-}
+// cancel-races-07(2026-09-07 审计批次三):per-conv 增量快照机制整体退役。2026-08-16 断流
+// 修复引入的 emit 同步累积快照(每事件维护 content/trace/steps,256 会话容量上限)在 SSE
+// 重连补齐改读 DB(turnSnapshot:conv.content/reasoning 检查点 + conv.trace 按轮切割,覆盖
+// run+审批 resume 全程,2026-08-25 闪变续修)之后成了纯死代码——路由侧早已无人消费
+// busSnapshot(grep 全仓:唯一 import 在 index.mjs 装配链上原样透传后弃置),却仍对每条
+// delta/step 事件做全量快照维护(写放大)+ 常驻 256 会话内存 + 与 DB 口径双源漂移。删除:
+// 中段 delta 补齐的正确通路 = 订阅先行(建连即订阅,同步执行不漏事件)+ 快照读库前同步
+// flush 在途检查点(cancel-races-05,零滞后窗口)。emit 现在只做事件分发。
+export function emit(convId, event) { bus.emit(convId, event) }
 export function subscribe(convId, fn) { bus.on(convId, fn) }
 export function unsubscribe(convId, fn) { bus.off(convId, fn) }
-export function dispose(convId) { bus.removeAllListeners(convId) /* 快照保留:终态后重连补齐 */ }
+export function dispose(convId) { bus.removeAllListeners(convId) }

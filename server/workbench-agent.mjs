@@ -69,6 +69,17 @@ export function createWorkbenchAgent(deps) {
   const runEpoch = new Map()
   function claimRunEpoch(convId) { const n = (runEpoch.get(convId) || 0) + 1; runEpoch.set(convId, n); return n }
   function isSuperseded(convId, myEpoch) { return (runEpoch.get(convId) || 0) !== myEpoch }
+
+  // ── 在途 run 登记(agent-loop-05 + cancel-races-05,2026-09-07 审计批次三)──
+  // { controller, tracker }:controller = cancelConversation 主动 abort 在途 LLM 流的通道
+  // (旧模型只置 DB cancelled + shouldAbort 检查点,拦「下一个工具/下一轮」,在途 fetch 任其
+  // 烧完——深思考模型可达分钟级);tracker = SSE 重连快照前同步 flush 检查点的漏斗(阈值
+  // 200 字/500ms 的滞后窗口归零)。注册在 claimRunEpoch 之后、try 之前(run 全程可被断/被
+  // flush);finally 按 handle 身份摘除——「停止→改→重发」重叠窗口里新 run 已重注册,旧 run
+  // 出口不得误删新 handle。paused(run 返回 pending_approval)后无在途流,登记随函数出口
+  // 摘除;resume 再跑时重新注册。
+  const activeRuns = new Map()
+  function flushCheckpoint(convId) { activeRuns.get(convId)?.tracker?.checkpoint() }
   // DB 显式 cancelled(直改库兜底;读失败/行已删视为非取消,不误杀正常对话——与 EXISTENCE
   // 守卫分工:删行走各落库点的存在性守卫,这里只回答「用户取消了吗」)。
   function dbCancelled(convId) {
@@ -140,7 +151,7 @@ const CK_TIME_MS = 500
   // (checkpoint 内统一刷新),resetRound 的 checkpoint() 亦自然刷新。
   // F3 写点守卫(2026-09-07 审计 agent-loop-03):被取代 run 的在途流回调此前无 epoch 闸——
   // onDelta/onReasoning 继续检查点写库、makeOnStep 继续 appendTrace/resetRound 清零,并向新
-  // run 的 bus/SSE 快照(conv-bus emit 同步累积快照)发幽灵 delta/step,A 的 resetRound 还会把
+  // run 的 bus/SSE 订阅者发幽灵 delta/step,A 的 resetRound 还会把
   // conv.content 抹空覆写新 run 的检查点(取消拦不断在途流,「停止→修改重发」重叠窗口对深思考
   // 模型可达分钟级)。全部写点前比对 epoch,stale 即静默 no-op;纯取消(未被取代)不拦——残余流
   // 继续累积/检查点正是 F2 保留分支(cancelled 落 assistant 消息)的数据来源。
@@ -170,6 +181,9 @@ const CK_TIME_MS = 500
       },
       partial: () => partial,
       reasoning: () => reasoning,
+      // cancel-races-05:SSE 重连快照读库前经 flushCheckpoint 同步落一次检查点(零滞后窗口);
+      // 自带 stale 守卫,被取代 run 的句柄写不进新 run 的行(闸在 checkpoint 单点,所有调用路径同门)。
+      checkpoint,
       // 轮间清零(2026-08-25 交错渲染):assistant 轮完成时清累积——检查点语义回到「当前轮
       // partial」;已完成轮文本活在 trace。防跨轮全文经 conv.content 检查点 → snapshot/降级
       // 轮询回灌前端,与已清零的流式 content 打架(闪变源之一)。
@@ -301,6 +315,8 @@ const CK_TIME_MS = 500
     let tracker = null // 中断保全:catch 需读累计内容,须在 try 外声明
     let turnTrace = [] // 本段事件累积(失败 salvage 落消息级 trace 用,同在 try 外)
     const myEpoch = claimRunEpoch(convId) // per-run 令牌(对抗审查收口,见模块头注释)
+    const runHandle = { controller: new AbortController(), tracker: null } // 在途登记(cancel abort + SSE flush,见 activeRuns 注)
+    activeRuns.set(convId, runHandle)
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -334,6 +350,9 @@ const CK_TIME_MS = 500
         // 轻量取消检查点(2026-09-06 审计#3):agent 循环按 DB 取消态中止队列剩余工具与
         // 后续 LLM 轮(读库失败视为非取消,不误杀正常对话)。
         shouldAbort: () => cancelSignal(convId, myEpoch),
+        // agent-loop-05(2026-09-07 审计批次三):取消断流通道——cancelConversation 主动 abort
+        // 在途 fetch(与 shouldAbort 分工:检查点拦「下一个」,signal 断「在途的这一个」)。
+        signal: runHandle.controller.signal,
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -354,6 +373,7 @@ const CK_TIME_MS = 500
         + staleNote
       const history = buildHistory(db, conv)
       tracker = trackPartial(convId, conv, myEpoch) // F3 写点守卫:tracker 各写点比对 epoch(见 trackPartial 注释)
+      runHandle.tracker = tracker // 在途登记补挂:SSE flushCheckpoint 的检查点漏斗(见 activeRuns 注)
       // 本段事件累积(tool/denied + 瘦身 assistant 文本)——done/salvage 时随 assistant 消息落库,
       // 前端重建历史据此交错渲染(文本↔工具)。对话级 appendTrace(全事件)保持不变。
       turnTrace = []
@@ -392,6 +412,9 @@ const CK_TIME_MS = 500
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)
+    } finally {
+      // 在途登记摘除(身份守卫:被重发新 run 取代时句柄已易主,旧 run 出口不误删新 handle)
+      if (activeRuns.get(convId) === runHandle) activeRuns.delete(convId)
     }
   }
 
@@ -400,6 +423,8 @@ const CK_TIME_MS = 500
   async function resumeConversation(convId, approved, llmClient, actor) {
     let tracker = null // 中断保全:catch 需读累计内容,须在 try 外声明
     const myEpoch = claimRunEpoch(convId) // per-run 令牌(对抗审查收口,见模块头注释)
+    const runHandle = { controller: new AbortController(), tracker: null } // 在途登记(cancel abort + SSE flush,与 run 路径同款)
+    activeRuns.set(convId, runHandle)
     try {
       const conv = getConversation(db, convId)
       if (!conv) return
@@ -430,6 +455,8 @@ const CK_TIME_MS = 500
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
         // 轻量取消检查点(2026-09-06 审计#3):与 run 路径同款(convId 闭包可用)。
         shouldAbort: () => cancelSignal(convId, myEpoch),
+        // agent-loop-05(2026-09-07 审计批次三):取消断流通道,与 run 路径同款。
+        signal: runHandle.controller.signal,
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -448,6 +475,7 @@ const CK_TIME_MS = 500
       // 以免把终态改写成 failed 吞掉已完成答案)。
       if (!pending) { busEmit(convId, { type: 'end' }); busDispose(convId); return }
       tracker = trackPartial(convId, conv, myEpoch) // F3 写点守卫:同 run 路径(见 trackPartial 注释)
+      runHandle.tracker = tracker // 在途登记补挂:同 run 路径(SSE flushCheckpoint 漏斗)
       const out = await run({
         resume: {
           messages: JSON.parse(conv.messages), queue: JSON.parse(conv.queue),
@@ -485,13 +513,21 @@ const CK_TIME_MS = 500
       busEmit(convId, { type: 'status', status: 'failed', error: err.message })
       busEmit(convId, { type: 'end' })
       busDispose(convId)
+    } finally {
+      // 在途登记摘除(身份守卫,与 run 路径同款)
+      if (activeRuns.get(convId) === runHandle) activeRuns.delete(convId)
     }
   }
 
   // 用户主动停止运行中的对话(输错内容→停止→修改重发)。
-  // 标记 cancelled + SSE 通知终结;在途 LLM 流不可中断(已知边界),但 shouldAbort
-  // 检查点(2026-09-06 审计#3,装配见 run/resume)会让 agent 循环在「下一个工具/下一轮
-  // chat 前」抛错中止;run/resume 落库前的 cancelled 守卫仍兜底丢弃迟到结果(状态/历史不被覆盖)。
+  // 标记 cancelled + SSE 通知终结 + **主动 abort 在途 LLM 流**(agent-loop-05,2026-09-07
+  // 审计批次三:旧模型在途流「不可中断」是已知边界——shouldAbort 检查点拦的是「下一个工具/
+  // 下一轮 chat」,在途 fetch 任其烧完,深思考模型可达分钟级)。abort 与 epoch 语义正交:
+  // cancelConversation 刻意不 bump epoch(纯取消走「保留 partial」分支)——abort 只断流,
+  // chatStream 以 abort reason 抛错 → catch → cancelledCatchGuard 读 DB cancelled → 半截
+  // 内容照常落 assistant 消息;run 若在 abort 竞态下已自然完成,落库前 cancelled 守卫仍兜底
+  // 丢弃迟到结果(状态/历史不被覆盖)。顺序=先置 DB 再 abort:abort 触发的 reject 走微任务,
+  // 落地时 DB 必已是 cancelled(catch 分支判据稳定成立)。
   function cancelConversation(convId) {
     // 不 bump epoch:纯取消(未被重发)须走「保留 partial」分支(status=cancelled 判定);
     // 若用户随后重发,新 run 的 claimRunEpoch 自然使本 run 过期 → 静默丢弃。bump 放这里会把
@@ -500,11 +536,14 @@ const CK_TIME_MS = 500
     if (!conv) return { ok: false, message: '对话不存在' }
     if (conv.status !== 'running' && conv.status !== 'paused') return { ok: false, message: '对话不在运行中' }
     updateConversation(db, convId, { status: 'cancelled', pendingApproval: null, error: '用户取消' })
+    // 在途流断流(paused 无在途流——run 已返回,登记已摘;可选链空操作)。reason 带「用户取消」
+    // 语义:经 ac.abort(reason) 透传为 fetch 的拒绝原因,不被泛型 AbortError 吞掉。
+    activeRuns.get(convId)?.controller.abort(Object.assign(new Error('用户取消,中止在途 LLM 流'), { name: 'CancelledError' }))
     busEmit(convId, { type: 'status', status: 'cancelled', error: '用户取消' })
     busEmit(convId, { type: 'end' })
     busDispose(convId)
     return { ok: true }
   }
 
-  return { runConversation, resumeConversation, cancelConversation }
+  return { runConversation, resumeConversation, cancelConversation, flushCheckpoint }
 }

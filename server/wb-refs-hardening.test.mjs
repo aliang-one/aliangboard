@@ -45,7 +45,7 @@ function makeHarness({ k8sCalls = null, overrides = {} } = {}) {
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async (...a) => { if (k8sCalls) k8sCalls.push(a[1]); return { status: 200, headers: {}, body: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } } },
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    busSubscribe: () => {}, busUnsubscribe: () => {},
     ...overrides,
   })
   return {

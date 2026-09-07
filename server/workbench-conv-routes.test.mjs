@@ -56,15 +56,17 @@ function makeHarness({ overrides = {} } = {}) {
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } }),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null,
+    busSubscribe: () => {}, busUnsubscribe: () => {},
     ...overrides,
   })
   return {
     db, pid, sent, runs,
     setBody: b => { body = b },
-    call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)),
+    // req 桩:on 丢弃监听(测试不模拟 close);removeListener 配对在场(SSE closeStream 会摘
+    // req close 监听——cancel-races-08 背压切断路径,缺方法即 TypeError)
+    call: (method, pathname) => routes.handle({ method, on: () => {}, removeListener: () => {} }, res, new URL(`http://x${pathname}`)),
     // SSE 端点直测:注入自定义 res 捕获 write 的原始事件块
-    callSSE: (method, pathname, customRes) => routes.handle({ method, on: () => {} }, customRes, new URL(`http://x${pathname}`)),
+    callSSE: (method, pathname, customRes) => routes.handle({ method, on: () => {}, removeListener: () => {} }, customRes, new URL(`http://x${pathname}`)),
   }
 }
 
@@ -253,7 +255,7 @@ test('E2: paused 双击 approve——第二次被 CAS 挡住,只 resume 一次',
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}), requestKubernetes: async () => ({}),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null, busDispose: () => {},
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busDispose: () => {},
   })
   const call2 = (m, p) => routes2.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`))
   assert.ok(await call2('POST', `/api/workbench/conversations/${conv.id}/approve`))
@@ -278,7 +280,7 @@ test('F: 删除运行中对话——先取消(结果不回写)再事务删除,bu
     getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
     createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
     buildCallContext: () => ({}), requestKubernetes: async () => ({}),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null, busDispose: id => disposed.push(id),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busDispose: id => disposed.push(id),
   })
   const call2 = (m, p) => routes2.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`))
   assert.ok(await call2('DELETE', `/api/workbench/conversations/${conv.id}`))
@@ -1007,4 +1009,64 @@ test('contracts-07: 文件头权限契约对齐 Phase D(requirePlatform + owner)
   assert.ok(header.includes('requirePlatform'), '头注声明 platform 地板')
   assert.ok(/owner/.test(header), '头注声明 owner 链')
   assert.ok(/ADR|裁决/.test(header), 'c982a9a 契约注释要求的隔离裁决(Phase D)须记录在案')
+})
+
+// ═══ 批次三(2026-09-07 审计)Task 3:SSE 快照零滞后(cancel-races-05)+ 慢消费者背压切断(cancel-races-08)═══
+
+// cancel-races-05:running 中途重连的 hello/快照读库前,须先同步 flush 在途 run 的检查点
+// (wbAgent.flushCheckpoint)——检查点阈值(200 字/500ms)的滞后窗口归零。本测试钉「路由在
+// 读库前调用 flush」的接线契约(flush 的真实逻辑在 workbench-agent.test.mjs 单测):桩在
+// flush 回调里把未过阈的已出文本写进 conv.content,快照必须含它。
+test('cancel-races-05 SSE: running 重连——快照读库前调用 wbAgent.flushCheckpoint,未过阈的已出文本全量进快照', async () => {
+  const flushed = []
+  const h = makeHarness({ overrides: {
+    wbAgent: {
+      runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }),
+      flushCheckpoint: id => { flushed.push(id); h.db.prepare("UPDATE workbench_conversations SET content='已流出的全量文本(未过 200 字检查点阈值)' WHERE id=?").run(id) },
+    },
+  } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' }) // status=running → 重连分支
+  const chunks = []
+  const res = { writeHead: () => {}, write: s => chunks.push(s), end: () => {} }
+  // mock setInterval:running 分支装配 15s keepalive,req 桩丢弃 close 监听——真定时器泄漏会挂住测试进程
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res), '路由命中')
+    assert.deepEqual(flushed, [conv.id], '快照读库前同步 flush 在途检查点(零滞后窗口)')
+    const events = chunks.join('').split('\n\n').filter(Boolean).map(c => JSON.parse(c.replace(/^data: /, '')))
+    const snap = events.find(e => e.type === 'snapshot')
+    assert.ok(snap, '快照事件在场(flush 后 conv.content 非空才发)')
+    assert.equal(snap.content, '已流出的全量文本(未过 200 字检查点阈值)', '重连快照含全量已出文本')
+  } finally { mock.timers.reset() }
+})
+
+// cancel-races-08:SSE send() 无背压——res.write 返回 false(内核写缓冲满 = 慢消费者不再读)
+// 时旧实现照投事件,缓冲无界堆积。契约:write false 即主动断连(bus 退订 + res.end),客户端
+// 既有重连机制接管;不缓冲(为慢客户端缓存整轮输出等于把网关内存押给最慢者)。
+test('cancel-races-08 SSE: 慢消费者 res.write 返回 false → 主动断连(bus 退订 + res.end),不缓冲', async () => {
+  const unsub = []
+  const h = makeHarness({ overrides: { busUnsubscribe: id => unsub.push(id) } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' })
+  h.db.prepare("UPDATE workbench_conversations SET content='检查点已有内容' WHERE id=?").run(conv.id) // 让 snapshot 事件发出(触发 running 分支的 send)
+  let ended = false
+  const res = { writeHead: () => {}, write: () => false, end: () => { ended = true } }
+  assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res), '路由命中')
+  assert.equal(ended, true, 'write false(写缓冲满)即断连——不缓冲,重连机制接管')
+  assert.deepEqual(unsub, [conv.id], 'bus 退订(不再为慢客户端投递事件)')
+})
+
+test('cancel-races-08 SSE: keepalive 写返回 false 同款断连(慢消费者对 keepalive 也是信号)', async () => {
+  const unsub = []
+  const h = makeHarness({ overrides: { busUnsubscribe: id => unsub.push(id) } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' })
+  let ended = false
+  const res = { writeHead: () => {}, write: s => !String(s).includes('keepalive'), end: () => { ended = true } }
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res), '路由命中')
+    assert.equal(ended, false, '建连 data 帧 write true——流开着')
+    mock.timers.tick(15000)
+    assert.equal(ended, true, 'keepalive write false → 同款断连')
+    assert.deepEqual(unsub, [conv.id], 'bus 退订')
+  } finally { mock.timers.reset() }
 })
