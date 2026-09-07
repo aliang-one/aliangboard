@@ -443,31 +443,81 @@ test('resumeConversation:暂停前已写库的 content/reasoning 检查点不被
 
 // 取消保留部分答案(用户裁决 2026-08-19):与 failed 抢救对称——取消时已流出的
 // content+reasoning 落 assistant 消息,状态保持 cancelled;无流出内容则不追加(上一测试锁定)。
-test('取消后:已流出的部分内容+思考落 assistant 消息,状态保持 cancelled', async () => {
+// 桩形状修正(2026-09-07 审计 cancel-races-01):旧桩在 onDelta 后直接 resolve、从不发
+// assistant step——而真实 agent 循环每轮 chat 完成必发 onStep({type:'assistant'})(agent.mjs
+// 246-248),取消拦不断在途流,主流时序「看长答案中途点停止→流自然完成→assistant step 到达→
+// resetRound 清零+检查点抹空」恰恰被旧桩形状掩蔽(保留分支读到空 partial,半截答案刷新蒸发)。
+// 教训:锁定取消语义的桩必须复刻真实循环的必发事件,「桩比真实循环少发一个事件」= 假绿。
+test('取消后:已流出的部分内容+思考落 assistant 消息,状态保持 cancelled(真实循环形状:取消后流自然完成必发 assistant step)', async () => {
   const { db, conv, busEmit, busDispose, makeRunner } = setup()
   updateConversation(db, conv.id, { status: 'running' })
-  let resolveRun
+  const HEAD = '已流出的前半段。'.repeat(30)   // 240 字 ≥200:取消前流式检查点已把 conv.content 落库
+  const TAIL = '取消后残余尾巴'                 // 取消后到达的残余流(在途流不可中断,已知边界)
+  let resolveRun, runOpts
   const { createAgentRunner } = makeRunner((opts) => {
-    opts.onDelta('已流出的一半')   // 取消前内容已流出(<200 字,未触发检查点)
-    opts.onReasoning('想了一半')
+    runOpts = opts
+    opts.onReasoning('想了一半')                // 取消前:思考先流
+    opts.onDelta(HEAD)                          // 取消前:正文过阈触发检查点
     return new Promise(res => { resolveRun = res })
   })
   const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
 
   const p = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
   await new Promise(r => setTimeout(r, 10))
-  agent.cancelConversation(conv.id)                  // 用户在 LLM 返回前取消
+  agent.cancelConversation(conv.id)                  // 用户在答案流到一半时点「停止」
+  runOpts.onDelta(TAIL)                              // 在途流继续:残余 delta 取消后照常到达
+  runOpts.onStep({ type: 'assistant', message: { role: 'assistant', content: HEAD + TAIL }, ts: Date.now() + 1 }) // 真实循环:轮完成必发
   resolveRun({ status: 'done', content: '迟到的完整答案', trace: [], steps: 1, messages: [], queue: [], denied: [] })
   await p
 
   const row = getConversation(db, conv.id)
   assert.equal(row.status, 'cancelled', 'agent 完成不覆盖 cancelled')
-  assert.equal(row.content ?? '', '', '迟到终答不写 conv 级字段')
   const msgs = db.prepare('SELECT role, content, reasoning FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
   assert.equal(msgs.length, 2, 'user + 部分答案')
   assert.equal(msgs.at(-1).role, 'assistant')
-  assert.equal(msgs.at(-1).content, '已流出的一半', '已流出的部分答案保留,刷新不蒸发')
+  assert.equal(msgs.at(-1).content, HEAD + TAIL, '已流出部分(含取消后残余)落 assistant 消息,刷新不蒸发')
   assert.equal(msgs.at(-1).reasoning, '想了一半', '部分思考一并保留')
+  assert.equal(row.content, HEAD, 'conv.content 检查点不被 resetRound 抹空(重启抢救仍有数据;迟到终答亦不写 conv 级字段)')
+})
+
+// 用例 A(审计 cancel-races-01 多轮变体):cancel 落在工具执行段——上一轮 assistant step 已发过、
+// resetRound 已正常清零一次(证明保留是「取消后到达的 step 不清零」,而非清零从未发生的假绿);
+// 当前轮 chat 已在检查点② 之后在途,取消后自然完成 → assistant step 取消后到达 → 不得清零;
+// 随后轮 2 的 tool_calls 开头检查点① 取消抛错走 catch → cancelledCatchGuard 读到保留的当前轮 partial。
+test('多轮 run:cancel 落在工具执行段(上轮 assistant step 已发过)→ 当前轮已流出文本仍保留落库', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  const CUR = '当前轮已流出的一半'.repeat(30)   // 300 字 ≥200:取消后残余流仍过检查点(纯取消不拦写)
+  let failRun, runOpts
+  const { createAgentRunner } = makeRunner((opts) => {
+    runOpts = opts
+    // 轮 1:流式 + 完成(真实循环:每轮 chat 完成必发 assistant step)→ 此刻未取消,resetRound 正常清零
+    opts.onDelta('第一轮分析文本')
+    opts.onStep({ type: 'assistant', message: { role: 'assistant', content: '第一轮分析文本' }, ts: Date.now() + 1 })
+    // 轮 1 的 tool_calls 执行段(tool_start 瞬态只推流不落库)
+    opts.onStep({ type: 'tool_start', name: 'wb_scale', args: {}, ts: Date.now() + 2 })
+    opts.onStep({ type: 'tool', name: 'wb_scale', args: {}, result: 'scaled', ts: Date.now() + 3 })
+    // 轮 2 chat 已在途(检查点② 已过)——挂起等测试驱动残余流
+    return new Promise((_, rej) => { failRun = rej })
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const p = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' }).catch(e => e)
+  await new Promise(r => setTimeout(r, 10))
+  agent.cancelConversation(conv.id)                  // cancel 落点 = 工具执行段(轮 2 流已在途不可中断)
+  runOpts.onDelta(CUR)                               // 轮 2 残余流:取消后到达,过阈检查点照写(保留数据来源)
+  runOpts.onStep({ type: 'assistant', message: { role: 'assistant', content: CUR }, ts: Date.now() + 4 }) // 轮 2 取消后自然完成
+  failRun(new Error('对话已取消,中止工具执行'))      // 真实循环:轮 2 tool_calls 开头检查点① 取消抛错 → catch
+  await p
+
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'cancelled', '状态保持 cancelled(catch 走 cancelled 分支,不写 failed)')
+  assert.equal(row.content, CUR, 'conv.content 检查点不被取消后到达的 resetRound 抹空')
+  const msgs = db.prepare('SELECT role, content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.at(-1).role, 'assistant', '当前轮 partial 落 assistant 消息')
+  assert.equal(msgs.at(-1).content, CUR, '当前轮已流出文本保留落库(上轮 step 已清零过,不靠跨轮累积)')
+  const trace = JSON.parse(msgs.at(-1).trace || '[]')
+  assert.ok(trace.some(e => e?.type === 'assistant' && e.content === '第一轮分析文本'), '消息级 trace 保留轮 1 文本(交错渲染不断章)')
+  assert.ok(trace.some(e => e?.type === 'assistant' && e.content === CUR), '消息级 trace 保留轮 2 文本')
 })
 
 // ── 2026-08-27 静默终止审计:salvage 自身抛错(DB 中途损坏/锁死)不得让 runConversation ──
@@ -899,4 +949,50 @@ test('取消→重发后旧 run 抛错不再 safeSalvage:状态保持新 run 终
   assert.equal(getConversation(db, conv.id).status, 'done', '旧 catch 不再把新 run 标 failed')
   assert.ok(!events.some(e => e.type === 'status' && e.status === 'failed'), '无 failed 事件')
   assert.equal(events.length, eventsAfterRun2, '旧 run 静默退出,零事件')
+})
+
+// ═══ 2026-09-07 审计 agent-loop-03(F3):被取代 run 的在途流写点无 epoch 闸 ═══
+// 上一组测试只锁了 run 出口(落库前/catch 的 isSuperseded);在途回调链——onDelta/onReasoning
+// 的检查点写库+busEmit、makeOnStep 的 appendTrace/resetRound 清零+busEmit——此前无守卫:被取代
+// run 的残余流继续写库并向新 run 的 bus/SSE 快照(conv-bus emit 同步累积快照)发幽灵事件,
+// resetRound 还会把 conv.content 清零覆写新 run 的检查点。取消拦不断在途流(已知边界),「停止→
+// 修改重发」重叠窗口对深思考模型可达分钟级。契约:全部写点前比对 epoch,stale 即静默 no-op。
+test('supersede 写点守卫:被取代 run 的残余 onDelta/onReasoning/onStep(assistant/resetRound)/appendTrace 全 no-op——不写库、零 bus 事件,新 run 产出完好', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let optsA, releaseA, optsB, releaseB, call = 0
+  const { createAgentRunner } = makeRunner((opts) => {
+    if (++call === 1) { optsA = opts; return new Promise(r => { releaseA = r }) }   // run#1(A)悬挂=在途 LLM 流
+    optsB = opts; return new Promise(r => { releaseB = r })                         // run#2(B)
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const rA = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))       // A 在途
+  agent.cancelConversation(conv.id)               // 停止(纯取消,不 bump epoch)
+  // 模拟「修改重发」:edit/regenerate 路由复位运行字段 + 新 run 启动(claimRunEpoch bump → A superseded)
+  updateConversation(db, conv.id, { status: 'running', content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null })
+  const rB = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+  optsB.onDelta('B'.repeat(250))                  // B 中途检查点(≥200 过阈)
+  releaseB({ status: 'done', content: 'run2 答案', trace: [], steps: 1, messages: [], queue: [], denied: [] })
+  await rB                                        // B 完整落库(done+end+dispose 已发)
+  const eventsAfterB = events.length
+  const traceAfterB = getConversation(db, conv.id).trace
+  const msgsAfterB = db.prepare('SELECT COUNT(*) n FROM workbench_messages WHERE conversationId=?').get(conv.id).n
+  const historyAfterB = db.prepare('SELECT COUNT(*) n FROM workbench_history').get().n
+
+  // A 的在途残余(取消+取代后到达):delta/reasoning/assistant step(触发 resetRound+appendTrace)
+  optsA.onReasoning('A-旧答案残余思考')
+  optsA.onDelta('A-旧答案流出的残余文字')
+  optsA.onStep({ type: 'assistant', message: { role: 'assistant', content: 'A 旧问题的完整答案' }, ts: Date.now() + 1 })
+  releaseA({ status: 'done', content: 'run1 迟到的答案', trace: [], steps: 9, messages: [], queue: [], denied: [] })
+  await rA
+
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'done', '终态仍是 run#2 的 done')
+  assert.equal(row.content, 'run2 答案', 'A 的 resetRound 检查点不覆写/不清零 B 的落库(conv.content 不被抹空)')
+  assert.equal(row.trace, traceAfterB, 'A 的 appendTrace 不写 conv.trace(不污染新 run 的本轮切片)')
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM workbench_messages WHERE conversationId=?').get(conv.id).n, msgsAfterB, '不追加 A 的消息')
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM workbench_history').get().n, historyAfterB, '不追加 A 的项目历史')
+  assert.equal(events.length, eventsAfterB, 'A 的残余 delta/reasoning/step 不发任何 bus 事件(bus/SSE 快照属新 run)')
 })

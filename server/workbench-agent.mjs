@@ -55,18 +55,25 @@ export function createWorkbenchAgent(deps) {
   // 「停止→修改重发」是取消的主流程,而重发路由放行 cancelled 并置回 running——以共享
   // status 做取消信号会被新 run 击穿:旧 run 的检查点/落库前守卫读到 running 即放行,继续
   // 执行剩余工具、发起后续 LLM 轮、把终态与 bus 事件覆写到新 run 头上(路由 P0 守卫注释
-  // 警告的「并发双 run 交错写」,'cancelled' 恰是那只守卫的盲区)。修法=每次 run 启动与
-  // cancelConversation 都 bump epoch;旧 run 的 shouldAbort/落库前守卫/catch 分支一律先比
+  // 警告的「并发双 run 交错写」,'cancelled' 恰是那只守卫的盲区)。修法=每次 run 启动 bump
+  // epoch(cancelConversation 刻意不 bump:纯取消须走「保留 partial」分支,bump 会使其恒被判
+  // superseded 而永不可达,见其注释);旧 run 的 shouldAbort/落库前守卫/catch 分支一律先比
   // epoch,被取代(stale)即静默丢弃一切产出(不写库、不发事件、不 dispose——新 run 在用)。
+  // 2026-09-07 审计 agent-loop-03 补:epoch 闸此前只在 run 出口查,在途流写点
+  // (trackPartial.onDelta/onReasoning/checkpoint、makeOnStep 的 appendTrace/resetRound)无守卫,
+  // 被取代 run 的残余流照样写库并向新 run 的 bus/SSE 快照发幽灵事件——现同样收到写点(见各写点)。
   // 内存 Map 依网关单进程不变式;重启清空=无在途 run,天然无害。
   const runEpoch = new Map()
   function claimRunEpoch(convId) { const n = (runEpoch.get(convId) || 0) + 1; runEpoch.set(convId, n); return n }
   function isSuperseded(convId, myEpoch) { return (runEpoch.get(convId) || 0) !== myEpoch }
-  // 取消中止信号(shouldAbort 装配用):epoch 过期(被取消 bump 或被重发取代)或 DB 显式
-  // cancelled(直改库兜底;读失败视为非取消,不误杀正常对话)。
-  function cancelSignal(convId, myEpoch) {
-    if (isSuperseded(convId, myEpoch)) return true
+  // DB 显式 cancelled(直改库兜底;读失败/行已删视为非取消,不误杀正常对话——与 EXISTENCE
+  // 守卫分工:删行走各落库点的存在性守卫,这里只回答「用户取消了吗」)。
+  function dbCancelled(convId) {
     try { return getConversation(db, convId)?.status === 'cancelled' } catch { return false }
+  }
+  // 取消中止信号(shouldAbort 装配用):epoch 过期(被新 run 取代——纯取消不 bump,见上)或 DB 显式 cancelled。
+  function cancelSignal(convId, myEpoch) {
+    return isSuperseded(convId, myEpoch) || dbCancelled(convId)
   }
 
 // trackPartial 检查点触发阈值:字数维度(防写放大)或时间维度(压中途刷新滞后)任一过线即落库
@@ -128,21 +135,32 @@ const CK_TIME_MS = 500
   // 时间维度(2026-08-29):「≥200 字或距上次落库 >500ms」任一触发——中途刷新当前轮滞后从
   // 200 字压到半秒;写频上界 2 次/秒(delta 到达才可能触发,静默零写)。两回调共享 lastCkAt
   // (checkpoint 内统一刷新),resetRound 的 checkpoint() 亦自然刷新。
-  function trackPartial(convId, conv) {
+  // F3 写点守卫(2026-09-07 审计 agent-loop-03):被取代 run 的在途流回调此前无 epoch 闸——
+  // onDelta/onReasoning 继续检查点写库、makeOnStep 继续 appendTrace/resetRound 清零,并向新
+  // run 的 bus/SSE 快照(conv-bus emit 同步累积快照)发幽灵 delta/step,A 的 resetRound 还会把
+  // conv.content 抹空覆写新 run 的检查点(取消拦不断在途流,「停止→修改重发」重叠窗口对深思考
+  // 模型可达分钟级)。全部写点前比对 epoch,stale 即静默 no-op;纯取消(未被取代)不拦——残余流
+  // 继续累积/检查点正是 F2 保留分支(cancelled 落 assistant 消息)的数据来源。
+  function trackPartial(convId, conv, myEpoch) {
     let partial = conv?.content || ''
     let reasoning = conv?.reasoning || ''
     let ckAt = partial.length
     let rCkAt = reasoning.length
     let lastCkAt = Date.now()
-    const checkpoint = () => { lastCkAt = Date.now(); updateConversation(db, convId, { content: partial, reasoning }) }
+    const stale = () => isSuperseded(convId, myEpoch)
+    // checkpoint 是唯一的 conv.content/reasoning 写库漏斗:闸收在这里,任何调用路径(阈值触发/
+    // resetRound/未来新增调用方)被取代时都写不进新 run 的行。
+    const checkpoint = () => { if (stale()) return; lastCkAt = Date.now(); updateConversation(db, convId, { content: partial, reasoning }) }
     const shouldCk = len => len >= CK_CHARS || Date.now() - lastCkAt > CK_TIME_MS
     return {
       onDelta: text => {
+        if (stale()) return
         partial += text
         if (shouldCk(partial.length - ckAt)) { ckAt = partial.length; checkpoint() }
         busEmit(convId, { type: 'delta', text })
       },
       onReasoning: text => {
+        if (stale()) return
         reasoning += text
         if (shouldCk(reasoning.length - rCkAt)) { rCkAt = reasoning.length; checkpoint() }
         busEmit(convId, { type: 'reasoning', text })
@@ -156,7 +174,22 @@ const CK_TIME_MS = 500
       // **同步落库**——此前只清内存,DB conv.content 滞留旧轮最后检查点,窗口内(此刻→新轮
       // 首个 200 字检查点)重连 snapshot/降级轮询 R3 会把旧轮 partial 当当前轮流式文本回灌
       // (与旧轮 assistant chip 双显,后续 delta 拼错位)。所有读取方均有空值守卫,清零零副作用。
+      //
+      // F2/F3 联锁(2026-09-07 审计 cancel-races-01/agent-loop-03;判定顺序即优先级,勿换):
+      // ① supersede 先判:被取代则整段静默 no-op——连 partial 都不保留地不写不清。取代优先于
+      //    保留:新 run 已拥有对话(epoch 已被 claimRunEpoch bump,重发路由也复位了 content/
+      //    reasoning/trace),旧 run 此刻任何清零/检查点都是对新 run 产出的覆写与污染。
+      // ② 纯取消(DB cancelled、未被取代——cancelConversation 刻意不 bump epoch)跳过清零与
+      //    checkpoint 抹除:真实循环每轮 chat 完成必发 onStep({type:'assistant'})(agent.mjs
+      //    246-248/226-228),而取消拦不断在途流,主流时序「看长答案中途点停止→流自然完成→
+      //    assistant step 取消后到达」若照常清零,cancelled 保留分支(runConversation 落库前 /
+      //    cancelledCatchGuard)读到的 partial 恒空 → 半截答案刷新蒸发(这正是 2026-08-19 用户
+      //    裁决要防的形态;旧「取消保留」测试的桩在 onDelta 后直接 resolve、从不发 assistant
+      //    step——桩形状掩蔽缺陷,教训:锁定取消语义的桩必须复刻真实循环的必发事件)。
+      // ③ 其余(正常轮完成)照常清零+同步落库(② 之外的旧轮回灌窗口防御不变)。
       resetRound: () => {
+        if (stale()) return
+        if (dbCancelled(convId)) return
         partial = ''; reasoning = ''; ckAt = 0; rCkAt = 0
         checkpoint()
       },
@@ -197,8 +230,12 @@ const CK_TIME_MS = 500
   // 轮完成清零检查点。此前 resume 的 onStep 只做 appendTrace+推流——缺 resetRound,续跑段
   // 多轮时 partial 跨轮累积,失败 salvage 把多轮拼接串整体落成一条消息(生产实例:
   // 408=26+212+50+7+113)。tracker 须在装配 onStep 前已赋值。
-  function makeOnStep(convId, turnTrace, tracker) {
+  // F3 写点守卫(2026-09-07 审计 agent-loop-03,与 trackPartial 同款):被取代 run 的 onStep
+  // 整链 no-op——appendTrace/turnTrace/resetRound/busEmit 全静默(epoch 此前只在 run 出口查,
+  // 这里补在写点;被取代 run 的 assistant 事件曾漏进新 run 的 bus/SSE 并污染 conv.trace 本轮切片)。
+  function makeOnStep(convId, turnTrace, tracker, myEpoch) {
     return raw => {
+      if (isSuperseded(convId, myEpoch)) return
       const e = clampTraceStep(raw)
       if (e.type !== 'tool_start') {
         appendTrace(db, convId, e)
@@ -306,7 +343,7 @@ const CK_TIME_MS = 500
         + buildProjectMemoryInjection(projectRecap)
         + await fetchRefContext(refs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:逐 ref 过 refAllowed
       const history = buildHistory(db, conv)
-      tracker = trackPartial(convId, conv)
+      tracker = trackPartial(convId, conv, myEpoch) // F3 写点守卫:tracker 各写点比对 epoch(见 trackPartial 注释)
       // 本段事件累积(tool/denied + 瘦身 assistant 文本)——done/salvage 时随 assistant 消息落库,
       // 前端重建历史据此交错渲染(文本↔工具)。对话级 appendTrace(全事件)保持不变。
       turnTrace = []
@@ -318,8 +355,8 @@ const CK_TIME_MS = 500
         onReasoning: tracker.onReasoning,
         // onStep 统一走 makeOnStep(2026-09-06 run/resume 对齐,语义注释见工厂):assistant 事件
         // 瘦身入 turnTrace + 轮间清零;工具 result 存/流面前过 clampTraceStep(32KB 截断);
-        // tool_start 瞬态只推流不落库。
-        onStep: makeOnStep(convId, turnTrace, tracker),
+        // tool_start 瞬态只推流不落库。myEpoch=被取代 run 的 onStep 整链 no-op(F3 写点守卫)。
+        onStep: makeOnStep(convId, turnTrace, tracker, myEpoch),
       })
       // 用户已取消(cancelConversation 置 cancelled):终态结果丢弃——不覆盖状态、不追加项目历史;
       // 但已流出的部分内容+思考落 assistant 消息(用户裁决 2026-08-19,与 failed 抢救对称——
@@ -396,7 +433,7 @@ const CK_TIME_MS = 500
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
       // 以免把终态改写成 failed 吞掉已完成答案)。
       if (!pending) { busEmit(convId, { type: 'end' }); busDispose(convId); return }
-      tracker = trackPartial(convId, conv)
+      tracker = trackPartial(convId, conv, myEpoch) // F3 写点守卫:同 run 路径(见 trackPartial 注释)
       const out = await run({
         resume: {
           messages: JSON.parse(conv.messages), queue: JSON.parse(conv.queue),
@@ -408,7 +445,8 @@ const CK_TIME_MS = 500
         onReasoning: tracker.onReasoning,
         // 与 runConversation 同款(2026-09-06 对齐):assistant 轮完成清零检查点。turnTrace
         // 处传 throwaway——resume 落库不用段内累积,而用 currentTurnTrace(须含审批暂停前事件)。
-        onStep: makeOnStep(convId, [], tracker),
+        // myEpoch=被取代 run 的 onStep 整链 no-op(F3 写点守卫,同 run 路径)。
+        onStep: makeOnStep(convId, [], tracker, myEpoch),
       })
       // 同 runConversation:取消后终态丢弃,但保留已流出的部分内容+思考(见 runConversation 注释)
       if (isSuperseded(convId, myEpoch)) return // 被新 run 取代(停止→改→重发):产出静默丢弃,不覆写新 run(对抗审查收口)
