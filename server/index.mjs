@@ -447,9 +447,10 @@ function requirePlatform(req, res) {
   }
   return ps
 }
-// 审计标注(2026-08-31 ④):workbench 路由族的 ownerId 归属检查(POST messages/regenerate/
-// edit/compact 等)在本守卫之后,当前恒通过(ps.role 恒 'admin')——属纵深防御,为将来放开
-// 非 admin 使用工作台预留;真要放开时须同步把这些内层守卫降为 requirePlatform。
+// 审计标注(2026-08-31 ④;W2 Phase D 起已生效而非预留):workbench 路由族的 owner 归属链
+// (POST messages/regenerate/edit/compact 等)在本守卫之后——对话域已降门 requirePlatform +
+// owner/admin 链(workbench-conversations.mjs 头注契约,Phase D = c982a9a 契约注释所要求的
+// 隔离裁决),非 owner 平台会话在这些内层守卫被拒。
 function requireAdmin(req, res) {
   const ps = requirePlatform(req, res)
   if (!ps) return null

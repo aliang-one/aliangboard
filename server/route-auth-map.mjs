@@ -70,7 +70,8 @@ export const ROUTE_AUTH = [
   { prefix: '/api/ssh/',     auth: 'admin' },     // servers CRUD/test:内层 requireAdmin
   // --- 管理员(全部 /api/admin/*:llm-config/clusters/apikeys/audit-log/users/…) ---
   { prefix: '/api/admin/', auth: 'admin' },
-  // --- 工作台(混合层:地板=platform;records/distill/conv 等内层 requireAdmin 收严) ---
+  // --- 工作台(混合层:地板=platform;records/distill/ai-config 等内层 requireAdmin 收严;
+  //     conv 域=W2 Phase D 降门:requirePlatform + owner/admin 链,见 workbench-conversations.mjs 头注) ---
   { prefix: '/api/workbench/', auth: 'platform' },
   // --- API key 机器面(/api/key/<cluster>/call、…/logs;401 shape 特殊) ---
   { prefix: '/api/key/', auth: 'apikey' },

@@ -1,6 +1,6 @@
 // SP1-T7: 验证 WorkbenchDetail 的 sidebar 生命周期——
 // activeConversationId 从 project 初始化、New → null、selectConversation → id。
-// 审计#7(2026-09-06)补:Agent 模式(对话域)admin 专属——非 admin 隐藏入口(文件末两测)。
+// contracts-07(2026-09-07 批次三):Agent 模式按服务端实际门放行(Phase D=platform+owner)。
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
@@ -11,8 +11,7 @@ const workbenchApi = vi.hoisted(() => ({
   conversations: { list: vi.fn(), rename: vi.fn() },
 }))
 
-// Agent 模式/对话域是 admin 专属(审计#7):本文件既有用例全部是 admin 视角(可见性零变化),
-// isAdmin 默认 true;非 admin 用例就地翻转 authState.isAdmin。
+// auth store 桩保留(WorkbenchChat 等子组件消费);isAdmin 默认 true,contracts-07 用例就地翻转。
 const authState = vi.hoisted(() => ({ isAdmin: true }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: authState.isAdmin }) }))
 
@@ -226,25 +225,24 @@ test('文件树 dirty 圆点:当前文件未保存时树行渲染 unsaved 标记
   expect(w.html()).toContain('bg-status-warning')
 })
 
-// ═══ 审计#7(2026-09-06):Agent 模式(对话域)恒 admin 专属——非 admin 隐藏入口 ═══
-// 对话路由族(全部 conversations 端点)requireAdmin;非 admin 平台用户可用项目协作域
-// (文件/Edit/commit),但不得看到 AI 对话入口:Agent 模式按钮隐藏、WorkbenchChat 不挂载、
-// 持久化偏好里 admin 会话留下的 'agent' 不复活(落 Edit)。
-test('审计#7:非 admin 无 Agent 按钮/无 WorkbenchChat/不读持久化 agent 偏好,落 Edit 且协作域照常', async () => {
+// ═══ contracts-07(2026-09-07 审计批次三):Agent 模式按服务端实际门放行 ═══
+// W2 Phase D 对话域已降门 requirePlatform + owner/admin 链(全部 conversations 端点);
+// 审计#7 时代的「恒 admin 专属」口径作废:非 admin 平台用户(项目 owner)同样可见
+// Agent 按钮/WorkbenchChat,读持久化模式偏好,并主动拉对话列表(owner 过滤在服务端)。
+test('contracts-07:非 admin 平台用户见 Agent 入口——按钮在/WorkbenchChat 挂载/读持久化偏好/拉对话列表', async () => {
   authState.isAdmin = false
-  localStorage.setItem('aliangboard.workbench.mode', 'agent') // admin 会话留下的偏好不得复活
+  localStorage.setItem('aliangboard.workbench.mode', 'agent')
   workbenchApi.getProject.mockResolvedValue({ project: { id: 'proj-1', name: 'demo' }, files: ['a.yaml'], commits: [] })
   const w = await mountDetail()
-  expect(w.vm.mode).toBe('edit')
-  expect(w.findComponent({ name: 'WorkbenchChat' }).exists()).toBe(false)
-  expect(w.findAll('button').some(b => b.text().includes('Agent'))).toBe(false)
-  expect(w.find('[data-testid="background-chat-btn"]').exists()).toBe(false)
-  // Edit(项目协作域:requirePlatform+ownership)照常可用
-  expect(w.text()).toContain('a.yaml')
+  expect(w.vm.mode).toBe('agent', '持久化 agent 偏好照读(此前非 admin 强制落 Edit)')
+  expect(w.findComponent({ name: 'WorkbenchChat' }).exists()).toBe(true)
+  expect(w.findAll('button').some(b => b.text().includes('Agent'))).toBe(true)
+  expect(workbenchApi.conversations.list).toHaveBeenCalledWith('proj-1')
+  // Edit(项目协作域)照常可用——双模式并存,只是不再对非 admin 藏 Agent
   expect(w.findAll('button').some(b => b.text().includes('Edit'))).toBe(true)
 })
 
-test('审计#7:admin 零变化——Agent 按钮在,默认 Agent 模式,WorkbenchChat 挂载', async () => {
+test('contracts-07:admin 零变化——Agent 按钮在,默认 Agent 模式,WorkbenchChat 挂载', async () => {
   const w = await mountDetail()
   expect(w.vm.mode).toBe('agent')
   expect(w.findComponent({ name: 'WorkbenchChat' }).exists()).toBe(true)

@@ -4,15 +4,17 @@
 // 修复契约:content 干净落库;新 refs 并入对话级 "references"(refreshSystem 每轮注入 system,
 // agent.mjs:127 每轮重写 messages[0],上下文等价且更新鲜);历史已污染行由 GET /:id 出参剥前缀。
 // HTTP 层直测路由 handler(deps 全注入):db 用真 :memory:,requestKubernetes/llm 用桩。
-import { test, after } from 'node:test'
+import { test, after, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
+import { readFileSync } from 'node:fs'
 import {
   createWorkbenchSchema, createProject, createConversation,
   getConversation, appendMessage, listMessages,
 } from './workbench-projects.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { stripRefsContext, REFS_CTX_HEADER, REFS_GUARD_NOTE } from './refs-context.mjs'
+import { createAuditSchema, writeAudit as realWriteAudit, verifyChain } from './audit.mjs'
 
 // F6(对话限额)env 通道消毒:deployment 侧可设 WB_CONV_MAX_*;模块级摘除保测试确定性,
 // after 恢复(镜像 workbench-ai-config-routes.test.mjs 的 maxSteps 手法)。
@@ -820,4 +822,189 @@ test('contracts-10: 200 字 rename → 响应标题=截断 100 字=回读值(两
   const { json } = h.sent.at(-1)
   assert.equal(json.title.length, 100, '响应回带截断后标题')
   assert.equal(json.title, getConversation(h.db, conv.id).title, '响应与落库一致')
+})
+
+// ═══ 批次三(2026-09-07 审计)Task 2:鉴权与可观测四件 ═══
+
+// ── conv-lifecycle-10:SSE 建连后不重验——keepalive 周期重验 platform 会话 + ownership ──
+// 旧实现:建连时过一次 requirePlatform + owner 链后,流以 15s keepalive 常驻——会话吊销/
+// 项目收权对已建连的流零作用(失权客户端继续吃 delta/trace,直到对话自然终态)。
+// 修复契约:每个 keepalive 拍重验(requirePlatform + conv→project→owner/admin 链);失败 →
+// 退订 bus + 关流(res.end)。NOT per-event(事件高频,鉴权查库每事件一次不可接受)。
+
+test('conv-lifecycle-10 SSE: 平台会话吊销后 keepalive 一拍内关流(退订 bus + res.end)', async () => {
+  const unsub = []
+  let live = true
+  const h = makeHarness({ overrides: {
+    requirePlatform: () => (live ? { userId: 'u1', username: 'u', role: 'admin' } : null),
+    busUnsubscribe: id => unsub.push(id),
+  } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' }) // status=running → keepalive 分支
+  let ended = false
+  const res = { writeHead: () => {}, write: () => {}, end: () => { ended = true } }
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res), '路由命中')
+    assert.equal(ended, false, '建连时合法——流开着')
+    live = false // 会话被吊销(admin 会话管理/改密踢出)
+    mock.timers.tick(15000)
+    assert.equal(ended, true, '吊销后 keepalive 一拍内关流')
+    assert.deepEqual(unsub, [conv.id], 'bus 退订——失权客户端不再收后续事件')
+  } finally { mock.timers.reset() }
+})
+
+test('conv-lifecycle-10 SSE: 项目收权(ownerId 换主)后 keepalive 拍关流——非 admin owner 实效', async () => {
+  const unsub = []
+  // 非 admin owner(u2)才能被「换主」收权——admin 被 assertProjectOwnership 短路恒过
+  const h = makeHarness({ overrides: {
+    requirePlatform: () => ({ userId: 'u2', username: 'u2', role: 'user' }),
+    busUnsubscribe: id => unsub.push(id),
+  } })
+  const pid2 = createProject(h.db, { name: 'p2', clusterId: 'c1', ownerId: 'u2' }).id
+  const conv = createConversation(h.db, { projectId: pid2, system: '', userMessage: 'q' })
+  let ended = false
+  const res = { writeHead: () => {}, write: () => {}, end: () => { ended = true } }
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res), '路由命中')
+    assert.equal(ended, false, 'owner 建连合法')
+    h.db.prepare('UPDATE workbench_projects SET ownerId=? WHERE id=?').run('u1', pid2) // 项目换主=u2 失权
+    mock.timers.tick(15000)
+    assert.equal(ended, true, '失权后 keepalive 拍关流')
+    assert.deepEqual(unsub, [conv.id])
+  } finally { mock.timers.reset() }
+})
+
+test('conv-lifecycle-10 SSE: 会话与归属持续合法 → keepalive 拍不关流(重验不误伤)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' })
+  let ended = false
+  const writes = []
+  const res = { writeHead: () => {}, write: s => writes.push(s), end: () => { ended = true } }
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res))
+    mock.timers.tick(15000)
+    mock.timers.tick(15000)
+    assert.equal(ended, false, '合法流两拍后仍在')
+    assert.ok(writes.some(w => String(w).includes('keepalive')), 'keepalive 照常写')
+  } finally { mock.timers.reset() }
+})
+
+// ── authz-entitlement-06:生命周期写操作零审计——六动作补 writeAudit 落链 ──
+// approve/deny 已有(wb_approval);create/messages/regenerate/edit/DELETE/cancel 此前零审计:
+// 对话是 agent 全权凭据的驱动面,「谁在何时启动/停止/删除了哪条对话」在审计链上不可见。
+// 契约:tool='wb_conv'(对话域 kind),verb=动作,requestSummary 带 conv= + project=(approve 同款)。
+
+test('authz-entitlement-06: 六动作审计行落链(verb/tool/owner/conv+project 摘要;链哈希完整)', async () => {
+  const h = makeHarness({ overrides: { writeAudit: realWriteAudit } })
+  createAuditSchema(h.db) // 真 writer 落链(非桩)——顺带验链纪律
+  const assertOk = label => assert.equal(h.sent.at(-1).status, 200, `${label} 200`)
+
+  h.setBody({ projectId: h.pid, message: 'q1' })
+  await h.call('POST', '/api/workbench/conversations'); assertOk('create')
+  const convId = h.sent.at(-1).json.id
+
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(convId)
+  h.setBody({ message: 'q2' })
+  await h.call('POST', `/api/workbench/conversations/${convId}/messages`); assertOk('messages')
+
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(convId)
+  await h.call('POST', `/api/workbench/conversations/${convId}/regenerate`); assertOk('regenerate')
+
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(convId)
+  const anchor = listMessages(h.db, convId).find(m => m.role === 'user')
+  h.setBody({ messageId: anchor.id, content: '改后的问题' })
+  await h.call('POST', `/api/workbench/conversations/${convId}/edit`); assertOk('edit')
+
+  await h.call('POST', `/api/workbench/conversations/${convId}/cancel`); assertOk('cancel')
+  await h.call('DELETE', `/api/workbench/conversations/${convId}`); assertOk('delete')
+
+  const rows = h.db.prepare("SELECT * FROM audit_log WHERE tool='wb_conv' ORDER BY seq").all()
+  assert.deepEqual(rows.map(r => r.verb), ['create', 'message', 'regenerate', 'edit', 'cancel', 'delete'],
+    '六动作各一行,verb=动作名')
+  for (const r of rows) {
+    assert.equal(r.owner, 'u', 'owner=平台用户名(与 approve 同口径)')
+    assert.equal(r.result, 'ok')
+    assert.equal(r.source, 'platform')
+    assert.match(r.requestSummary, new RegExp(`conv=${convId} project=${h.pid}`), '摘要带 convId + projectId')
+  }
+  const v = verifyChain(h.db)
+  assert.equal(v.valid, true, `审计链哈希完整(prevHash 单调): ${JSON.stringify(v)}`)
+})
+
+test('authz-entitlement-06: 拒绝路径零审计行——只有成功落库的动作进链(与 approve CAS 后才写同款)', async () => {
+  const h = makeHarness({ overrides: { writeAudit: realWriteAudit } })
+  createAuditSchema(h.db)
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' }) // running
+  h.setBody({ message: '撞 busy 守卫' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 400)
+  h.setBody({ message: 'x' })
+  await h.call('POST', '/api/workbench/conversations/no-such-conv/messages')
+  assert.equal(h.sent.at(-1).status, 403)
+  assert.equal(h.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE tool='wb_conv'").get().n, 0, '失败/拒绝不落行')
+})
+
+// ── authz-entitlement-07:404/busy-400 先于 ownership-403——单对话端点 ownership 前移 ──
+// 旧顺序(messages/regenerate/edit/GET):conv 不存在 → 404;running → busy-400;之后才 ownership-403。
+// 非 owner 可用响应码差分探测「会话是否存在/是否在跑」(存在性+状态 oracle)。契约:ownership
+// 判定前移(conv/项目缺失同 403,与列表端点「项目缺失同 403 不泄漏存在性」同款);busy-400 只对
+// 过了 ownership 的调用者可见。
+
+test('authz-entitlement-07: 非 owner 对不存在会话恒 403——四端点无存在性 oracle', async () => {
+  const h = makeHarness({ overrides: { requirePlatform: () => ({ userId: 'u2', username: 'other', role: 'user' }) } })
+  h.setBody({ message: 'x' })
+  await h.call('POST', '/api/workbench/conversations/no-such-conv/messages')
+  assert.equal(h.sent.at(-1).status, 403, 'messages:不存在 → 403(非 404)')
+  await h.call('POST', '/api/workbench/conversations/no-such-conv/regenerate')
+  assert.equal(h.sent.at(-1).status, 403, 'regenerate:不存在 → 403')
+  h.setBody({ messageId: 'm1', content: 'y' })
+  await h.call('POST', '/api/workbench/conversations/no-such-conv/edit')
+  assert.equal(h.sent.at(-1).status, 403, 'edit:不存在 → 403')
+  await h.call('GET', '/api/workbench/conversations/no-such-conv')
+  assert.equal(h.sent.at(-1).status, 403, 'GET:不存在 → 403')
+})
+
+test('authz-entitlement-07: 非 owner 对他人 running 会话恒 403——busy-400 不再先于 ownership(状态 oracle 同步关死)', async () => {
+  const h = makeHarness({ overrides: { requirePlatform: () => ({ userId: 'u2', username: 'other', role: 'user' }) } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' }) // u1 项目,running
+  h.setBody({ message: 'x' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 403, 'messages:他人 running → 403(旧 400 busy 先泄漏状态)')
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/regenerate`)
+  assert.equal(h.sent.at(-1).status, 403, 'regenerate:同款')
+  h.setBody({ messageId: 'm1', content: 'y' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`)
+  assert.equal(h.sent.at(-1).status, 403, 'edit:同款')
+  await h.call('GET', `/api/workbench/conversations/${conv.id}`)
+  assert.equal(h.sent.at(-1).status, 403, 'GET:同款')
+})
+
+test('authz-entitlement-07: owner/admin 零回归——busy-400 照常(过了 ownership 才见状态判定)', async () => {
+  const h = makeHarness() // u1 = 项目 owner + admin
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' }) // running
+  h.setBody({ message: '追问' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 400, 'owner 撞 busy 守卫仍是 400(顺序换位不放宽)')
+})
+
+test('authz-entitlement-07: 不存在的会话对 owner/admin 也 403(与列表端点「项目缺失同 403」同款,存在性全员关死)', async () => {
+  const h = makeHarness() // u1 admin
+  await h.call('GET', '/api/workbench/conversations/no-such-conv')
+  assert.equal(h.sent.at(-1).status, 403, 'admin 对不存在会话也 403——无法据响应码差分探测')
+})
+
+// ── contracts-07(含 gap1-03):文件头权限契约注释过时——Phase D 已 platform+owner,注释仍称恒 admin ──
+// c982a9a 契约注释要求「放开非 admin 前先做 ns 隔离 ADR」;W2 Phase D 的 owner 链 + 集群分配
+// entitlement(含批次二 F4)即该裁决的落地。守卫:静态扫文件头,旧口径(admin 专属)不得复活。
+
+test('contracts-07: 文件头权限契约对齐 Phase D(requirePlatform + owner)且记录 ADR 裁决出处', () => {
+  const src = readFileSync(new URL('./routes/workbench-conversations.mjs', import.meta.url), 'utf8')
+  const header = src.slice(0, src.indexOf("import { buildWorkbenchSystemPrompt"))
+  assert.ok(header.length > 0, '头注块存在')
+  assert.ok(!header.includes('恒 admin 专属'), '旧口径「恒 admin 专属」必须清除(Phase D 已 platform+owner)')
+  assert.ok(header.includes('requirePlatform'), '头注声明 platform 地板')
+  assert.ok(/owner/.test(header), '头注声明 owner 链')
+  assert.ok(/ADR|裁决/.test(header), 'c982a9a 契约注释要求的隔离裁决(Phase D)须记录在案')
 })
