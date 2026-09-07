@@ -19,6 +19,7 @@ vi.mock('@/api/client', () => ({
 vi.mock('@/composables/useToast', () => ({ notify: vi.fn() }))
 
 import KubectlCard from '@/components/userCenter/KubectlCard.vue'
+import enLocale from '@/locales/en.json'
 
 const selectCluster = (w, id) => w.find('select').setValue(id)
 
@@ -35,6 +36,15 @@ test('卡片渲染:集群下拉来自 myClusters,失效说明常显(含不支持
   expect(hint.text()).toContain('exec')
   expect(hint.text()).toContain('port-forward')
   expect(hint.text()).toContain('--server-side')
+  // W3 外评修复 4:三项失效条件——登录态 8 小时过期 / 用户被禁用即失效 / 集群分配被收回即失效。
+  // 组件按当前 locale 渲染(测试默认 zh);英文文案关键词直查 locale 文件钉住两档。
+  expect(hint.text()).toContain('8')
+  expect(hint.text()).toContain('禁用')
+  expect(hint.text()).toContain('收回')
+  const en = enLocale.userCenter.kubectl.expiryHint
+  expect(en).toContain('8 hours')
+  expect(en).toContain('disabled')
+  expect(en).toContain('revoked')
 })
 
 test('生成:选中集群 → 调 myKubeconfig(clusterId) → readonly textarea 显示 YAML + 复制按钮', async () => {

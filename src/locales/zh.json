@@ -691,7 +691,7 @@
       "generate": "生成 kubeconfig",
       "copy": "复制",
       "download": "下载",
-      "expiryHint": "凭据说明：kubeconfig 中的 token 即当前平台登录凭据，随平台会话失效（登出、被强制下线或修改密码后即刻失效）；集群权限跟随你的平台授权，请勿将文件泄露给他人；注意：kubectl exec / port-forward 与服务端 apply（kubectl apply --server-side）不经此代理（与浏览器操作面同口径）。",
+      "expiryHint": "凭据说明：kubeconfig 中的 token 即当前平台登录凭据，随平台会话失效（登录态有效期默认 8 小时；登出、被强制下线或修改密码后即刻失效；用户被禁用或集群分配被收回时同样即刻失效）；集群权限跟随你的平台授权，请勿将文件泄露给他人；注意：kubectl exec / port-forward 与服务端 apply（kubectl apply --server-side）不经此代理（与浏览器操作面同口径）。",
       "noClusters": "暂无可访问的集群（请联系管理员分配）"
     }
   },
@@ -3537,7 +3537,10 @@
       "requireSymbol": "需符号",
       "tokenTtl": "令牌有效期上限(天)",
       "saved": "已保存",
-      "tokenTtlInvalid": "令牌有效期上限须在 1-365 天"
+      "tokenTtlInvalid": "令牌有效期上限须在 1-365 天",
+      "mfaRequired": "强制两步验证",
+      "mfaRequiredHint": "开启后，未启用两步验证的用户登录只进入两步验证引导，其余操作一律受限，直至完成启用",
+      "mfaRequiredLogoutHint": "建议开启后立即在用户管理页强制下线存量会话，使限制即时生效"
     }
   },
   "network": {

@@ -23,6 +23,16 @@ function redirectToSelectCluster() {
   }
 }
 
+// 跳 MFA 启用引导（W3 §1.5，外评 2026-09-07 修复 2）：admin 强制开关下的受限 token 首个
+// 403 {code:'MFA_ENROLLMENT_REQUIRED'} → 个人中心安全 tab。不清平台凭据（受限 token 仍有效，
+// 启用后原地转正）；已在 /profile 不跳——安全页自身的非白名单请求（如会话列表）同样 403，
+// 反复整页跳转 = 刷新死循环（与 redirectToLogin 的「已在则不跳」同款守卫）。
+function redirectToMfaEnrollment() {
+  if (typeof location !== 'undefined' && !location.pathname.startsWith('/profile')) {
+    location.href = '/profile?tab=security'
+  }
+}
+
 export function getSessionToken() {
   return sessionStorage.getItem(sessionKey) || localStorage.getItem(sessionKey) || ''
 }
@@ -104,6 +114,8 @@ const platformHttp = createHttp({
   onUnauthorized: (path) => {
     if (!path.startsWith('/api/auth/login')) { clearPlatformToken(); redirectToLogin() }
   },
+  // 受限 token 403 → MFA 启用引导（mfaHttp 只打白名单内的 mfa/* 端点，不会收到该 403，不接）
+  onMfaRequired: () => redirectToMfaEnrollment(),
 })
 
 // MFA 账户安全面专用(W3 Task 4):mfa/disable / step-up 的 401 = 验码失败(会话仍有效),
@@ -421,6 +433,11 @@ export const adminApi = {
   tokenPolicy: {
     get: () => platformHttp.request('/api/admin/token-policy'),
     save: payload => platformHttp.request('/api/admin/token-policy', { method: 'PUT', body: JSON.stringify(payload) }),
+  },
+  // 全局 MFA 强制开关（W3 §1.5，外评 2026-09-07 修复 1）：GET → {enabled}；PUT ← {enabled} → {enabled}
+  mfaPolicy: {
+    get: () => platformHttp.request('/api/admin/mfa-policy'),
+    save: payload => platformHttp.request('/api/admin/mfa-policy', { method: 'PUT', body: JSON.stringify(payload) }),
   },
   // LLM 配置(baseURL/apiKey/model 存 DB;GET 不回传 key)
   llmConfig: {

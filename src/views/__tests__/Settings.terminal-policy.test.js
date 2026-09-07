@@ -31,6 +31,8 @@ beforeEach(() => {
   vi.spyOn(adminApi.podTerminalPolicy, 'update').mockResolvedValue({ ok: true, policy: { idleReapMin: 30 } })
   vi.spyOn(adminApi.sshJobPolicy, 'get').mockResolvedValue({ ttlMin: 120, maxPerServer: 4 })
   vi.spyOn(adminApi.sshJobPolicy, 'update').mockResolvedValue({ ok: true, policy: { ttlMin: 120, maxPerServer: 4 } })
+  // 安全策略卡同挂载拉取(2026-09-07 W3 外评修复 1 加载项):不桩会走真 fetch(happy-dom 真发请求)
+  vi.spyOn(adminApi.mfaPolicy, 'get').mockResolvedValue({ enabled: false })
 })
 
 test('admin:「终端与会话」tab 可见,三组策略进页即拉取回填(共 6 个数字输入)', async () => {
