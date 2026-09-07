@@ -13,6 +13,7 @@ import {
   appendMessage,
 } from './workbench-projects.mjs'
 import { createWorkbenchAgent } from './workbench-agent.mjs'
+import { createLlmClient } from './llm.mjs' // fix round 1:总限 DB 级测试驱动真 chatStream(滴流桩)
 
 // 构造 fresh db + 项目 + 对话;捕获 bus 事件到数组(可断言事件序列)。
 function setup({ withPriorTurn = false } = {}) {
@@ -1049,4 +1050,40 @@ test('flushCheckpoint: 在途 run 未过阈(<200 字 & <500ms)的累计同步落
   const row = getConversation(db, conv.id)
   assert.equal(row.content, '才流了十个字', 'flush 后同步落库(重连快照零滞后)')
   assert.equal(row.reasoning, '想了一点')
+})
+
+// fix round 1(minor #4):总限 → failed + partial 保留的 agent 层 DB 级测试。滴流桩 + 真
+// createLlmClient(streamTotalMs 短值——与 llm 层同 seam)触发真总限;错误上抛 → catch →
+// 非 cancelled → safeSalvage 保留半截内容 + 标 failed(与取消路径对照:取消走
+// cancelledCatchGuard,状态 cancelled 不写 failed)。
+test('总限到点(agent-loop-05): 滴流超总限 → status=failed + 半截内容落 assistant 消息 + failed 事件', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  const encoder = new TextEncoder()
+  let n = 0
+  const drip = async (u, o) => ({
+    ok: true, status: 200,
+    body: { getReader: () => ({ cancel: async () => {}, read: () => new Promise((resolve, reject) => {
+      const onAbort = () => { clearTimeout(t); reject(o.signal.reason || new Error('aborted')) }
+      const t = setTimeout(() => {
+        o.signal.removeEventListener('abort', onAbort)
+        if (n >= 10) reject(new Error('stub: 滴流耗尽仍未触发总超时'))
+        else resolve({ done: false, value: encoder.encode(`data: {"choices":[{"delta":{"content":"字${n++}"}}]}\n\n`) })
+      }, 30)
+      o.signal.addEventListener('abort', onAbort, { once: true })
+    }) }) },
+  })
+  // runner 桩直接驱动真 chatStream:delta 经 opts.onDelta 进 tracker,总限抛错原样上抛给 run
+  const { createAgentRunner } = makeRunner((opts) =>
+    createLlmClient({ baseURL: 'http://x', model: 'm', timeoutMs: 100000, idleMs: 100000, streamTotalMs: 120, fetch: drip })
+      .chatStream({}, { onDelta: opts.onDelta }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed', '总限超时走 salvage:标 failed(与取消的 cancelled 分支对照)')
+  assert.match(row.error, /总超时/, 'error 带总超时语义')
+  const msgs = db.prepare('SELECT role, content FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.at(-1).role, 'assistant')
+  assert.ok(msgs.at(-1).content.length > 0, `半截内容落 assistant 消息(滴出的 delta 保留): ${msgs.at(-1).content}`)
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed'), 'bus 发 failed 事件(前端不无限 thinking)')
 })

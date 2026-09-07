@@ -731,16 +731,28 @@ export function createWorkbenchConvRoutes(deps) {
         'connection': 'keep-alive',
         'x-accel-buffering': 'no',
       })
-      // cancel-races-08(2026-09-07 审计批次三):res.write 返回 false = 内核写缓冲满(慢消费者
-      // 不再读)——旧实现无背压检查,事件照投,缓冲无界堆积(网关内存押给最慢客户端)。
-      // 契约:false 即主动断连(bus 退订 + res.end),客户端既有重连机制接管;刻意不缓冲
-      // (为慢客户端缓存整轮输出 = 无界内存承诺)。onBackpressure 仅 running 分支装配
-      // (paused/done 分支随函数返回即 res.end,无需切断);幂等闸在 closeStream。
+      // cancel-races-08(2026-09-07 审计批次三;fix round 1 修确定性误切):res.write 返回
+      // false = 写缓冲越过 HWM(16KB)——但 Node Writable 语义下**单次 ≥HWM 的 write 即使
+      // socket 健康也恒 false**,且同帧内连续 write 之间无泄流机会(健康 socket 也会跨
+      // HWM)。重连快照帧(长答全文 + trace 一次序列化)≥16KB 是长答常态,旧「write false
+      // 即切」把健康重连客户端确定性切断 → EventSource 3s 重连 → 同帧再切 → 无限振荡,恰好
+      // 击穿 cancel-races-05 刚修好的零滞后重连路。修正两件:
+      // ① 帧按**字节**切 ≤8KB 片写出(按 UTF-16 切中文会 24KB/片,必须 Buffer 字节切;TCP
+      //    本就是字节流,跨片断裂的 UTF-8 序列由客户端解码器重组);
+      // ② 切断信号只取**首片** false——首片 ≤8KB,单独一次不可能把空缓冲推过 16KB HWM,
+      //    它 false 必意味着帧开始前已有 ≥8KB 积压(此前帧留下的,隔了事件环轮转仍没泄掉)
+      //    = 真慢消费者,断连让客户端既有重连机制接管。同帧后续片的 false 忽略:缓冲是有界
+      //    的(至多多写完本帧)。小帧(keepalive / 单片 delta)首片即全帧,语义不变。
+      // onBackpressure 仅 running 分支装配(paused/done 分支随函数返回即 res.end);幂等闸在
+      // closeStream。
+      const SSE_WRITE_SLICE = 8 * 1024
       let onBackpressure = null
       const send = (evt) => {
         try {
-          const ok = res.write('data: ' + JSON.stringify(evt) + '\n\n')
-          if (ok === false && onBackpressure) onBackpressure()
+          const buf = Buffer.from('data: ' + JSON.stringify(evt) + '\n\n', 'utf8')
+          const pressure = res.write(buf.subarray(0, SSE_WRITE_SLICE)) === false // 首片:切断判定唯一来源
+          for (let i = SSE_WRITE_SLICE; i < buf.length; i += SSE_WRITE_SLICE) res.write(buf.subarray(i, i + SSE_WRITE_SLICE))
+          if (pressure && onBackpressure) onBackpressure()
         } catch { /* 客户端已断 */ }
       }
       send({ type: 'hello', convId: id, status: conv.status })
@@ -778,7 +790,11 @@ export function createWorkbenchConvRoutes(deps) {
       // 被调用,null 守卫替代 TDZ。
       let keepalive = null
       let closed = false
-      const onReqClose = () => { if (keepalive) clearInterval(keepalive); busUnsubscribe(id, send) }
+      // fix round 1(important):req close 委托 closeStream——旧 onReqClose 只 clearInterval+
+      // 退订、无 closed 闸、不 end,与 closeStream 双路径并存时 removeListener/res.end 可能
+      // 重复执行(靠 try/catch 兜底的隐性契约)。委托后幂等闸统一(重复 close 不重复执行),
+      // 显式 res.end 让响应定终(Node 允许在自身 emit 中摘除监听器)。
+      const onReqClose = () => closeStream()
       const closeStream = () => {
         if (closed) return
         closed = true

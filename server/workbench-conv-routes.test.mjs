@@ -8,6 +8,7 @@ import { test, after, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
 import {
   createWorkbenchSchema, createProject, createConversation,
   getConversation, appendMessage, listMessages,
@@ -65,8 +66,8 @@ function makeHarness({ overrides = {} } = {}) {
     // req 桩:on 丢弃监听(测试不模拟 close);removeListener 配对在场(SSE closeStream 会摘
     // req close 监听——cancel-races-08 背压切断路径,缺方法即 TypeError)
     call: (method, pathname) => routes.handle({ method, on: () => {}, removeListener: () => {} }, res, new URL(`http://x${pathname}`)),
-    // SSE 端点直测:注入自定义 res 捕获 write 的原始事件块
-    callSSE: (method, pathname, customRes) => routes.handle({ method, on: () => {}, removeListener: () => {} }, customRes, new URL(`http://x${pathname}`)),
+    // SSE 端点直测:注入自定义 res 捕获 write 的原始事件块;customReq 可传真 emitter 派发 close
+    callSSE: (method, pathname, customRes, customReq) => routes.handle(customReq || { method, on: () => {}, removeListener: () => {} }, customRes, new URL(`http://x${pathname}`)),
   }
 }
 
@@ -1068,5 +1069,59 @@ test('cancel-races-08 SSE: keepalive 写返回 false 同款断连(慢消费者�
     mock.timers.tick(15000)
     assert.equal(ended, true, 'keepalive write false → 同款断连')
     assert.deepEqual(unsub, [conv.id], 'bus 退订')
+  } finally { mock.timers.reset() }
+})
+
+// ═══ fix round 1(评审返工):write-false 误切健康重连客户端(critical)+ req close 对称性(important)═══
+
+// critical:Node Writable 语义下,单次 ≥HWM(16KB)的 write 即使 socket 健康也返回 false,且
+// 同帧连续 write 之间无泄流机会——重连快照帧(长答全文 + trace 一次序列化)≥16KB 是长答常态,
+// 旧「write false 即切」把健康客户端确定性切断 → EventSource 3s 重连 → 同帧再切 → 无限振荡,
+// 恰好击穿 cancel-races-05 刚修好的零滞后重连路。桩按 Node 语义建模健康 socket:无既有积压,
+// 单次 <16KB 恒 true(≥16KB 恒 false)。契约:帧按字节切 ≤8KB 片;切断信号只取首片 false
+//(帧开始前缓冲已 ≥8KB 积压 = 真慢消费者);健康 socket 的大快照帧不切断、内容完整送达。
+test('fix1 critical SSE: 健康 socket 的 ≥16KB 快照帧不误切——字节切片 + 仅首片 false 是切断信号,内容完整', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' })
+  const BIG = '长回答内容'.repeat(4000) // 60KB UTF-8:旧实现单 write ≥16KB 恒 false → 确定性误切
+  h.db.prepare('UPDATE workbench_conversations SET content=? WHERE id=?').run(BIG, conv.id)
+  const writes = []
+  let ended = false
+  const res = { writeHead: () => {}, write: c => { writes.push(c); return c.length < 16384 }, end: () => { ended = true } }
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res), '路由命中')
+    assert.equal(ended, false, '健康 socket 的大快照帧不切断(旧实现此处确定性误切 → 重连振荡)')
+    // 重组必须按字节拼接后整体解码:逐片 String(buf) 会把跨片断裂的 UTF-8 序列各解码成
+    // U+FFFD(测试侧假象);真实客户端收的是字节流、整体解码,无此问题。
+    const full = new TextDecoder().decode(Buffer.concat(writes.map(w => Buffer.isBuffer(w) ? w : Buffer.from(String(w), 'utf8'))))
+    assert.ok(full.includes(BIG), '切片字节流重组 = 完整快照(跨片断 UTF-8 由客户端解码器重组)')
+    const frame = full.split('\n\n').find(s => s.startsWith('data: ') && s.includes('snapshot'))
+    assert.equal(JSON.parse(frame.slice(6)).content, BIG, '切片不破坏 SSE 帧边界语义(整帧 JSON 可解析)')
+    mock.timers.tick(15000)
+    assert.equal(ended, false, 'keepalive(小帧,healthy true)照常写,流仍活')
+  } finally { mock.timers.reset() }
+})
+
+// important:旧 onReqClose 只 clearInterval+退订,无 closed 闸、不 end——与 closeStream 双路径
+// 并存,对称性靠 try/catch 兜底。契约:req close 委托 closeStream(幂等闸 + 显式 res.end 让
+// 响应定终);重复 close 不重复 end/退订。
+test('fix1 important SSE: req close → closeStream(退订 + res.end + 幂等闸,重复 close 不重复执行)', async () => {
+  const unsub = []
+  const h = makeHarness({ overrides: { busUnsubscribe: id => unsub.push(id) } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q' })
+  const req = new EventEmitter(); req.method = 'GET' // 真 emitter:可真实派发 close
+  let ended = 0
+  const res = { writeHead: () => {}, write: () => true, end: () => { ended++ } }
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    assert.ok(await h.callSSE('GET', `/api/workbench/conversations/${conv.id}/stream`, res, req), '路由命中')
+    assert.equal(ended, 0, '流开着')
+    req.emit('close')
+    assert.equal(ended, 1, '客户端断开 → closeStream(bus 退订 + res.end 让响应定终)')
+    assert.deepEqual(unsub, [conv.id], 'bus 退订')
+    req.emit('close') // 幂等:重复 close 不再重复 end/退订
+    assert.equal(ended, 1, 'closed 闸幂等(旧 onReqClose 无闸,每次 close 都重复退订)')
+    assert.deepEqual(unsub, [conv.id])
   } finally { mock.timers.reset() }
 })
