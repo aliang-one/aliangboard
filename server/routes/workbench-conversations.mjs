@@ -416,6 +416,10 @@ export function createWorkbenchConvRoutes(deps) {
       // Phase D(Task 7):owner/admin 链(单一事实源;项目缺失 → 403)
       const project = resolveConvProject(req, res, ps, conv)
       if (!project) return true
+      // F4(authz-entitlement-02,2026-09-07 审计):edit 截断重发 = 触发 run 的面,与
+      // messages/regenerate 同门(clusterEntitled 单源)——失权 owner 此前实测 200+run 启动
+      //(兄弟端点 403 的绕道)。先于锚校验/截断,拒绝零副作用;未绑定集群('')不设门。
+      if (!clusterEntitled(ps, project.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
       try {
@@ -632,6 +636,10 @@ export function createWorkbenchConvRoutes(deps) {
       if (!convForGate) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
       const projectForGate = getProject(db, convForGate.projectId)
       if (!projectForGate || !assertProjectOwnership(ps, projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
+      // F4(authz-entitlement-02,2026-09-07 审计):approve 触发 detached resume = 触发 run 的
+      // 面,与 messages/regenerate/edit 同门(clusterEntitled 单源)——失权 owner 不得经审批
+      // 续跑。先于 CAS(claimPausedForResume 翻 running)与 LLM 配置检查,拒绝零状态副作用。
+      if (!clusterEntitled(ps, projectForGate.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
       // LLM 配置检查先于 CAS(2026-09-06 审计#2):配置缺失 400 时状态未动,对话保持 paused
       // 可配置恢复后直接重试;旧顺序 CAS 先翻 running,失败即永久卡死(只能重启网关抢救)。
       const cfg = getLlmConfig()
@@ -660,6 +668,9 @@ export function createWorkbenchConvRoutes(deps) {
       if (!convForGate) { sendJson(res, 404, { message: msg(req, 'wbc.convNotFound') }); return true }
       const projectForGate = getProject(db, convForGate.projectId)
       if (!projectForGate || !assertProjectOwnership(ps, projectForGate)) { sendJson(res, 403, { message: msg(req, 'wbc.noProjectAccess') }); return true }
+      // F4(authz-entitlement-02):deny 同 approve 门——deny 也走 resumeConversation(detached
+      // 续跑 denied 队列),失权 owner 不得经任何审批面触碰 run;先于 CAS,拒绝零副作用。
+      if (!clusterEntitled(ps, projectForGate.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
       // 配置先于 CAS(同 approve,2026-09-06 审计#2)
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
