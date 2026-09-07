@@ -126,6 +126,10 @@ export async function maybeSummarizeProject(db, projectId, llmClient) {
   if (!project) return false
   const pending = unsummarizedProjectHistory(db, projectId)
   if (pending.length < PROJECT_SUMMARY_THRESHOLD) return false
+  // 乐观锁快照(gap2-02,2026-09-07 审计):await LLM 期间 setProjectRecap 可能人工清空/精编
+  // (两分支都递增 recapRev)。本写入自身不递增 rev(只有人工写计数)——连续两轮自动摘要
+  // 互不挤兑,水位守卫已覆盖同批/更新批的自动写竞争。
+  const revAtSnapshot = project.recapRev ?? 0
   const transcript = [
     ...(project.projectRecap ? [`(此前项目摘要)\n${project.projectRecap}`] : []),
     ...pending.map(h => `${h.role}: ${String(h.content || '').slice(0, 800)}`),
@@ -144,11 +148,14 @@ export async function maybeSummarizeProject(db, projectId, llmClient) {
     // 落库为条件写(竞态防线):pending 读取后 await LLM 期间,另一任务可能已完成同批/更新
     // 摘要的写入——无条件 UPDATE 会把新 recap 覆写回旧内容(内容回退,水位因 MAX 不回退,
     // 无法自愈)。守卫 COALESCE(historyWatermark,0) < maxTs:不满足则 changes=0 → 本次丢弃。
+    // gap2-02 追加 AND COALESCE(recapRev,0)=快照值:人工清空/精编在窗口内发生(rev 已推进)
+    // 则丢弃——尤其清空分支归零了水位,水位守卫「< maxTs」反而放行,rev 是唯一拦截线
+    // (清掉的毒 recap 不被迟到摘要复活、人工精编不被静默覆盖)。
     const maxTs = pending[pending.length - 1].ts
     const res = db.prepare(
-      'UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=? AND COALESCE(historyWatermark,0) < ?'
-    ).run(capped, maxTs, projectId, maxTs)
-    if (res.changes === 0) return false // 已有同批或更新的摘要落库,不覆盖
+      'UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=? AND COALESCE(historyWatermark,0) < ? AND COALESCE(recapRev,0)=?'
+    ).run(capped, maxTs, projectId, maxTs, revAtSnapshot)
+    if (res.changes === 0) return false // 已有同批/更新的摘要落库,或人工写在快照后发生 → 丢弃
     return true
   } catch { return false }
 }

@@ -11,6 +11,7 @@ import {
   getConversation,
   updateConversation,
   buildHistory,
+  setProjectRecap,
 } from './workbench-projects.mjs'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -465,4 +466,64 @@ test('maybeSummarizeProject:摘要竞态——旧任务后完成不覆写新摘�
   row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
   assert.equal(row.projectRecap, '新任务产的新摘要', 'recap 不被旧任务覆写回旧内容')
   assert.equal(row.historyWatermark, 7007, '水位不回退')
+})
+
+// ── gap2-02(2026-09-07 审计 P2):人工写 recap vs 在途摘要器的乐观锁 ──
+// setProjectRecap 的清空/精编可被在途 maybeSummarizeProject 击穿:清空会归零
+// historyWatermark,水位守卫(COALESCE(historyWatermark,0) < maxTs)反而放行——
+// 被清掉的毒 recap 由迟到摘要「复活」;精编分支不动水位,同理被静默覆盖。
+// 契约:recapRev 列做乐观锁——setProjectRecap 两分支递增;maybeSummarizeProject
+// 快照读 rev,条件写追加 AND COALESCE(recapRev,0)=?,changes=0 → 丢弃(与水位守卫并列)。
+test('maybeSummarizeProject 竞态:窗口内人工清空 → 迟到摘要丢弃,清掉的毒 recap 不复活', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run('存量毒 recap:缺少 wb_ssh_exec', id)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `m${i}`, 9000 + i)
+  const h = hangLlm('迟到摘要:滚入旧毒结论的新摘要')
+  const task = maybeSummarizeProject(db, id, h.llm)
+  assert.ok(h.entered, '摘要器已读到 pending 并挂在 chat 上(rev 快照已定格)')
+  // 窗口内人工清空(projectRecap=NULL + 水位归零 + recapRev+1)
+  assert.equal(setProjectRecap(db, id, '').ok, true)
+  h.release()
+  assert.equal(await task, false, 'rev 不匹配 → 条件写 changes=0,丢弃')
+  const row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
+  assert.equal(row.projectRecap, null, '清空不被在途摘要复活(毒 recap 不还魂)')
+  assert.equal(row.historyWatermark, 0, '水位仍 0(不被迟到摘要推进)')
+})
+
+test('maybeSummarizeProject 竞态:窗口内人工精编覆写 → 迟到摘要丢弃,不静默覆盖', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run('自动摘要', id)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `m${i}`, 9100 + i)
+  const h = hangLlm('迟到摘要')
+  const task = maybeSummarizeProject(db, id, h.llm)
+  assert.ok(h.entered)
+  // 窗口内人工精编(projectRecap 覆写 + recapRev+1;水位不动)
+  assert.equal(setProjectRecap(db, id, '人工精编:只保留 TLS 轮换结论').ok, true)
+  h.release()
+  assert.equal(await task, false, 'rev 不匹配 → 丢弃')
+  const row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
+  assert.equal(row.projectRecap, '人工精编:只保留 TLS 轮换结论', '人工精编不被迟到摘要静默覆盖')
+})
+
+// 回归(乐观锁不许误伤正常链路):人工写在摘要器快照【之前】完成 → rev 快照=当前值,
+// 条件写放行;摘要器自身的写不递增 rev(只有人工写计数),连续两轮摘要互不挤兑。
+test('maybeSummarizeProject 回归:人工清空发生在快照前 → 摘照常落库;摘要写不递增 rev', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  db.prepare('UPDATE workbench_projects SET projectRecap=? WHERE id=?').run('待清毒', id)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `m${i}`, 9200 + i)
+  // 先人工清空(rev 0→1),再起摘要器(快照 rev=1)
+  setProjectRecap(db, id, '')
+  const llmA = { chat: async () => ({ content: '清空后的第一轮摘要' }) }
+  assert.equal(await maybeSummarizeProject(db, id, llmA), true, 'rev 快照=当前 → 正常落库')
+  // 摘要写不递增 rev:紧接着的第二轮(快照仍 rev=1)不被第一轮挤兑
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'assistant', `r${i}`, 9300 + i)
+  const llmB = { chat: async () => ({ content: '第二轮摘要' }) }
+  assert.equal(await maybeSummarizeProject(db, id, llmB), true, '连续摘要互不挤兑(非人工写不动 rev)')
+  const row = db.prepare('SELECT projectRecap, historyWatermark, recapRev FROM workbench_projects WHERE id=?').get(id)
+  assert.equal(row.projectRecap, '第二轮摘要')
+  assert.equal(row.historyWatermark, 9307)
+  assert.equal(row.recapRev, 1, 'rev 只数人工写(两轮摘要后仍 1)')
 })
