@@ -60,8 +60,9 @@ beforeEach(() => {
   ] })
   apiMocks.updateMe.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: '阿亮' } })
   apiMocks.getAvatar.mockRejectedValue({ status: 404 })
-  // MFA 默认:未启用 + 非受限(个别用例覆写 totpEnabled/mfaPending)
-  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: false }, prefs: {}, mfaPending: 0 })
+  // MFA 默认:未启用 + 非受限(个别用例覆写 totpEnabled/mfaPending)。mfaPending 镜像真实 /me 载荷:
+  // 服务端发 `ps.mfaPending === 1` 的 JSON 布尔(曾造数字夹具掩蔽 === 1 严格比较失配,review round 1 Critical)
+  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: false }, prefs: {}, mfaPending: false })
   apiMocks.mfaSetup.mockResolvedValue({ secret: 'SECRET2345X', otpauthUri: 'otpauth://totp/AliangBoard:alice?secret=SECRET2345X&issuer=AliangBoard' })
   apiMocks.mfaEnable.mockResolvedValue({ ok: true, recoveryCodes: ['rc-aaaa-bbbb', 'rc-cccc-dddd'] })
   apiMocks.mfaDisable.mockResolvedValue({ ok: true })
@@ -414,9 +415,10 @@ test('MFA 未启用 → 启用:setup 二维码 + 密钥 → 输码 enable → �
   bq('[data-testid="mfa-confirm"]').click()
   await flushPromises()
   expect(apiMocks.mfaEnable).toHaveBeenCalledWith({ secret: 'SECRET2345X', code: '123456' })
-  // 恢复码一次性弹窗:列表 + 复制全部
+  // 恢复码一次性弹窗:列表 + 复制全部;非受限会话不出重新登录引导(受限引导在专属用例)
   expect(bq('[data-testid="mfa-recovery-codes"]').textContent).toContain('rc-aaaa-bbbb')
   expect(bq('[data-testid="mfa-recovery-copy"]')).toBeTruthy()
+  expect(bq('[data-testid="mfa-relogin-hint"]')).toBe(null)
   bq('[data-testid="mfa-recovery-close"]').click()
   await flushPromises()
   expect(w.find('[data-testid="mfa-enabled-badge"]').exists()).toBe(true)
@@ -440,7 +442,7 @@ test('MFA enable 验码失败(400):行内错误,启用弹窗保留可重试', as
 })
 
 test('MFA 已启用:徽章+禁用钮;disable 409 stepUpRequired → StepUpDialog 验过 → 同码重放 disable 成功', async () => {
-  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: true }, prefs: {}, mfaPending: 0 })
+  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: true }, prefs: {}, mfaPending: false })
   apiMocks.mfaDisable.mockRejectedValueOnce(httpError(409, '需要重新验证', { stepUpRequired: true }))
   const w = mountPage('security')
   await flushPromises()
@@ -466,8 +468,8 @@ test('MFA 已启用:徽章+禁用钮;disable 409 stepUpRequired → StepUpDialog
   w.unmount()
 })
 
-test('MFA 受限会话(mfaPending)启用成功:恢复码弹窗引导重新登录(非引导重复启用)', async () => {
-  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: false }, prefs: {}, mfaPending: 1 })
+test('MFA 受限会话(mfaPending=true)启用成功:恢复码弹窗引导重新登录(非引导重复启用)', async () => {
+  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: false }, prefs: {}, mfaPending: true })
   const w = mountPage('security')
   await flushPromises()
   await w.find('[data-testid="mfa-enable-btn"]').trigger('click')

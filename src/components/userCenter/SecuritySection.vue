@@ -86,7 +86,8 @@ async function refreshMfa() {
   try {
     const res = await authApi.me()
     mfaEnrolled.value = !!res.user?.totpEnabled
-    mfaRestricted.value = res.mfaPending === 1
+    // 真实载荷是 JSON 布尔(服务端 ps.mfaPending === 1);truthy 判定对布尔/数字斯通(review round 1)
+    mfaRestricted.value = !!res.mfaPending
   } catch { mfaEnrolled.value = !!authStore.user?.totpEnabled }
   syncMfaToStore()
 }
@@ -136,6 +137,11 @@ async function confirmEnroll() {
 // 不引导重复 enable)
 const showRecovery = ref(false)
 const recoveryCodes = ref([])
+// 关闭即清空:恢复码明文不滞留组件态/DOM(review round 1 minor)
+function closeRecovery() {
+  showRecovery.value = false
+  recoveryCodes.value = []
+}
 async function copyRecoveryCodes() {
   try {
     await navigator.clipboard.writeText(recoveryCodes.value.join('\n'))
@@ -291,9 +297,9 @@ async function onStepUpDone() {
     </div>
   </Modal>
 
-  <!-- 恢复码一次性弹窗:明文仅此次下发;受限会话引导重新登录 -->
+  <!-- 恢复码一次性弹窗:明文仅此次下发;受限会话引导重新登录;关闭即清空明文 -->
   <Modal :model-value="showRecovery" :title="$t('userCenter.mfa.recoveryTitle')" width="max-w-sm"
-    @update:model-value="(v) => (showRecovery = v)">
+    @update:model-value="(v) => { if (!v) closeRecovery() }">
     <div class="flex flex-col gap-md">
       <p class="text-body-sm text-error font-medium">{{ $t('userCenter.mfa.recoveryHint') }}</p>
       <ul data-testid="mfa-recovery-codes"
@@ -310,7 +316,7 @@ async function onStepUpDone() {
           @click="copyRecoveryCodes">{{ $t('userCenter.mfa.copyAll') }}</button>
         <button data-testid="mfa-recovery-close"
           class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm"
-          @click="showRecovery = false">{{ $t('userCenter.mfa.recoveryDone') }}</button>
+          @click="closeRecovery">{{ $t('userCenter.mfa.recoveryDone') }}</button>
       </div>
     </div>
   </Modal>
