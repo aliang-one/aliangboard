@@ -4079,7 +4079,7 @@
     "statusExternal": "在新标签页中打开",
     "statusMinimized": "已最小化",
     "closeThisTitle": "关闭此终端",
-    "orphanChipTitle": "未跟踪的网关存活会话:{serverId}(属主 {user}),点击终止",
+    "orphanChipTitle": "未跟踪的网关存活会话:{serverId}(属主 {user})——点击重附(恢复历史),× 终止",
     "orphanKillConfirm": "终止该未跟踪会话?它的终端可能仍被某个标签页使用中",
     "sshNewTerminal": "新开终端",
     "podNewTerminal": "新开终端",

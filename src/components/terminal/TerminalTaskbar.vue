@@ -110,6 +110,12 @@ async function killOrphan(chip) {
   try { await sshApi.killSession(chip.id) } catch { /* 404 = 清道夫已收走,照样摘 chip */ }
   orphans.value = orphans.value.filter(x => x.sid !== chip.id)
 }
+// 孤儿重附(2026-09-06):网关有会话而本地记录已丢——重建记录+弹窗重开同 sid,
+// 网关回放环形缓冲,历史找回;不再「点 chip 即杀」(误触不可逆)。
+function reattachOrphan(chip) {
+  sshStore.reattachOrphan({ id: chip.id, serverId: chip.name, name: chip.name })
+  orphans.value = orphans.value.filter(x => x.sid !== chip.id)
+}
 const orphanChips = computed(() => orphans.value.map(s => ({ kind: 'orphan', id: s.sid, name: s.serverId, user: s.userId, count: 1 })))
 
 // —— 三类 chip 拍平(折叠按此顺序从尾部吃;orphan 置首=警示最晚被折)——
@@ -207,8 +213,9 @@ function closeAll() {
     <!-- 可折叠区:pod 终端 | 文件窗口 | SSH 服务器分组 chip -->
     <div ref="wrap" class="flex-1 flex items-center gap-xs overflow-hidden min-w-0">
       <template v-for="chip in visible" :key="chip.kind + '-' + chip.id">
-        <!-- 未跟踪会话警示 chip(error 色系,置首):网关有而本地无的存活会话,点击确认后手杀 -->
-        <button v-if="chip.kind === 'orphan'" data-test="orphan-chip" @click="killOrphan(chip)"
+        <!-- 未跟踪会话警示 chip(error 色系,置首):网关有而本地无的存活会话——点击重附
+             (重建记录+弹窗重开同 sid,回放历史),× 确认后终止(2026-09-06:不再点即杀) -->
+        <button v-if="chip.kind === 'orphan'" data-test="orphan-chip" @click="reattachOrphan(chip)"
           class="group flex items-center gap-xs pl-sm pr-xs py-0.5 rounded-md text-body-xs transition-all max-w-[220px] shrink-0 bg-error/10 text-error border border-error/30 hover:bg-error/20"
           :title="t('terminal.orphanChipTitle', { serverId: chip.name, user: chip.user })">
           <span class="material-symbols-outlined text-sm">link_off</span>

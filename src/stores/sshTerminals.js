@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { createWindowZAllocator } from '@/styles/zScale'
 import { sshApi } from '@/api/client'
-import { onPopupSync, GONE_GRACE_MS } from '@/utils/popupSync'
+import { onPopupSync } from '@/utils/popupSync'
 
 // SSH 终端浮窗(全局宿主 AppLayout,2026-08-29 任务栏化改造;2026-09-01 弹窗状态对账):
 // - 多开:同服务器可开多个终端,每窗独立 sid(网关侧同一条池化连接多路 shell 通道)。
@@ -192,6 +192,18 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     const params = new URLSearchParams({ serverId: w.serverId, sid: w.id, name: w.name })
     return `${window.location.origin}/ssh-terminal-popup?${params}`
   }
+  // 孤儿会话重附(2026-09-06):网关有会话而本地记录已丢(清过存储/换浏览器/旧版墓碑摘除),
+  // 按对账快照重建窗口记录并以弹窗重开——同 sid 重连,网关回放环形缓冲,历史找回。
+  function reattachOrphan({ id, serverId, name }) {
+    let w = windows.value.find(x => x.id === id)
+    if (!w) {
+      w = { id, serverId, name: name || serverId, status: 'minimized', zIndex: 0 }
+      windows.value.push(w)
+      persist()
+    }
+    openExternal(id)
+    return w
+  }
   // 窗口名 = sid(确定性):再点由浏览器复用/聚焦同一标签页,不再 _blank 多开
   function openExternal(id) {
     const w = windows.value.find(x => x.id === id)
@@ -225,12 +237,9 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   }
 
   // —— 弹窗生死对账(popupSync 信标/墓碑)——
-  const pendingGone = new Map()  // sid → 收尾定时器(墓碑宽限期,给 F5 留复活窗口)
   function onPopupSignal({ type, kind, sid, meta }) {
     if (kind !== 'ssh') return   // kind 分发(2026-09-04):本 store 只认 ssh 弹窗,不信 id 前缀巧合
     if (type === 'alive') {
-      const timer = pendingGone.get(sid)
-      if (timer) { clearTimeout(timer); pendingGone.delete(sid) }   // F5 复活 → 取消收尾
       let w = windows.value.find(x => x.id === sid)
       if (!w && meta?.serverId) {   // opener 错过创建窗口期:按信标元数据重建,不失明
         w = { id: sid, serverId: meta.serverId, name: meta.name || meta.serverId, status: 'external', zIndex: 0 }
@@ -238,27 +247,17 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
         persist()
         return
       }
-      if (w && w.status === 'minimized') { w.status = 'external'; persist() }   // 刷新恢复压成的最小化复位
+      if (w && w.status === 'minimized') { w.status = 'external'; persist() }   // 刷新恢复/丢弃标签重载 → 复位
       return
     }
-    // 墓碑:弹窗标签页没了 → 即刻最小化(chip 变灰),宽限期后仅摘本地记录。
-    // 不杀会话(2026-09-04 收敛):pagehide ≠ 关闭意图(F5/标签页丢弃也发墓碑),杀会话是
-    // 弹窗页「关闭窗口」按钮专属;会话未附着后由网关 detachedIdle 兜底回收。
+    // 墓碑(2026-09-06 收敛 v2):弹窗标签页生命周期结束(F5/浏览器丢弃/真关闭,pagehide
+    // 三态不可分)→ 仅降最小化、**保留记录**。此前宽限后摘记录——浏览器 discard 标签也发
+    // pagehide,「离开一会回来 chip 少一个」即此路径;记录在,丢弃的标签被点开即由存活
+    // 信标自动复位 external。记录移除唯一入口=显式关闭(弹窗「关闭窗口」/任务栏×/全部
+    // 关闭);未附着会话由网关 detachedIdle 兜底回收(sweep 状态修复保证卡死态自愈)。
     popupWins.delete(sid)
     const w = windows.value.find(x => x.id === sid)
     if (w && w.status === 'external') w.status = 'minimized'
-    const prev = pendingGone.get(sid)
-    if (prev) clearTimeout(prev)
-    pendingGone.set(sid, setTimeout(() => {
-      pendingGone.delete(sid)
-      const before = windows.value.length
-      windows.value = windows.value.filter(x => x.id !== sid)
-      if (windows.value.length !== before) {
-        locallyRemoved.add(sid)
-        recordTombstone(sid)
-        markRecentlyClosed(sid)
-      }
-    }, GONE_GRACE_MS))
   }
   popupSyncTargets.add(onPopupSignal)
   const minimizeWindow = id => { const w = windows.value.find(w => w.id === id); if (w) w.status = 'minimized' }
@@ -287,5 +286,5 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   const markAliveSid = id => { if (deadSids.value.has(id)) { const s = new Set(deadSids.value); s.delete(id); deadSids.value = s } }
   const isDead = id => deadSids.value.has(id)
 
-  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, focusExternal, closeWindow, minimizeWindow, restoreWindow, focusWindow, isRecentlyClosed, isDead, markDeadSids, markAliveSid }
+  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, reattachOrphan, focusExternal, closeWindow, minimizeWindow, restoreWindow, focusWindow, isRecentlyClosed, isDead, markDeadSids, markAliveSid }
 })

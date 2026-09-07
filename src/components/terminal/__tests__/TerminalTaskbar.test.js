@@ -84,7 +84,9 @@ test('closeAll 与会话计数涵盖 SSH 窗口', async () => {
 
 // —— 网关真值对账(2026-08-29 泄漏审计)——
 
-test('未跟踪会话:网关有而本地无 → 警示 chip 置首,点击确认后手杀', async () => {
+// 2026-09-06:chip 点击=重附(重建记录+弹窗重开同 sid,恢复历史——不再点即杀);
+// × 保留确认后终止。
+test('未跟踪会话:chip 点击 → 重附(重建记录,不杀会话);× → 确认后终止', async () => {
   vi.spyOn(sshApi, 'listSessions').mockResolvedValue({
     sessions: [{ sid: 'ssh-orph', serverId: 'sv9', userId: 'bob', browserCount: 1, idleMs: 120000 }],
   })
@@ -94,12 +96,22 @@ test('未跟踪会话:网关有而本地无 → 警示 chip 置首,点击确认�
   const chip = bar.find('[data-test="orphan-chip"]')
   expect(chip.exists()).toBe(true)
   expect(chip.attributes('title')).toContain('sv9')
+  const reattach = vi.spyOn(useSshTerminalStore(), 'reattachOrphan')
+  await chip.trigger('click')                     // 本体点击 = 重附
+  expect(reattach).toHaveBeenCalledWith(expect.objectContaining({ id: 'ssh-orph', serverId: 'sv9' }))
+  expect(kill).not.toHaveBeenCalled()             // 不再点即杀
+  await flushPromises()
+  expect(bar.find('[data-test="orphan-chip"]').exists()).toBe(false)   // 重附后摘警示
+  // × 路径:确认后终止(独立挂载;清存储模拟「记录真丢」——重附已把窗口写入 LS)
+  localStorage.clear()
+  const bar2 = mountBar()
+  await flushPromises()
+  const chip3 = bar2.find('[data-test="orphan-chip"]')
+  expect(chip3.exists()).toBe(true)
   vi.stubGlobal('confirm', () => true)
   try {
-    await chip.trigger('click')
+    await chip3.find('span[title]').trigger('click')   // × span(closeThisTitle)
     expect(kill).toHaveBeenCalledWith('ssh-orph')
-    await flushPromises()
-    expect(bar.find('[data-test="orphan-chip"]').exists()).toBe(false)
   } finally { vi.unstubAllGlobals() }
 })
 

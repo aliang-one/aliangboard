@@ -200,6 +200,19 @@ export function createTerminalService({
         if (tombstone > 0 && t.endedAt != null && nowTs - t.endedAt > tombstone) map.delete(t.id)
         continue
       }
+      // 状态修复(2026-09-06 生产事故):WS close 事件丢失/半开未终结时,会话卡 ATTACHED
+      // 而 connIds 已空——阶段一只认 DETACHED,卡死即对回收器不可见 = 永生(实测 idleMs
+      // 5.9h 无人管)。每轮无条件自愈(不受策略 0=禁用影响):零连接零等待的 ATTACHED →
+      // DETACHED(锚点=自愈时刻,阶段一从现在起算 ≤10min 后回收);CREATING 悬挂(建连
+      // 回调永不回,abandon 零生产调用方)超 60s 且无等待者 → LOST。
+      if (t.status === 'ATTACHED' && t.connIds.size === 0 && (t.waiters || 0) === 0) {
+        transition(t, 'DETACHED', 'reconcile-detached')
+        events.push({ tid: t.id, action: 'reconcile-detached' })
+      } else if (t.status === 'CREATING' && (t.waiters || 0) === 0 && nowTs - t.createdAt > 60_000) {
+        markLost(t.id, 'reconcile-create-timeout')
+        events.push({ tid: t.id, action: 'reconcile-create-timeout' })
+        continue
+      }
       // 阶段〇/〇':复用 shouldReapSession(最长寿命 + 挂机回收;detached-idle 判定由下方
       // 两阶段接管,此处忽略其 detached 分支)。shouldReapSession 只产 max-lifetime 与
       // attached-idle 两类可执行判定(browserCount>0 时)。

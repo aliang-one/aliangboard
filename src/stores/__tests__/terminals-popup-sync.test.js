@@ -3,7 +3,7 @@
 // ②重入(PodCard/NsWorkloadDetail 再点终端按钮)遇 external → 聚焦弹窗,绝不在本页复活浮窗(同会话双消费)
 // ③focusExternal 无 win 引用(opener 刷新过)→ 按名重开:标签页活着 → 聚焦 + 复位 external;
 //   被 popup blocker 拦截 → false + 最小化(重入路径据此降级本页恢复,点了必须有反应)
-// ④墓碑:立即转最小化(chip 即刻变灰),宽限期后移除记录 + persistDelete;
+// ④墓碑(2026-09-06 v2):立即转最小化且记录保留;移除唯一入口=显式关闭;
 //   存活信标在宽限期内到达(F5 刷新场景)→ 取消移除 + 复位 external
 // ⑤未知 sid 的存活信标(opener 错过创建窗口期)→ 按信标 meta 重建记录
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -89,7 +89,10 @@ test('focusExternal 被 popup blocker 拦截(window.open → null):返回 false 
   expect(again.status).toBe('open')
 })
 
-test('墓碑:立即转最小化,宽限期后移除记录并 persistDelete', async () => {
+// 2026-09-06 收敛 v2:pagehide 三态(F5/浏览器丢弃/真关闭)不可分 → 墓碑只降最小化、
+// 保留记录(浏览器 discard 标签也发 pagehide,摘记录=「离开一会 chip 少一个」事故);
+// 记录移除唯一入口=显式关闭(closeTerminal)。丢弃的标签被点开即由存活信标自动复位。
+test('墓碑:立即转最小化且记录保留(宽限后也不移除)——discard 不再丢 chip', async () => {
   vi.useFakeTimers()
   const store = useTerminalStore()
   const term = makeTerm(store)
@@ -97,11 +100,11 @@ test('墓碑:立即转最小化,宽限期后移除记录并 persistDelete', asyn
   fire(POPUP_CLOSED_KEY, { kind: 'pod', sid: term.id })
   expect(term.status).toBe('minimized')   // 即刻视觉反馈
   await vi.advanceTimersByTimeAsync(GONE_GRACE_MS + 10)
-  expect(store.terminals.length).toBe(0)
-  expect(termRemoveMock).toHaveBeenCalledWith(term.id)
+  expect(store.terminals.length).toBe(1)  // 记录保留:丢弃的标签重载即由信标复位
+  expect(termRemoveMock).not.toHaveBeenCalled()
 })
 
-test('墓碑后存活信标在宽限期内到达(F5 刷新):取消移除,复位 external', async () => {
+test('墓碑后存活信标到达(标签重载):复位 external', async () => {
   vi.useFakeTimers()
   const store = useTerminalStore()
   const term = makeTerm(store)

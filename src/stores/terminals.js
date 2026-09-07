@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { terminalApi, getSessionToken } from '@/api/client'
 import { createWindowZAllocator } from '@/styles/zScale'
-import { onPopupSync, GONE_GRACE_MS } from '@/utils/popupSync'
+import { onPopupSync } from '@/utils/popupSync'
 
 // 弹窗↔opener 对账分发(2026-09-01):popupWins 是内存态,opener 一刷新即失明。
 // 弹窗页以 popupSync 信标/墓碑广播生死(见 popupSync.js 头注),这里即时跟随。
@@ -282,12 +282,9 @@ export const useTerminalStore = defineStore('terminals', () => {
   }
 
   // —— 弹窗生死对账(popupSync 信标/墓碑,模块级 popupSyncTargets 分发)——
-  const pendingGone = new Map()  // sid → 收尾定时器(墓碑宽限期,给 F5 留复活窗口)
   function onPopupSignal({ type, kind, sid, meta }) {
     if (kind !== 'pod') return   // kind 分发(2026-09-04):本 store 只认 pod 弹窗,不信 id 前缀巧合
     if (type === 'alive') {
-      const timer = pendingGone.get(sid)
-      if (timer) { clearTimeout(timer); pendingGone.delete(sid) }   // F5 复活 → 取消收尾
       let t = terminals.value.find(x => x.id === sid)
       if (!t && meta?.namespace) {   // opener 错过创建窗口期:按信标元数据重建,不失明
         t = { id: sid, name: meta.name || `${meta.podName || 'pod'}/${meta.container || 'main'}`, namespace: meta.namespace, podName: meta.podName || '', container: meta.container || '', command: 'sh', status: 'external', zIndex: 0, createdAt: Date.now() }
@@ -296,22 +293,16 @@ export const useTerminalStore = defineStore('terminals', () => {
         persistMirror()
         return
       }
-      if (t && t.status === 'minimized') { t.status = 'external'; persistUpdate(sid, { status: 'external' }) }   // 刷新恢复压成的最小化复位
+      if (t && t.status === 'minimized') { t.status = 'external'; persistUpdate(sid, { status: 'external' }) }   // 刷新恢复/丢弃标签重载 → 复位
       return
     }
-    // 墓碑:弹窗标签页没了 → 即刻转最小化(chip 变灰),宽限期后移除(真关了)
+    // 墓碑(2026-09-06 收敛 v2,与 sshTerminals 同款):弹窗标签页生命周期结束(F5/浏览器
+    // 丢弃/真关闭,pagehide 三态不可分)→ 仅降最小化、**保留记录**——discard 也发 pagehide,
+    // 摘记录会把「离开一会」变成「chip 少一个」;丢弃的标签被点开即由存活信标自动复位。
+    // 记录移除唯一入口=显式关闭(closeTerminal);未附着会话由网关空闲回收兜底。
     popupWins.delete(sid)
     const t = terminals.value.find(x => x.id === sid)
     if (t && t.status === 'external') t.status = 'minimized'
-    const prev = pendingGone.get(sid)
-    if (prev) clearTimeout(prev)
-    pendingGone.set(sid, setTimeout(() => {
-      pendingGone.delete(sid)
-      locallyDeleted.add(sid)
-      const idx = terminals.value.findIndex(x => x.id === sid)
-      if (idx !== -1) { terminals.value.splice(idx, 1); persistDelete(sid) }
-      persistMirror()
-    }, GONE_GRACE_MS))
   }
   popupSyncTargets.add(onPopupSignal)
 

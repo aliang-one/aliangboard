@@ -4079,7 +4079,7 @@
     "statusExternal": "Open in new tab",
     "statusMinimized": "Minimized",
     "closeThisTitle": "Close this terminal",
-    "orphanChipTitle": "Untracked live gateway session: {serverId} (owner {user}), click to terminate",
+    "orphanChipTitle": "Untracked live gateway session: {serverId} (owner {user}) — click to re-attach (restores history), × to terminate",
     "orphanKillConfirm": "Terminate this untracked session? Its terminal may still be in use by another tab",
     "sshNewTerminal": "New terminal",
     "podNewTerminal": "New terminal",
