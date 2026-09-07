@@ -10,6 +10,7 @@ import {
   listConversations,
   getConversation,
   updateConversation,
+  buildHistory,
 } from './workbench-projects.mjs'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -216,6 +217,100 @@ test('compactConversation:消息 ≤3 → 拒绝;running/paused → 拒绝', asy
   out = await compactConversation(db, conv.id, llm)
   assert.equal(out.status, 400, 'running 拒绝')
   assert.equal(out.message, 'wbc.compactBusy')
+})
+
+// ── conv-lifecycle-01(2026-09-07 审计 P2,数据丢失类):compact 落库竞态防线 ──
+// await LLM 是秒级窗口,期间 regenerate/edit 截断(水位被钳回/消息大幅回退)或会话状态翻转
+// 都可能发生;按入口陈旧 maxSeq 无条件落库会使 summarizedUpTo 高于现存/未来消息 seq →
+// buildHistory 永久跳过新消息(静默上下文损坏)。契约:落库前重读会话(gone/running/paused
+// → 放弃)+ 水位钳制(不越过现存 maxSeq)+ 条件写(WHERE COALESCE(summarizedUpTo,0)=入口值,
+// changes=0 → 放弃,不覆写并发摘要)。
+
+// 受控挂起配方:chat 同步执行到首个 await 前置 entered=true(与 maybeSummarizeProject 竞态
+// 测试同款),调用方在 release() 前注入窗口内变更。
+function hangLlm(content) {
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  let entered = false
+  const llm = { chat: async () => { entered = true; await gate; return { content } } }
+  return { llm, release: () => release(), get entered() { return entered } }
+}
+
+test('compact 竞态:LLM 窗口内消息被截 → 水位钳到现存 maxSeq,新消息进 buildHistory', async () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'q1' })
+  const convId = db.prepare("SELECT id FROM workbench_conversations LIMIT 1").get().id
+  for (let i = 0; i < 10; i++) {
+    appendMessage(db, { conversationId: convId, role: i % 2 ? 'assistant' : 'user', content: `m${i}` })
+  } // seq 1..10:入口 maxSeq=10,陈旧落库会写 10-2=8
+  db.prepare("UPDATE workbench_conversations SET status='done', recap='旧摘要', summarizedUpTo=1 WHERE id=?").run(convId)
+  const h = hangLlm('窗口后摘要')
+  const task = compactConversation(db, convId, h.llm)
+  assert.ok(h.entered, 'compact 已同步跑到 chat 并挂起(入口 maxSeq 已固化)')
+  // 窗口内 edit 锚 seq=3 截断(删锚及后全部;regenerate 同为尾部删除):现存 maxSeq 回退 10 → 2。
+  // 只动消息表不动水位——隔离验证 compact 自身的钳制防线(路由侧 regenWatermark 钳制是并行的另一道防线)。
+  db.prepare('DELETE FROM workbench_messages WHERE seq >= 3 AND conversationId=?').run(convId)
+  h.release()
+  const out = await task
+  assert.equal(out.ok, true)
+  const conv = getConversation(db, convId)
+  const curMax = db.prepare('SELECT MAX(seq) AS m FROM workbench_messages WHERE conversationId=?').get(convId).m
+  assert.ok((conv.summarizedUpTo ?? 0) <= curMax,
+    `水位不越过现存最大 seq(${conv.summarizedUpTo} > ${curMax}:appendMessage 复用被删 seq,新消息会被永久跳过)`)
+  // 截断后重发的新消息(seq 复用 3)必须进 buildHistory 全文——数据面不丢内容的判据
+  appendMessage(db, { conversationId: convId, role: 'user', content: '截断后新问题' })
+  const history = buildHistory(db, getConversation(db, convId))
+  assert.ok(history.some(m => m.content === '截断后新问题'), '新消息进 buildHistory(未被陈旧水位吞掉)')
+})
+
+test('compact 竞态:LLM 窗口内会话转 running → 放弃落库(recap/水位均不动)', async () => {
+  const { db, conv } = compactFixture()
+  const h = hangLlm('迟到摘要')
+  const task = compactConversation(db, conv.id, h.llm)
+  assert.ok(h.entered)
+  // 窗口内另一标签页 regenerate/resume:置 running(落库会破坏 resume 状态)
+  db.prepare("UPDATE workbench_conversations SET status='running' WHERE id=?").run(conv.id)
+  h.release()
+  const out = await task
+  assert.deepEqual(out, { ok: false, status: 400, message: 'wbc.compactBusy' }, '放弃写,按 busy 报')
+  const after = getConversation(db, conv.id)
+  assert.equal(after.recap, '旧摘要', 'recap 不被迟到摘要覆写')
+  assert.equal(after.summarizedUpTo, 1, '水位不动')
+})
+
+test('compact 竞态:LLM 窗口内并发摘要已推进水位 → 条件写拒绝,不覆写', async () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'q1' })
+  const convId = db.prepare("SELECT id FROM workbench_conversations LIMIT 1").get().id
+  for (let i = 0; i < 12; i++) {
+    appendMessage(db, { conversationId: convId, role: i % 2 ? 'assistant' : 'user', content: `m${i}` })
+  } // seq 1..12:compact 入口 maxSeq=12,陈旧落库会写 10
+  db.prepare("UPDATE workbench_conversations SET status='done', recap='旧摘要', summarizedUpTo=1 WHERE id=?").run(convId)
+  const h = hangLlm('compact 的整体替换')
+  const task = compactConversation(db, convId, h.llm)
+  assert.ok(h.entered)
+  // 窗口内 maybeSummarize 完成:追加式写 recap + 水位推进(1 → 12-8=4)
+  updateConversation(db, convId, { recap: '旧摘要\n\n并发增量摘要', summarizedUpTo: 4 }, { touch: false })
+  h.release()
+  const out = await task
+  assert.equal(out.ok, false, '条件写 changes=0 → 放弃')
+  assert.equal(out.status, 409, '竞态放弃按 Conflict 报')
+  const after = getConversation(db, convId)
+  assert.equal(after.recap, '旧摘要\n\n并发增量摘要', '并发摘要不被 compact 迟到落库覆写回旧口径')
+  assert.equal(after.summarizedUpTo, 4, '水位不被回写')
+})
+
+test('compact 竞态:LLM 窗口内对话被删 → 404,不复活行', async () => {
+  const { db, conv } = compactFixture()
+  const h = hangLlm('幽灵摘要')
+  const task = compactConversation(db, conv.id, h.llm)
+  assert.ok(h.entered)
+  db.prepare('DELETE FROM workbench_messages WHERE conversationId=?').run(conv.id)
+  db.prepare('DELETE FROM workbench_conversations WHERE id=?').run(conv.id)
+  h.release()
+  const out = await task
+  assert.deepEqual(out, { ok: false, status: 404, message: 'wbc.convNotFound' }, '对话已不存在')
+  assert.equal(db.prepare('SELECT COUNT(*) AS c FROM workbench_conversations WHERE id=?').get(conv.id).c, 0, '不复活已删对话')
 })
 
 // ── 项目记忆 T1(spec §3.1/3.2)──

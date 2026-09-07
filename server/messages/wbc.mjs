@@ -21,6 +21,9 @@ export const TABLE = {
   'wbc.compactShort': { zh: '对话太短,无需压缩', en: 'Conversation too short to compact' },
   'wbc.compactBusy': { zh: '对话运行中/待审批,不能压缩', en: 'Conversation running/paused, cannot compact' },
   'wbc.compactFailed': { zh: '摘要失败', en: 'Summarization failed' },
+  // conv-lifecycle-01:compact 的 LLM await 窗口内对话被并发变更(并发摘要/截断推进了水位),
+  // 条件写拒绝、本次未落库——重试即可(前端 compact modal 收非 2xx 保持打开供重试)。
+  'wbc.compactRaced': { zh: '对话在压缩期间发生了变化,本次未落库,请重试', en: 'Conversation changed during compaction; nothing was written. Please retry' },
   'wbc.editContentRequired': { zh: '消息内容不能为空', en: 'Message content required' },
   'wbc.editAnchorInvalid': { zh: '编辑目标无效:须为本对话的 user 消息', en: 'Invalid edit target: must be a user message in this conversation' },
   'wbc.editFailed': { zh: '编辑重发失败', en: 'Edit-resend failed' },

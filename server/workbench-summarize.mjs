@@ -66,6 +66,7 @@ export async function maybeSummarize(
 // 手动 compact(spec §4.4,2026-08-28):全量重摘要(含旧 recap 作为输入)→ 新 recap 整体替换;
 // 保最近 KEEP_RECENT=2 条全文(summarizedUpTo=最大seq-2)。先摘要成功再落库(失败不动 DB)。
 // 门禁:仅终态(done/failed/cancelled;running/paused 会破坏 resume 状态);消息 ≤3 拒绝。
+// 落库竞态防线(conv-lifecycle-01,2026-09-07):重读+钳制+条件写,见 await 后注释。
 const COMPACT_KEEP_RECENT = 2
 const COMPACT_MIN_MESSAGES = 4
 export async function compactConversation(db, convId, llmClient, instruction = '') {
@@ -75,6 +76,7 @@ export async function compactConversation(db, convId, llmClient, instruction = '
   const msgs = listMessages(db, convId)
   if (msgs.length <= COMPACT_MIN_MESSAGES - 1) return { ok: false, status: 400, message: 'wbc.compactShort' }
   const maxSeq = getMaxSeq(db, convId)
+  const entryUpTo = conv.summarizedUpTo ?? 0 // 条件写守卫期望值:await 前定格,落库时校验未被并发推进
   const fold = msgs.filter(m => m.seq <= maxSeq - COMPACT_KEEP_RECENT)
   const transcript = [
     ...(conv.recap ? [`(此前摘要)\n${conv.recap}`] : []),
@@ -90,7 +92,25 @@ export async function compactConversation(db, convId, llmClient, instruction = '
     })
     const recap = out?.content?.trim()
     if (!recap) return { ok: false, status: 502, message: 'wbc.compactFailed' }
-    updateConversation(db, convId, { recap, summarizedUpTo: maxSeq - COMPACT_KEEP_RECENT }, { touch: false })
+    // 落库前竞态防线(conv-lifecycle-01,P2 数据丢失):await LLM 是秒级窗口,期间 regenerate/edit
+    // 截断(消息大幅回退,水位被路由钳回)或状态翻转都可能发生——按入口陈旧 maxSeq 无条件落库
+    // 会使 summarizedUpTo 高于现存/未来消息 seq,buildHistory 把此后 append 的新消息(seq 取现存
+    // 最大+1 会复用被删 seq)永久跳过,LLM 对最新轮次静默失明。三道防线(maybeSummarize dev29 钳制
+    // + maybeSummarizeProject 条件写同款):
+    // ①重读会话:已不存在 → 404;翻转为 running/paused(resume 状态会被落库破坏)→ 放弃;
+    // ②水位钳制:min(入口 maxSeq-KEEP, 现存 maxSeq)——截断使 maxSeq 回退时不越过现存最大;
+    // ③条件写:WHERE COALESCE(summarizedUpTo,0)=入口值——窗口内并发摘要/另一次 compact 已推进
+    //   水位则 changes=0 → 放弃(整体替换式 recap 会把并发增量摘要覆写回旧口径)。
+    // 重读→钳制→落库为零 await 同步块(node:sqlite 同步执行即原子,前提=网关单进程不变式),
+    // 与 resume/regenerate 路由的 TOCTOU 收口同构。
+    const cur = getConversation(db, convId)
+    if (!cur) return { ok: false, status: 404, message: 'wbc.convNotFound' }
+    if (cur.status === 'running' || cur.status === 'paused') return { ok: false, status: 400, message: 'wbc.compactBusy' }
+    const upToFinal = Math.min(maxSeq - COMPACT_KEEP_RECENT, getMaxSeq(db, convId))
+    const res = db.prepare(
+      'UPDATE workbench_conversations SET recap=?, summarizedUpTo=? WHERE id=? AND COALESCE(summarizedUpTo,0)=?'
+    ).run(recap, upToFinal, convId, entryUpTo)
+    if (res.changes === 0) return { ok: false, status: 409, message: 'wbc.compactRaced' }
     return { ok: true, recap }
   } catch (e) {
     console.error('[compact] 摘要失败:', e?.message || e)
