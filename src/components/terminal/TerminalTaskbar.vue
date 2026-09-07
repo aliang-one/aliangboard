@@ -300,7 +300,7 @@ function closeAll() {
 
     <!-- 溢出下拉面板(根部渲染,同款不裁切) -->
     <div v-if="overflowOpen && folded.length" class="absolute bottom-full right-md mb-xs min-w-[220px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ zIndex: Z.modal + 1 }">
-      <button v-for="chip in folded" :key="'ov-' + chip.kind + '-' + chip.id" @click="overflowOpen = false; chip.kind === 'orphan' ? killOrphan(chip) : chip.kind === 'pod' ? onTermClick(termStore.terminals.find(x => x.id === chip.id)) : chip.kind === 'file' ? onFilesClick(fbStore.browsers.find(x => x.id === chip.id)) : onSshChipClick(chip, $event)"
+      <button v-for="chip in folded" :key="'ov-' + chip.kind + '-' + chip.id" @click="overflowOpen = false; chip.kind === 'orphan' ? reattachOrphan(chip) : chip.kind === 'pod' ? onTermClick(termStore.terminals.find(x => x.id === chip.id)) : chip.kind === 'file' ? onFilesClick(fbStore.browsers.find(x => x.id === chip.id)) : onSshChipClick(chip, $event)"
         class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
         <span class="material-symbols-outlined text-sm" :class="chip.kind === 'orphan' ? 'text-error' : chip.kind === 'ssh' ? 'text-secondary' : chip.kind === 'file' ? 'text-tertiary-container' : 'text-primary'">{{ chip.kind === 'orphan' ? 'link_off' : chip.kind === 'ssh' ? 'dns' : chip.kind === 'file' ? 'folder_open' : 'terminal' }}</span>
         <span class="truncate flex-1">{{ chip.name }}<span v-if="chip.count > 1" class="text-on-surface-variant/60 ml-xs">×{{ chip.count }}</span></span>

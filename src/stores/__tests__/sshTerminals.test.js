@@ -272,3 +272,22 @@ test('reattachOrphan:记录缺失时按快照重建并 openExternal;已有记录
     expect(fakeWin.focus).toHaveBeenCalled()
   } finally { window.open = _open }
 })
+
+// 重附撤销旧墓碑(2026-09-07 外评#2):旧版本删除记录时落的墓碑若残留,重附后
+// persist/loadPersisted 会再次滤掉该窗口(内存里在、刷新又消失)——重附必须清墓碑。
+test('reattachOrphan:清除历史墓碑,重附后刷新(loadPersisted)窗口仍在', async () => {
+  fresh()
+  // 模拟旧版残留:sid 已在删除墓碑日志中
+  localStorage.setItem('aliangboard.ssh.removedTombstones', JSON.stringify({ 'ssh-stale': Date.now() }))
+  const fakeWin = { closed: false, focus: vi.fn() }
+  window.open = vi.fn(() => fakeWin)
+  try {
+    const store = useSshTerminalStore()
+    store.reattachOrphan({ id: 'ssh-stale', serverId: 'sv1', name: 'web' })
+    expect(JSON.parse(localStorage.getItem(LS_KEY)).map(r => r.id)).toContain('ssh-stale')   // 墓碑已清,persist 不再滤
+    expect(JSON.parse(localStorage.getItem('aliangboard.ssh.removedTombstones'))).toEqual({})
+    // 刷新模拟:新 store 从 LS 装载,窗口仍在
+    const reloaded = useSshTerminalStore()
+    expect(reloaded.windows.map(w => w.id)).toContain('ssh-stale')
+  } finally { window.open = _open }
+})

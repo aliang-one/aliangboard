@@ -81,6 +81,16 @@ function recordTombstone(id) {
 function isTombstoned(id) {
   return typeof loadTombstones()[id] === 'number'
 }
+// 清除墓碑(2026-09-07 外评#2):孤儿重附须撤销历史墓碑——旧版本删除记录时落的墓碑
+// 会让 persist()/loadPersisted() 把重附的窗口再次过滤掉(内存里在、刷新又消失)。
+function clearTombstone(id) {
+  try {
+    const t = loadTombstones()
+    if (!(id in t)) return
+    delete t[id]
+    localStorage.setItem(TOMB_KEY, JSON.stringify(t))
+  } catch { /* 存储不可用:降级 */ }
+}
 
 function loadPersisted() {
   try {
@@ -195,6 +205,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   // 孤儿会话重附(2026-09-06):网关有会话而本地记录已丢(清过存储/换浏览器/旧版墓碑摘除),
   // 按对账快照重建窗口记录并以弹窗重开——同 sid 重连,网关回放环形缓冲,历史找回。
   function reattachOrphan({ id, serverId, name }) {
+    clearTombstone(id)   // 撤销旧版删除残留的墓碑,否则 persist/装载会再次滤掉重附窗口
     let w = windows.value.find(x => x.id === id)
     if (!w) {
       w = { id, serverId, name: name || serverId, status: 'minimized', zIndex: 0 }
