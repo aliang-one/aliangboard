@@ -662,6 +662,37 @@ export function createAdminRoutes(deps) {
       return true
     }
 
+    // ====== 会话治理(W3 Task 5):全用户会话列表 + 强制下线 ======
+    // GET:JOIN platform_users 补 username/role/disabled(用户行是权威,会话行 role 是登录快照);
+    // userAgent 原样回传(前端 uaSummary 摘要);token 不出端点(管理面只需会话元数据)。
+    if (url.pathname === '/api/admin/sessions' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const size = Math.min(Math.max(Number(url.searchParams.get('size')) || 50, 1), 200)
+      const page = Math.max(Number(url.searchParams.get('page')) || 1, 1)
+      const total = Number(db.prepare('SELECT COUNT(*) AS c FROM platform_sessions').get().c) || 0
+      const items = db.prepare(`
+        SELECT ps.userId AS userId, u.username AS username, u.role AS role, u.disabled AS disabled,
+          ps.mfaPending AS mfaPending, ps.ip AS ip, ps.userAgent AS userAgent,
+          ps.createdAt AS createdAt, ps.lastSeenAt AS lastSeenAt
+        FROM platform_sessions ps LEFT JOIN platform_users u ON u.id = ps.userId
+        ORDER BY COALESCE(ps.lastSeenAt, ps.createdAt) DESC LIMIT ? OFFSET ?`).all(size, (page - 1) * size)
+      sendJson(res, 200, { items, total, page, size })
+      return true
+    }
+    // DELETE /:userId:强制下线 —— revokeUserSessions 级联单点(内存 Map+platform_sessions+
+    // k8s 凭据三处同清),all-sessions 变体无 exceptToken;审计 admin_force_logout。
+    if (url.pathname.startsWith('/api/admin/sessions/') && req.method === 'DELETE') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      const userId = decodeURIComponent(url.pathname.slice('/api/admin/sessions/'.length))
+      if (!db.prepare('SELECT 1 FROM platform_users WHERE id=?').get(userId)) {
+        sendJson(res, 404, { message: msg(req, 'admin.userNotFound') }); return true
+      }
+      const revoked = revokeUserSessions({ db, platformSessions, sessions }, userId)
+      writeAudit?.(db, { owner: ps.username, verb: 'revoke', tool: 'admin_force_logout', result: 'ok', requestSummary: `userId=${userId} revoked=${revoked}`, source: 'platform' })
+      sendJson(res, 200, { ok: true, revoked })
+      return true
+    }
+
     // ====== 用户管理 ======
     if (url.pathname === '/api/admin/users' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true

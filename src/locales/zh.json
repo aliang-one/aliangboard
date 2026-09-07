@@ -3284,6 +3284,14 @@
       "passwordReset": "密码已重置",
       "resetFailed": "重置失败"
     },
+    "sessions": {
+      "forceLogout": "强制下线",
+      "forceLogoutTitle": "强制下线 — {name}",
+      "forceLogoutMessage": "将吊销 {name} 的全部会话（含集群连接凭据），其所有设备需重新登录。",
+      "revoked": "已强制下线 {n} 个会话",
+      "mfaPending": "MFA 待启用",
+      "mfaPendingHint": "该用户存在未完成 MFA 启用的受限会话"
+    },
     "authz": {
       "title": "组与 Namespace 授权",
       "subtitle": "管理用户组与按集群的 namespace 授权",

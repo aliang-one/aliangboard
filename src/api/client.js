@@ -390,6 +390,11 @@ export const adminApi = {
     save: payload => platformHttp.request('/api/admin/grants', { method: 'PUT', body: JSON.stringify(payload) }),
     list: params => platformHttp.request(`/api/admin/grants?${new URLSearchParams(params)}`),
   },
+  // 会话治理(W3 Task 5):全用户会话列表(userAgent 原样,前端 uaSummary 摘要)+ 按用户强制下线
+  sessions: {
+    list: (params = {}) => platformHttp.request(`/api/admin/sessions?${new URLSearchParams(params)}`),
+    forceLogout: userId => platformHttp.request(`/api/admin/sessions/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+  },
   apikeys: {
     list: () => platformHttp.request('/api/admin/apikeys'),
     create: payload => platformHttp.request('/api/admin/apikeys', { method: 'POST', body: JSON.stringify(payload) }),

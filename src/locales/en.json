@@ -3284,6 +3284,14 @@
       "passwordReset": "Password has been reset",
       "resetFailed": "Failed to reset"
     },
+    "sessions": {
+      "forceLogout": "Force logout",
+      "forceLogoutTitle": "Force logout — {name}",
+      "forceLogoutMessage": "Revokes all sessions of {name} (including cluster credentials); all their devices must sign in again.",
+      "revoked": "Forced logout of {n} session(s)",
+      "mfaPending": "MFA pending",
+      "mfaPendingHint": "This user has a restricted session pending MFA enrollment"
+    },
     "authz": {
       "title": "Groups & Namespace Grants",
       "subtitle": "Manage user groups and per-cluster namespace grants",
