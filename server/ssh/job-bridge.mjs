@@ -61,7 +61,6 @@ export function _resetSweepSeenServersForTest() { sweepSeenServers.clear() }
 
 export function createSshJobBridge({ db, pool, projectId, getPolicy = () => resolveJobPolicy(), keyMode = false }) {
   const label = `wb:${projectId}`
-  const memory = new Map() // jobId -> { serverId, projectId, startedAt }
   const resolve = ref => resolveServerRef(
     db.prepare('SELECT id,name,host,port,username,authMethod,exposeToAi,aiApprovalPolicy FROM ssh_servers').all(), ref)
   const refusal = r => r.reason === 'not-found' ? '未找到该服务器,可用清单见系统提示'
@@ -75,6 +74,21 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
   const execJob = async (serverId, cmd) => {
     try { return await execOnce(pool, serverId, label, cmd) }
     catch (e) { return { error: `SSH 连接失败(${e?.errorKind || 'unknown'})`, stdout: '', stderr: '', exitCode: null, timedOut: false } }
+  }
+
+  // W2 审计 P1-7(2026-09-07):跨项目隔离。launch 时 meta 已写 projectId,现经 list 第三列/
+  // readScript 边带(AB_PROJECT)回传——本桥此前只过 exposeToAi 闸,A 项目 AI 可经 jobList 拿
+  // B 项目 jobId 再 jobOut 读其输出。规则:已知属主 ≠ 本桥项目 → list 隐藏 + out/write/kill 拒;
+  // 属主未知(存量 meta 无 projectId / 探测不可达)→ 维持可见与放行(向后兼容,TTL 数小时清空)。
+  // 三座桥互不可见:wb 项目桥(本项目)/ MCP key 桥('__key__')/ sweep 桥('__sweep__')。
+  const FOREIGN_JOB = '任务属于其他项目,跨项目读取/操作被拒绝'
+  // kill/write 无边带可用 → 先跑一次 list 探测(低频操作,一次额外往返可接受)。
+  // 返回:string=已知属主;null=已知存在但属主未知(存量);undefined=列表不可达(不放大不阻断)。
+  async function jobOwner(serverId, jobId) {
+    const lst = await execJob(serverId, listScript())
+    if (lst.error || lst.timedOut) return undefined
+    const row = parseListOutput(lst.stdout.toString('utf8')).find(j => j.jobId === jobId)
+    return row ? row.projectId ?? null : null
   }
 
   async function needsApproval(name, args) {   // 纯(同步 DB 读),agent-runner checkpoint/resume 两处咨询
@@ -120,7 +134,6 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     // 死连接曾被误报成「服务器不支持 setsid/timeout」,误导 AI 去换服务器。
     if (s.timedOut) return { error: '任务启动失败(连接或执行超时,请稍后重试)' }
     if (!/OK/.test(launchOut)) return { error: '任务启动失败(远端不支持 setsid/timeout?异步任务仅支持 Linux 服务器)' }
-    memory.set(jobId, { serverId: r.row.id, projectId, startedAt })
     sweepSeenServers.add(r.row.id)
     // launchScript 输出 = pid 行 + 'OK' 确认行;pid 只接受纯数字行(终审 I2:
     // banner/motd 噪音曾被当 pid 回显给 AI,它会拿去 kill)。
@@ -140,6 +153,8 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     if (s.error) return s
     if (s.timedOut) return { error: '读取超时' }
     const sb = parseSideband(s.stderr)
+    // P1-7:边带回传任务属主——已知他项目 → 拒(读已发生但内容不回;jobId 本就只应来自本桥可见列表)
+    if (sb.projectId && sb.projectId !== projectId) return { error: FOREIGN_JOB }
     // 缺任务判定(终审 C1)只看边带,不看 exec 退出码:readScript 的远端退出码恒为 0(末命令是
     // echo,`wc -c < missing || echo 0` 兜底),旧 guard `s.exitCode !== 0` 恰在本场景为 false ——
     // TTL 清掉的/跨服务器错配的任务返回成功形空结果,AI 会误报「任务已结束无输出」。
@@ -165,6 +180,8 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     const text = String(args?.text ?? '')
     if (!text.length) return { error: 'text 为空' }
     if (text.length > WRITE_TEXT_MAX) return { error: `text 超长(上限 ${WRITE_TEXT_MAX})` }
+    const owner = await jobOwner(r.row.id, jobId) // P1-7:write 无边带,list 探测属主
+    if (owner && owner !== projectId) return { error: FOREIGN_JOB }
     const s = await execJob(r.row.id, stdinWriteScript({ jobId, text }))
     if (s.error) return s
     if (s.exitCode === 3) return { error: '任务 stdin 已关闭(任务已结束或被清理)' }
@@ -177,9 +194,8 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     if (!r.ok) return { error: refusal(r) }
     const s = await execJob(r.row.id, listScript())
     if (s.error) return s
-    const jobs = parseListOutput(s.stdout.toString('utf8')).map(j => ({
-      ...j, projectId: memory.get(j.jobId)?.projectId || undefined,
-    }))
+    const jobs = parseListOutput(s.stdout.toString('utf8'))
+      .filter(j => !j.projectId || j.projectId === projectId) // P1-7:他项目任务不出现在本桥列表
     return { server: r.row.name, jobs }
   }
 
@@ -189,10 +205,11 @@ export function createSshJobBridge({ db, pool, projectId, getPolicy = () => reso
     if (!r.ok) return { error: refusal(r) }
     const jobId = args?.jobId
     if (!validateJobId(jobId)) return { error: 'jobId 非法' }
+    const owner = await jobOwner(r.row.id, jobId) // P1-7:kill 无边带,list 探测属主
+    if (owner && owner !== projectId) return { error: FOREIGN_JOB }
     const s = await execJob(r.row.id, killScript({ jobId }))
     if (s.error) return s
     if (/NOJOB/.test(s.stdout.toString('utf8'))) return { error: '任务不存在(已结束或 pid 文件缺失)' }
-    memory.delete(jobId)
     return { ok: true, server: r.row.name, jobId }
   }
 
