@@ -53,6 +53,14 @@ export function createWorkbenchProjectRoutes(deps) {
     wbAgent, busDispose,
   } = deps
 
+  // W2-0 §2.6:项目域集群门——发起者(项目 owner)须仍被分配该集群;admin 豁免;空 clusterId(未绑定)放行。
+  // 2026-09-07 审计 F4(authz-entitlement-04):从 projects 块上移工厂域——GET /api/workbench/ledger
+  // (全集群 survey 台账,含待审蒸馏稿)原先只有 requirePlatform,补齐同一把门,防各面手写判定漂移。
+  const clusterEntitled = (ps0, cid) => {
+    if (!cid || ps0.role === 'admin') return true
+    return !!db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(ps0.userId, cid)
+  }
+
   // 匹配工作台非对话路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
   async function handle(req, res, url) {
 
@@ -138,11 +146,6 @@ export function createWorkbenchProjectRoutes(deps) {
     if (url.pathname.startsWith('/api/workbench/projects')) {
       const ps = requirePlatform(req, res); if (!ps) return true
       const clusterNameOf = cid => db.prepare('SELECT name FROM clusters WHERE id=?').get(cid)?.name || (cid ? cid.slice(0, 8) : '-')
-      // W2-0 §2.6:项目域集群门——发起者(项目 owner)须仍被分配该集群;admin 豁免;空 clusterId(未绑定)放行
-      const clusterEntitled = (ps0, cid) => {
-        if (!cid || ps0.role === 'admin') return true
-        return !!db.prepare('SELECT 1 FROM user_clusters WHERE userId=? AND clusterId=?').get(ps0.userId, cid)
-      }
       // 解析:/api/workbench/projects[/<id>[/files/<path>|/commit]]
       const seg = url.pathname.slice('/api/workbench/projects'.length).split('/').filter(Boolean)
       const id = seg[0]
@@ -370,6 +373,9 @@ export function createWorkbenchProjectRoutes(deps) {
       const ps = requirePlatform(req, res); if (!ps) return true
       const clusterId = url.searchParams.get('clusterId')
       if (!clusterId) { sendJson(res, 400, { message: msg(req, 'wbp.clusterIdRequired') }); return true }
+      // 2026-09-07 审计 F4:全集群 survey 台账(含待审蒸馏稿 pending)不得对无授权平台用户
+      // 开放——与兄弟端点(POST 创建/PUT cluster/commit/reconcile)同一把 clusterEntitled 门。
+      if (!clusterEntitled(ps, clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
       const repo = join(WORKBENCH_DIR, clusterId, 'cluster-context')
       let files = [], index = null, learnings = null
       if (await hasRepo(repo)) {
