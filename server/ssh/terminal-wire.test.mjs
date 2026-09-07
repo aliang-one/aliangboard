@@ -1,6 +1,8 @@
-// 终端 WS 接线契约(connIds 模型,2026-09-05 方案 P1 Task6):
-// sockets 真值在 TerminalService(terminal.connIds: Map<connId,{socket}>),wire 负责
-// 回放/上行分帧/primary 登记/drop→onDetach;broadcast 按 connIds 扇出。
+// 终端 WS 接线契约(connIds 模型,2026-09-05 方案 P1 Task6;2026-09-07 所有权收敛):
+// sockets 真值在 TerminalService(terminal.connIds: Map<connId,{socket}>)且**唯一写入者**
+// 是 service(service.attach 的 doAttach 登记 / service.detach 摘除+primary 顺延+转 DETACHED);
+// wire 只做回放/上行分帧/drop→onDetach 回调,不写 connIds/primary。测试用 attach() 模拟
+// service.attach 的登记步骤(doAttach 同款)。broadcast 按 connIds 扇出。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { attachSocketToSession, broadcastToSockets, markAlive, attachWsLiveness, createCloseSentinel, teardownOnOwnerGone } from './terminal-wire.mjs'
@@ -29,12 +31,20 @@ function fakeSession({ channel } = {}) {
 
 const decode = buf => ({ type: buf[0], text: buf.subarray(1).toString('utf8') })
 
+// 模拟 service.attach 的 doAttach(登记+primary 置位)——生产接线在 handler 里先于
+// attachSocketToSession 调用 service.attach;所有权收敛后 wire 不再做这份登记。
+function attach(session, ws, connId = ws) {
+  session.connIds.set(connId, { socket: ws, attachedAt: 0 })
+  session.primary = ws
+}
+
 test('直播帧广播到所有附加 ws(含重连者):重连者先收 ring 快照再进直播', () => {
   const sent = []
   const send = (ws, type, payload) => sent.push([ws, type, payload])
   const session = fakeSession({ channel: { write() {}, setWindow() {} } })
 
   const ws1 = fakeWs()
+  attach(session, ws1)
   attachSocketToSession(ws1, session, { send })
   assert.equal(sent.length, 0)   // 首连 ring 空 → 无回放
 
@@ -44,6 +54,7 @@ test('直播帧广播到所有附加 ws(含重连者):重连者先收 ring 快�
   assert.equal(sent[0][0], ws1)
 
   const ws2 = fakeWs()
+  attach(session, ws2)
   attachSocketToSession(ws2, session, { send })
   const frames2 = sent.filter(([, t]) => t === REPLAY)
   assert.equal(frames2.length, 1)
@@ -57,18 +68,18 @@ test('直播帧广播到所有附加 ws(含重连者):重连者先收 ring 快�
   assert.equal(live[2][2].toString('utf8'), 'world')
 })
 
-test('drop:connIds 摘除 + onDetach 一次(幂等);断开的 ws 不再收广播', () => {
+test('drop:onDetach 一次(幂等)且 wire 不直写 connIds/primary(清理归 service.detach)', () => {
   let detached = 0
   const send = () => {}
   const session = fakeSession()
   const ws = fakeWs()
-  attachSocketToSession(ws, session, { send, connId: 'c1', onDetach: () => { detached++ } })
+  attach(session, ws)   // service.attach 语义登记
+  attachSocketToSession(ws, session, { send, connId: ws, onDetach: () => { detached++ } })
   ws.emit('close')
   assert.equal(detached, 1)
-  assert.equal(session.connIds.size, 0)
-  let hit = 0
-  broadcastToSockets(session, () => { hit++ }, STDOUT, 'x')
-  assert.equal(hit, 0)
+  // 所有权:wire 不摘键不顺延——connIds/primary 原样(生产里由 onDetach→service.detach 清理)
+  assert.equal(session.connIds.size, 1)
+  assert.equal(session.primary, ws)
 })
 
 test('STDIN 写 channel 且 touch;RESIZE 仅 primary 生效并 touch', () => {
@@ -76,8 +87,8 @@ test('STDIN 写 channel 且 touch;RESIZE 仅 primary 生效并 touch', () => {
   const touches = { n: 0 }
   const session = fakeSession({ channel: { write: p => writes.push(p), setWindow: (r, c) => windows.push([r, c]) } })
   const ws = fakeWs()
+  attach(session, ws, 'c1')   // 单附着:登记+primary=自己(service.attach 语义)
   attachSocketToSession(ws, session, { send: () => {}, touch: () => { touches.n++ }, connId: 'c1' })
-  session.primary = ws   // 单附着:primary=自己(service.attach 语义)
 
   ws.emit('message', Buffer.concat([Buffer.from([STDOUT]), Buffer.from('ls\n')]))
   assert.deepEqual(writes.map(b => b.toString('utf8')), ['ls\n'])
@@ -93,11 +104,13 @@ test('error+close 连锁只 onDetach 一次(幂等):多附着计数不被双减'
   const send = () => {}
   const session = fakeSession()
   const ws = fakeWs()
-  attachSocketToSession(ws, session, { send, onDetach: () => { detached++ } })
+  attach(session, ws)
+  // onDetach 内做 service.detach 同款清理(演示职责归属:清理由回调方执行)
+  attachSocketToSession(ws, session, { send, onDetach: () => { detached++; session.connIds.delete(ws); session.primary = null } })
   ws.emit('error', new Error('boom'))
   ws.emit('close')
   assert.equal(detached, 1, 'error+close 连锁只算一次离开')
-  assert.equal(session.connIds.size, 0)
+  assert.equal(session.connIds.size, 0)   // 由 onDetach 清理,非 wire 直写
 })
 
 test('空帧忽略;replay 缺省仅在有内容时发', () => {
@@ -115,9 +128,11 @@ test('resize 仲裁:仅 primary(最新附着者)的 RESIZE 落 channel;STDIN 不
   const session = fakeSession({ channel: { write: p => writes.push(p), setWindow: (r, c) => windows.push([r, c]) } })
   const send = () => {}
   const ws1 = fakeWs(), ws2 = fakeWs()
+  attach(session, ws1)                         // service.attach 语义登记
   attachSocketToSession(ws1, session, { send })
+  attach(session, ws2)
   attachSocketToSession(ws2, session, { send })
-  session.primary = ws2                        // service.attach 语义:最新附着者
+  // attach() 已置 primary=ws2(最新附着者)
   const resize = (ws, cols, rows) => ws.emit('message', Buffer.concat([Buffer.from([RESIZE]), Buffer.from(JSON.stringify({ cols, rows }))]))
   resize(ws1, 200, 60)
   assert.deepEqual(windows, [])
@@ -132,11 +147,12 @@ test('resize 仲裁:primary 断开顺延由 service.detach 完成;wire drop 仅�
   const session = fakeSession({ channel: { write() {}, setWindow: (r, c) => windows.push([r, c]) } })
   const send = () => {}
   const ws1 = fakeWs(), ws2 = fakeWs()
+  attach(session, ws1)
   attachSocketToSession(ws1, session, { send })
+  attach(session, ws2)
   attachSocketToSession(ws2, session, { send })
-  session.primary = ws2
   ws2.emit('close')                            // wire:仅 onDetach;primary 顺延=service.detach 职责
-  session.primary = ws1                        // 模拟 service 顺延后的真值
+  session.primary = ws1                        // 模拟 service.detach 顺延后的真值
   ws1.emit('message', Buffer.concat([Buffer.from([RESIZE]), Buffer.from(JSON.stringify({ cols: 150, rows: 50 }))]))
   assert.deepEqual(windows, [[50, 150]])
 })

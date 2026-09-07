@@ -1,6 +1,9 @@
 // 终端 WS 接线辅助(自 index.mjs 抽出,使广播语义可脱离真 shell 单测):
-//  - attachSocketToSession: 回放快照 → 注册进 service.connIds → 上行分帧(STDIN 写 channel / RESIZE setWindow+touch)
+//  - attachSocketToSession: 回放快照 → 上行分帧(STDIN 写 channel / RESIZE setWindow+touch)→ drop 回调 onDetach
 //  - broadcastToSockets: channel data/close 事件广播到该会话当前附加的所有浏览器 socket
+// 所有权收敛(2026-09-07):connIds/primary 的登记与摘除唯一写入者是 TerminalService
+// (service.attach 的 doAttach / service.detach)——此前 wire 直写两处,close 事件丢失时
+// 状态机漏迁移的「双写根因」即此(sweep 状态修复是兜底,这里是收口)。wire 只读迭代 connIds。
 // 约定:session.connIds 为 Map<connId,{socket}>(TerminalService 持有);session.ring 为环形缓冲
 //       (snapshot() → Buffer);session.primary 为尺寸仲裁者(2026-09-04):多浏览器窗口尺寸不齐时,
 //       共享 pty 只听最新附着者的(语义对齐 tmux latest)——否则「最后 resize 的人赢」,TUI 被反复压扁。
@@ -17,9 +20,7 @@ export function attachSocketToSession(ws, session, { connId = ws, send, touch = 
   types = { stdin: 1, resize: 2, replay: 6 } } = {}) {
   const snap = session.ring.snapshot()
   if (snap.length) send(ws, types.replay, snap)
-  // 登记进 service 的 attachments 结构(幂等:service.attach 已登记则原样覆盖同键)
-  session.connIds.set(connId, { socket: ws, attachedAt: Date.now() })
-  session.primary = ws       // 最新附着者成为尺寸仲裁者;离开时由 service/drop 顺延
+  // 登记(primary 置位)由调用链上游的 service.attach(doAttach)完成;wire 不写 connIds/primary。
 
   // 上行帧:首字节 = 流标识,payload 为其余字节
   ws.on('message', data => {
@@ -42,12 +43,12 @@ export function attachSocketToSession(ws, session, { connId = ws, send, touch = 
 
   // drop 幂等守卫:ws 库异常断开时 'error' 后必随 'close',不设防会对同一 socket 调两次
   // onDetach → browserCount 双减,多浏览器会话被提前打到 0 → idle 清道夫误杀活会话。
+  // connIds/primary 的清理在 onDetach(=service.detach:摘键+primary 顺延+空则转 DETACHED)
+  // 内完成,wire 不再直写。
   let dropped = false
   const drop = () => {
     if (dropped) return
     dropped = true
-    if (session.primary === ws) session.primary = [...session.connIds.values()].map(a => a.socket)[0] || null
-    session.connIds.delete(connId)
     onDetach()
   }
   ws.on('close', drop)
