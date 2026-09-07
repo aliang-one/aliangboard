@@ -30,7 +30,7 @@ function signIdToken(claims) {
 
 // === stub IdP:discovery(issuer 指向自身)/jwks(真钥)/token(返回测试注入的自签 id_token) ===
 async function startStubIdP() {
-  const state = { idToken: null, tokenStatus: 200, calls: [] }
+  const state = { idToken: null, tokenStatus: 200, jwksStatus: 200, calls: [] }
   let base = ''
   const server = createServer((req, res) => {
     const u = new URL(req.url, 'http://idp.local')
@@ -40,6 +40,7 @@ async function startStubIdP() {
       return
     }
     if (u.pathname === '/jwks') {
+      if (state.jwksStatus !== 200) { res.writeHead(state.jwksStatus); res.end('boom'); return }
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ keys: [rsaJwk] }))
       return
@@ -285,14 +286,14 @@ test('callback:坏 state/过期 state/state 单次 → 302 oidcError=state', asy
     oidcStates.get(state).exp = Date.now() - 1
     res = await callGet(ctx.routes, `/api/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`)
     assert.equal(res.location, '/login?oidcError=state')
-    // 单次:正常走一遍后,同一 state 重放 → state
+    // 单次:正常走一遍后,同一 state 重放 → state(重放从别 IP 发——省 oidcl 预算,state 不绑 IP 判定不变)
     const login2 = await callGet(ctx.routes, '/api/auth/oidc/login')
     const loc2 = new URL(login2.location)
     primeToken(idp, idp.base, { nonce: loc2.searchParams.get('nonce') })
     const cbUrl = `/api/auth/oidc/callback?state=${encodeURIComponent(loc2.searchParams.get('state'))}&code=good`
     res = await callGet(ctx.routes, cbUrl)
     assert.match(res.location, /^\/login\?oidcCode=/)
-    res = await callGet(ctx.routes, cbUrl)
+    res = await callGet(ctx.routes, cbUrl, { ip: '7.7.7.7' })
     assert.equal(res.location, '/login?oidcError=state')
   } finally { await stopStubIdP(idp) }
 })
@@ -396,13 +397,110 @@ test('callback:disabled 用户(upsert 后)→ 302 disabled,不发兑换码', asy
   } finally { await stopStubIdP(idp) }
 })
 
+// ============ 审 1/审 2(review round 1)============
+
+test('kill-switch 尾巴:login 签发后关开关 → callback 302 disabled(state 即行作废)', async () => {
+  const idp = await startStubIdP()
+  try {
+    const db = makeDb()
+    const ctx = makeRoutes(db)
+    ctx.enableOidc(idp.base)
+    const login = await callGet(ctx.routes, '/api/auth/oidc/login')
+    const state = new URL(login.location).searchParams.get('state')
+    ctx.setSetting('oidc.enabled', '0') // 管理员 break-glass:关开关
+    const res = await callGet(ctx.routes, `/api/auth/oidc/callback?state=${encodeURIComponent(state)}&code=c`)
+    assert.equal(res.status, 302)
+    assert.equal(res.location, '/login?oidcError=disabled')
+    assert.equal(oidcStates.has(state), false, 'disabled 分支同样作废 state(单次)')
+    assert.equal(idp.state.calls.length, 0, '开关已关不得再触 IdP 兑换')
+    const denied = db.prepare("SELECT reason FROM audit_log WHERE tool='oidc_login' AND result='denied'").all()
+    assert.ok(denied.some((r) => r.reason === 'disabled'))
+  } finally { await stopStubIdP(idp) }
+})
+
+test('kill-switch 尾巴:兑换码签发后关开关 → exchange 401(同错码文案,不泄漏码存在性;码即行作废)', async () => {
+  const idp = await startStubIdP()
+  try {
+    const db = makeDb()
+    const ctx = makeRoutes(db)
+    ctx.enableOidc(idp.base)
+    const code = await fullFlowToCode(ctx, idp)
+    ctx.setSetting('oidc.enabled', '0')
+    await callPost(ctx.routes, '/api/auth/oidc/exchange', { code })
+    const out = ctx.sent.at(-1)
+    assert.equal(out.status, 401)
+    assert.equal(out.payload.message, '登录兑换码无效或已过期,请重新登录', '与错码同文案(zh 基准)')
+    assert.equal(oidcCodes.has(code), false, '呈现即消费(单次语义)')
+    assert.equal(db.prepare("SELECT COUNT(*) c FROM platform_sessions WHERE username='alice'").get().c, 0, '不得落会话')
+  } finally { await stopStubIdP(idp) }
+})
+
+test('匿名 GET 限流(oidcl|ip,容量 5):login 第 6 发 302 ratelimited;callback 同键同桶;每发 429 一行 denied/ratelimited 审计', async () => {
+  const idp = await startStubIdP()
+  try {
+    const db = makeDb()
+    const ctx = makeRoutes(db)
+    ctx.enableOidc(idp.base)
+    for (let i = 0; i < 5; i++) {
+      const r = await callGet(ctx.routes, '/api/auth/oidc/login')
+      assert.equal(r.status, 302)
+      assert.match(r.location, /^http:\/\/127\.0\.0\.1:\d+\/authorize\?/, `第 ${i + 1} 发预算内正常签发`)
+    }
+    assert.equal(oidcStates.size, 5)
+    let r = await callGet(ctx.routes, '/api/auth/oidc/login')
+    assert.equal(r.status, 302)
+    assert.equal(r.location, '/login?oidcError=ratelimited')
+    assert.equal(oidcStates.size, 5, '限流分支不得再签 state')
+    // callback 同键同桶:预算已空,任意 callback 直接限流(且不触 state 消费/审计 Map 写)
+    r = await callGet(ctx.routes, '/api/auth/oidc/callback?state=x&code=y')
+    assert.equal(r.location, '/login?oidcError=ratelimited')
+    const rl = db.prepare("SELECT COUNT(*) c FROM audit_log WHERE tool='oidc_login' AND result='denied' AND reason='ratelimited'").get().c
+    assert.equal(rl, 2, '两发 429 各留一行 denied/ratelimited 审计')
+  } finally { await stopStubIdP(idp) }
+})
+
+test('oidcStates 廉价上界:超 1000 条时签发顺手清过期项(防匿名堆积)', async () => {
+  const idp = await startStubIdP()
+  try {
+    const db = makeDb()
+    const ctx = makeRoutes(db)
+    ctx.enableOidc(idp.base)
+    for (let i = 0; i < 1001; i++) oidcStates.set(`dead-${i}`, { nonce: 'n', verifier: 'v', redirectUri: 'r', exp: Date.now() - 1 })
+    await callGet(ctx.routes, '/api/auth/oidc/login')
+    assert.equal(oidcStates.size, 1, '过期项全清,只留本次签发(1 条)')
+  } finally { await stopStubIdP(idp) }
+})
+
+test('callback:jwks 端点 500(上游密钥面不可用)→ 302 token(≠ verify);login discovery 失败 → 302 token + denied 审计', async () => {
+  const idp = await startStubIdP()
+  try {
+    const db = makeDb()
+    const ctx = makeRoutes(db)
+    ctx.enableOidc(idp.base)
+    // jwks 500:兑换成功后验签阶段拉 jwks 失败 → 上游面归 token(审 3:JWKS 停摆不是验签失败)
+    const login = await callGet(ctx.routes, '/api/auth/oidc/login')
+    const loc = new URL(login.location)
+    primeToken(idp, idp.base, { nonce: loc.searchParams.get('nonce') })
+    idp.state.jwksStatus = 500
+    let res = await callGet(ctx.routes, `/api/auth/oidc/callback?state=${encodeURIComponent(loc.searchParams.get('state'))}&code=c`)
+    assert.equal(res.location, '/login?oidcError=token', 'jwks 网络面失败映射 token')
+    // login discovery 失败(issuer 不可达)→ 302 token + denied 审计(审 4:此前静默 302 无留痕)
+    ctx.setSetting('oidc.issuer', 'http://127.0.0.1:1')
+    _clearOidcCacheForTest()
+    res = await callGet(ctx.routes, '/api/auth/oidc/login', { ip: '5.5.5.5' })
+    assert.equal(res.location, '/login?oidcError=token')
+    const rows = db.prepare("SELECT reason, requestSummary FROM audit_log WHERE tool='oidc_login' AND result='denied' ORDER BY rowid").all()
+    assert.ok(rows.some((r) => r.reason === 'token' && /error=discovery/.test(r.requestSummary || '')), 'discovery 失败留 denied/token 审计行(login 端点专属 requestSummary)')
+  } finally { await stopStubIdP(idp) }
+})
+
 // ============ exchange 负矩阵 ============
 
-async function fullFlowToCode(ctx, idp) {
-  const login = await callGet(ctx.routes, '/api/auth/oidc/login')
+async function fullFlowToCode(ctx, idp, ip = IP) {
+  const login = await callGet(ctx.routes, '/api/auth/oidc/login', { ip })
   const loc = new URL(login.location)
   primeToken(idp, idp.base, { nonce: loc.searchParams.get('nonce') })
-  const cb = await callGet(ctx.routes, `/api/auth/oidc/callback?state=${encodeURIComponent(loc.searchParams.get('state'))}&code=c`)
+  const cb = await callGet(ctx.routes, `/api/auth/oidc/callback?state=${encodeURIComponent(loc.searchParams.get('state'))}&code=c`, { ip })
   return cb.location.split('=')[1]
 }
 
@@ -415,7 +513,7 @@ test('exchange:错码 401;重放拒(单次);过期拒;错 IP 拒;缺 code 400', 
     // 错码
     await callPost(ctx.routes, '/api/auth/oidc/exchange', { code: 'nope' })
     assert.equal(ctx.sent.at(-1).status, 401)
-    // 真码:首次 200
+    // 真码:首次 200(每个流程独立 IP——GET login/callback 已吃 oidcl|ip 5 预算,三流程同 IP 会触限流)
     const code = await fullFlowToCode(ctx, idp)
     await callPost(ctx.routes, '/api/auth/oidc/exchange', { code })
     assert.equal(ctx.sent.at(-1).status, 200)
@@ -423,12 +521,12 @@ test('exchange:错码 401;重放拒(单次);过期拒;错 IP 拒;缺 code 400', 
     await callPost(ctx.routes, '/api/auth/oidc/exchange', { code })
     assert.equal(ctx.sent.at(-1).status, 401, '兑换码单次,重放必拒')
     // 过期(新码,改 exp 后兑换)
-    const code2 = await fullFlowToCode(ctx, idp)
+    const code2 = await fullFlowToCode(ctx, idp, '7.7.7.7')
     oidcCodes.get(code2).exp = Date.now() - 1
-    await callPost(ctx.routes, '/api/auth/oidc/exchange', { code: code2 })
+    await callPost(ctx.routes, '/api/auth/oidc/exchange', { code: code2 }, { ip: '7.7.7.7' })
     assert.equal(ctx.sent.at(-1).status, 401)
-    // 错 IP(码绑 IP:回调在 9.9.9.9,兑换自称 8.8.8.8)
-    const code3 = await fullFlowToCode(ctx, idp)
+    // 错 IP(码绑 IP:回调在 6.6.6.6,兑换自称 8.8.8.8)
+    const code3 = await fullFlowToCode(ctx, idp, '6.6.6.6')
     await callPost(ctx.routes, '/api/auth/oidc/exchange', { code: code3 }, { ip: '8.8.8.8' })
     assert.equal(ctx.sent.at(-1).status, 401, '兑换码换 IP 即失效(防 referrer 泄漏重放)')
     // 缺 code

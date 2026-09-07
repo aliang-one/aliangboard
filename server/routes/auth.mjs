@@ -223,8 +223,17 @@ export function createAuthRoutes(deps) {
     // (前端按钮恒显示,零配置探测);启用则 discovery→签 state/nonce/PKCE→302 授权 URL。
     if (url.pathname === '/api/auth/oidc/login' && req.method === 'GET') {
       try {
+        // W4-B 审 2:匿名 GET 先限流(键 `oidcl|<ip>`,容量 5)——先于任何审计写入/Map 插入
+        // (否则匿名扫描可无界刷 denied 审计行 + 堆 oidcStates)。
+        const ip = req.socket?.remoteAddress || 'unknown'
+        const rl = checkLoginRate(`oidcl|${ip}`)
+        if (!rl.allowed) {
+          writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'ratelimited', requestSummary: `ip=${ip}`, source: 'platform' })
+          res.writeHead(302, { location: '/login?oidcError=ratelimited' }); res.end()
+          return true
+        }
         if (!oidcProvider?.isEnabled()) {
-          writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'disabled', requestSummary: `ip=${req.socket?.remoteAddress || 'unknown'}`, source: 'platform' })
+          writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'disabled', requestSummary: `ip=${ip}`, source: 'platform' })
           res.writeHead(302, { location: '/login?oidcError=disabled' }); res.end()
           return true
         }
@@ -237,25 +246,48 @@ export function createAuthRoutes(deps) {
         const codeChallenge = createHash('sha256').update(verifier).digest('base64url')
         const redirectUri = deriveOidcRedirectUri(req)
         oidcStates.set(state, { nonce, verifier, redirectUri, exp: Date.now() + OIDC_STATE_TTL_MS })
+        // W4-B 审 2:廉价上界——签发时 Map 超 1000 条顺手清过期项(正常流量远达不到;防匿名堆积)
+        if (oidcStates.size > 1000) {
+          const nowMs = Date.now()
+          for (const [k, v] of oidcStates) if (v.exp < nowMs) oidcStates.delete(k)
+        }
         res.writeHead(302, { location: oidcProvider.buildAuthUrl({ doc, clientId: cfg.clientId, redirectUri, state, nonce, codeChallenge, scopes: cfg.scopes }) })
         res.end()
         return true
       } catch (e) {
+        // W4-B 审 4:discovery 失败不再静默 302——留 denied/token 审计行(排障面)
+        writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'token', requestSummary: `error=${e?.message || 'unknown'}`, source: 'platform' })
         res.writeHead(302, { location: '/login?oidcError=token' }); res.end()
         return true
       }
     }
 
-    // GET /api/auth/oidc/callback — IdP 回跳。顺序:IdP error 参数(用户在 IdP 侧拒绝)先于一切 → denied;
-    // state 消费(读即删,过期/未知/缺 code → state)→ PKCE 兑换(网络/端点面失败 → token)→ id_token 全验
-    // (nonce 显式传入;验签/claims 面 → verify)→ JIT 建户(usernameTaken 拒接管;建库面异常 → jit)→
-    // disabled 拒(W4-A 裁决 1)→ 组同步 → 签 60s 单次兑换码 → 302 /login?oidcCode=<code>。
+    // GET /api/auth/oidc/callback — IdP 回跳。顺序:匿名限流(oidcl|ip)→ kill-switch(开关已关 → disabled,
+    // state 作废)→ IdP error 参数(用户在 IdP 侧拒绝)→ denied → state 消费(读即删,过期/未知/缺 code →
+    // state)→ PKCE 兑换(网络/端点面失败 → token)→ id_token 全验(nonce 显式传入;验签/claims 面 →
+    // verify)→ JIT 建户(usernameTaken 拒接管;建库面异常 → jit)→ disabled 拒(W4-A 裁决 1)→ 组同步 →
+    // 签 60s 单次兑换码 → 302 /login?oidcCode=<code>。
     if (url.pathname === '/api/auth/oidc/callback' && req.method === 'GET') {
       try {
         const ip = req.socket?.remoteAddress || 'unknown'
         const q = url.searchParams
         const auditOidc = (result, reason = null, summary = `ip=${ip}`, owner = null) =>
           writeAudit?.(db, { owner, verb: 'login', tool: 'oidc_login', result, reason, requestSummary: summary, source: 'platform' })
+        // W4-B 审 2:匿名 GET 先限流(键 `oidcl|<ip>`,与 login 同键同桶)——先于任何审计副作用/Map 触碰
+        const rl = checkLoginRate(`oidcl|${ip}`)
+        if (!rl.allowed) {
+          auditOidc('denied', 'ratelimited')
+          res.writeHead(302, { location: '/login?oidcError=ratelimited' }); res.end()
+          return true
+        }
+        // W4-B 审 1(kill-switch 尾巴):起跳后开关被关 → 在途回调即刻止血(不再触 IdP 兑换);state 即行作废
+        if (!oidcProvider?.isEnabled()) {
+          const ksState = q.get('state')
+          if (ksState) oidcStates.delete(ksState)
+          auditOidc('denied', 'disabled')
+          res.writeHead(302, { location: '/login?oidcError=disabled' }); res.end()
+          return true
+        }
         // IdP 侧拒绝(用户取消授权等):不进兑换流程;state 若带回即行作废(单次语义)
         const idpError = q.get('error')
         if (idpError) {
@@ -273,12 +305,7 @@ export function createAuthRoutes(deps) {
           res.writeHead(302, { location: '/login?oidcError=state' }); res.end()
           return true
         }
-        const cfg = oidcProvider?.getFullConfig()
-        if (!cfg) { // 起跳后配置被清(异常窗口)——视同未启用
-          auditOidc('denied', 'disabled')
-          res.writeHead(302, { location: '/login?oidcError=disabled' }); res.end()
-          return true
-        }
+        const cfg = oidcProvider.getFullConfig()
         let claims
         try {
           const doc = await oidcProvider.discovery(cfg.issuer)
@@ -286,8 +313,9 @@ export function createAuthRoutes(deps) {
           // W4-A 前瞻裁决 2:nonce 恒显式传入——undefined 会让 verifyIdToken 跳过 nonce 校验(重放洞)
           ;({ claims } = await oidcProvider.verifyCallbackIdToken(idToken, cfg.issuer, cfg.clientId, st.nonce))
         } catch (e) {
-          // 错误码映射:discovery/exchange 面 → token;id_token 验签/claims 面(jwt-verify 各码)→ verify
-          const rc = e?.message === 'token' || e?.message === 'discovery' ? 'token' : 'verify'
+          // 错误码映射:discovery/exchange/jwks 面(上游网络与端点不可用,W4-B 审 3:jwks 停摆≠验签失败)
+          // → token;id_token 验签/claims 面(jwt-verify 各码)→ verify
+          const rc = e?.message === 'token' || e?.message === 'discovery' || e?.message === 'jwks' ? 'token' : 'verify'
           auditOidc('denied', rc)
           res.writeHead(302, { location: `/login?oidcError=${rc}` }); res.end()
           return true
@@ -341,7 +369,8 @@ export function createAuthRoutes(deps) {
     }
 
     // POST /api/auth/oidc/exchange {code} — 兑换码换平台会话。独立限流键 `oidcx|<ip>`(容量 5/10s 回 1,
-    // 复用 checkLoginRate 桶但键空间隔离);码读即删=单次(重放 401)、绑 IP(经 Referrer 泄漏到他处失效)。
+    // 复用 checkLoginRate 桶但键空间隔离);kill-switch 已关 → 401 同错码文案(W4-B 审 1);码读即删=单次
+    // (重放 401)、绑 IP(经 Referrer 泄漏到他处失效)。
     if (url.pathname === '/api/auth/oidc/exchange' && req.method === 'POST') {
       try {
         const { code } = await readBody(req)
@@ -351,6 +380,14 @@ export function createAuthRoutes(deps) {
         if (!rl.allowed) {
           writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'ratelimited', reason: 'too-many-attempts', requestSummary: `ip=${ip}`, source: 'platform' })
           sendJson(res, 429, { message: msg(req, 'auth.rateLimited'), retryAfter: rl.retryAfter })
+          return true
+        }
+        // W4-B 审 1(kill-switch 尾巴):兑换前开关已关 → 401 与错码同文案(不泄漏码存在性);
+        // 码呈现即消费(单次语义),重开开关也救不回已呈现过的码。
+        if (!oidcProvider?.isEnabled()) {
+          oidcCodes.delete(String(code))
+          writeAudit?.(db, { owner: null, verb: 'login', tool: 'oidc_login', result: 'denied', reason: 'disabled', requestSummary: 'via=exchange kill-switch', source: 'platform' })
+          sendJson(res, 401, { message: msg(req, 'auth.oidcCodeInvalid') })
           return true
         }
         const entry = typeof code === 'string' ? oidcCodes.get(code) : null
