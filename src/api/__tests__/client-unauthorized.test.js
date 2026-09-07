@@ -76,3 +76,47 @@ describe('平台层 401 语义(不变,回归锁定)', () => {
     expect(window.location.pathname).toBe('/login')
   })
 })
+
+// W3 §1.5 外评修复 2:admin 强制 MFA 开关下的受限 token——平台接口 403 {code:'MFA_ENROLLMENT_REQUIRED'}。
+// 语义:不清凭据(受限 token 仍有效),整页跳个人中心安全 tab 引导启用;已在 /profile 不跳
+// (安全页自身非白名单请求如会话列表同样 403,反复跳=刷新死循环);普通 403(无 code)留在原页。
+describe('平台层 403 MFA 受限语义', () => {
+  let fetchMock
+  function res403(payload) {
+    const text = JSON.stringify(payload)
+    return { ok: false, status: 403, text: async () => text }
+  }
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    global.fetch = fetchMock
+    localStorage.clear(); sessionStorage.clear()
+  })
+  afterEach(() => { delete global.fetch })
+
+  it('受限 403 → 跳 /profile?tab=security;平台凭据保留', async () => {
+    savePlatformToken('restricted-token')
+    window.location.href = 'http://localhost/workbench'
+    fetchMock.mockResolvedValue(res403({ message: '管理员已要求启用两步验证', code: 'MFA_ENROLLMENT_REQUIRED' }))
+    await expect(authApi.myClusters()).rejects.toMatchObject({ status: 403 })
+    expect(window.location.pathname).toBe('/profile')
+    expect(window.location.search).toContain('tab=security')
+    expect(localStorage.getItem('aliangboard.platform')).toBe('restricted-token')
+  })
+
+  it('已在 /profile 时不重复整页跳转(防刷新循环)', async () => {
+    savePlatformToken('restricted-token')
+    window.location.href = 'http://localhost/profile?tab=security'
+    fetchMock.mockResolvedValue(res403({ message: '管理员已要求启用两步验证', code: 'MFA_ENROLLMENT_REQUIRED' }))
+    await expect(authApi.listSessions()).rejects.toMatchObject({ status: 403 })
+    expect(window.location.pathname).toBe('/profile')
+    expect(window.location.search).toBe('?tab=security')
+  })
+
+  it('普通 403(无 code)= 权限不足:留在原页不动', async () => {
+    savePlatformToken('tok')
+    window.location.href = 'http://localhost/admin/users'
+    fetchMock.mockResolvedValue(res403({ message: 'admin required' }))
+    await expect(authApi.myClusters()).rejects.toMatchObject({ status: 403 })
+    expect(window.location.pathname).toBe('/admin/users')
+  })
+})

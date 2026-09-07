@@ -4,6 +4,8 @@
 // 设计：依赖注入。createHttp 不触碰 storage/location，由调用方注入
 //   - resolveAuth(): () => header 对象（如 { authorization: 'Bearer …' } / { 'x-platform-token': … }）
 //   - onUnauthorized(path, response): 401 时的处理（清凭据 + 跳登录），由调用方按层（k8s/平台）决定
+//   - onMfaRequired(path, response): 403 且 body.code==='MFA_ENROLLMENT_REQUIRED' 时的处理
+//     （W3 §1.5 受限 token——admin 强制 MFA 下未启用用户的登录；platformHttp 注入跳 MFA 启用引导）
 // 这样 http.js 纯净可单测，client.js 造两个实例（k8sHttp / platformHttp）即可。
 import { i18n } from '@/i18n'
 
@@ -13,7 +15,7 @@ export function parseBody(text) {
   try { return JSON.parse(text) } catch { return text }
 }
 
-export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthorized } = {}) {
+export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthorized, onMfaRequired } = {}) {
   // 当前会话的认证 header（供 stream/blob/ws 等非 request 形态复用，避免再写一份取 token 逻辑）。
   // 一并携带 Accept-Language：服务端消息表按此取语（无头默认 zh）。
   function authHeaders() {
@@ -32,6 +34,9 @@ export function createHttp({ baseUrl = '', resolveAuth = () => ({}), onUnauthori
     const body = parseBody(text)
     if (!response.ok) {
       if (response.status === 401) onUnauthorized?.(path, response)
+      // W3 §1.5 受限 token 403(精确形状:code 字段区分于普通权限不足 403);错误照常抛出,
+      // 跳转由注入方决定(只挂 request——平台层 JSON 面;k8s 层/二进制面不会收到该 403)。
+      if (response.status === 403 && body?.code === 'MFA_ENROLLMENT_REQUIRED') onMfaRequired?.(path, response)
       const error = new Error(body?.message || i18n.global.t('api.requestFailed', { status: response.status }))
       error.status = response.status
       error.details = body

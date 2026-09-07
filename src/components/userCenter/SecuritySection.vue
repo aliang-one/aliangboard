@@ -123,7 +123,16 @@ async function startEnroll() {
     const raw = await QRCode.toString(res.otpauthUri, { type: 'svg', margin: 1 })
     enrollQr.value = raw.startsWith('data:') ? raw : `data:image/svg+xml;utf8,${encodeURIComponent(raw)}`
     showEnroll.value = true
-  } catch (e) { notify('error', e.message || t('common.opFailed')) }
+  } catch (e) {
+    // 409 step-up(外评 2026-09-07 修复 3,双 tab 失配:另一处已启用、本地态仍「未启用」):
+    // 验过重放 setup——与 regenRecoveryCodes 同款分支(已启用者 setup 需 step-up)。
+    if (e?.status === 409 && e?.details?.stepUpRequired) {
+      pendingStepUpAction.value = startEnroll
+      showStepUp.value = true
+      return
+    }
+    notify('error', e.message || t('common.opFailed'))
+  }
 }
 // 重新生成恢复码(spec §1.4):已启用者 setup 必 409 step-up → 验过重放 setup(新 secret)→ 复用启用
 // 弹窗走完整 enable——server W3-A 裁决:已启用再 enable = 同时轮换 TOTP 密钥 + 恢复码组(旧恢复码全作废)。
@@ -159,6 +168,14 @@ async function confirmEnroll() {
     mfaEnrolled.value = true
     syncMfaToStore()
   } catch (e) {
+    // 409 step-up(外评 2026-09-07 修复 3,双 tab 失配):enable 对已启用者 409——server W3-A 裁决
+    // 落在 step-up 禁改面。弹 StepUpDialog,验过同 secret+码重放(等价 regen:轮换 TOTP 密钥+恢复码组);
+    // 启用弹窗保留(码不丢),与 confirmDisable 同款分支。
+    if (e?.status === 409 && e?.details?.stepUpRequired) {
+      pendingStepUpAction.value = confirmEnroll
+      showStepUp.value = true
+      return   // finally 复位 loading
+    }
     enrollError.value = e.message || t('common.opFailed')
   } finally { enrollLoading.value = false }
 }

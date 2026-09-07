@@ -150,9 +150,24 @@ const pwPolicy = ref({ minLength: 8, requireMixed: false, requireDigit: false, r
 const pwPolicySaving = ref(false)
 const tokenTtl = ref(90)
 const tokenTtlSaving = ref(false)
+// 强制两步验证(W3 §1.5,外评 2026-09-07 修复 1):开关态 + 切换中
+const mfaRequired = ref(false)
+const mfaPolicyLoading = ref(false)
 async function loadSecurityPolicy() {
   try { const r = await adminApi.passwordPolicy.get(); pwPolicy.value = { ...pwPolicy.value, ...r.policy } } catch { /* 非 admin 静默 */ }
   try { const r = await adminApi.tokenPolicy.get(); tokenTtl.value = r.maxTtlDays } catch { /* 非 admin 静默 */ }
+  try { const r = await adminApi.mfaPolicy.get(); mfaRequired.value = !!r.enabled } catch { /* 非 admin 静默 */ }
+}
+// 强制两步验证开关(W3 §1.5,外评 2026-09-07 修复 1):开后未启用用户登录只进 MFA 引导(受限 token)。
+// 回传态为权威(成功即翻转本地态)。
+async function toggleMfaPolicy() {
+  mfaPolicyLoading.value = true
+  try {
+    const r = await adminApi.mfaPolicy.save({ enabled: !mfaRequired.value })
+    mfaRequired.value = !!r?.enabled
+    notify('success', t('admin.securityPolicy.saved'))
+  } catch (e) { notify('error', e.message || t('common.opFailed')) }
+  finally { mfaPolicyLoading.value = false }
 }
 async function savePasswordPolicy() {
   pwPolicySaving.value = true
@@ -540,6 +555,22 @@ const { catalog, resetAll } = useTableColumns()
               <button data-testid="token-ttl-save" @click="saveTokenTtl" :disabled="tokenTtlSaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">
                 {{ t('common.save') }}
               </button>
+            </div>
+            <!-- 强制两步验证(W3 §1.5,外评 2026-09-07 修复 1):开后未启用用户登录只进 MFA 引导 -->
+            <div data-testid="mfa-policy-card" class="p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
+              <div class="flex items-center justify-between gap-md">
+                <div class="min-w-0">
+                  <p class="text-body-sm font-semibold text-on-surface">{{ t('admin.securityPolicy.mfaRequired') }}</p>
+                  <p class="text-body-xs text-on-surface-variant mt-xs">{{ t('admin.securityPolicy.mfaRequiredHint') }}</p>
+                  <p class="text-body-xs text-on-surface-variant">{{ t('admin.securityPolicy.mfaRequiredLogoutHint') }}</p>
+                </div>
+                <button data-testid="mfa-policy-toggle" @click="toggleMfaPolicy" :disabled="mfaPolicyLoading"
+                  class="relative w-12 h-6 rounded-full transition-colors flex-shrink-0"
+                  :class="mfaRequired ? 'bg-status-running' : 'bg-outline-variant'">
+                  <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow-sm"
+                    :class="mfaRequired ? 'translate-x-6' : 'translate-x-0'"></span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

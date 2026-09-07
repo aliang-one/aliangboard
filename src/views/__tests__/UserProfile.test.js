@@ -536,3 +536,49 @@ test('MFA 已启用:重新生成恢复码钮;setup 409 → StepUpDialog 验过 �
   expect(bq('[data-testid="mfa-recovery-codes"]').textContent).toContain('rc-aaaa-bbbb')
   w.unmount()
 })
+
+// === W3 外评修复 3:启用流(enroll)409 step-up 拦截 ===
+// 双 tab 失配:另一 tab 已启用 MFA,本 tab 本地态仍「未启用」——setup 与 enable 都会 409
+// stepUpRequired(server W3-A:已启用者 enable/setup 落在 step-up 禁改面)。此前 catch 只报错/弹 toast,
+// 无重放通道;补与 confirmDisable/regenRecoveryCodes 同款分支:StepUpDialog 验过重放原动作。
+test('启用流 setup 409(双 tab 失配)→ StepUpDialog 验过 → 重放 setup → 启用弹窗', async () => {
+  // 本地态未启用(挂载时 /me 快照),启用钮可见
+  apiMocks.mfaSetup.mockRejectedValueOnce(httpError(409, '需要重新验证', { stepUpRequired: true }))
+  const w = mountPage('security')
+  await flushPromises()
+  await w.find('[data-testid="mfa-enable-btn"]').trigger('click')
+  await flushPromises()
+  expect(apiMocks.mfaSetup).toHaveBeenCalledTimes(1)
+  expect(bq('[data-testid="stepup-input"]')).toBeTruthy()
+  expect(bq('[data-testid="mfa-qr"]')).toBe(null)
+  await setInput('[data-testid="stepup-input"]', '333444')
+  bq('[data-testid="stepup-submit"]').click()
+  await flushPromises()
+  expect(apiMocks.stepUp).toHaveBeenCalledWith('333444')
+  expect(apiMocks.mfaSetup).toHaveBeenCalledTimes(2)
+  expect(bq('[data-testid="mfa-qr"]')).toBeTruthy()
+  w.unmount()
+})
+
+test('启用流 enable 409(双 tab 失配)→ StepUpDialog 验过 → 同 secret+码重放 enable → 恢复码弹窗', async () => {
+  apiMocks.mfaEnable.mockRejectedValueOnce(httpError(409, '需要重新验证', { stepUpRequired: true }))
+  const w = mountPage('security')
+  await flushPromises()
+  await w.find('[data-testid="mfa-enable-btn"]').trigger('click')
+  await flushPromises()
+  await setInput('[data-testid="mfa-code-input"]', '123456')
+  bq('[data-testid="mfa-confirm"]').click()
+  await flushPromises()
+  expect(apiMocks.mfaEnable).toHaveBeenCalledTimes(1)
+  // 409 拦截:弹 StepUpDialog 而非行内报错;启用弹窗保留(码不丢)
+  expect(bq('[data-testid="stepup-input"]')).toBeTruthy()
+  expect(bq('[data-testid="mfa-enroll-error"]')).toBe(null)
+  await setInput('[data-testid="stepup-input"]', '333444')
+  bq('[data-testid="stepup-submit"]').click()
+  await flushPromises()
+  expect(apiMocks.stepUp).toHaveBeenCalledWith('333444')
+  expect(apiMocks.mfaEnable).toHaveBeenCalledTimes(2)
+  expect(apiMocks.mfaEnable).toHaveBeenLastCalledWith({ secret: 'SECRET2345X', code: '123456' })
+  expect(bq('[data-testid="mfa-recovery-codes"]').textContent).toContain('rc-aaaa-bbbb')
+  w.unmount()
+})

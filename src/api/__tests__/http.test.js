@@ -78,6 +78,32 @@ describe('createHttp.request', () => {
     await expect(http.request('/api/k8s/pods')).rejects.toMatchObject({ status: 401 })
     expect(onUn).toHaveBeenCalledWith('/api/k8s/pods', expect.any(Object))
   })
+
+  // W3 §1.5 外评修复 2:受限 token 403 形状拦截——403 且 body.code='MFA_ENROLLMENT_REQUIRED'
+  // 才触发注入的 onMfaRequired(与普通权限不足 403 区分);错误照常抛出,跳转由注入方决定。
+  it('on 403 with code MFA_ENROLLMENT_REQUIRED calls onMfaRequired(path) then throws', async () => {
+    fetchMock.mockResolvedValue(res({ ok: false, status: 403, body: { message: '需启用两步验证', code: 'MFA_ENROLLMENT_REQUIRED' } }))
+    const onMfa = vi.fn()
+    const http = createHttp({ onMfaRequired: onMfa })
+    await expect(http.request('/api/my-clusters')).rejects.toMatchObject({ status: 403 })
+    expect(onMfa).toHaveBeenCalledWith('/api/my-clusters', expect.any(Object))
+  })
+
+  it('403 without the code (plain permission denial) does not call onMfaRequired', async () => {
+    fetchMock.mockResolvedValue(res({ ok: false, status: 403, body: { message: 'admin required' } }))
+    const onMfa = vi.fn()
+    const http = createHttp({ onMfaRequired: onMfa })
+    await expect(http.request('/api/admin/users')).rejects.toMatchObject({ status: 403 })
+    expect(onMfa).not.toHaveBeenCalled()
+  })
+
+  it('401 does not trigger onMfaRequired (the two channels are independent)', async () => {
+    fetchMock.mockResolvedValue(res({ ok: false, status: 401, body: { message: 'expired', code: 'MFA_ENROLLMENT_REQUIRED' } }))
+    const onMfa = vi.fn()
+    const http = createHttp({ onMfaRequired: onMfa })
+    await expect(http.request('/api/x')).rejects.toMatchObject({ status: 401 })
+    expect(onMfa).not.toHaveBeenCalled()
+  })
 })
 
 describe('createHttp.blob', () => {

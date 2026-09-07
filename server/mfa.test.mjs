@@ -54,7 +54,7 @@ function makeRoutes(db, over = {}) {
       const ps = db.prepare('SELECT * FROM platform_sessions WHERE token=?').get(req.headers['x-platform-token'])
       if (!ps) { deps.sendJson(res, 401, { message: 'not logged in' }); return null }
       if (ps.mfaPending === 1 && !isMfaPendingAllowed(req.method, new URL(req.url, 'http://x').pathname)) {
-        deps.sendJson(res, 403, { message: MSG['auth.mfaEnrollmentRequired'].zh })
+        deps.sendJson(res, 403, { message: MSG['auth.mfaEnrollmentRequired'].zh, code: 'MFA_ENROLLMENT_REQUIRED' })
         return null
       }
       return ps
@@ -332,6 +332,8 @@ test('强制开关开:未启用用户登录 → 受限 token(me 200 / my-cluster
   await call(routes, 'GET', '/api/my-clusters', undefined, { 'x-platform-token': 'uuid-x' })
   assert.equal(sent[2].status, 403)
   assert.equal(sent[2].payload.message, MSG['auth.mfaEnrollmentRequired'].zh)
+  // code 字段(W3 外评修复 2):前端 http 层靠它把受限 403 与普通权限不足 403 区分开,引导跳 MFA 启用
+  assert.equal(sent[2].payload.code, 'MFA_ENROLLMENT_REQUIRED')
 })
 
 test('强制开关开:受限 token 完成 enable 后转完整(mfaPending=0,my-clusters 200)', async () => {

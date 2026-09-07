@@ -691,7 +691,7 @@
       "generate": "Generate kubeconfig",
       "copy": "Copy",
       "download": "Download",
-      "expiryHint": "Credential note: the token in this kubeconfig is your current platform login credential — it expires with your platform session (sign-out, forced logout, or password change invalidates it immediately). Cluster access follows your platform grants; do not share the file. Note: kubectl exec / port-forward and server-side apply (kubectl apply --server-side) are not routed through this proxy (parity with the browser surface).",
+      "expiryHint": "Credential note: the token in this kubeconfig is your current platform login credential — it expires with your platform session (login sessions expire after 8 hours by default; sign-out, forced logout, or password change invalidates it immediately). It is also invalidated immediately when your account is disabled or your cluster assignment is revoked. Cluster access follows your platform grants; do not share the file. Note: kubectl exec / port-forward and server-side apply (kubectl apply --server-side) are not routed through this proxy (parity with the browser surface).",
       "noClusters": "No accessible clusters (ask an administrator for assignment)"
     }
   },
@@ -3537,7 +3537,10 @@
       "requireSymbol": "Require symbol",
       "tokenTtl": "Token max TTL (days)",
       "saved": "Saved",
-      "tokenTtlInvalid": "Token max TTL must be 1-365 days"
+      "tokenTtlInvalid": "Token max TTL must be 1-365 days",
+      "mfaRequired": "Require two-factor verification",
+      "mfaRequiredHint": "When enabled, users who have not enrolled in two-factor verification can only reach the enrollment guide after login; everything else stays restricted until they enroll",
+      "mfaRequiredLogoutHint": "After enabling, force-logout existing sessions on the Users page so the restriction takes effect immediately"
     }
   },
   "network": {
