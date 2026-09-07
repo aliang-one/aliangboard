@@ -13,8 +13,9 @@ import { TABLE as wbc } from './messages/wbc.mjs'
 import { TABLE as wbp } from './messages/wbp.mjs'
 import { TABLE as ssh } from './messages/ssh.mjs'
 import { TABLE as mykeys } from './messages/mykeys.mjs'
+import { TABLE as kubecfg } from './messages/kubecfg.mjs'
 
-export const tables = { ...api, ...auth, ...admin, ...wbc, ...wbp, ...ssh, ...mykeys }
+export const tables = { ...api, ...auth, ...admin, ...wbc, ...wbp, ...ssh, ...mykeys, ...kubecfg }
 
 // en 开头（en / en-US / en-GB…）→ en；其余（含无头/zh）→ zh
 export function pickLang(req) {

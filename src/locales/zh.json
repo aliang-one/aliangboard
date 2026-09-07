@@ -682,6 +682,16 @@
       "stepUpHint": "该操作需要重新验证身份,请输入验证码或恢复码",
       "stepUpConfirm": "验证",
       "disable": "禁用"
+    },
+    "kubectl": {
+      "title": "kubectl 访问",
+      "desc": "生成个人 kubeconfig，kubectl 经网关代理访问集群；命名空间权限与平台会话一致。",
+      "selectCluster": "选择集群",
+      "generate": "生成 kubeconfig",
+      "copy": "复制",
+      "download": "下载",
+      "expiryHint": "凭据说明：kubeconfig 中的 token 即当前平台登录凭据，随平台会话失效（登出、被强制下线或修改密码后即刻失效）；集群权限跟随你的平台授权，请勿将文件泄露给他人。",
+      "noClusters": "暂无可访问的集群（请联系管理员分配）"
     }
   },
   "layout": {

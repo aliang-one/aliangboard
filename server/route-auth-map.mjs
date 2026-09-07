@@ -39,6 +39,8 @@ export const ROUTE_AUTH = [
   { prefix: '/api/my/keys/',                            auth: 'platform' }, // DELETE /:id(归属过滤)
   { method: 'GET',  pattern: '/api/my/activity',        auth: 'platform' }, // 我的活动(audit_log 本人只读视图,90d 窗口)
   { method: 'GET',  pattern: '/api/my/grantable-ns',    auth: 'platform' }, // 自助令牌可签发 namespace 集(W2 Phase A)
+  { method: 'GET',  pattern: '/api/my/kubeconfig',      auth: 'platform' }, // W3 Task 6:个人 kubeconfig 下发(token=平台 token)
+  { prefix: '/api/k8s-proxy/',                           auth: 'platform' }, // W3 Task 6:kubectl 凭据面(内层兑换活跃 K8s 会话→复用 /api/k8s 透传管线;Bearer 平台 token)
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },
   { method: 'GET',  pattern: '/api/version',            auth: 'platform' },
   { method: 'POST', pattern: '/api/version/check',      auth: 'platform' },

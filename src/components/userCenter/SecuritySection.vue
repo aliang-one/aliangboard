@@ -12,6 +12,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import StepUpDialog from '@/components/common/StepUpDialog.vue'
 import Modal from '@/components/common/Modal.vue'
+import KubectlCard from '@/components/userCenter/KubectlCard.vue'
 import { uaSummary } from '@/utils/uaSummary'
 import { firstFailedRule, failedRuleMessageKey, DEFAULT_PASSWORD_POLICY } from '@/utils/passwordRules'
 
@@ -261,6 +262,9 @@ async function onStepUpDone() {
       class="mt-sm" :total="sessions.length" :page-size="pageSize" :current-page="currentPage"
       @page-change="(p) => (currentPage = p)" />
   </div>
+
+  <!-- kubectl 访问卡(W3 Task 6):独立组件 —— 本文件已超行数预算,卡自持容器 -->
+  <KubectlCard />
 
   <ConfirmDialog v-model="showRevokeConfirm" danger
     :title="$t('userCenter.revokeConfirmTitle')"

@@ -682,6 +682,16 @@
       "stepUpHint": "This action requires re-verification — enter a code or a recovery code",
       "stepUpConfirm": "Verify",
       "disable": "Disable"
+    },
+    "kubectl": {
+      "title": "kubectl access",
+      "desc": "Generate a personal kubeconfig; kubectl reaches the cluster through the gateway proxy with the same namespace permissions as your platform session.",
+      "selectCluster": "Select cluster",
+      "generate": "Generate kubeconfig",
+      "copy": "Copy",
+      "download": "Download",
+      "expiryHint": "Credential note: the token in this kubeconfig is your current platform login credential — it expires with your platform session (sign-out, forced logout, or password change invalidates it immediately). Cluster access follows your platform grants; do not share the file.",
+      "noClusters": "No accessible clusters (ask an administrator for assignment)"
     }
   },
   "layout": {

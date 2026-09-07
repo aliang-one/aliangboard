@@ -50,6 +50,7 @@ import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
 import { createMyKeyRoutes } from './routes/my-keys.mjs'
+import { createK8sProxyRoutes } from './routes/k8s-proxy.mjs'
 import { touchSession } from './session-touch.mjs'
 import { touchKeyUsage } from './key-usage-touch.mjs'
 import { reapExpiredSessions, enforceSessionCap, removeSessionRecord } from './platform-session-reaper.mjs'
@@ -563,8 +564,29 @@ function sendJson(res, status, payload) {
   res.end(body)
 }
 
+// 文本响应(W3 Task 6:kubeconfig YAML 下发;sendJson 只包 JSON,此为同 header 语义的
+// text/plain 版本)。与 sendJson 同款 headersSent 免疫与 CORS 头。
+function sendText(res, status, text) {
+  if (res.headersSent) { try { res.end() } catch { /* 已断 */ } return }
+  res.writeHead(status, {
+    'content-type': 'text/plain; charset=utf-8',
+    'content-length': Buffer.byteLength(text),
+    'access-control-allow-origin': corsOrigin(),
+    'access-control-allow-headers': 'content-type, authorization',
+    'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+  })
+  res.end(text)
+}
+
 // 有状态(版本检测缓存):必须模块级构造一次——放 handle() 内会每请求重建缓存(终审 C1)
 const versionRoutes = createVersionRoutes({ sendJson, requirePlatform })
+
+// W3 Task 6:kubeconfig/k8s-proxy 薄路由(routes/k8s-proxy.mjs;透传管线注入 handleK8sPassthrough
+// —— 函数声明提升,此处引用安全)。无状态,模块级一次构造。
+const k8sProxyRoutes = createK8sProxyRoutes({
+  db, sendJson, sendText, requirePlatform, sessions, extractPlatformToken,
+  handlePassthrough: handleK8sPassthrough,
+})
 
 // readBody 已迁 server/body.mjs(裸 JSON.parse 会把 V8 SyntaxError 泄漏给前端,现统一 400)
 
@@ -1365,6 +1387,86 @@ function buildK8sSession(clusterId) {
   const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(clusterId)
   if (!cluster) return null
   return { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+}
+
+// ====== K8s 透传管线(2026-09-07 W3 Task 6 从 handle() isK8s 块抽出,零行为变更)======
+// 唯一的浏览器直连(/api/k8s/*)与 kubeconfig 凭据代理(/api/k8s-proxy/:clusterId/*,routes/k8s-proxy.mjs)
+// 共用出口:ns 授权门 → 流式(watch/follow)或缓冲透传 → 响应面过滤。kubernetesPath 含 query。
+async function handleK8sPassthrough(req, res, session, kubernetesPath) {
+  // W2 Phase B:透传面 ns 授权门(流式 watch=true/follow=true 与缓冲两分支共用,在任何上游连接之前;
+  // final-review I2a:?watch=true 的 namespaces 全流同样过 null-ns 门,allowlist 非 admin 整流拒)。
+  // 解析失败 → 403 对所有 session 用户 + 审计 unparseable-path(M1);ns 型/全 ns list(allNamespaces)
+  // → 按 levelForRequest(method, subresource) 分档(null namespace = null-ns 门,allowlist 非 admin 拒,
+  // spec §2.4);clusterScope 同过 null-ns 门(I1:GET 不再放行)。denied 审计在 gate 内部完成。
+  const subPath = kubernetesPath.split('?')[0]
+  const parsedK8s = parseApiPath(subPath)
+  const isNamespacesList = !!parsedK8s && parsedK8s.resource === 'namespaces' && !parsedK8s.namespace && req.method === 'GET'
+  if (!gateParsedPath(k8sGate, session, parsedK8s, { path: subPath, method: req.method })) {
+    return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
+  }
+
+  // 流式透传：watch=true（资源监听）与 follow=true（日志跟随）需要长连接，
+  // 不能走缓冲式 requestKubernetes（它会 await 全文）。这里直接 pipe 上游字节流。
+  const isStreaming = req.method === 'GET' && /(?:[?&]watch=true)|(?:[?&]follow=true)/.test(kubernetesPath)
+  if (isStreaming) {
+    try {
+      const ep = currentEndpoint(session)
+      const target = assertSameOrigin(new URL(kubernetesPath, ep), ep)
+      const upstream = await kubeFetch(target, {
+        method: 'GET',
+        // W2 Phase E:流式透传(?watch/?follow)同样注入 impersonation(probe-gated;此处与 requestOnce
+        // 是仅有的两处自建 kubeFetch 头,第三处为 watch-mux fetchUpstream——三处同收口于 injectImpersonation)
+        headers: injectImpersonation({ accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) }, session),
+        dispatcher: currentDispatcher(session),
+        signal: AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000)),
+      })
+      if (!upstream.ok || !upstream.body) {
+        const text = await upstream.text().catch(() => '')
+        let errBody = text
+        try { errBody = JSON.parse(text) } catch { /* 非 JSON，保留原文 */ }
+        return sendJson(res, upstream.status || 502, errBody?.message ? errBody : { message: text || msg(req, 'api.k8sHttpError', { status: upstream.status }) })
+      }
+      res.writeHead(upstream.status, {
+        'content-type': upstream.headers.get('content-type') || 'application/json',
+        'cache-control': 'no-cache',
+        'x-accel-buffering': 'no',
+        'access-control-allow-origin': corsOrigin(),
+      })
+      const pipe = Readable.fromWeb(upstream.body)
+      pipe.on('data', chunk => res.write(chunk))
+      pipe.on('end', () => res.end())
+      pipe.on('error', () => { try { res.end() } catch { /* 连接已断 */ } })
+      // 客户端断开时中止上游连接，避免泄漏
+      req.on('close', () => { try { pipe.destroy() } catch { /* noop */ } })
+      return
+    } catch (error) {
+      return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sStreamFailed') })
+    }
+  }
+
+  try {
+    const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? JSON.stringify(await readBody(req)) : undefined
+    // 透传客户端 content-type（PATCH 的 merge-patch/strategic-merge-patch/json-patch 必须原样转发，
+    // 否则 requestKubernetes 会回退成 application/json → K8s 返回 415 Unsupported Media Type）
+    const ct = req.headers['content-type']
+    const result = await requestKubernetes(session, kubernetesPath, {
+      method: req.method,
+      body,
+      ...(ct ? { headers: { 'content-type': ct } } : {}),
+    })
+    // list GET 响应剥冗余(managedFields/last-applied);单对象 GET 与写操作不动
+    if (req.method === 'GET' && Array.isArray(result.body?.items)) slimListBody(result.body)
+    // W2 Phase B:GET namespaces 集合 → 响应面按授权过滤(allowlist 集群的非 admin 会话只留
+    // granted ns;admin/open/legacy 不滤)。metadata.namespace 缺失的条目(不应出现在 ns 列表)被剔除。
+    if (isNamespacesList) {
+      const g = effectiveGrants(db, { userId: session.userId })
+      const ce = g.clusters.get?.(session.clusterId)
+      if (ce?.mode === 'allowlist') result.body.items = filterNamespaceList(result.body.items, new Set(ce.ns.keys()))
+    }
+    return sendJson(res, result.status, result.body ?? {})
+  } catch (error) {
+    return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sRequestFailed'), details: error.details })
+  }
 }
 
 async function handle(req, res) {
@@ -2315,6 +2417,11 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   // 必须在 isK8s/isPlatform 分发门之前 —— 否则非 API 路径直接被下方 isK8s/isPlatform 门 404 吞掉,SPA 永远到不了。
   if (serveStatic(req, res, url, { root: STATIC_DIR })) return
 
+  // W3 Task 6:个人 kubeconfig —— GET /api/my/kubeconfig(YAML 下发)+ /api/k8s-proxy/:clusterId/*
+  // (kubectl 凭据面:平台 token 兑换活跃 K8s 会话后复用 handleK8sPassthrough 同一管线)。
+  // 必须在 isK8s/isPlatform 分发门之前('/api/k8s-proxy/' 不含于任一前缀,晚于此处会被 404 吞掉)。
+  if (await k8sProxyRoutes.handle(req, res, url)) return
+
   // K8s 代理 vs 平台 API 路由分发
   const isK8s = url.pathname.startsWith('/api/k8s/')
   const isPlatform = url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/admin/') || url.pathname.startsWith('/api/my-clusters') || url.pathname.startsWith('/api/connect-cluster')
@@ -2358,83 +2465,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
 
   if (isK8s) {
   const session = req.abSession // 路由鉴权门已预检并缓存
-
   const kubernetesPath = decodeURIComponent(url.pathname.slice('/api/k8s'.length)) + (url.search || '')
-
-  // W2 Phase B:透传面 ns 授权门(流式 watch=true/follow=true 与缓冲两分支共用,在任何上游连接之前;
-  // final-review I2a:?watch=true 的 namespaces 全流同样过 null-ns 门,allowlist 非 admin 整流拒)。
-  // 解析失败 → 403 对所有 session 用户 + 审计 unparseable-path(M1);ns 型/全 ns list(allNamespaces)
-  // → 按 levelForRequest(method, subresource) 分档(null namespace = null-ns 门,allowlist 非 admin 拒,
-  // spec §2.4);clusterScope 同过 null-ns 门(I1:GET 不再放行)。denied 审计在 gate 内部完成。
-  const subPath = kubernetesPath.split('?')[0]
-  const parsedK8s = parseApiPath(subPath)
-  const isNamespacesList = !!parsedK8s && parsedK8s.resource === 'namespaces' && !parsedK8s.namespace && req.method === 'GET'
-  if (!gateParsedPath(k8sGate, session, parsedK8s, { path: subPath, method: req.method })) {
-    return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
-  }
-
-  // 流式透传：watch=true（资源监听）与 follow=true（日志跟随）需要长连接，
-  // 不能走缓冲式 requestKubernetes（它会 await 全文）。这里直接 pipe 上游字节流。
-  const isStreaming = req.method === 'GET' && /(?:[?&]watch=true)|(?:[?&]follow=true)/.test(kubernetesPath)
-  if (isStreaming) {
-    try {
-      const ep = currentEndpoint(session)
-      const target = assertSameOrigin(new URL(kubernetesPath, ep), ep)
-      const upstream = await kubeFetch(target, {
-        method: 'GET',
-        // W2 Phase E:流式透传(?watch/?follow)同样注入 impersonation(probe-gated;此处与 requestOnce
-        // 是仅有的两处自建 kubeFetch 头,第三处为 watch-mux fetchUpstream——三处同收口于 injectImpersonation)
-        headers: injectImpersonation({ accept: 'application/json', ...(session.authHeader ? { authorization: session.authHeader } : {}) }, session),
-        dispatcher: currentDispatcher(session),
-        signal: AbortSignal.timeout(Number(process.env.K8S_WATCH_TIMEOUT_MS || 10 * 60 * 60 * 1000)),
-      })
-      if (!upstream.ok || !upstream.body) {
-        const text = await upstream.text().catch(() => '')
-        let errBody = text
-        try { errBody = JSON.parse(text) } catch { /* 非 JSON，保留原文 */ }
-        return sendJson(res, upstream.status || 502, errBody?.message ? errBody : { message: text || msg(req, 'api.k8sHttpError', { status: upstream.status }) })
-      }
-      res.writeHead(upstream.status, {
-        'content-type': upstream.headers.get('content-type') || 'application/json',
-        'cache-control': 'no-cache',
-        'x-accel-buffering': 'no',
-        'access-control-allow-origin': corsOrigin(),
-      })
-      const pipe = Readable.fromWeb(upstream.body)
-      pipe.on('data', chunk => res.write(chunk))
-      pipe.on('end', () => res.end())
-      pipe.on('error', () => { try { res.end() } catch { /* 连接已断 */ } })
-      // 客户端断开时中止上游连接，避免泄漏
-      req.on('close', () => { try { pipe.destroy() } catch { /* noop */ } })
-      return
-    } catch (error) {
-      return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sStreamFailed') })
-    }
-  }
-
-  try {
-    const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? JSON.stringify(await readBody(req)) : undefined
-    // 透传客户端 content-type（PATCH 的 merge-patch/strategic-merge-patch/json-patch 必须原样转发，
-    // 否则 requestKubernetes 会回退成 application/json → K8s 返回 415 Unsupported Media Type）
-    const ct = req.headers['content-type']
-    const result = await requestKubernetes(session, kubernetesPath, {
-      method: req.method,
-      body,
-      ...(ct ? { headers: { 'content-type': ct } } : {}),
-    })
-    // list GET 响应剥冗余(managedFields/last-applied);单对象 GET 与写操作不动
-    if (req.method === 'GET' && Array.isArray(result.body?.items)) slimListBody(result.body)
-    // W2 Phase B:GET namespaces 集合 → 响应面按授权过滤(allowlist 集群的非 admin 会话只留
-    // granted ns;admin/open/legacy 不滤)。metadata.namespace 缺失的条目(不应出现在 ns 列表)被剔除。
-    if (isNamespacesList) {
-      const g = effectiveGrants(db, { userId: session.userId })
-      const ce = g.clusters.get?.(session.clusterId)
-      if (ce?.mode === 'allowlist') result.body.items = filterNamespaceList(result.body.items, new Set(ce.ns.keys()))
-    }
-    return sendJson(res, result.status, result.body ?? {})
-  } catch (error) {
-    return sendJson(res, error.status || 502, { message: error.message || msg(req, 'api.k8sRequestFailed'), details: error.details })
-  }
+  return handleK8sPassthrough(req, res, session, kubernetesPath)
   } // end if (isK8s)
 
   // 兜底:未匹配的路由返 404。否则 handle() 直接 return、响应永不结束 → 前端 fetch 挂起

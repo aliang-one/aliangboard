@@ -357,6 +357,8 @@ export const authApi = {
   myKeysMint: payload => platformHttp.request('/api/my/keys', { method: 'POST', body: JSON.stringify(payload) }),
   myKeysRevoke: id => platformHttp.request(`/api/my/keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   grantableNs: clusterId => platformHttp.request(`/api/my/grantable-ns?clusterId=${encodeURIComponent(clusterId)}`),
+  // W3 Task 6:个人 kubeconfig 下发(text/plain YAML;parseBody 对非 JSON 回原文本)
+  myKubeconfig: clusterId => platformHttp.request(`/api/my/kubeconfig?clusterId=${encodeURIComponent(clusterId)}`),
   uploadAvatar: dataUrl => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ avatar: dataUrl }) }),
   clearAvatar: () => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ avatarClear: true }) }),
   getAvatar: () => platformHttp.request('/api/auth/me/avatar'),
