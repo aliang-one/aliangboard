@@ -52,3 +52,12 @@ export function getApiPath(kind, ns, name) {
   if (!e) return null
   return e.ns ? `${e.prefix}/namespaces/${enc(ns)}/${kind}/${enc(name)}` : `${e.prefix}/${kind}/${enc(name)}`
 }
+
+// 集群级 kind 判定(KIND_API 路径形状单源派生):true = 无 namespace 的 kind(nodes/PV/
+// storageclasses/clusterroles…)。2026-09-07 审计 F5:ref-fetch.refAllowed 借此把集群级
+// ref 分流到 clusterWide 授权门(伪造 ref.namespace 不能再借 ns 授权越权);调用方须先
+// normalizeKind(本函数只认规范复数键,与 listApiPath/getApiPath 同约定)。
+export function isClusterScopedKind(kind) {
+  const e = KIND_API[kind]
+  return !!e && !e.ns
+}
