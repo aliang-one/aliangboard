@@ -57,6 +57,7 @@ test('公有(none)路由集合与显式清单逐项一致——多一条都是�
     'DELETE /api/session',   // 幂等登出:无 token 也 204
     'GET /api/health',       // 存活探针
     'POST /api/auth/login',
+    'POST /api/auth/login/mfa',  // W3 §1.3:MFA 二步(票据+验证码;handler 内独立限流+验票)
     'POST /api/auth/logout',
   ])
 })

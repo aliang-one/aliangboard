@@ -24,8 +24,16 @@ const apiMocks = vi.hoisted(() => ({
   getPasswordPolicy: vi.fn().mockResolvedValue({ policy: { minLength: 8, requireMixed: false, requireDigit: false, requireSymbol: false } }),
   getAvatar: vi.fn().mockRejectedValue({ status: 404 }),
   uploadAvatar: vi.fn(), clearAvatar: vi.fn(),
+  // —— W3 Task 4 MFA ——
+  me: vi.fn(),
+  mfaSetup: vi.fn(),
+  mfaEnable: vi.fn(),
+  mfaDisable: vi.fn(),
+  stepUp: vi.fn(),
 }))
 vi.mock('@/api/client', () => ({ authApi: apiMocks }))
+// W3 Task 4 裁决 1:qrcode 二维码 mock——toString 异步返回 dataURL(实现侧 toString(type:svg) → 包装 data URL)
+vi.mock('qrcode', () => ({ default: { toString: vi.fn(async () => 'data:image/png;base64,MOCK') } }))
 // canvas 中心裁剪走 happy-dom 不测(无 2d context,2026-09-04 Wave1 Task13):mock 成固定 dataUrl
 vi.mock('@/utils/avatarImage', () => ({
   AVATAR_SIZE: 256,
@@ -52,6 +60,13 @@ beforeEach(() => {
   ] })
   apiMocks.updateMe.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: '阿亮' } })
   apiMocks.getAvatar.mockRejectedValue({ status: 404 })
+  // MFA 默认:未启用 + 非受限(个别用例覆写 totpEnabled/mfaPending)。mfaPending 镜像真实 /me 载荷:
+  // 服务端发 `ps.mfaPending === 1` 的 JSON 布尔(曾造数字夹具掩蔽 === 1 严格比较失配,review round 1 Critical)
+  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: false }, prefs: {}, mfaPending: false })
+  apiMocks.mfaSetup.mockResolvedValue({ secret: 'SECRET2345X', otpauthUri: 'otpauth://totp/AliangBoard:alice?secret=SECRET2345X&issuer=AliangBoard' })
+  apiMocks.mfaEnable.mockResolvedValue({ ok: true, recoveryCodes: ['rc-aaaa-bbbb', 'rc-cccc-dddd'] })
+  apiMocks.mfaDisable.mockResolvedValue({ ok: true })
+  apiMocks.stepUp.mockResolvedValue({ ok: true })
   // 头像单例跨用例残留清理(2026-09-04 Wave1 Task13)
   resetAvatarForTest()
 })
@@ -371,4 +386,153 @@ test('资料卡:getAvatar 瞬时失败后重挂载重试成功 → 头像出现'
   expect(apiMocks.getAvatar).toHaveBeenCalledTimes(2)
   expect(w2.find('[data-testid="avatar-img"]').exists()).toBe(true)
   w2.unmount()
+})
+
+// === W3 Task 4: 两步验证(MFA)卡 ===
+// 弹窗均 Teleport 到 body(Modal 既有契约),teleported 节点走 document.body 查询。
+const bq = (sel) => document.body.querySelector(sel)
+async function setInput(sel, value) {
+  bq(sel).value = value
+  bq(sel).dispatchEvent(new Event('input'))
+  await nextTick()
+}
+const httpError = (status, message, details = undefined) => Object.assign(new Error(message), { status, details })
+
+test('MFA 未启用 → 启用:setup 二维码 + 密钥 → 输码 enable → 恢复码一次性弹窗(复制全部)→ 关闭后已启用', async () => {
+  const w = mountPage('security')
+  await flushPromises()
+  expect(w.find('[data-testid="mfa-enable-btn"]').exists()).toBe(true)
+  expect(w.find('[data-testid="mfa-enabled-badge"]').exists()).toBe(false)
+  await w.find('[data-testid="mfa-enable-btn"]').trigger('click')
+  await flushPromises()
+  expect(apiMocks.mfaSetup).toHaveBeenCalledTimes(1)
+  // QR(qrcode.toString mock 直出 dataURL)+ otpauth URI + 手输密钥 三通道齐全
+  expect(bq('[data-testid="mfa-qr"]')).toBeTruthy()
+  expect(bq('[data-testid="mfa-qr"]').getAttribute('src')).toBe('data:image/png;base64,MOCK')
+  expect(bq('[data-testid="mfa-otpauth"]').textContent).toContain('otpauth://totp/AliangBoard:alice')
+  expect(bq('[data-testid="mfa-secret"]').textContent).toContain('SECRET2345X')
+  await setInput('[data-testid="mfa-code-input"]', '123456')
+  bq('[data-testid="mfa-confirm"]').click()
+  await flushPromises()
+  expect(apiMocks.mfaEnable).toHaveBeenCalledWith({ secret: 'SECRET2345X', code: '123456' })
+  // 恢复码一次性弹窗:列表 + 复制全部;非受限会话不出重新登录引导(受限引导在专属用例)
+  expect(bq('[data-testid="mfa-recovery-codes"]').textContent).toContain('rc-aaaa-bbbb')
+  expect(bq('[data-testid="mfa-recovery-copy"]')).toBeTruthy()
+  expect(bq('[data-testid="mfa-relogin-hint"]')).toBe(null)
+  bq('[data-testid="mfa-recovery-close"]').click()
+  await flushPromises()
+  expect(w.find('[data-testid="mfa-enabled-badge"]').exists()).toBe(true)
+  expect(w.find('[data-testid="mfa-enable-btn"]').exists()).toBe(false)
+  w.unmount()
+})
+
+test('MFA enable 验码失败(400):行内错误,启用弹窗保留可重试', async () => {
+  apiMocks.mfaEnable.mockRejectedValueOnce(httpError(400, '验证码错误'))
+  const w = mountPage('security')
+  await flushPromises()
+  await w.find('[data-testid="mfa-enable-btn"]').trigger('click')
+  await flushPromises()
+  await setInput('[data-testid="mfa-code-input"]', '000000')
+  bq('[data-testid="mfa-confirm"]').click()
+  await flushPromises()
+  expect(bq('[data-testid="mfa-enroll-error"]').textContent).toContain('验证码错误')
+  expect(bq('[data-testid="mfa-code-input"]')).toBeTruthy()
+  expect(w.find('[data-testid="mfa-enabled-badge"]').exists()).toBe(false)
+  w.unmount()
+})
+
+test('MFA 已启用:徽章+禁用钮;disable 409 stepUpRequired → StepUpDialog 验过 → 同码重放 disable 成功', async () => {
+  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: true }, prefs: {}, mfaPending: false })
+  apiMocks.mfaDisable.mockRejectedValueOnce(httpError(409, '需要重新验证', { stepUpRequired: true }))
+  const w = mountPage('security')
+  await flushPromises()
+  expect(w.find('[data-testid="mfa-enabled-badge"]').exists()).toBe(true)
+  expect(w.find('[data-testid="mfa-disable-btn"]').exists()).toBe(true)
+  await w.find('[data-testid="mfa-disable-btn"]').trigger('click')
+  await flushPromises()
+  await setInput('[data-testid="mfa-disable-input"]', '111222')
+  bq('[data-testid="mfa-disable-confirm"]').click()
+  await flushPromises()
+  expect(apiMocks.mfaDisable).toHaveBeenCalledWith('111222')
+  // 409 拦截:StepUpDialog 弹出,原禁用弹窗不误报错误
+  expect(bq('[data-testid="stepup-input"]')).toBeTruthy()
+  await setInput('[data-testid="stepup-input"]', '333444')
+  bq('[data-testid="stepup-submit"]').click()
+  await flushPromises()
+  expect(apiMocks.stepUp).toHaveBeenCalledWith('333444')
+  // 验过重放:同码再 disable → 成功 → 回未启用态
+  expect(apiMocks.mfaDisable).toHaveBeenCalledTimes(2)
+  expect(apiMocks.mfaDisable).toHaveBeenLastCalledWith('111222')
+  expect(w.find('[data-testid="mfa-enabled-badge"]').exists()).toBe(false)
+  expect(w.find('[data-testid="mfa-enable-btn"]').exists()).toBe(true)
+  w.unmount()
+})
+
+test('MFA 受限会话(mfaPending=true)启用成功:恢复码弹窗引导重新登录(非引导重复启用)', async () => {
+  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: false }, prefs: {}, mfaPending: true })
+  const w = mountPage('security')
+  await flushPromises()
+  await w.find('[data-testid="mfa-enable-btn"]').trigger('click')
+  await flushPromises()
+  await setInput('[data-testid="mfa-code-input"]', '123456')
+  bq('[data-testid="mfa-confirm"]').click()
+  await flushPromises()
+  expect(bq('[data-testid="mfa-relogin-hint"]')).toBeTruthy()
+  expect(bq('[data-testid="mfa-relogin-hint"]').textContent).toContain(i18n.global.t('userCenter.mfa.reloginHint'))
+  w.unmount()
+})
+
+// === W3 final-review 修复:账户安全面 step-up 拦截改密 / 已启用态重新生成恢复码 ===
+test('改密 409 stepUpRequired → StepUpDialog 验过 → 重放同一次改密成功(表单保留)', async () => {
+  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: true }, prefs: {}, mfaPending: false })
+  apiMocks.changePassword.mockRejectedValueOnce(httpError(409, '需要重新验证', { stepUpRequired: true }))
+  apiMocks.changePassword.mockResolvedValueOnce({ ok: true, revoked: 0 })
+  const w = mountPage('security')
+  await flushPromises()
+  await w.find('[data-testid="pwd-current"]').setValue('right-password')
+  await w.find('[data-testid="pwd-new"]').setValue('newpassword1')
+  await w.find('[data-testid="pwd-confirm"]').setValue('newpassword1')
+  await w.find('[data-testid="pwd-submit"]').trigger('click')
+  await flushPromises()
+  expect(apiMocks.changePassword).toHaveBeenCalledTimes(1)
+  // 409 拦截:弹 StepUpDialog 而非报错 toast;表单保留(密码不丢),验过重放
+  expect(bq('[data-testid="stepup-input"]')).toBeTruthy()
+  expect(w.find('[data-testid="pwd-current"]').element.value).toBe('right-password')
+  await setInput('[data-testid="stepup-input"]', '333444')
+  bq('[data-testid="stepup-submit"]').click()
+  await flushPromises()
+  expect(apiMocks.stepUp).toHaveBeenCalledWith('333444')
+  expect(apiMocks.changePassword).toHaveBeenCalledTimes(2)
+  expect(apiMocks.changePassword).toHaveBeenLastCalledWith('right-password', 'newpassword1')
+  expect(w.find('[data-testid="pwd-current"]').element.value).toBe('')
+  w.unmount()
+})
+
+test('MFA 已启用:重新生成恢复码钮;setup 409 → StepUpDialog 验过 → 重放 setup → 新密钥启用弹窗', async () => {
+  apiMocks.me.mockResolvedValue({ user: { id: 'u1', username: 'alice', role: 'user', displayName: 'Alice', totpEnabled: true }, prefs: {}, mfaPending: false })
+  apiMocks.mfaSetup.mockRejectedValueOnce(httpError(409, '需要重新验证', { stepUpRequired: true }))
+  const w = mountPage('security')
+  await flushPromises()
+  expect(w.find('[data-testid="mfa-regen-btn"]').exists()).toBe(true)
+  await w.find('[data-testid="mfa-regen-btn"]').trigger('click')
+  await flushPromises()
+  expect(apiMocks.mfaSetup).toHaveBeenCalledTimes(1)
+  // 409 拦截:StepUpDialog 弹出,启用弹窗不误弹
+  expect(bq('[data-testid="stepup-input"]')).toBeTruthy()
+  expect(bq('[data-testid="mfa-qr"]')).toBe(null)
+  await setInput('[data-testid="stepup-input"]', '333444')
+  bq('[data-testid="stepup-submit"]').click()
+  await flushPromises()
+  expect(apiMocks.stepUp).toHaveBeenCalledWith('333444')
+  expect(apiMocks.mfaSetup).toHaveBeenCalledTimes(2)
+  // 重放成功 → 启用弹窗带新 secret:走完整 enable 即同时轮换 TOTP 密钥 + 恢复码组(server W3-A 裁决)
+  expect(bq('[data-testid="mfa-qr"]')).toBeTruthy()
+  expect(bq('[data-testid="mfa-secret"]').textContent).toContain('SECRET2345X')
+  expect(bq('[data-testid="mfa-otpauth"]').textContent).toContain('otpauth://totp/AliangBoard:alice')
+  await setInput('[data-testid="mfa-code-input"]', '123456')
+  bq('[data-testid="mfa-confirm"]').click()
+  await flushPromises()
+  expect(apiMocks.mfaEnable).toHaveBeenCalledWith({ secret: 'SECRET2345X', code: '123456' })
+  expect(bq('[data-testid="mfa-recovery-codes"]').textContent).toContain('rc-aaaa-bbbb')
+  w.unmount()
 })

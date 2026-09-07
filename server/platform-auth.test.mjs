@@ -52,3 +52,29 @@ test('无 query 的根路径:返回空串', () => {
   }
   assert.equal(extractPlatformToken(req), '')
 })
+
+// W3 Task 6:kubectl 类客户端只能发标准 Authorization: Bearer(kubeconfig user.token 的
+// 唯一载体)。优先级:x-platform-token(浏览器)> Authorization Bearer > ?token=(SSE)。
+test('Authorization: Bearer 回退(W3 Task 6 kubeconfig 凭据):无 x-platform-token 时取 Bearer 值', () => {
+  const req = {
+    headers: { authorization: 'Bearer platform-token-for-kubectl' },
+    url: '/api/k8s-proxy/c1/api/v1/namespaces/default/pods',
+  }
+  assert.equal(extractPlatformToken(req), 'platform-token-for-kubectl')
+})
+
+test('x-platform-token 优先于 Authorization: Bearer(浏览器路径不受污染)', () => {
+  const req = {
+    headers: { 'x-platform-token': 'tok-from-header', authorization: 'Bearer k8s-session-token' },
+    url: '/api/auth/me',
+  }
+  assert.equal(extractPlatformToken(req), 'tok-from-header')
+})
+
+test('非 Bearer 的 Authorization(如 Basic)不当作平台 token', () => {
+  const req = {
+    headers: { authorization: 'Basic dXNlcjpwYXNz' },
+    url: '/api/k8s-proxy/c1/api/v1/pods',
+  }
+  assert.equal(extractPlatformToken(req), '')
+})

@@ -57,4 +57,5 @@ export const TABLE = {
   'admin.groupOrUserNotFound': { zh: '组或用户不存在', en: 'Group or user not found' },
   'admin.grantInvalid': { zh: '授权参数非法', en: 'Invalid grant parameters' },
   'admin.nsModeInvalid': { zh: '模式须为 open 或 allowlist', en: 'Mode must be open or allowlist' },
+  'admin.mfaPolicyInvalid': { zh: 'enabled 必须为布尔值', en: 'enabled must be a boolean' },
 }

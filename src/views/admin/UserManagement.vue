@@ -1,5 +1,5 @@
 <script setup>
-// 用户管理（admin only）：用户 CRUD + 分配集群
+// 用户管理（admin only）：用户 CRUD + 分配集群 + 强制下线(W3 Task 5)
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminApi, authApi } from '@/api/client'
@@ -7,6 +7,7 @@ import { notify } from '@/composables/useToast'
 import { useTableColumns } from '@/composables/useTableColumns'
 import Modal from '@/components/common/Modal.vue'
 import DataTable from '@/components/common/DataTable.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { useRequiredFields } from '@/composables/useRequiredFields'
 
 const { t } = useI18n()
@@ -24,6 +25,14 @@ const assignClusterIds = ref([])
 const { errors: createErrors, validate: validateCreate, clear: clearCreateError, reset: resetCreateErrors } = useRequiredFields()
 const { errors: resetErrors, validate: validateReset, clear: clearResetError, reset: resetResetErrors } = useRequiredFields()
 
+// 会话数据面(W3 Task 5):mfaPending 徽章按「该用户任一会话受限」判定;失败不阻塞用户列表。
+const sessionRows = ref([])
+async function loadSessions() {
+  try { sessionRows.value = (await adminApi.sessions.list({ size: 200 })).items || [] }
+  catch { sessionRows.value = [] }
+}
+function hasPendingMfa(u) { return sessionRows.value.some(s => s.userId === u.id && s.mfaPending) }
+
 async function load() {
   loading.value = true
   try {
@@ -33,7 +42,7 @@ async function load() {
   } catch (e) { notify('error', e.message || t('common.loadFailed')) }
   finally { loading.value = false }
 }
-onMounted(load)
+onMounted(() => { load(); loadSessions() })
 
 async function doCreate() {
   if (!validateCreate(createForm.value, ['username', 'password'])) { notify('error', t('admin.users.missingRequired')); return }
@@ -66,6 +75,20 @@ async function doReset() {
   try { await adminApi.users.resetPassword(targetUser.value.id, resetForm.value.newPassword); notify('success', t('admin.users.passwordReset')); showResetModal.value = false }
   catch (e) { notify('error', e.message || t('admin.users.resetFailed')) }
 }
+// 强制下线(W3 Task 5):级联吊销该用户全部平台会话(含 k8s 凭据);ConfirmDialog danger。
+const showForceConfirm = ref(false)
+const forceTarget = ref(null)
+function askForceLogout(u) { forceTarget.value = u; showForceConfirm.value = true }
+async function doForceLogout() {
+  const u = forceTarget.value
+  showForceConfirm.value = false
+  if (!u) return
+  try {
+    const r = await adminApi.sessions.forceLogout(u.id)
+    notify('success', t('admin.sessions.revoked', { n: r?.revoked ?? 0 }))
+    loadSessions()
+  } catch (e) { notify('error', e.message || t('common.opFailed')) }
+}
 function clusterName(id) { return allClusters.value.find(c => c.id === id)?.name || id.slice(0, 8) }
 
 const headers = computed(() => tableColumns('userMgmt'))
@@ -83,7 +106,9 @@ const headers = computed(() => tableColumns('userMgmt'))
     <div v-if="loading" class="py-xl text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block text-2xl">progress_activity</span></div>
 
     <DataTable v-else :headers="headers" :rows="users" column-key="userMgmt" row-key="id">
-      <template #username="{ row }"><span class="font-mono text-body-sm font-medium">{{ row.username }}</span></template>
+      <template #username="{ row }"><span class="font-mono text-body-sm font-medium">{{ row.username }}</span>
+        <span v-if="hasPendingMfa(row)" data-testid="mfa-pending-badge" :title="$t('admin.sessions.mfaPendingHint')"
+          class="ml-xs px-1.5 py-0.5 rounded bg-tertiary-container/60 text-on-tertiary-container text-body-xs font-medium">{{ $t('admin.sessions.mfaPending') }}</span></template>
       <template #role="{ row }"><span class="px-1.5 py-0.5 rounded text-body-xs font-medium" :class="row.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-surface-container text-on-surface-variant'">{{ row.role }}</span></template>
       <template #displayName="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.displayName || '—' }}</span></template>
       <template #assignedClusters="{ row }"><span class="text-body-xs text-on-surface-variant">{{ $t('admin.users.clusterCount', { n: (row.clusterIds || []).length, list: (row.clusterIds || []).map(clusterName).join(', ') || $t('common.none') }) }}</span></template>
@@ -92,6 +117,7 @@ const headers = computed(() => tableColumns('userMgmt'))
         <div class="flex items-center justify-end gap-xs">
           <button @click.stop="openAssign(row)" class="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('admin.users.assignClusters')"><span class="material-symbols-outlined text-base">share</span></button>
           <button @click.stop="openReset(row)" class="p-1 rounded hover:bg-tertiary-container/10 text-on-surface-variant hover:text-tertiary-container relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('admin.users.resetPassword')"><span class="material-symbols-outlined text-base">key</span></button>
+          <button @click.stop="askForceLogout(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('admin.sessions.forceLogout')"><span class="material-symbols-outlined text-base">power_settings_new</span></button>
           <button @click.stop="toggleDisable(row)" class="p-1 rounded hover:bg-surface-container text-on-surface-variant relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="row.disabled ? $t('admin.users.enable') : $t('admin.users.disable')"><span class="material-symbols-outlined text-base">{{ row.disabled ? 'check_circle' : 'block' }}</span></button>
           <button @click.stop="doDelete(row)" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('common.delete')"><span class="material-symbols-outlined text-base">delete</span></button>
         </div>
@@ -146,5 +172,10 @@ const headers = computed(() => tableColumns('userMgmt'))
         <button @click="doReset" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ $t('admin.users.reset') }}</button>
       </template>
     </Modal>
+    <!-- 强制下线确认(W3 Task 5) -->
+    <ConfirmDialog v-model="showForceConfirm" danger
+      :title="$t('admin.sessions.forceLogoutTitle', { name: forceTarget?.username || '' })"
+      :message="$t('admin.sessions.forceLogoutMessage', { name: forceTarget?.username || '' })"
+      @confirm="doForceLogout" />
   </section>
 </template>

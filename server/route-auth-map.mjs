@@ -19,6 +19,7 @@ export const ROUTE_AUTH = [
   // --- 公有(allowlist 守卫测试锁定) ---
   { method: 'GET',    pattern: '/api/health',    auth: 'none' },  // 存活探针(无鉴权,deployment.yaml 探针依赖)
   { method: 'POST',   pattern: '/api/auth/login', auth: 'none' },
+  { method: 'POST',   pattern: '/api/auth/login/mfa', auth: 'none' }, // W3 §1.3:登录二步第二步(票据+验证码;自身独立限流,handler 内验)
   { method: 'POST',   pattern: '/api/auth/logout', auth: 'none' }, // 幂等:无 token 也 200
   { method: 'DELETE', pattern: '/api/session',   auth: 'none' },  // 幂等登出:无 token 也 204(POST /api/session 已下线:CSO #1 未认证 SSRF 链)
   // --- 平台 ---
@@ -38,6 +39,8 @@ export const ROUTE_AUTH = [
   { prefix: '/api/my/keys/',                            auth: 'platform' }, // DELETE /:id(归属过滤)
   { method: 'GET',  pattern: '/api/my/activity',        auth: 'platform' }, // 我的活动(audit_log 本人只读视图,90d 窗口)
   { method: 'GET',  pattern: '/api/my/grantable-ns',    auth: 'platform' }, // 自助令牌可签发 namespace 集(W2 Phase A)
+  { method: 'GET',  pattern: '/api/my/kubeconfig',      auth: 'platform' }, // W3 Task 6:个人 kubeconfig 下发(token=平台 token)
+  { prefix: '/api/k8s-proxy/',                           auth: 'platform' }, // W3 Task 6:kubectl 凭据面(内层兑换活跃 K8s 会话→复用 /api/k8s 透传管线;Bearer 平台 token)
   { method: 'POST', pattern: '/api/connect-cluster',    auth: 'platform' },
   { method: 'GET',  pattern: '/api/version',            auth: 'platform' },
   { method: 'POST', pattern: '/api/version/check',      auth: 'platform' },
@@ -81,6 +84,18 @@ export function authClassFor(method, pathname) {
     if (r.prefix != null && pathname.startsWith(r.prefix) && (!r.method || r.method === method)) return r.auth
   }
   return undefined
+}
+
+// W3 §1.5 受限 token(mfaPending=1)放行白名单——单一事实源,index.mjs platformUserFromRequest
+// 与前端引导页共用语义。仅放行「自我认知 + 完成 MFA 启用 + 登出」四类(裁决 R5 精确清单,
+// 不含 avatar/PATCH me 等):GET /api/auth/me、POST /api/auth/mfa/*、POST /api/auth/logout、
+// PUT /api/auth/preferences(引导页保语言)。其余一律 403 auth.mfaEnrollmentRequired。
+export function isMfaPendingAllowed(method, pathname) {
+  if (method === 'GET' && pathname === '/api/auth/me') return true
+  if (method === 'POST' && pathname === '/api/auth/logout') return true
+  if (method === 'PUT' && pathname === '/api/auth/preferences') return true
+  if (method === 'POST' && pathname.startsWith('/api/auth/mfa/')) return true
+  return false
 }
 
 // 门机制:按 class 分发到注入的验证器。纯函数式(验证器/sendJson 均注入),可单测。

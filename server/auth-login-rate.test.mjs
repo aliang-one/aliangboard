@@ -12,10 +12,11 @@ function makeDb() {
   const db = new DatabaseSync(':memory:')
   db.exec(`CREATE TABLE IF NOT EXISTS platform_users (
     id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, passwordHash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'user', displayName TEXT, createdAt INTEGER NOT NULL, disabled INTEGER DEFAULT 0)`)
+    role TEXT NOT NULL DEFAULT 'user', displayName TEXT, createdAt INTEGER NOT NULL, disabled INTEGER DEFAULT 0, totpSecret TEXT)`)
   db.exec(`CREATE TABLE IF NOT EXISTS platform_sessions (
     token TEXT PRIMARY KEY, userId TEXT NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL,
-    createdAt INTEGER NOT NULL, k8sSessionToken TEXT, lastSeenAt INTEGER, ip TEXT, userAgent TEXT)`)
+    createdAt INTEGER NOT NULL, k8sSessionToken TEXT, lastSeenAt INTEGER, ip TEXT, userAgent TEXT,
+    mfaPending INTEGER DEFAULT 0, stepUpAt INTEGER)`)
   createAuditSchema(db)
   return db
 }

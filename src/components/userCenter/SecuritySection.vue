@@ -1,16 +1,23 @@
 <script setup>
 // 安全卡(2026-09-04 Wave1 §3.1,自 UserProfile.vue 原样迁入):改密 + 会话列表/分页/吊销 + ConfirmDialog。
-// createdAt 展示与刷新钮留给 Task 9,本任务先原样迁。
+// W3 Task 4(2026-09-07)增:两步验证(MFA)区——扫码启用(二维码/密钥/otpauth 三通道)→ 恢复码
+// 一次性弹窗;已启用态徽章 + 重新生成恢复码 + 禁用(账户安全面 409 stepUpRequired → StepUpDialog 验过重放)。
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import QRCode from 'qrcode'
 import { authApi } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import { notify } from '@/composables/useToast'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import StepUpDialog from '@/components/common/StepUpDialog.vue'
+import Modal from '@/components/common/Modal.vue'
+import KubectlCard from '@/components/userCenter/KubectlCard.vue'
 import { uaSummary } from '@/utils/uaSummary'
 import { firstFailedRule, failedRuleMessageKey, DEFAULT_PASSWORD_POLICY } from '@/utils/passwordRules'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 // === 改密 ===
 const pwdForm = ref({ current: '', next: '', confirm: '' })
@@ -31,7 +38,15 @@ async function changePassword() {
     const res = await authApi.changePassword(pwdForm.value.current, pwdForm.value.next)
     pwdForm.value = { current: '', next: '', confirm: '' }
     notify('success', t('userCenter.passwordChanged', { n: res.revoked ?? 0 }))
-  } catch (e) { notify('error', e.message || t('common.opFailed')) }
+  } catch (e) {
+    // step-up 周界(W3 §1.4):stepUpAt 过期 → 409 {stepUpRequired};弹 StepUpDialog,验过重放同一次改密
+    if (e?.status === 409 && e?.details?.stepUpRequired) {
+      pendingStepUpAction.value = changePassword
+      showStepUp.value = true
+      return   // finally 复位 loading;表单保留(密码不丢),验过重放
+    }
+    notify('error', e.message || t('common.opFailed'))
+  }
   finally { pwdLoading.value = false }
 }
 
@@ -55,6 +70,7 @@ async function loadSessions() {
 onMounted(() => {
   loadSessions()
   authApi.getPasswordPolicy().then((r) => { policy.value = r.policy || DEFAULT_PASSWORD_POLICY }).catch(() => {})
+  refreshMfa()
 })
 function askRevoke(s) { revokeTarget.value = s; showRevokeConfirm.value = true }
 function askRevokeOthers() { revokeTarget.value = { fingerprint: 'others' }; showRevokeConfirm.value = true }
@@ -70,6 +86,138 @@ async function doRevoke() {
   } catch (e) { notify('error', e.message || t('common.opFailed')) }
 }
 function fmtTime(ts) { return ts ? new Date(ts).toLocaleString() : '—' }
+
+// === 两步验证 MFA(W3 Task 4) ===
+const mfaEnrolled = ref(false)
+const mfaRestricted = ref(false)   // 挂载时会话受限(mfaPending=1):enable 成功后引导重新登录
+// 启停以响应应为权威(成功即翻转本地态),挂载时 /me 校准 + 同步 store(顶栏等消费方)。
+async function refreshMfa() {
+  try {
+    const res = await authApi.me()
+    mfaEnrolled.value = !!res.user?.totpEnabled
+    // 真实载荷是 JSON 布尔(服务端 ps.mfaPending === 1);truthy 判定对布尔/数字斯通(review round 1)
+    mfaRestricted.value = !!res.mfaPending
+  } catch { mfaEnrolled.value = !!authStore.user?.totpEnabled }
+  syncMfaToStore()
+}
+function syncMfaToStore() {
+  if (authStore.user) authStore.user = { ...authStore.user, totpEnabled: mfaEnrolled.value }
+}
+
+// 启用弹窗:二维码(otpauth URI)+ otpauth 文本 + 手输密钥三通道
+const showEnroll = ref(false)
+const enrollQr = ref('')
+const enrollSecret = ref('')
+const enrollUri = ref('')
+const enrollCode = ref('')
+const enrollError = ref('')
+const enrollLoading = ref(false)
+async function startEnroll() {
+  enrollCode.value = ''
+  enrollError.value = ''
+  try {
+    const res = await authApi.mfaSetup()
+    enrollSecret.value = res.secret
+    enrollUri.value = res.otpauthUri
+    // qrcode.toString(type:svg) 产 SVG 标记 → 包成 data URL 喂 <img>(测试桩直出 data: 则原样透传)
+    const raw = await QRCode.toString(res.otpauthUri, { type: 'svg', margin: 1 })
+    enrollQr.value = raw.startsWith('data:') ? raw : `data:image/svg+xml;utf8,${encodeURIComponent(raw)}`
+    showEnroll.value = true
+  } catch (e) { notify('error', e.message || t('common.opFailed')) }
+}
+// 重新生成恢复码(spec §1.4):已启用者 setup 必 409 step-up → 验过重放 setup(新 secret)→ 复用启用
+// 弹窗走完整 enable——server W3-A 裁决:已启用再 enable = 同时轮换 TOTP 密钥 + 恢复码组(旧恢复码全作废)。
+async function regenRecoveryCodes() {
+  try {
+    const res = await authApi.mfaSetup()
+    enrollCode.value = ''
+    enrollError.value = ''
+    enrollSecret.value = res.secret
+    enrollUri.value = res.otpauthUri
+    const raw = await QRCode.toString(res.otpauthUri, { type: 'svg', margin: 1 })
+    enrollQr.value = raw.startsWith('data:') ? raw : `data:image/svg+xml;utf8,${encodeURIComponent(raw)}`
+    showEnroll.value = true
+  } catch (e) {
+    if (e?.status === 409 && e?.details?.stepUpRequired) {
+      pendingStepUpAction.value = regenRecoveryCodes
+      showStepUp.value = true
+      return
+    }
+    notify('error', e.message || t('common.opFailed'))
+  }
+}
+async function confirmEnroll() {
+  const code = enrollCode.value.trim()
+  if (!code) { enrollError.value = t('userCenter.mfa.codeMissing'); return }
+  enrollLoading.value = true
+  enrollError.value = ''
+  try {
+    const res = await authApi.mfaEnable({ secret: enrollSecret.value, code })
+    recoveryCodes.value = res.recoveryCodes || []
+    showEnroll.value = false
+    showRecovery.value = true
+    mfaEnrolled.value = true
+    syncMfaToStore()
+  } catch (e) {
+    enrollError.value = e.message || t('common.opFailed')
+  } finally { enrollLoading.value = false }
+}
+
+// 恢复码一次性弹窗:明文仅此次下发;受限会话在此引导重新登录(W3-A review:重登得完整 token,
+// 不引导重复 enable)
+const showRecovery = ref(false)
+const recoveryCodes = ref([])
+// 关闭即清空:恢复码明文不滞留组件态/DOM(review round 1 minor)
+function closeRecovery() {
+  showRecovery.value = false
+  recoveryCodes.value = []
+}
+async function copyRecoveryCodes() {
+  try {
+    await navigator.clipboard.writeText(recoveryCodes.value.join('\n'))
+    notify('success', t('common.copySuccess'))
+  } catch { notify('error', t('common.copyFailed')) }
+}
+
+// 禁用:需验码 + step-up 周界;409 {stepUpRequired} → StepUpDialog 验过同码重放
+const showDisable = ref(false)
+const disableCode = ref('')
+const disableError = ref('')
+const disableLoading = ref(false)
+const showStepUp = ref(false)
+const pendingStepUpAction = ref(null)
+function openDisable() {
+  disableCode.value = ''
+  disableError.value = ''
+  showDisable.value = true
+}
+async function confirmDisable() {
+  const code = disableCode.value.trim()
+  if (!code) { disableError.value = t('userCenter.mfa.codeMissing'); return }
+  disableLoading.value = true
+  disableError.value = ''
+  try {
+    await authApi.mfaDisable(code)
+    showDisable.value = false
+    disableCode.value = ''
+    mfaEnrolled.value = false
+    syncMfaToStore()
+    notify('success', t('common.success'))
+  } catch (e) {
+    if (e?.status === 409 && e?.details?.stepUpRequired) {
+      pendingStepUpAction.value = confirmDisable
+      showStepUp.value = true
+      return   // finally 复位 loading;禁用弹窗保留(码不丢),验过重放
+    }
+    disableError.value = e.message || t('common.opFailed')
+  } finally { disableLoading.value = false }
+}
+async function onStepUpDone() {
+  showStepUp.value = false
+  const replay = pendingStepUpAction.value
+  pendingStepUpAction.value = null
+  if (replay) await replay()
+}
 </script>
 
 <template>
@@ -97,6 +245,29 @@ function fmtTime(ts) { return ts ? new Date(ts).toLocaleString() : '—' }
     <button data-testid="pwd-submit" :disabled="pwdLoading"
       class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm disabled:opacity-50"
       @click="changePassword">{{ $t('userCenter.changePassword') }}</button>
+
+    <!-- 两步验证(W3 Task 4):未启用=启用钮;已启用=徽章+禁用钮 -->
+    <div class="mt-lg pt-lg border-t border-outline-variant/50 flex items-center justify-between gap-md">
+      <div class="min-w-0">
+        <h4 class="text-body-md font-semibold flex items-center gap-xs">
+          {{ $t('userCenter.mfa.title') }}
+          <span v-if="mfaEnrolled" data-testid="mfa-enabled-badge"
+            class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold">{{ $t('userCenter.mfa.enrolled') }}</span>
+        </h4>
+        <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('userCenter.mfa.desc') }}</p>
+      </div>
+      <button v-if="!mfaEnrolled" data-testid="mfa-enable-btn"
+        class="shrink-0 px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm"
+        @click="startEnroll">{{ $t('userCenter.mfa.enable') }}</button>
+      <div v-else class="shrink-0 flex items-center gap-sm">
+        <button data-testid="mfa-regen-btn"
+          class="px-md py-sm border border-outline-variant rounded-lg font-semibold text-body-sm text-on-surface-variant hover:bg-surface-container-high"
+          @click="regenRecoveryCodes">{{ $t('userCenter.mfa.regen') }}</button>
+        <button data-testid="mfa-disable-btn"
+          class="px-md py-sm border border-error/40 text-error rounded-lg font-semibold text-body-sm hover:bg-error/10"
+          @click="openDisable">{{ $t('userCenter.mfa.disable') }}</button>
+      </div>
+    </div>
 
     <div class="flex items-center justify-between mt-lg mb-sm">
       <h4 class="text-body-md font-semibold">{{ $t('userCenter.sessionsTitle') }}</h4>
@@ -126,8 +297,87 @@ function fmtTime(ts) { return ts ? new Date(ts).toLocaleString() : '—' }
       @page-change="(p) => (currentPage = p)" />
   </div>
 
+  <!-- kubectl 访问卡(W3 Task 6):独立组件 —— 本文件已超行数预算,卡自持容器 -->
+  <KubectlCard />
+
   <ConfirmDialog v-model="showRevokeConfirm" danger
     :title="$t('userCenter.revokeConfirmTitle')"
     :message="$t('userCenter.revokeConfirmMessage')"
     @confirm="doRevoke" />
+
+  <!-- MFA 启用弹窗:二维码 + otpauth URI + 手输密钥 + 验码 -->
+  <Modal :model-value="showEnroll" :title="$t('userCenter.mfa.enrollTitle')" width="max-w-sm"
+    @update:model-value="(v) => (showEnroll = v)">
+    <div class="flex flex-col gap-md">
+      <p class="text-body-sm text-on-surface-variant">{{ $t('userCenter.mfa.enrollHint') }}</p>
+      <img v-if="enrollQr" :src="enrollQr" data-testid="mfa-qr" :alt="$t('userCenter.mfa.title')"
+        class="w-44 h-44 mx-auto bg-white p-sm border border-outline-variant rounded-lg" />
+      <div class="min-w-0">
+        <p class="text-label-caps text-on-surface-variant mb-xs">{{ $t('userCenter.mfa.secretLabel') }}</p>
+        <p data-testid="mfa-secret" class="font-mono text-body-sm break-all select-all">{{ enrollSecret }}</p>
+      </div>
+      <div class="min-w-0">
+        <p class="text-label-caps text-on-surface-variant mb-xs">{{ $t('userCenter.mfa.otpauthLabel') }}</p>
+        <p data-testid="mfa-otpauth" class="font-mono text-body-xs text-on-surface-variant break-all">{{ enrollUri }}</p>
+      </div>
+      <input v-model="enrollCode" data-testid="mfa-code-input" type="text" inputmode="numeric" autocomplete="one-time-code"
+        :placeholder="$t('userCenter.mfa.codePlaceholder')" @keydown.enter="confirmEnroll"
+        :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-md tracking-widest outline-none transition-all', enrollError ? 'border-error' : 'border-outline-variant']" />
+      <p v-if="enrollError" data-testid="mfa-enroll-error" class="text-body-sm text-error">{{ enrollError }}</p>
+      <div class="flex justify-end gap-sm">
+        <button data-testid="mfa-enroll-cancel"
+          class="px-md py-sm rounded-lg text-body-sm text-on-surface-variant hover:bg-surface-container-high"
+          @click="showEnroll = false">{{ $t('common.cancel') }}</button>
+        <button data-testid="mfa-confirm" :disabled="enrollLoading"
+          class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm disabled:opacity-50"
+          @click="confirmEnroll">{{ $t('userCenter.mfa.enrollConfirm') }}</button>
+      </div>
+    </div>
+  </Modal>
+
+  <!-- 恢复码一次性弹窗:明文仅此次下发;受限会话引导重新登录;关闭即清空明文 -->
+  <Modal :model-value="showRecovery" :title="$t('userCenter.mfa.recoveryTitle')" width="max-w-sm"
+    @update:model-value="(v) => { if (!v) closeRecovery() }">
+    <div class="flex flex-col gap-md">
+      <p class="text-body-sm text-error font-medium">{{ $t('userCenter.mfa.recoveryHint') }}</p>
+      <ul data-testid="mfa-recovery-codes"
+        class="grid grid-cols-2 gap-x-md gap-xs bg-surface-container-low rounded-lg p-md font-mono text-body-sm">
+        <li v-for="(c, i) in recoveryCodes" :key="i" class="break-all">{{ c }}</li>
+      </ul>
+      <p v-if="mfaRestricted" data-testid="mfa-relogin-hint"
+        class="flex items-start gap-xs text-body-sm text-primary bg-primary/10 rounded-lg px-md py-sm">
+        <span class="material-symbols-outlined text-base">info</span>{{ $t('userCenter.mfa.reloginHint') }}
+      </p>
+      <div class="flex justify-end gap-sm">
+        <button data-testid="mfa-recovery-copy"
+          class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high"
+          @click="copyRecoveryCodes">{{ $t('userCenter.mfa.copyAll') }}</button>
+        <button data-testid="mfa-recovery-close"
+          class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm"
+          @click="closeRecovery">{{ $t('userCenter.mfa.recoveryDone') }}</button>
+      </div>
+    </div>
+  </Modal>
+
+  <!-- MFA 禁用弹窗:验码 + step-up 周界(409 → StepUpDialog 验过重放) -->
+  <Modal :model-value="showDisable" :title="$t('userCenter.mfa.disableTitle')" width="max-w-sm"
+    @update:model-value="(v) => (showDisable = v)">
+    <div class="flex flex-col gap-md">
+      <p class="text-body-sm text-on-surface-variant">{{ $t('userCenter.mfa.disableHint') }}</p>
+      <input v-model="disableCode" data-testid="mfa-disable-input" type="text" inputmode="numeric" autocomplete="one-time-code"
+        :placeholder="$t('userCenter.mfa.codePlaceholder')" @keydown.enter="confirmDisable"
+        :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-md tracking-widest outline-none transition-all', disableError ? 'border-error' : 'border-outline-variant']" />
+      <p v-if="disableError" data-testid="mfa-disable-error" class="text-body-sm text-error">{{ disableError }}</p>
+      <div class="flex justify-end gap-sm">
+        <button data-testid="mfa-disable-cancel"
+          class="px-md py-sm rounded-lg text-body-sm text-on-surface-variant hover:bg-surface-container-high"
+          @click="showDisable = false">{{ $t('common.cancel') }}</button>
+        <button data-testid="mfa-disable-confirm" :disabled="disableLoading"
+          class="px-md py-sm bg-error text-on-error rounded-lg font-semibold text-body-sm disabled:opacity-50"
+          @click="confirmDisable">{{ $t('userCenter.mfa.disableConfirm') }}</button>
+      </div>
+    </div>
+  </Modal>
+
+  <StepUpDialog :visible="showStepUp" @done="onStepUpDone" @close="showStepUp = false" />
 </template>

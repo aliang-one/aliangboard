@@ -106,6 +106,18 @@ const platformHttp = createHttp({
   },
 })
 
+// MFA 账户安全面专用(W3 Task 4):mfa/disable / step-up 的 401 = 验码失败(会话仍有效),
+// 走 platformHttp 会被 401 全局处理清平台 token + 跳登录——错一次码就整页登出。
+// 此实例 401 不做全局副作用,错误交调用方行内提示;鉴权 header 与 platformHttp 同源。
+const mfaHttp = createHttp({
+  baseUrl,
+  resolveAuth: () => {
+    const t = getPlatformToken()
+    return t ? { 'x-platform-token': t } : {}
+  },
+  onUnauthorized: () => {},
+})
+
 // 导出任意资源的真实 YAML（kubectl get -o yaml）：拉取 live 对象 → 去 managedFields → dump → 下载
 export async function exportYaml(k8sPath, filename = 'resource.yaml') {
   const obj = await k8sHttp.request(`/api/k8s${k8sPath}`)
@@ -322,6 +334,13 @@ export const workbenchApi = {
 export const authApi = {
   login: payload => platformHttp.request('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => platformHttp.request('/api/auth/me'),
+  // —— W3 MFA(2026-09-07 Task 4):setup/enable 走 mfaHttp(401 无全局副作用,见实例注释);
+  // login/mfa 走 platformHttp(其 401=票据/验码失败,已被 /api/auth/login 前缀豁免全局登出) ——
+  mfaSetup: () => mfaHttp.request('/api/auth/mfa/setup', { method: 'POST' }),
+  mfaEnable: payload => mfaHttp.request('/api/auth/mfa/enable', { method: 'POST', body: JSON.stringify(payload) }),
+  mfaDisable: code => mfaHttp.request('/api/auth/mfa/disable', { method: 'POST', body: JSON.stringify({ code }) }),
+  mfaLogin: (username, mfaTicket, code) => platformHttp.request('/api/auth/login/mfa', { method: 'POST', body: JSON.stringify({ username, mfaTicket, code }) }),
+  stepUp: code => mfaHttp.request('/api/auth/step-up', { method: 'POST', body: JSON.stringify({ code }) }),
   logout: () => platformHttp.request('/api/auth/logout', { method: 'POST' }),
   updateMe: patch => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify(patch) }),
   changePassword: (currentPassword, newPassword) => platformHttp.request('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
@@ -338,6 +357,8 @@ export const authApi = {
   myKeysMint: payload => platformHttp.request('/api/my/keys', { method: 'POST', body: JSON.stringify(payload) }),
   myKeysRevoke: id => platformHttp.request(`/api/my/keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   grantableNs: clusterId => platformHttp.request(`/api/my/grantable-ns?clusterId=${encodeURIComponent(clusterId)}`),
+  // W3 Task 6:个人 kubeconfig 下发(text/plain YAML;parseBody 对非 JSON 回原文本)
+  myKubeconfig: clusterId => platformHttp.request(`/api/my/kubeconfig?clusterId=${encodeURIComponent(clusterId)}`),
   uploadAvatar: dataUrl => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ avatar: dataUrl }) }),
   clearAvatar: () => platformHttp.request('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ avatarClear: true }) }),
   getAvatar: () => platformHttp.request('/api/auth/me/avatar'),
@@ -370,6 +391,11 @@ export const adminApi = {
   grants: {
     save: payload => platformHttp.request('/api/admin/grants', { method: 'PUT', body: JSON.stringify(payload) }),
     list: params => platformHttp.request(`/api/admin/grants?${new URLSearchParams(params)}`),
+  },
+  // 会话治理(W3 Task 5):全用户会话列表(userAgent 原样,前端 uaSummary 摘要)+ 按用户强制下线
+  sessions: {
+    list: (params = {}) => platformHttp.request(`/api/admin/sessions?${new URLSearchParams(params)}`),
+    forceLogout: userId => platformHttp.request(`/api/admin/sessions/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
   },
   apikeys: {
     list: () => platformHttp.request('/api/admin/apikeys'),

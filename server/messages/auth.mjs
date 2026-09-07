@@ -20,4 +20,12 @@ export const TABLE = {
   'auth.passwordNeedMixed': { zh: '密码需同时包含大小写字母', en: 'Password must contain both upper and lower case letters' },
   'auth.passwordNeedDigit': { zh: '密码需包含数字', en: 'Password must contain a digit' },
   'auth.passwordNeedSymbol': { zh: '密码需包含符号', en: 'Password must contain a symbol' },
+  // Wave 3 MFA(W3 §1.3/§1.5/§2)
+  'auth.mfaInputRequired': { zh: '缺少必要参数(用户名 / 票据 / 密钥 / 验证码)', en: 'Required parameter missing (username / ticket / secret / code)' },
+  'auth.mfaCodeInvalid': { zh: '验证码错误', en: 'Invalid verification code' },
+  'auth.mfaTicketInvalid': { zh: '登录票据无效或已过期,请重新登录', en: 'Login ticket is invalid or expired, please sign in again' },
+  'auth.mfaNotEnabled': { zh: '尚未启用两步验证', en: 'Two-factor authentication is not enabled' },
+  'auth.mfaFailed': { zh: '两步验证操作失败', en: 'Two-factor operation failed' },
+  'auth.stepUpRequired': { zh: '需要重新验证身份,请输入两步验证码', en: 'Recent authentication required, please enter your two-factor code' },
+  'auth.mfaEnrollmentRequired': { zh: '管理员已要求启用两步验证,请先完成启用后再继续', en: 'Your administrator requires two-factor authentication — enroll before continuing' },
 }
