@@ -25,6 +25,7 @@ function makeDb() {
     userId TEXT NOT NULL, codeHash TEXT NOT NULL, usedAt INTEGER,
     PRIMARY KEY (userId, codeHash))`)
   db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT NOT NULL,
+    authMethod TEXT, createdAt INTEGER,
     authHeader TEXT, ca TEXT, cert TEXT, key TEXT, insecure INTEGER DEFAULT 0, version TEXT, nsAuthMode TEXT DEFAULT 'open')`)
   db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
   db.exec(`CREATE TABLE groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, createdAt INTEGER NOT NULL, createdBy TEXT)`)
@@ -464,6 +465,48 @@ test('GET me:admin 响应 grants = { role: admin }', async () => {
   const { routes, sent } = makeRoutes(db)
   await call(routes, 'GET', '/api/auth/me')
   assert.deepEqual(sent[0].payload.grants, { role: 'admin' })
+})
+
+// ===== 残余收尾 fix 4(2026-09-07):/api/my-clusters 下发 nsAuthMode + 非 admin effective ns 概要 =====
+test('GET /api/my-clusters:非 admin 每行带 nsAuthMode;allowlist 合并 user∪组授权取高档;open/零授权省略 nsGrants;admin 行无 nsGrants', async () => {
+  const db = makeAuthzDb()
+  // 组 g1(u1 成员)对 c1 授 app/operate(与 user 直授 app/view 合并取高档)+ db/view
+  db.prepare("INSERT INTO groups (id,name,createdAt) VALUES ('g1','devs',1)").run()
+  db.prepare("INSERT INTO group_members (groupId,userId,createdAt) VALUES ('g1','u1',1)").run()
+  db.prepare("INSERT INTO ns_grants VALUES ('gr3','group','g1','c1','app','operate',NULL,1)").run()
+  db.prepare("INSERT INTO ns_grants VALUES ('gr4','group','g1','c1','db','view',NULL,1)").run()
+  // c3:allowlist 已分配但零授权 → nsGrants 省略
+  db.prepare("INSERT INTO clusters (id,name,apiServer,nsAuthMode) VALUES ('c3','staging','https://k8s:6443','allowlist')").run()
+  db.prepare("INSERT INTO user_clusters VALUES ('u1','c3','admin',1)").run()
+  // admin 会话:全量集群(含未分配),无 nsGrants
+  db.prepare("INSERT INTO platform_users (id,username,passwordHash,role,createdAt) VALUES ('root','root','x','admin',1)").run()
+  db.prepare("INSERT INTO platform_sessions (token,userId,username,role,createdAt) VALUES ('t-root','root','root','admin',1)").run()
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'GET', '/api/my-clusters')
+  assert.equal(sent[0].status, 200)
+  const rows = sent[0].payload.clusters
+  assert.deepEqual(rows.map(r => r.id).sort(), ['c1', 'c2', 'c3'])
+  const c1 = rows.find(r => r.id === 'c1')
+  const c2 = rows.find(r => r.id === 'c2')
+  const c3 = rows.find(r => r.id === 'c3')
+  assert.equal(c1.nsAuthMode, 'allowlist')
+  // app = user view ∪ group operate → operate(高档);ops = user 直授;db = 组授权
+  assert.deepEqual(c1.nsGrants, [
+    { namespace: 'app', level: 'operate' }, { namespace: 'db', level: 'view' }, { namespace: 'ops', level: 'operate' },
+  ])
+  assert.equal(c2.nsAuthMode, 'open')
+  assert.equal(c2.nsGrants, undefined, 'open 集群由 nsAuthMode 表达全开,不下发 nsGrants')
+  assert.equal(c3.nsAuthMode, 'allowlist')
+  assert.equal(c3.nsGrants, undefined, 'allowlist 已分配但零有效授权 → 省略')
+  // admin:全量 + nsAuthMode,但无 nsGrants
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-root' } }, {}, new URL('/api/my-clusters', 'http://x'))
+  assert.equal(sent[1].status, 200)
+  const adminRows = sent[1].payload.clusters
+  assert.deepEqual(adminRows.map(r => r.id).sort(), ['c1', 'c2', 'c3'])
+  for (const r of adminRows) {
+    assert.ok(r.nsAuthMode, 'admin 行也带 nsAuthMode')
+    assert.equal(r.nsGrants, undefined, 'admin 行不下发 nsGrants')
+  }
 })
 
 test('GET /api/my/grantable-ns:allowlist 返回本人该集群 ns;open 集群 409;未分配 403', async () => {

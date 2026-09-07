@@ -770,14 +770,26 @@ export function createAuthRoutes(deps) {
     }
 
     // GET /api/my-clusters — 当前用户可接入的集群列表(Layer 2 集群选择)
+    // 两分支均下发 nsAuthMode(全开由它表达);非 admin 追加 effective ns 概要
+    // nsGrants(残余收尾 fix 4,2026-09-07):allowlist 集群合并 user 直授∪组授权取高档;
+    // open / 已分配零有效授权 / admin 行省略该字段。合并语义复用 effectiveGrants 单一决策源。
     if (url.pathname === '/api/my-clusters' && req.method === 'GET') {
       const ps = requirePlatform(req, res); if (!ps) return true
       let rows
       if (ps.role === 'admin') {
-        rows = db.prepare('SELECT id,name,apiServer,version,authMethod,createdAt FROM clusters ORDER BY name').all()
+        rows = db.prepare('SELECT id,name,apiServer,version,authMethod,nsAuthMode,createdAt FROM clusters ORDER BY name').all()
       } else {
-        rows = db.prepare(`SELECT c.id,c.name,c.apiServer,c.version,c.authMethod,c.createdAt FROM clusters c
+        rows = db.prepare(`SELECT c.id,c.name,c.apiServer,c.version,c.authMethod,c.nsAuthMode,c.createdAt FROM clusters c
           JOIN user_clusters uc ON uc.clusterId=c.id WHERE uc.userId=? ORDER BY c.name`).all(ps.userId)
+        const grants = effectiveGrants(db, { userId: ps.userId, role: ps.role })
+        for (const row of rows) {
+          if ((row.nsAuthMode || 'open') === 'open') continue // open:全开由 nsAuthMode 表达
+          const ns = grants.clusters.get(row.id)?.ns
+          if (!ns || !ns.size) continue // 已分配但零有效授权 → 省略
+          row.nsGrants = [...ns.entries()]
+            .map(([namespace, level]) => ({ namespace, level }))
+            .sort((a, b) => a.namespace.localeCompare(b.namespace))
+        }
       }
       sendJson(res, 200, { clusters: rows })
       return true
