@@ -5,6 +5,7 @@ import { ref, watch, onMounted, onUnmounted, getCurrentInstance } from 'vue'
 import { api, k8sStream, getSessionToken } from '@/api/client'
 import { i18n } from '@/i18n'
 import { parseLogLine, buildLogQuery, pushCapped } from '@/logic/podLogs'
+import { writePopupTokenHandoff } from '@/logic/popupToken'
 
 export const MAX_LOG_BUFFER = 5000
 export const LOG_LINE_OPTIONS = [100, 500, 1000, 5000]
@@ -86,7 +87,10 @@ export function useLogViewer({ namespace, podName, container }) {
 }
 
 // 在新浏览器标签页打开独立日志页：同 ns+pod+container 复用同一标签页（具名 target 聚焦），换容器另开。
+// token 走 localStorage 交接槽不上 URL（与终端弹窗同构；2026-09-07 修：此前 URL token 自 4d4eede
+// 收紧消费分支后无人消费，日志弹窗恒报「会话已过期」）。
 export function openLogTab({ namespace, podName, container = '' }) {
-  const params = new URLSearchParams({ ns: namespace, pod: podName, container, token: getSessionToken() })
+  writePopupTokenHandoff(getSessionToken())
+  const params = new URLSearchParams({ ns: namespace, pod: podName, container })
   window.open(`${window.location.origin}/log-popup?${params}`, `log-${namespace}-${podName}-${container}`)
 }
