@@ -330,7 +330,7 @@ test('workbenchExcludeTools:未绑定裁 16 个 K8s 依赖工具;SSH 零暴露�
 // Task 6(2026-08-30)→ 2026-09-07 审计 F1 P0 白名单化:wb_ssh_job_* 走任务桥,其余 wb_ssh_*/
 // write_server_notes 走同步桥,**非 SSH 工具恒人审不进任何桥**——旧「其余走同步桥」兜底让 LLM
 // 给 wb_scale/wb_exec 等写工具伪造 server 参数即可借 none/readonly 策略服务器免审(见下方 P0 用例)。
-// 复合路由与 workbench-agent.mjs 两处装配同款(勿漂移);断言核心是路由分流而非审批值。
+// 白名单路由与 workbench-agent.mjs 两处装配同款(勿漂移);断言核心是路由分流而非审批值。
 test('routeDynamicApproval 白名单分流:job_*→jobs 桥,其余 wb_ssh_*/write_server_notes→ssh 桥,非 SSH 恒人审,缺桥收紧', async () => {
   const seen = []
   const ssh = { needsApproval: async (n) => { seen.push(['ssh', n]); return 'ssh-verdict' } }

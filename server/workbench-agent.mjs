@@ -325,7 +325,7 @@ const CK_TIME_MS = 500
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
-        // 动态审批复合路由(2026-08-30):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
+        // 动态审批白名单路由(2026-09-07 审计 F1):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
         dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
         // 轻量取消检查点(2026-09-06 审计#3):agent 循环按 DB 取消态中止队列剩余工具与
@@ -415,7 +415,7 @@ const CK_TIME_MS = 500
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
-        // 动态审批复合路由(2026-08-30):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
+        // 动态审批白名单路由(2026-09-07 审计 F1):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
         dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
         // 轻量取消检查点(2026-09-06 审计#3):与 run 路径同款(convId 闭包可用)。

@@ -76,9 +76,13 @@ async function save() {
   try {
     const n = Number(maxSteps.value)
     const maxStepsPayload = maxStepsUnlimited.value ? 0 : (Number.isInteger(n) && n > 0 ? Math.min(n, 200) : 16)
-    // 对话限额(F6):与 maxSteps 同款钳制(合法整数原样/钳上限;非法回落默认),0=不限制原样提交
-    const mr = Number(maxRunningConversations.value)
-    const mp = Number(maxConversationsPerProject.value)
+    // 对话限额(F6):与 maxSteps 同款钳制(合法整数原样/钳上限;非法回落默认),0=不限制原样提交。
+    // 清空输入(得 ''/null)先回落默认再钳制:Number('')===0 会把「空」伪装成 0=不限制
+    // (terminal-policy 页同型事故);0 是合法显式值,不能借 maxSteps 的 n>0 守卫挡空
+    const mrRaw = maxRunningConversations.value
+    const mpRaw = maxConversationsPerProject.value
+    const mr = (mrRaw === '' || mrRaw === null || mrRaw === undefined) ? 5 : Number(mrRaw)
+    const mp = (mpRaw === '' || mpRaw === null || mpRaw === undefined) ? 50 : Number(mpRaw)
     const maxRunningPayload = Number.isInteger(mr) && mr >= 0 ? Math.min(mr, 20) : 5
     const maxPerProjectPayload = Number.isInteger(mp) && mp >= 0 ? Math.min(mp, 500) : 50
     await adminApi.workbenchAiConfig.save({ additionalInstructions: instructions.value.slice(0, 4000), disabledTools: disabled.value, projectMemory: projectMemory.value, maxSteps: maxStepsPayload, maxRunningConversations: maxRunningPayload, maxConversationsPerProject: maxPerProjectPayload })

@@ -122,3 +122,18 @@ test('对话限额保存:改 8/0 → payload 含两键;0=不限制原样提交',
   expect(adminApi.workbenchAiConfig.save).toHaveBeenLastCalledWith(
     expect.objectContaining({ maxRunningConversations: 8, maxConversationsPerProject: 0 }))
 })
+
+// 终审 F1(2026-09-07):清空输入(v-model.number 得 '')不得伪装成 0=不限制——Number('')===0
+// 会穿过整数门,反滥用配额被静默放到最宽;空值必须回落默认 5/50
+test('对话限额清空保存:两输入清空 → payload 回落默认 5/50(而非 0=不限制)', async () => {
+  adminApi.workbenchAiConfig.get.mockResolvedValue({ ...FIXTURE, maxRunningConversations: 8, maxConversationsPerProject: 60 })
+  adminApi.workbenchAiConfig.save.mockResolvedValue({ ok: true })
+  const w = mount(AiBehaviorConfig, { global: { plugins: [i18n] } })
+  await flushPromises()
+  await w.find('[data-testid="conv-max-running"]').setValue('')
+  await w.find('[data-testid="conv-max-per-project"]').setValue('')
+  await w.find('[data-testid="save-btn"]').trigger('click')
+  await flushPromises()
+  expect(adminApi.workbenchAiConfig.save).toHaveBeenLastCalledWith(
+    expect.objectContaining({ maxRunningConversations: 5, maxConversationsPerProject: 50 }))
+})
