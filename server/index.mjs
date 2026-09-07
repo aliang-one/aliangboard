@@ -260,6 +260,12 @@ try { db.exec('ALTER TABLE platform_users ADD COLUMN avatarMime TEXT') } catch {
 // 安全性同源;政策同 passwordHash/salt,部署侧库文件 0600 已设,spec 明示「库文件即敏感」)。
 // mfaPending=1 受限 token(admin 强制开关下未启用者,§1.5);stepUpAt=最近一次强认证(登录/MFA 登录/step-up)。
 try { db.exec('ALTER TABLE platform_users ADD COLUMN totpSecret TEXT') } catch { /* 列已存在 */ }
+// Wave 4 OIDC(§D2):JIT 建户列——authProvider 区分 local/oidc(组同步只认 oidc,本地用户不动);
+// oidcSubject='<issuer>|<sub>' 身份锚(唯一索引,二次登录走 UPDATE 不重建)。passwordHash 对 oidc
+// 用户恒 NULL(建户逻辑在 oidc-provision.mjs,本地密码登录天然不可用,break-glass 走本地账号)。
+try { db.exec("ALTER TABLE platform_users ADD COLUMN authProvider TEXT NOT NULL DEFAULT 'local'") } catch { /* 列已存在 */ }
+try { db.exec('ALTER TABLE platform_users ADD COLUMN oidcSubject TEXT') } catch { /* 列已存在 */ }
+try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_subject ON platform_users(oidcSubject)') } catch { /* 已存在 */ }
 try { db.exec('ALTER TABLE platform_sessions ADD COLUMN mfaPending INTEGER DEFAULT 0') } catch { /* 列已存在 */ }
 try { db.exec('ALTER TABLE platform_sessions ADD COLUMN stepUpAt INTEGER') } catch { /* 列已存在 */ }
 // 恢复码:SHA-256 哈希入库(明文仅启用时一次性下发);usedAt 非 NULL = 已消费(登录即焚,裁决 R2)。
