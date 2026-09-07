@@ -61,6 +61,27 @@ test('needsApproval: always→true;readonly→分类器放行 cat/拦 rm;none→
   assert.equal(await mk('none').needsApproval('wb_ssh_exec', { server: 'dev-1', command: 'cat /etc/hostname', sudo: true }), false)  // none 政策本就免审,不因 sudo 变严
 })
 
+// ── 2026-09-07 审计 F1 P0 双保险:非 SSH 工具名恒人审 ──
+// 审计复现(agent-loop-01):wb_scale/wb_exec/write_project_file 等非 SSH 写工具带伪造 server 指向
+// none/readonly 策略暴露服务器,旧路由把裁决喂给本桥 → resolve 命中即按服务器策略免审直执行。
+// 路由层已改白名单(workbench-agent.routeDynamicApproval,非 SSH 恒 true 不进桥);此处锁桥自身
+// 防御:即使未来路由再错配,本桥也不给非 SSH 工具名按服务器策略放宽——server 是 LLM 生成参数,
+// 对非 SSH 工具毫无语义,放它进来等于「伪造 server 即免审」。
+test('防御(审计 F1):非 SSH 工具名(wb_scale/wb_exec/write_project_file)携 server 指向 none/readonly 暴露服 → 恒 true;SSH 族不误伤', async () => {
+  const mk = policy => createSshAgentBridge({ db: fakeDb({ rows: [{ id: 'c', name: 'dev-1', exposeToAi: 1, aiApprovalPolicy: policy }] }), key: KEY, pool: {}, projectId: 'p1' })
+  for (const policy of ['none', 'readonly']) {
+    const b = mk(policy)
+    assert.equal(await b.needsApproval('wb_scale', { server: 'dev-1', namespace: 'default', kind: 'deployments', name: 'nginx', replicas: 5 }), true, `${policy}: wb_scale`)
+    assert.equal(await b.needsApproval('wb_exec', { server: 'dev-1', namespace: 'default', pod: 'p1', command: 'cat /etc/shadow' }), true, `${policy}: wb_exec`)
+    assert.equal(await b.needsApproval('write_project_file', { server: 'dev-1', path: 'a.yaml', content: 'x' }), true, `${policy}: write_project_file`)
+  }
+  // 对照:SSH 族仍按各自策略裁决,防御不误伤(wb_ssh_run 2026-09-07 起也由本桥裁决)
+  assert.equal(await mk('none').needsApproval('wb_ssh_exec', { server: 'dev-1', command: 'ls' }), false)
+  assert.equal(await mk('readonly').needsApproval('wb_ssh_read_file', { server: 'dev-1', path: '/x' }), false)
+  assert.equal(await mk('readonly').needsApproval('wb_ssh_run', { server: 'dev-1', command: 'cat /etc/hostname' }), false)
+  assert.equal(await mk('always').needsApproval('wb_ssh_run', { server: 'dev-1', command: 'make all' }), true)
+})
+
 test('exec: 组装 pool.acquire(serverId, wb:<projectId>);sudo 包装 + 密码写 stdin;结果不含密码', async () => {
   const calls = []
   const pool = {
@@ -216,8 +237,9 @@ test('readLedger:渲染暴露服务器台账(含全局备注);writeNotes 全局/
   assert.ok(h.error && /未暴露/.test(h.error))
   // 写恒人审
   assert.equal(await bridge.needsApproval('write_server_notes', { scope: '__global__', notes: 'x' }), true)
-  // 读免审(静态 requiresApproval=false,不会进 needsApproval;这里只防呆)
-  assert.equal(await bridge.needsApproval('read_server_ledger', {}), true)   // resolve 无 server → true 安全默认,但该工具不进审批链
+  // 读免审(静态 requiresApproval=false,不会进 needsApproval;这里只防呆)。
+  // 2026-09-07 审计 F1 后非 SSH 工具名在桥入口即恒 true(防御),不再依赖「resolve 无 server」兜底。
+  assert.equal(await bridge.needsApproval('read_server_ledger', {}), true)
 })
 
 test('keyMode readonly + sudo 真值 → 拒绝(提权不经 key 通道)', async () => {

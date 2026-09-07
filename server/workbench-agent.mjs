@@ -20,13 +20,20 @@ import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 //   createAgentRunner —— ({ llmClient, workbench }) → { run, toolDefs }(agent-runner.mjs)
 //   busEmit           —— (convId, evt) => void(conv-bus.mjs emit)
 //   busDispose        —— (convId) => void(conv-bus.mjs dispose)
-// 动态审批复合路由(2026-08-30,单一事实源):wb_ssh_run / wb_ssh_job_* 由任务桥按其策略裁决,
-// 其余走同步桥。两处装配点(run/resume)必须都走这里;两桥缺谁走默认收紧(true)。
+// 动态审批白名单路由(2026-09-07 审计 F1 P0 收口,单一事实源):wb_ssh_job_* → 任务桥按其策略
+// 裁决;其余 wb_ssh_*(exec/read_file/run)与 write_server_notes → 同步桥;**其余工具恒人审
+// (直接 true,不进任何桥)**。旧版「其余全走同步桥」兜底 = P0:args 是 LLM 生成 JSON,
+// wb_scale/wb_exec 等非 SSH 写工具的 schema 根本没有 server 字段,却被同步桥按
+// resolve(args.server) 命中服务器的 aiApprovalPolicy 裁决——伪造一个指向 none/readonly 策略
+// 暴露服务器的 server 即免审直执行(审计真模块端到端复现)。wb_ssh_run 由此从任务桥移回同步桥
+// (两桥对它的裁决语义同款:none→免审/readonly→分类器/always→人审)。agent-bridge.needsApproval
+// 另有同名前缀防御兜底(双保险,防未来路由再错配)。
+// 两处装配点(run/resume)必须都走这里;被路由的桥缺位走默认收紧(true)。
 // 纯函数:不落地/无副作用——needsApproval 在 checkpoint 与 resume 两处被咨询。
 export async function routeDynamicApproval(n, args, sshBridge, sshJobs) {
-  return (n === 'wb_ssh_run' || n.startsWith('wb_ssh_job_'))
-    ? (sshJobs ? sshJobs.needsApproval(n, args) : true)
-    : (sshBridge ? sshBridge.needsApproval(n, args) : true)
+  if (n.startsWith('wb_ssh_job_')) return sshJobs ? sshJobs.needsApproval(n, args) : true
+  if (n.startsWith('wb_ssh_') || n === 'write_server_notes') return sshBridge ? sshBridge.needsApproval(n, args) : true
+  return true
 }
 
 // 终答兜底块(2026-09-06「对话尾巴不展示」修复):轮未完成(失败/取消/步数硬断)时,已流出
