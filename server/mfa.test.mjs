@@ -448,3 +448,49 @@ test("admin mfa-policy:GET 默认关;PUT true 落 '1' + 审计;PUT false 删键 
   const audit = db.prepare("SELECT result FROM audit_log WHERE tool='admin_mfa_policy' ORDER BY rowid").all()
   assert.deepEqual(audit.map(a => a.result), ['ok', 'ok'], '两次 PUT 各写一行审计')
 })
+
+// ===== Review round 1(controller 裁决补录):enable-on-enabled 须 step-up + disable 400 先于 409 + setup 409 审计 =====
+
+// 已启用账户再 enable = 同时替换两个因子(TOTP 密钥 + 恢复码组)——落在 step-up 禁改面内(与 disable/setup 同周界)。
+test('enable(已启用账户 = 换双因子)须 step-up:过期 409 零改动;新鲜 200 且轮换 secret/恢复码 + 审计', async () => {
+  const db = makeDb(); seed(db)
+  const oldSecret = generateTotpSecret()
+  db.prepare('UPDATE platform_users SET totpSecret=? WHERE id=?').run(oldSecret, 'u1')
+  db.prepare('UPDATE platform_sessions SET stepUpAt=? WHERE token=?').run(Date.now() - 11 * 60_000, 't-me')
+  const { routes, sent } = makeRoutes(db)
+  const newSecret = generateTotpSecret()
+  await call(routes, 'POST', '/api/auth/mfa/enable', { secret: newSecret, code: totpCodeAt(newSecret, Date.now()) })
+  assert.equal(sent[0].status, 409)
+  assert.equal(sent[0].payload.stepUpRequired, true)
+  assert.equal(db.prepare('SELECT totpSecret FROM platform_users WHERE id=?').get('u1').totpSecret, oldSecret, '409 时零改动')
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM mfa_recovery_codes').get().c, 0, '零恢复码落库')
+  // 新鲜 step-up → enable 成功并轮换两因子
+  db.prepare('UPDATE platform_sessions SET stepUpAt=? WHERE token=?').run(Date.now(), 't-me')
+  await call(routes, 'POST', '/api/auth/mfa/enable', { secret: newSecret, code: totpCodeAt(newSecret, Date.now()) })
+  assert.equal(sent[1].status, 200)
+  assert.equal(sent[1].payload.recoveryCodes.length, 10)
+  assert.equal(db.prepare('SELECT totpSecret FROM platform_users WHERE id=?').get('u1').totpSecret, newSecret, 'secret 轮换')
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM mfa_recovery_codes WHERE userId=?').get('u1').c, 10, '恢复码组轮换')
+  const audit = db.prepare("SELECT result, reason FROM audit_log WHERE tool='platform_mfa_enable' ORDER BY rowid").all()
+  assert.deepEqual(audit.map(a => `${a.result}:${a.reason}`), ['denied:step-up-required', 'ok:codes=10'], '409 也写 denied 审计')
+})
+
+// 重排后语义:未启用账户不存在「账户安全面」可言,400(状态)先于 409(重验)——即使 stepUpAt 过期。
+test('disable:未启用(即使 stepUpAt 为 NULL/过期)→ 400 mfaNotEnabled 先于 409', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'POST', '/api/auth/mfa/disable', { code: '000000' })
+  assert.equal(sent[0].status, 400)
+  assert.equal(sent[0].payload.message, MSG['auth.mfaNotEnabled'].zh)
+})
+
+test('setup 409(step-up 过期)写 denied 审计(与 enable/disable 的 denied 口径一致)', async () => {
+  const db = makeDb(); seed(db)
+  db.prepare('UPDATE platform_users SET totpSecret=? WHERE id=?').run(generateTotpSecret(), 'u1')
+  db.prepare('UPDATE platform_sessions SET stepUpAt=? WHERE token=?').run(Date.now() - 11 * 60_000, 't-me')
+  const { routes, sent } = makeRoutes(db)
+  await call(routes, 'POST', '/api/auth/mfa/setup', {})
+  assert.equal(sent[0].status, 409)
+  const audit = db.prepare("SELECT result, reason FROM audit_log WHERE tool='platform_mfa_setup' ORDER BY rowid").all()
+  assert.deepEqual(audit.map(a => `${a.result}:${a.reason}`), ['denied:step-up-required'])
+})

@@ -60,7 +60,8 @@ export function createAuthRoutes(deps) {
   }
 
   // step-up 守卫(W3 §2):会话最近强认证(stepUpAt)距今 >10min(或从未)→ 409 {stepUpRequired:true},
-  // 前端拦截该形状弹 TOTP 窗重放。守卫仅账户安全面(disable/setup-重置/改密),普通操作不受约束。
+  // 前端拦截该形状弹 TOTP 窗重放。守卫仅账户安全面(disable / setup-重置 / enable-重置 / 改密),
+  // 普通操作不受约束。
   function requireStepUp(req, ps, res) {
     const last = Number(ps?.stepUpAt || 0)
     if (!last || Date.now() - last > STEP_UP_MAX_AGE_MS) {
@@ -180,10 +181,12 @@ export function createAuthRoutes(deps) {
       const ps = requirePlatform(req, res); if (!ps) return true
       try {
         const user = db.prepare('SELECT totpSecret FROM platform_users WHERE id=?').get(ps.userId)
-        if (user?.totpSecret && !requireStepUp(req, ps, res)) return true
+        const auditSetup = (result, reason = null) => writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'platform_mfa_setup', result, reason, source: 'platform' })
+        // 已启用者重置密钥需 step-up;409 同样写 denied 审计(review round 1:与 enable/disable 的 denied 口径一致)
+        if (user?.totpSecret && !requireStepUp(req, ps, res)) { auditSetup('denied', 'step-up-required'); return true }
         const secret = generateTotpSecret()
         mfaPendingSecrets.set(ps.userId, { secret, exp: Date.now() + MFA_PENDING_SECRET_TTL_MS })
-        writeAudit?.(db, { owner: ps.username, verb: 'update', tool: 'platform_mfa_setup', result: 'ok', source: 'platform' })
+        auditSetup('ok')
         sendJson(res, 200, { secret, otpauthUri: otpauthUri(secret, ps.username) })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'auth.mfaFailed') }); return true }
@@ -191,12 +194,16 @@ export function createAuthRoutes(deps) {
 
     // POST /api/auth/mfa/enable {secret, code} — 验码通过 → totpSecret 落库 + 10 恢复码哈希入库(单事务:
     // 部分失败整体回滚)+ stepUpAt=now(刚验过码);恢复码明文仅此次下发(刷新后不可再取)。
+    // review round 1(controller 裁决补录):已启用账户再 enable = 同时替换两个因子(TOTP 密钥+恢复码组),
+    // 落在 step-up 禁改面内——与 disable/setup 同周界,先于验码执行。
     if (url.pathname === '/api/auth/mfa/enable' && req.method === 'POST') {
       const ps = requirePlatform(req, res); if (!ps) return true
       try {
         const { secret, code } = await readBody(req)
         if (!secret || !code) { sendJson(res, 400, { message: msg(req, 'auth.mfaInputRequired') }); return true }
         const auditEnable = (result, reason = null) => writeAudit?.(db, { owner: ps.username, verb: 'change', tool: 'platform_mfa_enable', result, reason, source: 'platform' })
+        const existing = db.prepare('SELECT totpSecret FROM platform_users WHERE id=?').get(ps.userId)
+        if (existing?.totpSecret && !requireStepUp(req, ps, res)) { auditEnable('denied', 'step-up-required'); return true }
         if (!verifyTotp(String(secret), String(code))) {
           auditEnable('denied', 'bad-code')
           sendJson(res, 400, { message: msg(req, 'auth.mfaCodeInvalid') }); return true
@@ -224,14 +231,15 @@ export function createAuthRoutes(deps) {
     }
 
     // POST /api/auth/mfa/disable {code} — TOTP 或恢复码验过 → 清 totpSecret + 恢复码(事务);必须 step-up
-    // (W3 §1.3)。恢复码在此不消费(R2:仅登录即焚);未启用者 400。
+    // (W3 §1.3)。恢复码在此不消费(R2:仅登录即焚)。未启用 400 先于 409(review round 1:未启用账户
+    // 不存在「账户安全面」可言,先告知状态再谈重验)。
     if (url.pathname === '/api/auth/mfa/disable' && req.method === 'POST') {
       const ps = requirePlatform(req, res); if (!ps) return true
       try {
-        if (!requireStepUp(req, ps, res)) return true
         const { code } = await readBody(req)
         const user = db.prepare('SELECT totpSecret FROM platform_users WHERE id=?').get(ps.userId)
         if (!user?.totpSecret) { sendJson(res, 400, { message: msg(req, 'auth.mfaNotEnabled') }); return true }
+        if (!requireStepUp(req, ps, res)) return true
         const auditDisable = (result, reason = null) => writeAudit?.(db, { owner: ps.username, verb: 'change', tool: 'platform_mfa_disable', result, reason, source: 'platform' })
         if (!code || (!verifyTotp(user.totpSecret, String(code)) && !checkRecoveryCode(ps.userId, code))) {
           auditDisable('denied', 'bad-code')
@@ -250,8 +258,8 @@ export function createAuthRoutes(deps) {
     }
 
     // POST /api/auth/step-up {code} — 重认证(W3 §2):TOTP/恢复码验过 → 会话 stepUpAt=now(内存+DB),
-    // 10min 内账户安全操作(改密/MFA disable/setup-重置)免再验。恢复码不即焚(裁决 R2:用户已持完整
-    // 会话,step-up 防的是 CSRF/偷拍屏,非首次身份证明;即焚仅在登录第二步)。
+    // 10min 内账户安全操作(改密/MFA disable/setup-重置/enable-重置)免再验。恢复码不即焚(裁决 R2:
+    // 用户已持完整会话,step-up 防的是 CSRF/偷拍屏,非首次身份证明;即焚仅在登录第二步)。
     if (url.pathname === '/api/auth/step-up' && req.method === 'POST') {
       const ps = requirePlatform(req, res); if (!ps) return true
       try {
