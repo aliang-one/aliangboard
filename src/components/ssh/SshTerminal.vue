@@ -2,7 +2,7 @@
 // SSH 服务器终端：浏览器 xterm.js ↔ 网关保活 SSH 会话(sshTerminalStream)。
 // 与 InteractiveTerminal 的差异：无 shell 降级梯子(远端 shell 由服务器定)；
 // sid 恒定 → 断开/刷新后重连,网关先回放快照(徽标「已回放」)再续直播。
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -18,11 +18,16 @@ const props = defineProps({
   serverName: { type: String, default: '' },
   sid: { type: String, required: true },           // 恒定 sid:网关按 sid 保活/回放
   autoConnect: { type: Boolean, default: false },   // 浮窗模式:挂载即连
-  // true = 头部显示关闭钮(浮窗模式;弹窗页有自己的顶栏「关闭窗口」,默认关)
-  closable: { type: Boolean, default: false },
+  // 单行头部收编(2026-09-08,取代 closable):false = 装饰圆点 | 'window' = 浮窗
+  // (●●● 变真窗口钮 + 头部即拖拽把手 + open_in_new 迁入) | 'page' = 独立标签页(仅红点=关窗)
+  chrome: { type: [Boolean, String], default: false },
+  maximized: { type: Boolean, default: false },     // 绿点字形(最大化/还原)状态
 })
-// 关闭由父级处置(浮窗:sshStore.closeWindow = 杀会话 + 摘记录;组件保持哑,不直接碰 store)
-defineEmits(['close'])
+// 窗口控制由父级处置(浮窗红=sshStore.closeWindow 杀会话+摘记录;弹窗红=杀会话+关标签页;
+// 组件保持哑,不直接碰 store)
+const emit = defineEmits(['win-close', 'win-minimize', 'win-maximize', 'open-external'])
+const isChrome = computed(() => props.chrome === 'window' || props.chrome === 'page')
+const isWindowChrome = computed(() => props.chrome === 'window')
 
 const root = ref(null)
 // idle 未连接 | connecting 连接中 | open 会话进行中 | closed 会话结束 | error 出错
@@ -120,27 +125,45 @@ defineExpose({ refit, replayed, connectIfIdle, connect })
 <template>
   <div class="h-full flex flex-col min-h-0 bg-code-surface rounded-lg overflow-hidden border border-outline-variant/20">
     <!-- 终端 -->
-    <div class="flex items-center justify-between px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0">
-      <div class="flex items-center gap-sm">
-        <div class="flex gap-1">
+    <div class="flex items-center justify-between px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0 min-w-0"
+         :class="isWindowChrome ? 'cursor-move select-none' : ''"
+         :data-window-drag="isWindowChrome ? '' : null">
+      <div class="flex items-center gap-sm min-w-0 flex-1">
+        <!-- ●●● chrome=真窗口钮(红关/黄最小化/绿最大化,组 hover 浮字形,macOS 语义);非 chrome=装饰 -->
+        <div v-if="isChrome" class="flex gap-1.5 items-center group shrink-0">
+          <button data-test="dot-close" @click="emit('win-close')" :title="t('terminal.closeTerminalTitle')"
+            class="w-3 h-3 rounded-full flex items-center justify-center bg-error/70 hover:bg-error transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            <span class="material-symbols-outlined text-on-error opacity-0 group-hover:opacity-100 max-sm:opacity-100" style="font-size:11px;line-height:1">close</span>
+          </button>
+          <button v-if="isWindowChrome" data-test="dot-minimize" @click="emit('win-minimize')" :title="t('terminal.minimizeTitle')"
+            class="w-3 h-3 rounded-full flex items-center justify-center bg-tertiary-fixed-dim/70 hover:bg-tertiary-fixed-dim transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            <span class="material-symbols-outlined text-on-surface opacity-0 group-hover:opacity-100 max-sm:opacity-100" style="font-size:11px;line-height:1">remove</span>
+          </button>
+          <button v-if="isWindowChrome" data-test="dot-maximize" @click="emit('win-maximize')" :title="maximized ? t('terminal.restoreTitle') : t('terminal.maximizeTitle')"
+            class="w-3 h-3 rounded-full flex items-center justify-center bg-primary-container/70 hover:bg-primary-container transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            <span class="material-symbols-outlined text-on-surface opacity-0 group-hover:opacity-100 max-sm:opacity-100" style="font-size:11px;line-height:1">{{ maximized ? 'fullscreen_exit' : 'fullscreen' }}</span>
+          </button>
+        </div>
+        <div v-else class="flex gap-1 shrink-0">
           <span class="w-2.5 h-2.5 rounded-full bg-error/70"></span>
           <span class="w-2.5 h-2.5 rounded-full bg-tertiary-fixed-dim/70"></span>
           <span class="w-2.5 h-2.5 rounded-full bg-primary-container/70"></span>
         </div>
-        <span class="text-code-sm text-on-surface-variant ml-sm">ssh://{{ serverName || serverId }}</span>
-        <span v-if="replayed" data-test="replayBadge" class="text-body-xs text-primary ml-xs" :title="t('ssh.replayedBadge')">↺ {{ t('ssh.replayedBadge') }}</span>
+        <span class="text-code-sm text-on-surface-variant ml-sm truncate font-mono">ssh://{{ serverName || serverId }}</span>
+        <span v-if="replayed" data-test="replayBadge" class="text-body-xs text-primary ml-xs shrink-0" :title="t('ssh.replayedBadge')">↺ {{ t('ssh.replayedBadge') }}</span>
       </div>
-      <div class="flex items-center gap-sm">
+      <div class="flex items-center gap-sm shrink-0">
         <span v-if="status === 'open'" class="flex items-center gap-xs">
           <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
           <span class="text-body-sm text-primary">Live</span>
         </span>
         <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
-        <button data-test="btnReconnect" @click="connect" :title="t('ssh.reconnect')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
+        <button data-test="btnReconnect" @click="connect" :title="t('ssh.reconnect')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
           <span class="material-symbols-outlined text-lg">refresh</span>
         </button>
-        <button v-if="closable" data-test="btnCloseTerminal" @click="$emit('close')" :title="t('terminal.closeWindow')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg">
-          <span class="material-symbols-outlined text-lg">close</span>
+        <button v-if="isWindowChrome" data-test="btnOpenExternal" @click="emit('open-external')" :title="t('terminal.openInNewTabTitle')"
+          class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+          <span class="material-symbols-outlined text-lg">open_in_new</span>
         </button>
       </div>
     </div>

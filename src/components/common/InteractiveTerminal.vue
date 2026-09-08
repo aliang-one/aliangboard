@@ -31,7 +31,32 @@ const props = defineProps({
   sessionId: { type: String, default: '' },
   attach: { type: Boolean, default: false },   // true = kubectl attach（连主进程 stdio），否则 exec 开 shell
   autoConnect: { type: Boolean, default: false }, // true = 挂载即自动连接（浮动窗口模式）
+  // 单行头部收编(2026-09-08):false = 内嵌(PodDetail,现状装饰圆点) | 'window' = 浮窗
+  // (●●● 变真窗口钮 + 头部即拖拽把手 + open_in_new + 双击改名) | 'page' = 独立标签页(仅红点=关窗)。
+  chrome: { type: [Boolean, String], default: false },
+  title: { type: String, default: '' },           // chrome='window' 头部显示名(=terminal.name)
+  maximized: { type: Boolean, default: false },   // 绿点字形(最大化/还原)状态,由壳层 maximize-change 回灌
 })
+const emit = defineEmits(['win-close', 'win-minimize', 'win-maximize', 'open-external', 'rename'])
+
+const isChrome = computed(() => props.chrome === 'window' || props.chrome === 'page')
+const isWindowChrome = computed(() => props.chrome === 'window')
+
+// 双击改名(2026-09-08 自 TerminalWindow 壳层标题栏迁入,浮窗头部承担)
+const editing = ref(false)
+const nameInput = ref('')
+function startRename() {
+  if (!isWindowChrome.value) return
+  nameInput.value = props.title
+  editing.value = true
+}
+function saveRename() {
+  const v = nameInput.value.trim()
+  editing.value = false
+  if (v && v !== props.title) emit('rename', v)
+}
+// 外部改名生效(同窗口他处改)时退出编辑态,避免输入框悬留旧草稿
+watch(() => props.title, () => { editing.value = false })
 
 const store = useClusterStore()
 const root = ref(null)
@@ -181,6 +206,62 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
 
 <template>
   <div class="h-full flex flex-col min-h-0 bg-code-surface rounded-lg overflow-hidden border border-outline-variant/20">
+    <!-- 头部:chrome 模式恒渲染(idle 未连接的浮窗也须有窗口钮可点,否则关不掉);
+         内嵌模式维持现状——连接开始后才出现 -->
+    <div v-if="isChrome || status !== 'idle'"
+      class="flex items-center justify-between px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0 min-w-0"
+      :class="isWindowChrome ? 'cursor-move select-none' : ''"
+      :data-window-drag="isWindowChrome ? '' : null">
+      <div class="flex items-center gap-sm min-w-0 flex-1">
+        <!-- ●●● chrome=真窗口钮(红关/黄最小化/绿最大化,组 hover 浮字形,macOS 语义);内嵌=装饰 -->
+        <div v-if="isChrome" class="flex gap-1.5 items-center group shrink-0">
+          <button data-test="dot-close" @click="emit('win-close')" :title="t('terminal.closeTerminalTitle')"
+            class="w-3 h-3 rounded-full flex items-center justify-center bg-error/70 hover:bg-error transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            <span class="material-symbols-outlined text-on-error opacity-0 group-hover:opacity-100 max-sm:opacity-100" style="font-size:11px;line-height:1">close</span>
+          </button>
+          <button v-if="isWindowChrome" data-test="dot-minimize" @click="emit('win-minimize')" :title="t('terminal.minimizeTitle')"
+            class="w-3 h-3 rounded-full flex items-center justify-center bg-tertiary-fixed-dim/70 hover:bg-tertiary-fixed-dim transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            <span class="material-symbols-outlined text-on-surface opacity-0 group-hover:opacity-100 max-sm:opacity-100" style="font-size:11px;line-height:1">remove</span>
+          </button>
+          <button v-if="isWindowChrome" data-test="dot-maximize" @click="emit('win-maximize')" :title="maximized ? t('terminal.restoreTitle') : t('terminal.maximizeTitle')"
+            class="w-3 h-3 rounded-full flex items-center justify-center bg-primary-container/70 hover:bg-primary-container transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            <span class="material-symbols-outlined text-on-surface opacity-0 group-hover:opacity-100 max-sm:opacity-100" style="font-size:11px;line-height:1">{{ maximized ? 'fullscreen_exit' : 'fullscreen' }}</span>
+          </button>
+        </div>
+        <div v-else class="flex gap-1 shrink-0">
+          <span class="w-2.5 h-2.5 rounded-full bg-error/70"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-tertiary-fixed-dim/70"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-primary-container/70"></span>
+        </div>
+        <!-- 名称/信息:浮窗=显示名(双击改名,pod:容器·shell 进 tooltip);其余=pod:容器·shell 原样 -->
+        <input v-if="editing" v-model="nameInput" data-test="term-title-input" data-no-drag
+               @blur="saveRename" @keydown.enter="saveRename" @keydown.esc="editing = false"
+               class="flex-1 min-w-0 w-0 bg-surface-container-lowest border border-primary rounded px-sm py-0.5 text-body-sm font-mono focus:outline-none" />
+        <span v-else-if="isWindowChrome && title" data-test="term-title" @dblclick="startRename"
+              class="min-w-0 flex-1 text-code-sm text-on-surface truncate font-mono"
+              :title="`${title} · ${podName}:${container || 'main'}${!attach && (actualShell || cmd) ? ' · ' + (actualShell || cmd) : ''}（${t('terminal.dblClickRename', { name: title })}）`">
+          {{ title }}
+        </span>
+        <span v-else class="text-code-sm text-on-surface-variant truncate">{{ podName }}:{{ container || 'main' }}<span v-if="!attach" class="text-on-surface-variant/50"> · {{ actualShell || cmd }}</span></span>
+        <span v-if="persistent === true" class="text-body-xs text-primary ml-xs shrink-0" :title="t('terminal.persistentHint')">✓ {{ t('terminal.persistentBadge') }}</span>
+        <span v-else-if="persistent === false" class="text-body-xs text-tertiary ml-xs shrink-0" :title="t('terminal.ephemeralHint')">⚠ {{ t('terminal.ephemeralBadge') }}</span>
+      </div>
+      <div class="flex items-center gap-sm shrink-0">
+        <span v-if="status === 'open'" class="flex items-center gap-xs">
+          <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
+          <span class="text-body-sm text-primary">Live</span>
+        </span>
+        <span v-else-if="status !== 'idle'" class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
+        <button @click="connect" :title="t('terminal.reconnectTitle')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+          <span class="material-symbols-outlined text-lg">refresh</span>
+        </button>
+        <button v-if="isWindowChrome" data-test="btn-open-external" @click="emit('open-external')" :title="t('terminal.openInNewTabTitle')"
+          class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+          <span class="material-symbols-outlined text-lg">open_in_new</span>
+        </button>
+      </div>
+    </div>
+
     <!-- 未连接 -->
     <div v-if="status === 'idle'" class="flex-1 flex flex-col items-center justify-center gap-md p-xl">
       <span class="material-symbols-outlined text-4xl text-on-surface-variant">terminal</span>
@@ -197,28 +278,6 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
 
     <!-- 终端 -->
     <template v-else>
-      <div class="flex items-center justify-between px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0">
-        <div class="flex items-center gap-sm">
-          <div class="flex gap-1">
-            <span class="w-2.5 h-2.5 rounded-full bg-error/70"></span>
-            <span class="w-2.5 h-2.5 rounded-full bg-tertiary-fixed-dim/70"></span>
-            <span class="w-2.5 h-2.5 rounded-full bg-primary-container/70"></span>
-          </div>
-          <span class="text-code-sm text-on-surface-variant ml-sm">{{ podName }}:{{ container || 'main' }}<span v-if="!attach" class="text-on-surface-variant/50"> · {{ actualShell || cmd }}</span></span>
-          <span v-if="persistent === true" class="text-body-xs text-primary ml-xs" :title="t('terminal.persistentHint')">✓ {{ t('terminal.persistentBadge') }}</span>
-          <span v-else-if="persistent === false" class="text-body-xs text-tertiary ml-xs" :title="t('terminal.ephemeralHint')">⚠ {{ t('terminal.ephemeralBadge') }}</span>
-        </div>
-        <div class="flex items-center gap-sm">
-          <span v-if="status === 'open'" class="flex items-center gap-xs">
-            <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
-            <span class="text-body-sm text-primary">Live</span>
-          </span>
-          <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
-          <button @click="connect" :title="t('terminal.reconnectTitle')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
-            <span class="material-symbols-outlined text-lg">refresh</span>
-          </button>
-        </div>
-      </div>
       <div ref="root" class="flex-1 min-h-0 p-sm"></div>
       <!-- 手机档虚拟按键条:无物理键盘时的 exec 刚需(Esc/Tab/方向键/Ctrl+C) -->
       <div v-if="isPhone" data-test="term-keybar" class="flex items-center gap-1 px-sm py-1 border-t border-outline-variant bg-surface-container-low overflow-x-auto shrink-0">

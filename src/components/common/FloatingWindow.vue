@@ -1,7 +1,10 @@
 <script setup>
 // 通用浮动窗口壳:标题栏拖拽/最大化/最小化/关闭/z-index 置顶。从 TerminalWindow 抽取,
 // 终端与文件浏览窗口共用。双击语义留给内容方(终端标题双击=改名);title/title-actions 插槽自定义。
-import { ref, computed, onUnmounted } from 'vue'
+// headerless 模式(2026-09-08 单行头部收编):不渲染自带标题栏,窗口控制权交给内容方
+// (终端组件 chrome='window':●●● 圆点即窗口钮)。拖拽改事件委托——内容方把可拖区域标
+// data-window-drag(交互控件豁免);最大化经 expose toggleMaximize() + maximize-change 驱动。
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { Z } from '@/styles/zScale'
 
 const props = defineProps({
@@ -17,8 +20,10 @@ const props = defineProps({
   closeTitle: { type: String, default: '' },
   // false = 隐藏壳层关闭钮(SSH 浮窗:关闭钮已迁入终端头部,壳层不再承担关闭)
   closable: { type: Boolean, default: true },
+  // true = 无头模式:不渲染标题栏,拖拽委托给内容方 [data-window-drag] 区域
+  headerless: { type: Boolean, default: false },
 })
-const emit = defineEmits(['focus', 'minimize', 'close'])
+const emit = defineEmits(['focus', 'minimize', 'close', 'maximize-change'])
 
 const isMax = ref(false)
 const pos = ref({
@@ -27,16 +32,23 @@ const pos = ref({
 })
 
 // —— 拖拽(仅非全屏;标题插槽内输入框/文本域等交互元素上不启动,保留改名时选文本 —— 原 TerminalWindow editing 守卫的泛化) ——
+// headerless 模式由根节点委托:仅 [data-window-drag] 标记区域可拖(标题栏语义的 Content 方等价物),
+// 按钮/输入等交互控件同样豁免——终端头部圆点、Live 区按钮不能变成拖拽把手。
 let dragging = false, dragStart = null
 function onDragStart(e) {
   if (isMax.value) return
-  if (e.target?.closest?.('input, textarea, select, [contenteditable], [data-no-drag]')) return
+  if (props.headerless) {
+    if (!e.target?.closest?.('[data-window-drag]')) return
+    if (e.target?.closest?.('button, input, textarea, select, [contenteditable], [data-no-drag]')) return
+  } else if (e.target?.closest?.('input, textarea, select, [contenteditable], [data-no-drag]')) return
   dragging = true
   dragStart = { x: e.clientX - pos.value.x, y: e.clientY - pos.value.y }
   emit('focus')
   document.addEventListener('mousemove', onDragMove)
   document.addEventListener('mouseup', onDragEnd)
 }
+// 根节点委托入口:非 headerless 直接放行(标题栏自带绑定,内容区不可拖)
+function onRootMouseDown(e) { if (props.headerless) onDragStart(e) }
 function onDragMove(e) { if (dragging) pos.value = { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y } }
 function onDragEnd() {
   dragging = false
@@ -52,11 +64,16 @@ onUnmounted(() => { document.removeEventListener('mousemove', onDragMove); docum
 const winStyle = computed(() => isMax.value
   ? { left: '268px', top: '72px', right: '8px', bottom: '44px', zIndex: props.zIndex }
   : { left: pos.value.x + 'px', top: pos.value.y + 'px', width: props.width, height: props.height, zIndex: props.zIndex })
+
+// 最大化状态同步 + 程序化入口(headerless:绿点圆点驱动;非 headerless:壳层按钮与 expose 共用)
+function toggleMaximize() { isMax.value = !isMax.value }
+watch(isMax, v => emit('maximize-change', v))
+defineExpose({ toggleMaximize })
 </script>
 <template>
   <div data-test="window" class="fixed flex flex-col bg-surface-container-lowest rounded-lg shadow-2xl border border-outline-variant overflow-hidden"
-       :style="winStyle" @mousedown="emit('focus')">
-    <div data-test="titlebar" class="flex items-center gap-xs px-md py-1.5 bg-surface-container-high border-b border-outline-variant cursor-move select-none shrink-0" @mousedown="onDragStart">
+       :style="winStyle" @mousedown="emit('focus'); onRootMouseDown($event)">
+    <div v-if="!headerless" data-test="titlebar" class="flex items-center gap-xs px-md py-1.5 bg-surface-container-high border-b border-outline-variant cursor-move select-none shrink-0" @mousedown="onDragStart">
       <span class="material-symbols-outlined text-base text-primary">{{ icon }}</span>
       <slot name="title">
         <span class="flex-1 text-body-sm font-medium text-on-surface truncate" :title="title">
@@ -64,7 +81,7 @@ const winStyle = computed(() => isMax.value
         </span>
       </slot>
       <slot name="title-actions" />
-      <button data-test="btn-maximize" @click="isMax = !isMax" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="maximizeTitle">
+      <button data-test="btn-maximize" @click="toggleMaximize" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="maximizeTitle">
         <span class="material-symbols-outlined text-base">{{ isMax ? 'fullscreen_exit' : 'fullscreen' }}</span>
       </button>
       <button data-test="btn-minimize" @click="emit('minimize')" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="minimizeTitle">
