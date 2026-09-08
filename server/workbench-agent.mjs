@@ -109,7 +109,11 @@ const CK_TIME_MS = 500
         messages: JSON.stringify(out.messages),
         queue: JSON.stringify(out.queue),
         denied: JSON.stringify(out.denied),
-        pendingApproval: JSON.stringify(out.pending),
+        // gap3-02(2026-09-07 审计批次三):审批盖集群戳——裁决快照锚定「审批创建时」的项目
+        // 绑定集群;approve/resume 执行前比对当下 project.clusterId,不一致拒绝(路由门,
+        // 防「已批工具按裁决快照对新集群执行」)。out.pending 理论非空(该分支仅在
+        // pending_approval 状态进入),展开保载荷原字段,clusterId 恒为 string('' = 未绑)。
+        pendingApproval: JSON.stringify({ ...out.pending, clusterId: project.clusterId }),
         steps: out.steps,
       }
       // paused 顺手落检查点:<200 字的 content/reasoning 尾巴此时不写,重启/resume 就丢
@@ -547,5 +551,32 @@ const CK_TIME_MS = 500
     return { ok: true }
   }
 
-  return { runConversation, resumeConversation, cancelConversation, flushCheckpoint }
+  // gap3-03(2026-09-07 审计批次三):换绑/解绑协调——项目集群变更时在途对话失效。
+  // 与 cancelConversation 的三点差异(勿合并):
+  //   ① 终态 failed(非 cancelled):换绑不是用户取消,已流出内容经检查点留在 conv 行,
+  //     但对话不可续跑(approval 快照锚定旧集群,gap3-02 同语义);
+  //   ② **bump epoch**:取消刻意不 bump(保留 partial 分支要可达),换绑要让旧 run 的
+  //     一切产出(检查点/落库/事件)即刻过期静默丢弃——k8sSession 是旧集群的,任何迟到
+  //     写入都是串味数据;取消语义的「保留半截答案」在这里反而是污染;
+  //   ③ activeRuns abort:与取消同款断在途流(深思考模型可达分钟级)。
+  // 顺序 = 先落终态再 bump+abort:node:sqlite 同步写,落库失败(库坏)时未 bump,run 照常
+  // 自终态,bus 不发死事件;落库成功后 Map/emit 均不抛,bump+abort+三连必达。
+  // paused(无在途流)同样走此路:activeRuns 空注册,abort 可选链空操作。
+  // 非运行态/不存在 → {ok:false} no-op(幂等,重放无害);调用方(projects 路由)以 ok
+  // 决定是否落审计行。reason 文案由调用方给(路由层可 i18n;agent 内联中文同 cancelConversation
+  // 「用户取消」惯例——detached 层无 req)。
+  function invalidateConversation(convId, reason) {
+    const conv = getConversation(db, convId)
+    if (!conv) return { ok: false }
+    if (conv.status !== 'running' && conv.status !== 'paused') return { ok: false }
+    updateConversation(db, convId, { status: 'failed', pendingApproval: null, error: reason })
+    claimRunEpoch(convId) // bump:旧 run 的写点/出口守卫(isSuperseded)即刻过期
+    activeRuns.get(convId)?.controller.abort(Object.assign(new Error(reason), { name: 'InvalidatedError' }))
+    busEmit(convId, { type: 'status', status: 'failed', error: reason })
+    busEmit(convId, { type: 'end' })
+    busDispose(convId)
+    return { ok: true }
+  }
+
+  return { runConversation, resumeConversation, cancelConversation, invalidateConversation, flushCheckpoint }
 }

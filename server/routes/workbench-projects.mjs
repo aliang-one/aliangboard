@@ -249,15 +249,32 @@ export function createWorkbenchProjectRoutes(deps) {
         return true
       }
 
-      // 绑定/解绑集群(2026-08-30 spec §4):仅改 clusterId 一列;''=解绑;不动 manifests/repo/对话
+      // 绑定/解绑集群(2026-08-30 spec §4):仅改 clusterId 一列;''=解绑;不动 manifests/repo。
+      // gap3-03(2026-09-07 审计批次三):换绑/解绑与在途对话协调——clusterId **实际变化**时,
+      // 该项目 running 对话 epoch 中止(bump+abort,终态 failed+error=「项目集群已变更」,迟到
+      // 产出静默丢弃——k8sSession 是旧集群的,任何迟到写入都是串味数据)、paused 对话
+      // pendingApproval 失效(拒绝语义:审批快照锚定旧集群 gap3-02,续跑即越权)。同值重放
+      // (绑同一个集群)零失效:幂等不误杀在途对话。顺序=先查+失效后审计?不——审计是
+      // durable 权威源(PT5 deny 同序),先于终态翻转落账;查询/失效/审计零 await 同步块
+      // (node:sqlite 同步),无 TOCTOU 窗口。invalidateConversation 返回 ok:false(对话恰好
+      // 自然终态)时该行不计入也不误报。wbAgent 可选链兼容旧测试桩;失效计数回带响应。
       if (seg[1] === 'cluster' && req.method === 'PUT') {
         const input = await readBody(req)
         const cid = input.clusterId ?? ''
         if (cid && !db.prepare('SELECT 1 FROM clusters WHERE id=?').get(cid)) { sendJson(res, 404, { message: msg(req, 'wbp.clusterNotFound') }); return true }
         if (cid && !clusterEntitled(ps, cid)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
         db.prepare('UPDATE workbench_projects SET clusterId=? WHERE id=?').run(cid, id)
+        let invalidatedConversations = 0
+        if (cid !== p.clusterId) {
+          const reason = msg(req, 'wbp.clusterChanged')
+          const active = db.prepare("SELECT id FROM workbench_conversations WHERE projectId=? AND status IN ('running','paused')").all(id)
+          for (const c of active) {
+            writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'wb_conv', result: 'ok', requestSummary: `conv=${c.id} invalidate cluster=${p.clusterId || '(unbound)'}→${cid || '(unbound)'}`, source: 'platform' })
+            if (wbAgent?.invalidateConversation?.(c.id, reason)?.ok) invalidatedConversations++
+          }
+        }
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'workbench_project_cluster', result: 'ok', requestSummary: `project=${id} clusterId=${cid || '(unbound)'}`, source: 'platform' })
-        sendJson(res, 200, { ok: true, project: { ...getProject(db, id), clusterName: clusterNameOf(cid) } })
+        sendJson(res, 200, { ok: true, project: { ...getProject(db, id), clusterName: clusterNameOf(cid) }, invalidatedConversations })
         return true
       }
 
@@ -334,8 +351,16 @@ export function createWorkbenchProjectRoutes(deps) {
       // admin 豁免),替代审计#7 的 requireAdmin 收紧;host 仅 admin 响应携带(下方既有语义)。
       if (kindRaw === 'server') {
         if (!assertProjectOwnership(ps, p)) { sendJson(res, 403, { message: msg(req, 'wbp.noProjectAccess') }); return true }
+        // refs-injection-04(2026-09-07 审计批次三):q 只匹 name/description——host 参与模糊
+        // 匹配是脱敏 oracle(host 字段按角色脱敏不下发,但 q=host 子串的命中/不命中逐位二分
+        // 即可还原完整 host,命中结果行还会原样带出 host)。host 过滤需求改由独立 host 查询
+        // 参数承担,且为**等值**比对:要过滤必须已知完整 host,无子串探测面(前端当前不传
+        // 该参数,留作 API 消费方的精确选择通道;非 admin 无 host 字段回传,等值过滤对其
+        // 仍不可当 oracle 用——不知完整 host 就恒零命中)。
+        const hostEq = (url.searchParams.get('host') || '').trim()
         const items = listSshServers(db, { exposedOnly: true })
-          .filter(s => !q || s.name.toLowerCase().includes(q) || String(s.host || '').toLowerCase().includes(q) || String(s.description || '').toLowerCase().includes(q))
+          .filter(s => (!q || s.name.toLowerCase().includes(q) || String(s.description || '').toLowerCase().includes(q))
+            && (!hostEq || String(s.host || '') === hostEq))
           .slice(0, 50)
           .map(s => ({ kind: 'server', name: s.name, description: s.description || '', clusterRef: s.clusterRef || '', ...(ps.role === 'admin' ? { host: s.host } : {}) }))
         sendJson(res, 200, { items })

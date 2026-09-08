@@ -98,7 +98,8 @@ test('runConversation paused: updateConversation(paused) + busEmit(approval+paus
   // db:paused + pendingApproval 落库;不追加 assistant(done 才追加)
   const row = getConversation(db, conv.id)
   assert.equal(row.status, 'paused')
-  assert.deepEqual(JSON.parse(row.pendingApproval), pending)
+  // gap3-02:落库载荷=原审批对象+clusterId 戳(创建时项目绑定集群,夹具 c1)
+  assert.deepEqual(JSON.parse(row.pendingApproval), { ...pending, clusterId: 'c1' })
   const msgs = db.prepare('SELECT role FROM workbench_messages WHERE conversationId=?').all(conv.id)
   assert.equal(msgs.length, 1, 'paused 不追加 assistant,仅首条 user')
 
@@ -1108,4 +1109,77 @@ test('总限到点(agent-loop-05): 滴流超总限 → status=failed + 半截内
   assert.equal(msgs.at(-1).role, 'assistant')
   assert.ok(msgs.at(-1).content.length > 0, `半截内容落 assistant 消息(滴出的 delta 保留): ${msgs.at(-1).content}`)
   assert.ok(events.some(e => e.type === 'status' && e.status === 'failed'), 'bus 发 failed 事件(前端不无限 thinking)')
+})
+
+// ═══ gap3-03(2026-09-07 审计批次三):换绑/解绑协调——项目集群变更时在途对话失效 ═══
+// 契约:invalidateConversation(convId, reason) 对 running/paused 对话:
+//   ① DB 置 failed + error=reason + pendingApproval 清空(拒绝语义,PT5 deny 终态形状);
+//   ② bump epoch + abort 在途 LLM 流(被取代 run 的残余写点/出口守卫即刻过期,产出静默丢弃,
+//     不覆写 failed 终态);
+//   ③ bus 三连(status failed + end + dispose)。
+// 非运行态(done/failed/cancelled)或对话不存在 → no-op {ok:false}(幂等,重放无害)。
+test('gap3-03 invalidateConversation: running → failed+原因+bus 三连;在途 run 被取代,迟到产出不覆写终态', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let release
+  const hung = new Promise(r => { release = r })
+  const { createAgentRunner } = makeRunner(async () => { await hung; return { status: 'done', content: '迟到答案', steps: 1, messages: [], queue: [], denied: [] } })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const runP = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+
+  const r = agent.invalidateConversation(conv.id, '项目集群已变更')
+  assert.equal(r.ok, true)
+  let row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed', '换绑 → running 对话置 failed')
+  assert.equal(row.error, '项目集群已变更', '失败原因落库')
+  assert.equal(row.pendingApproval, null, 'pendingApproval 一并清空(拒绝语义)')
+  const types = events.map(e => e.type)
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed' && e.error === '项目集群已变更'), 'bus:status failed+原因')
+  assert.ok(types.includes('end'), 'bus:end')
+  assert.ok(types.includes('disposed'), 'bus:dispose(三连)')
+
+  // 迟到的 done 产出必须被 epoch 闸丢弃——不覆写 failed 终态、不追加 assistant 消息
+  release()
+  await runP
+  row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed', '被取代 run 的 done 不覆写 failed')
+  const msgs = db.prepare('SELECT role FROM workbench_messages WHERE conversationId=?').all(conv.id)
+  assert.equal(msgs.length, 1, '迟到产出不追加 assistant 消息')
+})
+
+test('gap3-03 invalidateConversation: paused → failed+pendingApproval 失效;done/不存在 → no-op', async () => {
+  const { db, conv, events, busEmit, busDispose } = setup()
+  updateConversation(db, conv.id, { status: 'paused', pendingApproval: JSON.stringify({ toolCallId: 'tc1' }) })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner: () => ({}), busEmit, busDispose })
+  assert.equal(agent.invalidateConversation(conv.id, '项目集群已变更').ok, true)
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed', 'paused 审批随换绑失效(拒绝语义 → 终态 failed)')
+  assert.equal(row.pendingApproval, null, 'pendingApproval 清空')
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed'), 'bus:failed')
+
+  // 终态(done)与不存在 → {ok:false} no-op,不写库不发音
+  updateConversation(db, conv.id, { status: 'done', error: '' })
+  events.length = 0
+  assert.equal(agent.invalidateConversation(conv.id, '项目集群已变更').ok, false, 'done → no-op')
+  assert.equal(agent.invalidateConversation('no-such', '项目集群已变更').ok, false, '不存在 → no-op')
+  assert.equal(getConversation(db, conv.id).status, 'done', '终态不被改写')
+  assert.equal(events.length, 0, 'no-op 零事件')
+})
+
+// ═══ gap3-02(2026-09-07 审计批次三):审批盖集群戳——裁决快照锚定创建时集群 ═══
+// 契约:handleAgentResult paused 分支落库的 pendingApproval 携带 clusterId(= 创建审批时的
+// project.clusterId);approve/resume 执行前比对当下项目绑定,不一致拒绝(gap3-02 路由门)。
+test('gap3-02 paused 落库:pendingApproval 盖 clusterId 戳(取 project.clusterId)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const pending = { toolCallId: 'tc9', name: 'wb_apply', args: {} }
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'pending_approval', pending,
+    messages: [{ role: 'assistant', content: '审批' }], queue: [], denied: [], steps: 1,
+  }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  const pa = JSON.parse(getConversation(db, conv.id).pendingApproval)
+  assert.equal(pa.clusterId, 'c1', '审批载荷盖创建时集群戳(夹具项目绑 c1)')
+  assert.equal(pa.toolCallId, 'tc9', '原载荷字段保留')
 })

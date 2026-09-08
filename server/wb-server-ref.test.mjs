@@ -47,13 +47,22 @@ test('@server 搜索:admin 门槛+exposedOnly+三路命中;未绑集群可用;K8
   ins.run('s2', '隐藏机', '10.0.0.2', 22, 'ops', 'password', '不该出现', '', 0, 'always', 'ok', Date.now(), Date.now())
   db.close()
 
-  // admin:name/host/备注 三路命中;未暴露不可见;host 字段在
+  // admin:name/备注 两路命中 + host 等值过滤(refs-injection-04,2026-09-07 审计批次三):
+  // q 不再参与 host 模糊匹配——host 子串当 q 探测是脱敏 oracle(逐位二分即可还原非 admin
+  // 不可见的 host;即便 admin 面,无 host 字段回传的消费方也借此越权枚举)。host 过滤改由
+  // 独立 host 查询参数承担,且为**等值**比对(要过滤必须已知完整 host,无子串探测面)。
   const byName = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=${encodeURIComponent('网关')}`, { headers: H })).json()
   assert.equal(byName.items.length, 1); assert.equal(byName.items[0].name, '网关机'); assert.equal(byName.items[0].host, '10.0.0.1')
-  const byIp = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=10.0.0.1`, { headers: H })).json()
-  assert.equal(byIp.items.length, 1)
   const byDesc = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=${encodeURIComponent('入口')}`, { headers: H })).json()
   assert.equal(byDesc.items.length, 1)
+  // host 子串作 q 不再命中(旧:q=10.0.0.1 → 1 命中,oracle 实证)
+  const byIpAsQ = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&q=10.0.0.1`, { headers: H })).json()
+  assert.equal(byIpAsQ.items.length, 0, 'host 子串作 q 零命中(q 只匹 name/description)')
+  // host 参数 = 等值过滤:完整 host 命中;前缀子串(10.0.0)零命中——无探测面
+  const byHostEq = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&host=10.0.0.1`, { headers: H })).json()
+  assert.equal(byHostEq.items.length, 1); assert.equal(byHostEq.items[0].name, '网关机')
+  const byHostSub = await (await fetch(`${BASE}/api/workbench/search?projectId=${pid}&kind=server&host=10.0.0`, { headers: H })).json()
+  assert.equal(byHostSub.items.length, 0, 'host 过滤为等值比对,子串不命中')
 
   // 平台用户(审计#7):server 分支收紧 admin——非 admin 403,exposed 服务器元数据
   // (name/description/clusterRef/host)整体不可枚举;旧「200+无 host」仍泄露清单本身

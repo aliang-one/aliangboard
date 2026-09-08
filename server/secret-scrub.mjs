@@ -3,7 +3,8 @@
 // 的事件重掩;另扫 user 消息 content 里历史版本烤入的 refsCtx 块(终审 I2)。幂等(重掩后
 // 逐字不变的不计不写);损坏行跳过(一句 warn)。audit_log 不动(凭证+hash 链)。启动后异步跑,不阻塞。
 import { maskSecretResource } from './secret-mask.mjs'
-import { REFS_CTX_HEADER } from './refs-context.mjs'
+import { REFS_CTX_HEADER, REFS_GUARD_NOTE } from './refs-context.mjs'
+import { FENCE } from './ref-context.mjs' // refs-injection-08:重掩现役围栏块须保留 FENCE 行(单源)
 
 function scrubTraceJson(json) {
   let events
@@ -25,8 +26,13 @@ function scrubTraceJson(json) {
 }
 
 // user content 烤入的 refsCtx(历史版本格式;现役落库已干净,格式单源见 refs-context.mjs):
-//   REFS_CTX_HEADER + 块(\n\n 连接) + \n\n + 用户正文
-//   块 = `[kind/ns/name]:\n{...JSON.stringify(body, null, 2)...}` 或 `[...]: (not found)` 单行备注
+//   REFS_CTX_HEADER + [REFS_GUARD_NOTE] + 块(\n\n 连接) + \n\n + 用户正文
+//   块 = `[kind/ns/name]:\n[FENCE]\n{...JSON...}`(现役 formatRefBlock 产出,围栏行)
+//       或 `[kind/ns/name]:\n{...JSON...}`(存量旧行,无围栏)
+//       或 `[...]: (not found)` 单行备注
+// refs-injection-08(2026-09-07 审计批次三):对齐现役格式——①HEADER 后的抗注入声明段
+// (REFS_GUARD_NOTE)此前不识别,首字符非 '[' → 整段剩余原样收尾,Secret 块明文滞留;②JSON 块
+// label 行后的围栏行(FENCE)同样跳过,重掩时保留(不破坏现役格式——strip/前端按同格式再消费)。
 // 只重掩 kind==='Secret' 的 JSON 块(label 保留、JSON 重序列化缩进 null,2 与产出侧一致);
 // 其余块/用户正文原样;整块 JSON.parse 失败跳过该块;结构残缺(未闭合/块后无 \n\n)剩余原样收尾。
 // 块边界扫描与 stripRefsContext 同款平衡花括号算法(字符串字面量内的 {} 与转义不计数)。
@@ -34,6 +40,8 @@ function scrubTraceJson(json) {
 function scrubRefsCtxContent(content) {
   if (typeof content !== 'string' || !content.startsWith(REFS_CTX_HEADER)) return null
   let i = REFS_CTX_HEADER.length
+  // refs-injection-08:现役格式 header 后有抗注入声明段(可选——存量旧行无此段)
+  if (content.startsWith(REFS_GUARD_NOTE, i)) i += REFS_GUARD_NOTE.length
   let out = content.slice(0, i)
   let masked = 0
   while (i < content.length) {
@@ -42,11 +50,15 @@ function scrubRefsCtxContent(content) {
     if (labelEnd < 0) { out += content.slice(i); break }
     const j = labelEnd + 2
     let blockEnd = -1
+    // 围栏偏移(refs-injection-08):现役块 label 行后是 FENCE 行再接 JSON;旧块直接 JSON。
+    // fenceLen>0 时 JSON 起点后移,重掩重建须把 FENCE 行放回(label:\n[FENCE]\n{masked})。
+    let fenceLen = 0
     if (content[j] === '\n') {
       // JSON 块
-      if (content[j + 1] !== '{') { out += content.slice(i); break }
+      if (content.startsWith(FENCE + '\n', j + 1)) fenceLen = FENCE.length + 1
+      if (content[j + 1 + fenceLen] !== '{') { out += content.slice(i); break }
       let depth = 0, inStr = false, esc = false
-      for (let k = j + 1; k < content.length; k++) {
+      for (let k = j + 1 + fenceLen; k < content.length; k++) {
         const c = content[k]
         if (esc) { esc = false; continue }
         if (inStr) { if (c === '\\') esc = true; else if (c === '"') inStr = false; continue }
@@ -66,9 +78,9 @@ function scrubRefsCtxContent(content) {
     let blockText = content.slice(i, blockEnd)
     if (content[j] === '\n') {
       try {
-        const obj = JSON.parse(content.slice(j + 1, blockEnd))
+        const obj = JSON.parse(content.slice(j + 1 + fenceLen, blockEnd))
         if (obj && obj.kind === 'Secret') {
-          const re = `${content.slice(i, labelEnd + 2)}\n${JSON.stringify(maskSecretResource(obj), null, 2)}`
+          const re = `${content.slice(i, labelEnd + 2)}\n${fenceLen ? FENCE + '\n' : ''}${JSON.stringify(maskSecretResource(obj), null, 2)}`
           // 幂等:重掩后逐字相同(已掩码短路)→不计
           if (re !== blockText) { blockText = re; masked++ }
         }

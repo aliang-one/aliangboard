@@ -40,7 +40,7 @@ import { refAllowed } from '../ref-fetch.mjs' // Phase C Task 6:@mention 引用�
 import { canAccessCluster } from '../authz.mjs' // Phase D Task 7:集群分配 entitlement(单一事实源,admin 短路)
 // refs-injection-02 + gap3-01(2026-09-07 审计批次二 Task 6):三入口统一归一(条数/形状/字节
 // → 400)+ 落库盖 clusterId 戳 + 换绑停用。见 refs-normalize.mjs 文件头注。
-import { normalizeReferences, stampRefs, REFS_MAX_ITEMS, REFS_MAX_BYTES } from '../refs-normalize.mjs'
+import { normalizeReferences, stampRefs, clampResource, REFS_MAX_ITEMS, REFS_MAX_BYTES } from '../refs-normalize.mjs'
 
 export function createWorkbenchConvRoutes(deps) {
   const {
@@ -143,6 +143,37 @@ export function createWorkbenchConvRoutes(deps) {
     const changes = db_.prepare("UPDATE workbench_conversations SET status='running', updatedAt=? WHERE id=? AND status='paused'").run(Date.now(), id).changes
     if (changes === 0) return { ok: false, status: 400, message: msg(req, 'wbc.notPausedConcurrent') }
     return { ok: true }
+  }
+
+  // gap3-02(2026-09-07 审计批次三):审批集群戳门——pendingApproval 落库时盖 clusterId 戳
+  // (workbench-agent paused 分支,裁决快照锚定创建时集群)。approve/deny 执行前比对当下
+  // project.clusterId:不一致 → 拒绝(resume 不启动,已批工具绝不按旧裁决快照对新集群执行)。
+  // 终态形状与 gap3-03 换绑协调同语义(PT5 deny-no-LLM 形状:CAS 抢占 → 审计 → failed 终态
+  // + pendingApproval 消费 + bus 三连)→ 200 {status:'failed'}——对话落 failed 而非悬
+  // paused(死审批无再生路径,每次重试都撞同一错误只会徒增困惑)。无戳(存量老审批)视作
+  // 当前集群放行(向后兼容,同 refs 无戳惯例)。返回 true=已处置(调用方 return)。
+  function approvalClusterStale(req, res, ps, conv, project) {
+    let pa = null
+    try { pa = conv?.pendingApproval ? JSON.parse(conv.pendingApproval) : null } catch { pa = null }
+    if (!pa || typeof pa.clusterId !== 'string' || pa.clusterId === project.clusterId) return false
+    const reason = msg(req, 'wbc.approvalClusterChanged')
+    const cas = claimPausedForResume(req, db, conv.id)
+    if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
+    try {
+      // 归属持久留痕(同 deny-no-LLM:审计链是 durable 权威源,先于终态翻转落账)
+      writeAudit?.(db, { owner: ps.username, verb: 'deny', tool: 'wb_approval', result: 'ok', requestSummary: `conv=${conv.id} cluster-stamp=${pa.clusterId} current=${project.clusterId || '(unbound)'} approverId=${ps.userId}`, source: 'platform' })
+      updateConversation(db, conv.id, { status: 'failed', pendingApproval: null, error: reason })
+      busEmit(conv.id, { type: 'status', status: 'failed', error: reason })
+      busEmit(conv.id, { type: 'end' })
+      busDispose?.(conv.id)
+    } catch (e) {
+      // 回滚连 pendingApproval 一起还原(deny-no-LLM fix round 1 同款:只回滚 status 会留
+      // 「paused 但无审批」死形状)。原值取自入参 conv(CAS 前读取)。
+      try { db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval=? WHERE id=?").run(conv.pendingApproval ?? null, conv.id) } catch { /* 行已删等,尽力回滚 */ }
+      sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.approveFailed') }); return true
+    }
+    sendJson(res, 200, { status: 'failed', message: reason })
+    return true
   }
 
   // 当前轮快照(2026-08-25 闪变续修):trace = conv.trace 中「上一条消息行 createdAt 之后」的事件
@@ -253,8 +284,10 @@ export function createWorkbenchConvRoutes(deps) {
         if (body == null) { blocks.push(`${label}: (空响应)`); resources.push(null); continue }
         blocks.push(`${label}:\n${JSON.stringify(body, null, 2)}`)
         // 落库 refs + 前端 ResourceCard 均掩码形(脱敏 spec 2026-08-28,终审 I1):
-        // 明文不出 DB;blocks 拼 ctx 保持原样(ctx 本身无消费方,system 注入走 fetchRefContext 已掩码)
-        resources.push(maskSecretResource(body))
+        // 明文不出 DB;blocks 拼 ctx 保持原样(ctx 本身无消费方,system 注入走 fetchRefContext 已掩码)。
+        // refs-injection-06 残余(2026-09-07 审计批次三):clampResource 64KB 上限(单点收口——
+        // 本数组是响应回传/消息落库/edit 回显的共同来源,超限 resource 替换骨架+truncated 标记)。
+        resources.push(clampResource(maskSecretResource(body)))
       } catch (e) {
         blocks.push(`${label}: (not found)`)
         resources.push(null) // 修复①:失败也要占位,保下标对齐
@@ -623,7 +656,12 @@ export function createWorkbenchConvRoutes(deps) {
         auditConv(ps, 'edit', id, conv.projectId)
         // 2026-09-01 锚 id 失联修复:截断已删旧锚行,响应必须回带新 user 行 id——
         // 前端乐观 turn 据此回填,否则同视图内第二次编辑仍发被删旧 id → 「编辑目标无效」。
-        sendJson(res, 200, { status: 'running', anchorMessageId: appendedAnchor?.id || null, context: contextInfo(getConversation(db, id)) })
+        // contracts-08(2026-09-07 审计批次三,PT7):references 对齐 append/create——前端乐观
+        // turn 经 pairRefResources 即时出 ResourceCard(否则编辑重发后卡片降级回退 chip,须等
+        // 刷新)。下标与落库 refsValue 一一对应(同 appendMessage 那路的合并式);沿用锚 refs
+        // 回锚存 resource 快照(旧快照语义),新 references 回本次拉取结果,@server/失败 null
+        // 占位。clampResource 防御性 no-op(两来源理论均已 clamp,双 clamp 幂等安全)。
+        sendJson(res, 200, { status: 'running', anchorMessageId: appendedAnchor?.id || null, references: refsValue ? refsValue.map((r, i) => clampResource(r.resource ?? fetchedResources[i] ?? null)) : [], context: contextInfo(getConversation(db, id)) })
         return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.editFailed') }); return true }
     }
@@ -873,6 +911,8 @@ export function createWorkbenchConvRoutes(deps) {
       // 面,与 messages/regenerate/edit 同门(clusterEntitled 单源)——失权 owner 不得经审批
       // 续跑。先于 CAS(claimPausedForResume 翻 running)与 LLM 配置检查,拒绝零状态副作用。
       if (!clusterEntitled(ps, projectForGate.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
+      // gap3-02:审批集群戳门(裁决快照 vs 当下绑定;不一致 → failed 终态,处置完 return)。
+      if (approvalClusterStale(req, res, ps, convForGate, projectForGate)) return true
       // LLM 配置检查先于 CAS(2026-09-06 审计#2):配置缺失 400 时状态未动,对话保持 paused
       // 可配置恢复后直接重试;旧顺序 CAS 先翻 running,失败即永久卡死(只能重启网关抢救)。
       const cfg = getLlmConfig()
@@ -915,6 +955,8 @@ export function createWorkbenchConvRoutes(deps) {
       // F4(authz-entitlement-02):deny 同 approve 门——deny 也走 resumeConversation(detached
       // 续跑 denied 队列),失权 owner 不得经任何审批面触碰 run;先于 CAS,拒绝零副作用。
       if (!clusterEntitled(ps, projectForGate.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
+      // gap3-02:审批集群戳门,approve/deny 对称(deny 续跑同样吃新集群上下文)。
+      if (approvalClusterStale(req, res, ps, convForGate, projectForGate)) return true
       // approval-flow-02(2026-09-07 审计批次三):「拒绝」不依赖 LLM。审批决策本身(不执行
       // 该工具调用)无需模型;续跑(把拒绝回喂 LLM 出终答)才需要。旧实现配置缺失 400 拒绝
       // deny → 无 LLM 时 paused 审批死局(approve/deny 双拒,唯一出路重启网关)。裁决:配置

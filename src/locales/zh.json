@@ -450,7 +450,8 @@
       "unknownKind": "未知",
       "noAttributes": "暂无属性",
       "justNow": "刚刚",
-      "sourceCluster": "来源集群 {name}"
+      "sourceCluster": "来源集群 {name}",
+      "truncated": "内容过大,已截断(原始 {kb}KB)"
     },
     "kvRows": {
       "add": "添加一行"

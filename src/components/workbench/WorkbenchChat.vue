@@ -1048,8 +1048,16 @@ async function send() {
       turns.value.splice(userIdx)                       // 锚及之后全删
       // 2026-09-01 锚 id 回填:服务端已删旧锚行+append 新行,必须改持响应里的新行 id——
       // 沿用旧 id 会让同视图内第二次编辑报「编辑目标无效」。旧服务端无此字段时兜底旧值(仅首个编辑可用)。
-      turns.value.push({ _id: ++turnSeq, role: 'user', content: msg, messageId: resp?.anchorMessageId || ed.messageId, refs: refsSnapshot.length ? [...refsSnapshot] : undefined })
+      const newUserId = ++turnSeq
+      turns.value.push({ _id: newUserId, role: 'user', content: msg, messageId: resp?.anchorMessageId || ed.messageId, refs: refsSnapshot.length ? [...refsSnapshot] : undefined })
       turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
+      // contracts-08(2026-09-07 审计批次三,PT7):edit 响应 references 与 append/create 同款
+      // 按下标配对进乐观 turn——否则编辑重发后 ResourceCard 降级回退 chip,须等刷新重建。
+      // 旧服务端无该字段时不配对(零回归);refsSnapshot 空则无 chips 可配。
+      if (Array.isArray(resp?.references) && resp.references.length) {
+        const ut = turns.value.find(x => x._id === newUserId)
+        if (ut?.refs) pairRefResources(ut.refs, resp.references)
+      }
       editing.value = null
       resetInput()
       conversationId.value = props.activeConversationId

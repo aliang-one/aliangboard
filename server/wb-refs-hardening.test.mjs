@@ -269,3 +269,96 @@ test('③ 混合列表:旧集群 ref 停用、当前集群 ref 与 @server ref �
   assert.ok(names.includes('网关机'), '@server ref 不随换绑作废(无戳=平台域)')
   assert.ok(sys.includes('stale-pod') && sys.includes('已停用'), '仅旧 ref 进作废注记')
 })
+
+// ═══ ④ refs-injection-06 残余(2026-09-07 审计批次三 Task 7):消息级 resource 无大小上限 ═══
+// @refs enrich 的 resource(全量 K8s 对象)落库进 message.refs 且随响应回传——1MB ConfigMap
+// 原样入库:行膨胀 + GET /:id(messages 含 refs)与轮询/重连快照线性放大 + 前端回放全量。
+// 契约:clampResource 单源(refs-normalize)64KB 上限——超限替换为「骨架+标记」形状
+// (kind/metadata 保留,ResourceCard 头部照常渲染;truncated:true + truncatedBytes 原始
+// 字节数 + 2KB JSON 前缀预览),≤上限原样返回;幂等(已 clamp 形状再 clamp 不变)。
+// 拉取单点收口:buildRefsContext 的 resources.push(响应回传/消息落库/edit 回显同源)。
+import { clampResource, RESOURCE_MAX_BYTES } from './refs-normalize.mjs'
+
+test('④ clampResource 单元:≤64KB 原样返回;1MB → 骨架+标记 ≤64KB;幂等', () => {
+  const small = { kind: 'Pod', metadata: { name: 'p1', namespace: 'default' }, spec: {} }
+  assert.equal(clampResource(small), small, '小资源原引用返回(零拷贝,不扰动)')
+
+  const bigCm = { kind: 'ConfigMap', metadata: { name: 'big-cm', namespace: 'default' }, data: { big: 'x'.repeat(1024 * 1024) } }
+  const clamped = clampResource(bigCm)
+  assert.notEqual(clamped, bigCm)
+  assert.equal(clamped.truncated, true, '截断标记(ResourceCard 提示数据源)')
+  assert.equal(clamped.kind, 'ConfigMap', 'kind 保留')
+  assert.equal(clamped.metadata.name, 'big-cm', 'metadata.name/namespace 保留(卡片头部照常渲染)')
+  assert.ok(clamped.truncatedBytes > 1024 * 1024, '原始字节数入标记')
+  assert.ok(Buffer.byteLength(JSON.stringify(clamped), 'utf8') < RESOURCE_MAX_BYTES, 'clamp 后形状 < 64KB')
+  assert.ok(typeof clamped.preview === 'string' && clamped.preview.length > 0, '带 JSON 前缀预览')
+
+  // 幂等:已 clamp 形状(≤64KB)再过 clamp 不变(双 clamp/重放安全)
+  assert.equal(clampResource(clamped), clamped)
+  // null/非对象透传(占位 null 不被加工)
+  assert.equal(clampResource(null), null)
+})
+
+test('④ 1MB ConfigMap 经 create 落库/回传 clamp 64KB:响应与 message.refs 均截断+标记', async () => {
+  const bigCm = { kind: 'ConfigMap', metadata: { name: 'big-cm', namespace: 'default' }, data: { big: 'y'.repeat(1024 * 1024) } }
+  const h = makeHarness({ overrides: { requestKubernetes: async () => ({ status: 200, headers: {}, body: bigCm }) } })
+  h.setBody({ projectId: h.pid, message: '看下配置', references: [{ kind: 'configmaps', namespace: 'default', name: 'big-cm' }] })
+  assert.ok(await h.call('POST', '/api/workbench/conversations'))
+  assert.equal(lastSent(h).status, 200)
+  // 回传:截断标记 + 骨架(kind/name 保留)
+  const echoed = lastSent(h).json.references[0]
+  assert.equal(echoed.truncated, true, '响应 references[0] 为截断形状')
+  assert.equal(echoed.kind, 'ConfigMap')
+  assert.ok(Buffer.byteLength(JSON.stringify(echoed), 'utf8') < 64 * 1024, '回传载荷 < 64KB')
+  // 落库:message.refs 的 resource 同款截断(1MB 不入 SQLite 行)
+  const conv = getConversation(h.db, h.runs[0])
+  const userMsg = h.db.prepare("SELECT refs FROM workbench_messages WHERE conversationId=? AND role='user'").get(conv.id)
+  const stored = JSON.parse(userMsg.refs)[0].resource
+  assert.equal(stored.truncated, true, '落库 resource 截断标记')
+  assert.ok(Buffer.byteLength(JSON.stringify(stored), 'utf8') < 64 * 1024, '落库 resource < 64KB(1MB ConfigMap 不原样入库)')
+  assert.equal(stored.metadata.name, 'big-cm', '骨架 metadata 保留(ResourceCard 头部可渲染)')
+})
+
+// ═══ ⑤ contracts-08(2026-09-07 审计批次三,PT7):edit 响应回传 references ═══
+// append/create 响应均回传 references(前端乐观 turn 经 pairRefResources 即时出 ResourceCard),
+// edit 响应独缺——编辑重发后 ResourceCard 降级为回退 chip,须等刷新重建才恢复卡片。契约:
+// edit 响应对齐带 references,下标与落库 refsValue 一一对应;沿用锚 refs 路径回锚存的
+// resource 快照(旧快照语义,不重拉替换),新 references 路径回本次拉取结果,@server/null
+// 占位保对齐。
+test('⑤ edit 响应回传 references:锚沿用路径回锚存 resource 快照;新 references 回拉取结果;null 保下标对齐', async () => {
+  const h = makeHarness()
+  // 造一个 done 对话 + 带锚 refs 的 user 消息(resource=旧快照,与 mock 拉取的 nginx 区分)
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首问' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  const anchor = appendMessage(h.db, {
+    conversationId: conv.id, role: 'user', content: '原问题',
+    refs: [{ kind: 'pods', namespace: 'default', name: 'nginx', clusterId: 'c1', clusterName: '集群一', resource: { kind: 'Pod', metadata: { name: 'nginx-stale-snapshot' } } }],
+  })
+  // 路径 A:缺省 references → 沿用锚 refs → 响应 references[0] = 锚存 resource(非重拉的 nginx)
+  h.setBody({ messageId: anchor.id, content: '改后的问题' })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`))
+  assert.equal(lastSent(h).status, 200)
+  assert.ok(Array.isArray(lastSent(h).json.references), 'edit 响应带 references(与 append/create 对齐)')
+  assert.equal(lastSent(h).json.references[0].metadata.name, 'nginx-stale-snapshot', '锚沿用路径回锚存快照(旧快照语义)')
+  // 落库的新 user 行 refs 同步带 resource(既有行为,回归锚)
+  const newRow = h.db.prepare('SELECT refs FROM workbench_messages WHERE id=?').get(lastSent(h).json.anchorMessageId)
+  assert.equal(JSON.parse(newRow.refs)[0].resource.metadata.name, 'nginx-stale-snapshot')
+
+  // 路径 B:显式新 references(pods + @server)→ 回本次拉取结果 + null 占位对齐
+  const conv2 = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首问2' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv2.id)
+  const anchor2 = appendMessage(h.db, { conversationId: conv2.id, role: 'user', content: '原问题2' })
+  h.setBody({ messageId: anchor2.id, content: '改后的问题2', references: [ref(), { kind: 'server', namespace: '', name: '网关机' }] })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv2.id}/edit`))
+  assert.equal(lastSent(h).status, 200)
+  assert.equal(lastSent(h).json.references[0].metadata.name, 'nginx', '新 references 回本次拉取结果(mock k8s body)')
+  assert.equal(lastSent(h).json.references[1], null, '@server 占位 null 保下标对齐')
+  // 空数组合法(删光全部 @):references 恒传 [] → 响应回 []
+  const conv3 = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首问3' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv3.id)
+  const anchor3 = appendMessage(h.db, { conversationId: conv3.id, role: 'user', content: '原问题3' })
+  h.setBody({ messageId: anchor3.id, content: '改后的问题3', references: [] })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv3.id}/edit`))
+  assert.equal(lastSent(h).status, 200)
+  assert.deepEqual(lastSent(h).json.references, [], '空数组 → 空数组(删光全部 @)')
+})

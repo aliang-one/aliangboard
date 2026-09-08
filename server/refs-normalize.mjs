@@ -11,6 +11,8 @@
 //   + 注入作废注记(buildStaleRefsNote);老行无戳视作当前集群(向后兼容)。
 //   @server 引用(kind==='server')不盖戳:平台 SSH 清单域,clusterRef 是纯标签非硬关联
 //   (spec §1),无戳 = 永不作废,不随项目换绑停用。
+// ③refs-injection-06 残余(2026-09-07 审计批次三):消息级 resource(全量 K8s 对象)无大小
+//   上限——MB 级 ConfigMap 原样落库/回传。clampResource 64KB 上限,超限替换为骨架+标记。
 //
 // 错误形状:normalizeReferences 返回 { ok, error } 而非 throw——路由层要拿 error.code 查
 // wbc i18n 表(三入口都要 sendJson 400,throw 会被外层 catch 转成 500 语义)。
@@ -97,4 +99,30 @@ export function buildStaleRefsNote(staleRefs) {
     return `${label}: (引用创建于集群 ${from},项目已换绑,已停用,请让用户重新 @)`
   })
   return `\n\n已停用的过时引用(项目已换绑集群,以下引用不再注入,需重新 @ 以在新集群锚定):\n${lines.join('\n')}`
+}
+
+// ── ③ refs-injection-06 残余(2026-09-07 审计批次三):消息级 resource 大小上限 ──
+// @refs enrich 的 resource(全量 K8s 对象)落库进 message.refs 且随响应回传——大 ConfigMap
+// (MB 级 data)原样入库会膨胀行 + GET /:id(messages 含 refs)/轮询/重连快照线性放大 + 前端
+// 全量回放。契约:超限替换为「骨架+标记」——kind/metadata.name/namespace 保留(ResourceCard
+// 头部照常渲染),truncated:true 供前端截断提示,truncatedBytes 原始字节数(提示带量),
+// preview 取 JSON 前缀 2KB(诊断可见性);≤上限原引用返回(零拷贝,不扰动正常载荷)。
+// 天然幂等:clamp 形状 ≤上限,二次 clamp 原样返回(双 clamp/重放安全)。null/非对象透传
+// (下标占位 null 不被加工;畸形 body 交由下游 attrs 渲染兜底,不在此抛错——enrich 是尽力
+// 语义,拉取失败已有 null 占位通道)。
+export const RESOURCE_MAX_BYTES = 64 * 1024
+const RESOURCE_PREVIEW_CHARS = 2048
+export function clampResource(body) {
+  if (body == null || typeof body !== 'object') return body
+  let s = ''
+  try { s = JSON.stringify(body) } catch { return body }
+  const bytes = Buffer.byteLength(s, 'utf8')
+  if (bytes <= RESOURCE_MAX_BYTES) return body
+  return {
+    kind: typeof body.kind === 'string' ? body.kind : '',
+    metadata: { name: body.metadata?.name ?? '', namespace: body.metadata?.namespace ?? '' },
+    truncated: true,
+    truncatedBytes: bytes,
+    preview: s.slice(0, RESOURCE_PREVIEW_CHARS),
+  }
 }

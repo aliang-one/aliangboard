@@ -4,7 +4,8 @@ import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { createWorkbenchSchema, createProject, createConversation, appendMessage } from './workbench-projects.mjs'
 import { scrubSecrets } from './secret-scrub.mjs'
-import { REFS_CTX_HEADER } from './refs-context.mjs'
+import { REFS_CTX_HEADER, REFS_GUARD_NOTE } from './refs-context.mjs'
+import { formatRefBlock } from './ref-context.mjs' // refs-injection-08:防线守卫经生产单源构造现役格式 fixture
 
 const SECRET_PLAIN = { kind: 'Secret', metadata: { name: 's1' }, data: { password: Buffer.from('hunter2').toString('base64') } }
 
@@ -70,4 +71,30 @@ test('scrubSecrets:user content 烤入的 refsCtx Secret 块重掩;非 Secret �
   const r2 = scrubSecrets(db)
   assert.equal(r2.eventsMasked, 0, '幂等:再跑零变化')
   assert.equal(db.prepare('SELECT content FROM workbench_messages WHERE id=?').get(plainRow.id).content, '普通消息无 refsCtx', '幂等跑不动干净行')
+})
+
+// ── refs-injection-08(2026-09-07 审计批次三):现役 FENCE 格式防线守卫 ──
+// 现役注入格式(fetchRefContext→formatRefBlock)有两个旧解析器不识别的成分:HEADER 后的
+// REFS_GUARD_NOTE 声明段(首字符非 '[' → 旧 scrub 在此整体原样收尾,Secret 块明文滞留)
+// 与 JSON 块 label 行后的围栏行 [引用资源数据 —— …]。守卫钉死:块 fixture 必须经
+// formatRefBlock 产出(生产单源),HEAD+声明段+围栏块落在 user content 里 scrub 必须重掩、
+// strip(见 workbench-conv-routes.test.mjs)必须剥净——生产格式漂移时守卫即刻红。
+test('scrubSecrets:现役 FENCE 格式 refsCtx(HEADER+声明段+formatRefBlock 围栏块)Secret 重掩;FENCE 保留;幂等', () => {
+  const { db, conv } = setup()
+  const plain = Buffer.from('hunter2').toString('base64')
+  const secretBlock = formatRefBlock('[Secret/ns/s1]', JSON.stringify({ kind: 'Secret', metadata: { name: 's1' }, data: { password: plain } }, null, 2))
+  const podBlock = formatRefBlock('[Pod/ns/p1]', JSON.stringify({ kind: 'Pod', metadata: { name: 'p1' } }, null, 2))
+  const content = `${REFS_CTX_HEADER}${REFS_GUARD_NOTE}${[secretBlock, podBlock].join('\n\n')}\n\n这个配置对吗`
+  appendMessage(db, { conversationId: conv.id, role: 'user', content })
+  const r1 = scrubSecrets(db)
+  assert.equal(r1.eventsMasked, 1, '现役格式 Secret 块计 1(旧 scrub:声明段截停恒 0)')
+  const scrubbed = db.prepare('SELECT content FROM workbench_messages WHERE conversationId=? AND role=? ORDER BY seq ASC').get(conv.id, 'user').content
+  assert.ok(!scrubbed.includes(plain), '明文(base64)已清除')
+  assert.match(scrubbed, /\*\*\* \(\d+ chars, #[0-9a-f]{8}\)/, '值为掩码指纹形态')
+  assert.ok(scrubbed.includes('[Secret/ns/s1]:') && scrubbed.includes('[Pod/ns/p1]:'), 'label 保留')
+  assert.ok(scrubbed.includes('[引用资源数据'), '围栏行(FENCE)保留——不破坏现役格式,strip/前端按同格式再消费')
+  assert.ok(scrubbed.includes('"kind": "Pod"'), '非 Secret 围栏块逐字不动')
+  assert.ok(scrubbed.endsWith('这个配置对吗'), '用户正文原样收尾')
+  const r2 = scrubSecrets(db)
+  assert.equal(r2.eventsMasked, 0, '幂等:再跑零变化')
 })

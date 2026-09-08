@@ -961,6 +961,28 @@ test('编辑发送:删光全部 chips 后 references 传空数组(非缺省)', a
   w.unmount()
 })
 
+// contracts-08(2026-09-07 审计批次三,PT7):edit 响应回传 references(此前 append/create 回、
+// edit 独缺)——前端乐观 turn 须同款 pairRefResources 配对,否则编辑重发后 ResourceCard 降级
+// 为回退 chip,须等刷新重建才恢复卡片。契约与 append 路径一致:按下标配对。
+test('编辑发送:响应 references 配对进乐观 user turn(pairRefResources,即时出 ResourceCard)', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({ id: 'c-e', status: 'done', content: 'ok', trace: '[]', steps: 1, recap: '', messages: [
+    { id: 'm1', role: 'user', content: '原始问题', createdAt: 1, refs: JSON.stringify([{ kind: 'pod', namespace: 'default', name: 'web' }]) },
+    { id: 'm2', role: 'assistant', content: '答', createdAt: 2 },
+  ], context: { estTokens: 1000, windowTokens: 200000, budgetTokens: 140000, recapUpTo: 0, willTrim: false } })
+  api.conversations.edit.mockResolvedValueOnce({ status: 'running', anchorMessageId: 'm-new', references: [{ kind: 'Pod', metadata: { name: 'web', namespace: 'default' } }], context: null })
+  const w = await mountChat({ conversationId: 'c-e', activeConversationId: 'c-e' })
+  await flushPromises()
+  api.conversations.get.mockRejectedValue(new Error('offline')) // 降级轮询失败静默,保住本地乐观态
+  await w.find('[data-testid="edit-msg-btn"]').trigger('click')
+  await w.find('textarea').setValue('改过的问题')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  const ut = w.vm.turns.find(t => t.role === 'user')
+  expect(ut.refs[0].resource?.metadata?.name, '响应 references 按下标配对进乐观 turn').toBe('web')
+  w.unmount()
+})
+
 // ── slash T2:行首 / 命令面板(spec §3.2)──
 test('slash:行首 / 弹面板,输入过滤;非行首 / 不触发', async () => {
   const w = await mountChat()

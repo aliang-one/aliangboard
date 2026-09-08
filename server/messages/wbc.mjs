@@ -43,4 +43,7 @@ export const TABLE = {
   'wbc.refsTooMany': { zh: '引用数量超过上限({limit}),请删减后重试', en: 'Too many references (limit {limit}). Remove some and retry' },
   'wbc.refsInvalid': { zh: '引用格式无效:须为对象数组,kind/namespace/name 均为字符串', en: 'Invalid references: expected an array of objects with string kind/namespace/name' },
   'wbc.refsTooLarge': { zh: '引用总大小超过上限({limitKB}KB)', en: 'References exceed the total size limit ({limitKB}KB)' },
+  // gap3-02(2026-09-07 审计批次三):审批集群戳门——裁决快照锚定创建时集群,执行前比对
+  // 当下绑定不一致即拒(同时是换绑协调 gap3-03 失效审批的用户可见文案)。
+  'wbc.approvalClusterChanged': { zh: '集群已换绑,请重新发起', en: 'The project cluster has changed; please start a new request' },
 }

@@ -450,7 +450,8 @@
       "unknownKind": "Unknown",
       "noAttributes": "No attributes",
       "justNow": "just now",
-      "sourceCluster": "From cluster {name}"
+      "sourceCluster": "From cluster {name}",
+      "truncated": "Too large; truncated (original {kb}KB)"
     },
     "kvRows": {
       "add": "Add row"
