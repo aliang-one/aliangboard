@@ -25,6 +25,11 @@ watch(navMode, (m, prev) => {
 const _cid = computed(() => (store.currentCluster || 'cluster'))
 // 无 K8s session（首装 admin 在平台管理页）时不轮询 namespaces——拉了必 401
 const _nsEnabled = computed(() => !!getSession())
+// 无集群态简化(2026-09-08 round-3,与 _nsEnabled 同源信号):集群域控件(集群管理节/
+// NAMESPACE 带/底部活动设置)都需要集群上下文,点了会被守卫弹回选择页——整节隐藏,
+// 只留头部 + CTA 卡两个「返回选择」入口。挂载时求值即正确:进 AppLayout 前守卫已定去留,
+// 会话中途失效路径(guard api.session 失败)必弹回选择页 = 侧栏随之卸载。
+const noCluster = computed(() => !getSession())
 const _nsQ = useResourceList({ key: ['cluster', _cid, 'namespaces'], fetcher: () => store.fetchNamespaces(), options: { refetchInterval: 60000, enabled: _nsEnabled } })
 const allNamespaces = computed(() => _nsQ.data.value ?? store.namespaceList)
 
@@ -258,9 +263,19 @@ function nsStatusColor(status) {
     <!-- Cluster Header:两态容器——集群态大头部 / ns 态收缩锚点条(整行可点返回) -->
     <div data-test="cluster-header" class="cluster-header shrink-0 px-lg flex items-center transition-all duration-300 ease-out overflow-hidden"
       :class="isClusterMode ? 'h-[68px]' : 'h-[44px]'">
+      <!-- 无集群态头部(round-3):不弹空切换面板,点击即回选择页 -->
+      <button v-if="isClusterMode && noCluster" data-test="cluster-brand-nocluster"
+        class="flex items-center gap-md w-full cursor-pointer rounded-lg text-left"
+        :title="$t('nav.selectClusterCta')" :aria-label="$t('nav.selectClusterCta')"
+        @click="navTo('/select-cluster')">
+        <img src="/aliang-logo.svg" alt="AliangBoard" class="w-9 h-auto shrink-0" width="36" height="33" />
+        <div class="min-w-0 cluster-header-txt">
+          <h2 class="text-body-md font-bold text-on-surface-variant leading-tight truncate">{{ $t('nav.noClusterTitle') }}</h2>
+        </div>
+      </button>
       <!-- 集群态大头部(2026-09-04 顶栏去重升级):全断点可点——桌面/rail 弹锚定面板,
            抽屉档发集群选择通道(Wave 4 终审 B 的「桌面纯展示」契约随顶栏剃除而废止) -->
-      <div v-if="isClusterMode" ref="clusterBrandRef" data-test="cluster-brand"
+      <div v-else-if="isClusterMode" ref="clusterBrandRef" data-test="cluster-brand"
         class="flex items-center gap-md w-full cursor-pointer rounded-lg"
         role="button" tabindex="0"
         :aria-label="$t('nav.switchCluster')" :aria-expanded="showClusterPanel ? 'true' : 'false'"
@@ -285,8 +300,25 @@ function nsStatusColor(status) {
     <!-- Divider -->
     <div class="h-px bg-outline-variant/50 mx-md"></div>
 
-    <!-- Namespace Selector:浅坞 band(方案 B,docs/superpowers/specs/2026-08-18-ns-button-dock-style-design.md) -->
-    <div class="px-md pt-md pb-sm shrink-0">
+    <!-- 无集群态唯一显式入口(round-3):集群域控件全隐藏,返回选择页的通道卡
+         (与选择页的免集群通道卡互为镜像) -->
+    <div v-if="noCluster" class="px-md pt-md shrink-0">
+      <button data-test="sidenav-select-cluster" @click="navTo('/select-cluster')"
+        class="w-full flex items-center gap-md px-md py-sm rounded-xl border-2 border-dashed border-outline-variant hover:border-primary/60 transition-colors cursor-pointer text-left group">
+        <div class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <span class="material-symbols-outlined text-primary text-lg">dns</span>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-body-sm font-semibold text-on-surface truncate group-hover:text-primary transition-colors">{{ $t('nav.selectClusterCta') }}</p>
+          <p class="text-body-xs text-on-surface-variant truncate">{{ $t('nav.selectClusterDesc') }}</p>
+        </div>
+        <span class="material-symbols-outlined text-base text-on-surface-variant shrink-0">chevron_right</span>
+      </button>
+    </div>
+
+    <!-- Namespace Selector:浅坞 band(方案 B,docs/superpowers/specs/2026-08-18-ns-button-dock-style-design.md);
+         无集群态隐藏(ns 列表拉了必 401,点击即被守卫弹回) -->
+    <div v-if="!noCluster" class="px-md pt-md pb-sm shrink-0">
       <p class="text-label-caps text-on-surface-variant mb-xs px-sm ns-cap">NAMESPACE</p>
       <div class="relative">
         <div class="ns-band" :class="isClusterMode ? 'ns-band--cluster' : 'ns-band--ns'">
@@ -379,8 +411,8 @@ function nsStatusColor(status) {
             </div>
           </div>
 
-          <!-- 集群管理：可折叠板块（仅集群态渲染）；命名空间态整组隐藏 -->
-          <div v-if="isClusterMode" data-test="cluster-nav-section" class="flex flex-col gap-xs">
+          <!-- 集群管理：可折叠板块（仅集群态且有集群时渲染）；命名空间态/无集群态整组隐藏 -->
+          <div v-if="isClusterMode && !noCluster" data-test="cluster-nav-section" class="flex flex-col gap-xs">
             <button @click="clusterNavOpen = !clusterNavOpen"
               class="flex items-center gap-xs px-sm mb-xs text-on-surface-variant hover:text-on-surface transition-colors w-full nav-collapse-btn">
               <span class="material-symbols-outlined text-base transition-transform" :class="clusterNavOpen ? 'rotate-90' : ''">chevron_right</span>
@@ -471,8 +503,8 @@ function nsStatusColor(status) {
           </div>
         </div>
       </div>
-      <!-- 集群态:活动+设置(维持现状布局) -->
-      <div v-else class="flex items-stretch gap-xs">
+      <!-- 集群态:活动+设置(维持现状布局);无集群态隐藏(两页都依赖集群上下文,点击即被弹回) -->
+      <div v-else-if="!noCluster" class="flex items-stretch gap-xs">
         <a data-test="bottom-activity" @click="navTo('/audit-logs')"
           :title="$t('nav.activityLog')" :aria-label="$t('nav.activityLog')"
           class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors cursor-pointer"

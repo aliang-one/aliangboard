@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
 
@@ -31,6 +31,10 @@ vi.mock('vue-router', () => ({
 }))
 
 import SideNavBar from '../SideNavBar.vue'
+
+beforeEach(() => {
+  sessionStorage.setItem('aliangboard.session', 'test-session') // round-3:侧边栏区分无集群态,这些用例测有集群行为须声明会话
+})
 const mountIt = () => mount(SideNavBar, { global: { plugins: [createPinia()], mocks: { $t: (k) => k } } })
 
 describe('SideNavBar 底部 icon 行(事件/活动记录/设置)', () => {

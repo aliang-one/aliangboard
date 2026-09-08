@@ -1,4 +1,4 @@
-import { test, expect, vi } from 'vitest'
+import { test, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { i18n } from '@/i18n'
@@ -35,6 +35,11 @@ vi.mock('@/composables/useK8sQuery', () => ({
 }))
 
 import SideNavBar from '../layout/SideNavBar.vue'
+
+// round-3(无集群态简化):这些用例测的是有集群行为,须声明会话
+beforeEach(() => {
+  sessionStorage.setItem('aliangboard.session', 'test-session')
+})
 
 function mountSideNavBar() {
   return mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })

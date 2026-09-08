@@ -572,7 +572,10 @@
     "userCenter": "用户中心",
     "logout": "退出登录",
     "enterNamespace": "进入命名空间",
-    "groupsGrants": "组与授权"
+    "groupsGrants": "组与授权",
+    "noClusterTitle": "未连接集群",
+    "selectClusterCta": "选择集群",
+    "selectClusterDesc": "连接后可管理集群资源"
   },
   "userCenter": {
     "activityTitle": "我的活动",

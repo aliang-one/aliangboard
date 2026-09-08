@@ -1,6 +1,6 @@
 // 品牌铺开回归(侧边栏):集群态头部(cluster-brand)必须是 aliang-logo 品牌 img,
 // 不再是绿盒 + kubernetes 通用图标。路由 meta 为空 → cluster 模式(useNavMode)。
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
 
@@ -23,6 +23,10 @@ vi.mock('vue-router', () => ({
 }))
 
 import SideNavBar from '../SideNavBar.vue'
+
+beforeEach(() => {
+  sessionStorage.setItem('aliangboard.session', 'test-session') // round-3:侧边栏区分无集群态,这些用例测有集群行为须声明会话
+})
 
 describe('SideNavBar 集群头品牌位', () => {
   it('集群态 cluster-brand 展示 aliang-logo 品牌 img', () => {
