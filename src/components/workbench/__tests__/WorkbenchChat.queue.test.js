@@ -138,3 +138,36 @@ test('运行中挂载恢复 sending=true:停止键在,textarea 不因 sending �
   expect(w.find('textarea').attributes('disabled')).toBeUndefined()
   w.unmount()
 })
+
+// ── B5 残余(salvage-gap 审计 2026-09-08,二次核准后收口)──
+// B5①:终态跳变落在编辑态时,watch 的 drainQueue 被 editing 守卫拦下且无重试——用户退出
+// 编辑态后排队消息滞留(可见但不发)。契约:cancelEdit 补触发一次出队(drainQueue 自带
+// sending/editing/pendingApproval 守卫,不满足时自然 no-op)。
+test('B5①: editing 拦下的出队在 cancelEdit 后补触发', async () => {
+  const w = await mountRunning()
+  await typeAndEnter(w, '排队中的问题')
+  expect(w.find('[data-testid="queue-panel"]').exists()).toBe(true)
+  // 模拟编辑态时终态到达(实际时序:paused 编辑中→他端决策→done;watch 的 drain 被拦)
+  w.vm.editing = { messageId: 'm1', draft: '', draftRefs: [] }
+  api.conversations.get.mockImplementation(async () => doneConv())
+  await vi.advanceTimersByTimeAsync(2100)
+  await flushPromises()
+  expect(api.conversations.append).not.toHaveBeenCalled('editing 拦截,未出队')
+  w.vm.cancelEdit() // 退出编辑态 → 补触发(修复前永不再出队)
+  await flushPromises()
+  expect(api.conversations.append).toHaveBeenCalledTimes(1)
+  expect(api.conversations.append.mock.calls[0][1].message).toBe('排队中的问题')
+  w.unmount()
+})
+
+// B5②:done 对齐不清残留 errorBanner(旧错误挂新答)。compact 失败等来源的横幅在后续成功
+// 对齐后应清场——失败分支无条件置横幅,done 分支此前不清,生命周期不对称。
+test('B5②: done 对齐清残留 errorBanner(旧错误不挂新答)', async () => {
+  const w = await mountRunning()
+  w.vm.errorBanner = '旧的失败横幅'
+  api.conversations.get.mockImplementation(async () => doneConv())
+  await vi.advanceTimersByTimeAsync(2100)
+  await flushPromises()
+  expect(w.vm.errorBanner).toBe('')
+  w.unmount()
+})

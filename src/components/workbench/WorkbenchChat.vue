@@ -486,6 +486,10 @@ function cancelEdit() {
   input.value = editing.value.draft
   refs.value = editing.value.draftRefs
   editing.value = null
+  // B5①(salvage-gap 审计 2026-09-08):终态跳变若落在编辑态,watch 的 drainQueue 被
+  // editing 守卫拦下且无重试——退出编辑态时补触发一次(drainQueue 自带
+  // sending/editing/pendingApproval 守卫,不满足时自然 no-op,无需在此复刻终态判定)。
+  drainQueue()
 }
 const editAfterCount = computed(() => {
   if (!editing.value) return 0
@@ -753,6 +757,9 @@ async function pollOnce(id) {
       stopWatchdog()
       lastApproval.value = null   // 离开 paused:黄条重开入口下线
       pendingApproval.value = null // contracts-03:审批被他端决策后,过期 modal 撤下、输入解禁
+      // B5②(salvage-gap 审计 2026-09-08):成功对齐清残留横幅——failed 分支无条件置
+      // errorBanner,done 分支此前不清,compact 失败等旧错误会挂在新答案上(生命周期对称)。
+      errorBanner.value = ''
       // R1:done 时 conv.reasoning(终值)一并对齐到 turn——轮询降级路径无 reasoning 事件流。
       // 终答兜底(2026-08-28):交错模式终答显示唯一依赖 trace 的 assistant 终答块;本对齐路径
       // (看门狗/降级轮询,SSE 死亡窗口后)本地 trace 缺终答块时,只写 content 会让终答在交错
