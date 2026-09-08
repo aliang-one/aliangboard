@@ -21,6 +21,33 @@ const LINE_END = /\r\n|\r|\n/
 // 参数注入短值(与 timeoutMs/idleMs 同为工厂参数 seam,零 env 依赖)。
 export const STREAM_TOTAL_MS = 10 * 60 * 1000
 
+// 请求边界消毒(2026-09-08 审计:1214「messages 参数非法」根因):agent 循环把上一轮 assistant
+// 返回值原样 push 回 messages——流式 finalize 挂的 reasoning/finishReason(内部字段,供
+// cutByLength/持久化)与非流式 {...msg} 直展透传的 provider 原生 reasoning_content,都会随
+// 下一轮请求原样进 body。智谱系后端严格校验 messages(错误码 1214,文档明示思考内容要么
+// 完整原序透传要么剔除),未知/回传字段即整组拒收——多轮工具对话第 2 轮起必带毒(离线复现
+// 在案)。收口在本函数(chat/chatStream 两个请求体共用单点):白名单投影为 OpenAI schema
+// {role, content, tool_calls?};返回值保持内部字段不动(finishReason 供 cutByLength,reasoning
+// 供 tracker 落库)——只洗「发出去的」,不洗「留在内存的」。
+// 空 content 且无 tool_calls 的 assistant 剔除:done 落库的空串行(workbench-agent:134)经
+// buildHistory 原样回喂,是同款严格校验下的高危形状(剔除不改变语义——该行不携带信息)。
+export function sanitizeMessages(messages) {
+  const out = []
+  for (const m of (Array.isArray(messages) ? messages : [])) {
+    if (!m || typeof m !== 'object' || !m.role) continue
+    if (m.role === 'assistant') {
+      const tool_calls = Array.isArray(m.tool_calls) && m.tool_calls.length ? m.tool_calls : undefined
+      const content = typeof m.content === 'string' ? m.content : (m.content == null ? '' : String(m.content))
+      if (!content && !tool_calls) continue
+      out.push(tool_calls ? { role: 'assistant', content, tool_calls } : { role: 'assistant', content })
+      continue
+    }
+    if (m.role === 'tool') { out.push({ role: 'tool', tool_call_id: m.tool_call_id, content: m.content }); continue }
+    out.push({ role: m.role, content: m.content })
+  }
+  return out
+}
+
 export function createLlmClient({
   baseURL, apiKey, model, temperature, maxTokens, fetch = defaultFetch,
   timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 120000,
@@ -35,7 +62,7 @@ export function createLlmClient({
   if (maxTokens !== undefined && maxTokens !== null && maxTokens !== '') extras.max_tokens = Number(maxTokens)
   // chat({messages, tools?, toolChoice?}) → assistant message {role, content, tool_calls?}
   async function chat({ messages, tools, toolChoice } = {}) {
-    const body = { model, messages, ...extras }
+    const body = { model, messages: sanitizeMessages(messages), ...extras }
     if (tools?.length) { body.tools = tools; body.tool_choice = toolChoice || 'auto' }
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -60,7 +87,7 @@ export function createLlmClient({
   // → AbortController.abort)与内部空闲/总限计时器共用同一 ac——任一触发即断流,abort reason
   // 透传(fetch 以 reason 拒绝,取消语义不被泛型 AbortError 吞掉)。缺省(未传)零变化。
   async function chatStream({ messages, tools, toolChoice } = {}, { onDelta, onReasoning, signal } = {}) {
-    const body = { model, messages, stream: true, ...extras }
+    const body = { model, messages: sanitizeMessages(messages), stream: true, ...extras }
     if (tools?.length) { body.tools = tools; body.tool_choice = toolChoice || 'auto' }
     // 空闲超时:每读到数据就重 arm。思考再久(深调查/长文)只要仍产 chunk 就活着。
     // 总限(agent-loop-05):单次调用的硬上限,滴流长尾流到点即断(常量见 STREAM_TOTAL_MS 注)。

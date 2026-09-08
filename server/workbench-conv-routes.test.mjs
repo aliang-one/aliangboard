@@ -1294,3 +1294,46 @@ test('gap3-02 deny:审批戳 ≠ 当下集群 → 同款 failed 终态(对称,de
   assert.equal(row.status, 'failed')
   assert.equal(row.error, '集群已换绑,请重新发起')
 })
+
+// ── 病根A·paused 终态出口接线(salvage-gap 审计 2026-09-08 A2)──
+// deny 无 LLM / 审批集群戳失效两条路径把 paused 翻 failed 时,该轮已流出产出只活在 conv.trace
+// (conv.content 已被轮间清零)——路由须先调 wbAgent.preservePausedOutput 补落消息行。
+// 桩注入 spy 锁接线(接线层是桩函数测试盲区的既有教训)。
+test('病根A·deny 无 LLM:终态 failed 前调 preservePausedOutput(该轮产出不蒸发)', async () => {
+  const preserved = []
+  const h = makeHarness({ overrides: {
+    getLlmConfig: () => ({ baseURL: '', apiKey: '', model: '' }),
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }), preservePausedOutput: id => { preserved.push(id) } },
+  } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'hi' })
+  h.db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval=?, queue='[]', messages='[]', denied='[]' WHERE id=?")
+    .run(JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }), conv.id)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/deny`)
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.deepEqual(preserved, [conv.id], 'deny 终态转换前补录该轮产出')
+})
+
+test('病根A·审批集群戳失效:终态 failed 前调 preservePausedOutput', async () => {
+  const preserved = []
+  const h = makeHarness({ overrides: {
+    wbAgent: { runConversation: async () => {}, resumeConversation: async () => {}, cancelConversation: () => ({ ok: true }), preservePausedOutput: id => { preserved.push(id) } },
+  } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'hi' })
+  // project.clusterId 造出来源:harness 的项目 clusterId 需与审批戳不同——直接盖他集群戳
+  h.db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval=?, queue='[]', messages='[]', denied='[]' WHERE id=?")
+    .run(JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {}, clusterId: 'other-cluster' }), conv.id)
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/approve`)
+  assert.deepEqual(preserved, [conv.id], '戳失效终态转换前补录该轮产出')
+})
+
+// B5a(salvage-gap 审计 2026-09-08):对话级 references 现值不可解析时,续接不再把它静默清空
+// 落回 '[]'——跳过 references 更新,原值保留待诊断(消息级 refs 照常落)。
+test('B5a: conv.references 损坏 → 续接不清空对话级引用(原值保留)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare(`UPDATE workbench_conversations SET status='done', "references"='BAD{' WHERE id=?`).run(conv.id)
+  h.setBody({ message: '继续' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 200)
+  assert.equal(getConversation(h.db, conv.id).references, 'BAD{', '原值保留(修复前静默清成 [])')
+})

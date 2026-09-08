@@ -436,3 +436,68 @@ test('chatStream 外部 signal(用户取消接线): abort → 在途 read 以 ab
   setTimeout(() => ac.abort(Object.assign(new Error('用户取消,中止在途 LLM 流'), { name: 'CancelledError' })), 60)
   await assert.rejects(p, /用户取消,中止在途 LLM 流/)
 })
+
+// ── 请求边界消毒(salvage-gap 审计 2026-09-08:1214「messages 参数非法」根因)──
+// 生产实证:流式 finalize 给 assistant 挂 reasoning/finishReason(agent.mjs 原样回传)、非流式
+// {...msg} 直展透传 provider 原生 reasoning_content——智谱系后端严格校验 messages 报 400/1214。
+// 契约:发送前消毒为 OpenAI schema 白名单 {role, content, tool_calls?};内部字段(供
+// cutByLength/持久化)只在返回值携带,不进请求体。
+import { sanitizeMessages } from './llm.mjs'
+
+test('sanitizeMessages: assistant 剥 reasoning/finishReason/reasoning_content,保 content+tool_calls', () => {
+  const dirty = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'q' },
+    { role: 'assistant', content: '', reasoning: '思考过程...', finishReason: 'tool_calls', reasoning_content: '原生回声', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'ok' },
+    { role: 'assistant', content: '终答', reasoning: 'deep', finishReason: 'stop' },
+  ]
+  assert.deepEqual(sanitizeMessages(dirty), [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'q' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'ok' },
+    { role: 'assistant', content: '终答' },
+  ])
+})
+
+test('sanitizeMessages: 空 content 且无 tool_calls 的 assistant 剔除(B1:空行是 1214 高危形状)', () => {
+  const msgs = [
+    { role: 'user', content: 'q1' },
+    { role: 'assistant', content: '', finishReason: 'stop' },
+    { role: 'assistant', content: null, reasoning: 'only-thought' },
+    { role: 'user', content: '继续' },
+  ]
+  assert.deepEqual(sanitizeMessages(msgs), [
+    { role: 'user', content: 'q1' },
+    { role: 'user', content: '继续' },
+  ])
+})
+
+test('chat: 请求体 messages 经消毒(脏 assistant 不再直传)', async () => {
+  const cap = {}
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ text: { choices: [{ message: { role: 'assistant', content: 'ok' } }] } }, cap) })
+  await c.chat({ messages: [
+    { role: 'user', content: 'q' },
+    { role: 'assistant', content: 'a1', reasoning: 'r', finishReason: 'stop' },
+  ] })
+  assert.deepEqual(cap.body.messages, [
+    { role: 'user', content: 'q' },
+    { role: 'assistant', content: 'a1' },
+  ], '请求体不含 reasoning/finishReason')
+})
+
+test('chatStream: 请求体 messages 经消毒(resume 回喂 paused 脏数组同样干净)', async () => {
+  const cap = {}
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetchStream(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n', 'data: [DONE]\n\n'], cap) })
+  await c.chatStream({ messages: [
+    { role: 'system', content: 'sys' },
+    { role: 'assistant', content: '', reasoning_content: '原生回声', finishReason: 'tool_calls', tool_calls: [{ id: 't1', type: 'function', function: { name: 'n', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 't1', content: 'r' },
+  ] }, {})
+  assert.deepEqual(cap.body.messages, [
+    { role: 'system', content: 'sys' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 't1', type: 'function', function: { name: 'n', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 't1', content: 'r' },
+  ], '请求体不含 reasoning_content/finishReason')
+})

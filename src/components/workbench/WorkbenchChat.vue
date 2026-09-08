@@ -459,7 +459,16 @@ function scheduleLoadRevive(convId) {
     if (unmounted || conversationId.value !== convId || turns.value.length) { clearInterval(loadReviveTimer); return }
     if (++tries > 6) { clearInterval(loadReviveTimer); return }
     await pollOnce(convId)
-    if (turns.value.length) { errorBanner.value = ''; clearInterval(loadReviveTimer) }
+    if (turns.value.length) {
+      errorBanner.value = ''
+      clearInterval(loadReviveTimer)
+      // A4(salvage-gap 审计 2026-09-08):复活成功须按状态接线——running 与 loadConversation
+      // 的重试分支同款(sending + startStreaming;测试环境无 EventSource 时其内部降级轮询),
+      // 修复前只清 banner:运行中对话在本实例永久冻结(thinking turn 停在复活时检查点,
+      // 终态永不到达、排队消息永不出队、发送吃 400 busy)。终态走 drainQueue 出队。
+      if (convStatus.value === 'running') { sending.value = true; startStreaming(convId) }
+      if (TERMINAL_STATUSES.includes(convStatus.value)) drainQueue()
+    }
   }, 5000)
 }
 
@@ -602,6 +611,11 @@ async function pollOnce(id) {
         // 若对话仍在 running,说明最后一条 user 后 agent 尚未产出 → 末尾补一个 thinking turn。
         rebuiltFromMessages = true
         const msgs = conv.messages
+        // A5(salvage-gap 审计 2026-09-08):终态 failed/cancelled 的末条 assistant 行 = 该轮抢救行
+        // (服务端 salvage/cancelled 保留分支落库),重建须保真标 error——旧硬编码 done 把半截
+        // 答案渲染成正常完成(ChatTurn error 态保留 content 渲染为「部分回答」,轮级失真消除)。
+        const lastMsg = msgs[msgs.length - 1]
+        const terminalFailed = conv.status === 'failed' || conv.status === 'cancelled'
         for (const m of msgs) {
           if (m.role === 'user') {
             turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs), messageId: m.id })
@@ -612,7 +626,13 @@ async function pollOnce(id) {
             const trace = applyLegacyTs(tryParseTrace(m.trace), m.createdAt)
             const tail = missingFinalTail(m.content, trace)
             if (tail) trace.push({ type: 'assistant', content: tail })
-            turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'done', content: m.content || t('workbench.chat.noAnswer'), reasoning: m.reasoning || '', trace, steps: 0, _createdAt: m.createdAt })
+            const isFailedTurn = terminalFailed && m === lastMsg
+            turns.value.push({
+              _id: ++turnSeq, role: 'assistant',
+              status: isFailedTurn ? 'error' : 'done',
+              error: isFailedTurn ? (conv.status === 'cancelled' ? t('workbench.chat.stopped') : (sanitizeChatError(conv.error) || t('workbench.chat.agentFailed'))) : '',
+              content: m.content || t('workbench.chat.noAnswer'), reasoning: m.reasoning || '', trace, steps: 0, _createdAt: m.createdAt,
+            })
           }
         }
         // running/paused 且末条非 assistant-thinking:补 thinking turn(页面刷新续接运行中对话;
@@ -622,11 +642,31 @@ async function pollOnce(id) {
         if ((conv.status === 'running' || conv.status === 'paused') && !(last && last.role === 'assistant' && last.status === 'thinking')) {
           turns.value.push({ _id: ++turnSeq, role: 'assistant', status: 'thinking', content: '', reasoning: '', trace: [], steps: 0, denied: [], truncated: false, error: '', _startedAt: Date.now() })
         }
+        // 存量缺口兜底(salvage-gap 审计 2026-09-08,病根C):服务端门扩展修复**前**的历史数据,
+        // failed/cancelled 轮零产出窗口不落 assistant 行,该轮产出只活在 conv.trace——此处按
+        // 「末条消息之后」切片合成 error turn(纯展示修复,不改库;新数据已由服务端落行覆盖)。
+        if (terminalFailed && last && last.role === 'user') {
+          const lastMsgTs = msgs.reduce((mx, x) => Math.max(mx, x.createdAt || 0), 0)
+          const slice = tryParseTrace(conv.trace)
+            .filter(e => e && (e.ts || 0) > lastMsgTs && e.type !== 'tool_start')
+            .map(e => e.type === 'assistant' ? { type: 'assistant', content: e.message?.content ?? e.content ?? '', ts: e.ts } : e)
+          if (slice.length) {
+            turns.value.push({
+              _id: ++turnSeq, role: 'assistant', status: 'error',
+              error: conv.status === 'cancelled' ? t('workbench.chat.stopped') : (sanitizeChatError(conv.error) || t('workbench.chat.agentFailed')),
+              content: '', reasoning: conv.reasoning || '', trace: slice, steps: conv.steps ?? 0, _createdAt: lastMsgTs,
+            })
+          }
+        }
         // 存量对话兜底(2026-08-25 修复前的数据):assistant 消息级 trace 全空但对话级 trace 有工具事件
         // → 全部挂到最后一个 assistant turn(轮次边界无从划分,集中在末轮展示胜于全不可见)。
+        // C-3(salvage-gap 审计 2026-09-08):过滤器补 assistant 文本事件(旧过滤器只捞 tool/denied,
+        // 轮文本被主动丢弃——修了「不触发」仍丢文本)。
         const asstTurns = turns.value.filter(x => x.role === 'assistant' && x.status === 'done')
         if (asstTurns.length && asstTurns.every(x => !(x.trace || []).length)) {
-          const convTrace = tryParseTrace(conv.trace).filter(e => e.type === 'tool' || e.type === 'denied')
+          const convTrace = tryParseTrace(conv.trace)
+            .filter(e => e && (e.type === 'tool' || e.type === 'denied' || e.type === 'assistant'))
+            .map(e => e.type === 'assistant' ? { type: 'assistant', content: e.message?.content ?? e.content ?? '', ts: e.ts } : e)
           if (convTrace.length) {
             const lastAsst = asstTurns[asstTurns.length - 1]
             lastAsst.trace = applyLegacyTs(convTrace, lastAsst._createdAt || null)

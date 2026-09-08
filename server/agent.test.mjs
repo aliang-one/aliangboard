@@ -711,3 +711,32 @@ test('shouldAbort 检查点在收尾轮之前:取消后不再发起收尾生成(
   assert.ok(out instanceof Error, '取消即抛错')
   assert.equal(chats, 4, '收尾轮 chat 不发起(检查点先于收尾分支)')
 })
+
+// ── 预算计量投影(salvage-gap 审计 2026-09-08 B3)──
+// agent 循环 push 的 assistant 带内部字段 reasoning/finishReason(发送边界已消毒不进请求体),
+// 预算计量同样不得计入——旧 JSON.stringify(m) 全量口径让深思考模型的 reasoning 全文虚占预算,
+// 提前触发裁剪丢轮。契约:计量口径 = 消毒后的 schema 投影。
+test('trimMessages: assistant 内部字段(reasoning/finishReason)不吃预算', () => {
+  const msgs = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'q1' },
+    { role: 'assistant', content: 'a1', reasoning: '思'.repeat(50000), finishReason: 'stop' },
+    { role: 'user', content: 'q2' },
+  ]
+  const { messages, truncated } = trimMessages(msgs, 3000)
+  assert.equal(truncated, false, 'schema 口径总量远小于预算,不触发裁剪(旧全量口径必超)')
+  assert.equal(messages.length, 4, '全部保留')
+})
+
+test('trimMessages: tool_calls 仍全额计预算(是真发给 provider 的载荷)', () => {
+  const tool_calls = [{ id: 'c1', type: 'function', function: { name: 'f', arguments: 'x'.repeat(3000) } }]
+  const msgs = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'q' },
+    { role: 'assistant', content: '', tool_calls },
+    { role: 'tool', tool_call_id: 'c1', content: 'r' },
+    { role: 'user', content: 'q2' },
+  ]
+  const { truncated } = trimMessages(msgs, 1000)
+  assert.equal(truncated, true, '超预算照常裁剪(只剥内部字段,载荷字段不豁免)')
+})

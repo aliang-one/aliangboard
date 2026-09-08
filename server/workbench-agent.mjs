@@ -223,7 +223,13 @@ const CK_TIME_MS = 500
     if (!getConversation(db, convId)) return
     const partial = tracker ? tracker.partial() : ''
     const reasoning = tracker ? tracker.reasoning() : ''
-    if (partial || reasoning) {
+    // 门扩展(病根A,salvage-gap 审计 2026-09-08):判据不再只绑「当前轮 partial」——轮间
+    // 清零(resetRound,防回灌语义正确)后,后续轮在首 delta 前死亡(400 建连即拒的典型
+    // 形态)时 partial/reasoning 恒空,但 traceArr(本轮事件切片)含此前轮文本/工具,须照样
+    // 落行(content 空,交错渲染经 trace 可见);三皆空才走纯状态 failed(只见提问=旧缺陷,
+    // 用户实测「断掉的会话只剩提问」)。
+    const hasTurnOutput = Array.isArray(traceArr) && traceArr.some(e => e && (e.type === 'assistant' || e.type === 'tool' || e.type === 'denied'))
+    if (partial || reasoning || hasTurnOutput) {
       updateConversation(db, convId, { status: 'failed', error: err.message, content: partial, reasoning })
       // 消息级 trace 由调用方给「本轮事件」(run 段=turnTrace;resume 段=currentTurnTrace,
       // 含审批暂停前事件):旧实现拉 conv.trace 全对话累积,历史轮事件污染本轮交错渲染。
@@ -299,8 +305,13 @@ const CK_TIME_MS = 500
       let cancelled = false
       try { cancelled = getConversation(db, convId)?.status === 'cancelled' } catch { cancelled = false }
       if (!cancelled) return false
-      if (tracker && (tracker.partial() || tracker.reasoning())) {
-        appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(ensureFinalTraceBlock(tracker.partial(), currentTurnTrace(convId))) })
+      // 门扩展(病根A 同款,2026-09-08):轮间清零后取消、当前轮零产出 → partial/reasoning 恒空,
+      // 但本轮切片(conv.trace 事件)含此前轮产出,照样保留(content 空 + trace 切片)。
+      const partial = tracker ? tracker.partial() : ''
+      const reasoning = tracker ? tracker.reasoning() : ''
+      const slice = currentTurnTrace(convId)
+      if (partial || reasoning || slice.length) {
+        appendMessage(db, { conversationId: convId, role: 'assistant', content: partial, reasoning: reasoning || null, trace: JSON.stringify(ensureFinalTraceBlock(partial, slice)) })
       }
       busEmit(convId, { type: 'end' })
       busDispose(convId)
@@ -399,8 +410,12 @@ const CK_TIME_MS = 500
       // 此前全弃,刷新后用户看着流出来的答案蒸发)。无流出内容则不追加。
       if (isSuperseded(convId, myEpoch)) return // 被新 run 取代(停止→改→重发):产出静默丢弃,不覆写新 run(对抗审查收口)
       if (getConversation(db, convId)?.status === 'cancelled') {
-        if (tracker && (tracker.partial() || tracker.reasoning())) {
-          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(ensureFinalTraceBlock(tracker.partial(), turnTrace)) })
+        // 门扩展(病根A 同款,2026-09-08):turnTrace 有本轮事件即保留(轮间清零后取消的
+        // 零产出窗口,partial 恒空但此前轮产出须可见)。
+        const partial = tracker ? tracker.partial() : ''
+        const reasoning = tracker ? tracker.reasoning() : ''
+        if (partial || reasoning || turnTrace.length) {
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: partial, reasoning: reasoning || null, trace: JSON.stringify(ensureFinalTraceBlock(partial, turnTrace)) })
         }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
@@ -444,6 +459,26 @@ const CK_TIME_MS = 500
         busDispose(convId)
         return
       }
+      // A6(salvage-gap 审计 2026-09-08):paused 状态字段解析前置 + 守卫——旧实现三处裸
+      // JSON.parse 散布在 updateConversation(running) 之后,任一损坏字段抛错落 catch →
+      // safeSalvage 把 paused 翻 failed + 整份审批队列丢弃(「字段损坏」≠「续跑失败」)。
+      // 契约:解析失败 → 回滚 paused(路由 CAS 已翻 running,paused 至少可见可取消)、
+      // 审批态原样保留、end+dispose 收尾(前端不卡)、日志留诊断,不进 run。
+      let pending = null, resumeState = null
+      try {
+        pending = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null
+        resumeState = {
+          messages: JSON.parse(conv.messages || '[]'),
+          queue: JSON.parse(conv.queue || '[]'),
+          denied: JSON.parse(conv.denied || '[]'),
+        }
+      } catch (e) {
+        console.error('[workbench-agent] paused 状态字段损坏,不续跑(回滚 paused):', e?.message || e)
+        try { updateConversation(db, convId, { status: 'paused' }) } catch { /* 行已删等,尽力回滚 */ }
+        busEmit(convId, { type: 'end' })
+        busDispose(convId)
+        return
+      }
       updateConversation(db, convId, { status: 'running', pendingApproval: null })
       busEmit(convId, { type: 'status', status: 'running' })
       // P0-① 同 run:审批续跑的授权主体恒取 project.ownerId——admin 审批受限用户的 paused
@@ -480,16 +515,15 @@ const CK_TIME_MS = 500
         + buildProjectMemoryInjection(projectRecap)
         + await fetchRefContext(activeRefs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:同 run
         + staleNote
-      const pending = conv.pendingApproval ? JSON.parse(conv.pendingApproval) : null
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
       // 以免把终态改写成 failed 吞掉已完成答案)。
       if (!pending) { busEmit(convId, { type: 'end' }); busDispose(convId); return }
       tracker = trackPartial(convId, conv, myEpoch) // F3 写点守卫:同 run 路径(见 trackPartial 注释)
       runHandle.tracker = tracker // 在途登记补挂:同 run 路径(SSE flushCheckpoint 漏斗)
       const out = await run({
+        // A6:三字段已在前置 try 块解析(resumeState),损坏即早退——此处不再裸 parse。
         resume: {
-          messages: JSON.parse(conv.messages), queue: JSON.parse(conv.queue),
-          denied: JSON.parse(conv.denied), steps: conv.steps,
+          ...resumeState, steps: conv.steps,
           toolCallId: pending.toolCallId, approved,
         },
         refreshSystem,
@@ -503,8 +537,12 @@ const CK_TIME_MS = 500
       // 同 runConversation:取消后终态丢弃,但保留已流出的部分内容+思考(见 runConversation 注释)
       if (isSuperseded(convId, myEpoch)) return // 被新 run 取代(停止→改→重发):产出静默丢弃,不覆写新 run(对抗审查收口)
       if (getConversation(db, convId)?.status === 'cancelled') {
-        if (tracker && (tracker.partial() || tracker.reasoning())) {
-          appendMessage(db, { conversationId: convId, role: 'assistant', content: tracker.partial(), reasoning: tracker.reasoning() || null, trace: JSON.stringify(ensureFinalTraceBlock(tracker.partial(), currentTurnTrace(convId))) })
+        // 门扩展(病根A 同款,2026-09-08):currentTurnTrace 切片非空即保留(零产出取消窗口)。
+        const partial = tracker ? tracker.partial() : ''
+        const reasoning = tracker ? tracker.reasoning() : ''
+        const slice = currentTurnTrace(convId)
+        if (partial || reasoning || slice.length) {
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: partial, reasoning: reasoning || null, trace: JSON.stringify(ensureFinalTraceBlock(partial, slice)) })
         }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
@@ -529,6 +567,24 @@ const CK_TIME_MS = 500
     }
   }
 
+  // paused 终态出口保全(病根A·A2,salvage-gap 审计 2026-09-08):paused 时 conv.content 已被
+  // 轮间清零(handleAgentResult paused 分支的 patch.content=tracker.partial() 几乎恒空——
+  // checkpoint 必然发生在 assistant step/resetRound 之后),该轮已流出文本/工具只活在 conv.trace。
+  // 凡把 paused 推向终态的出口(cancelConversation/invalidateConversation/路由 deny 无 LLM/
+  // 审批集群戳失效)须先按「末条消息之后」切片补落 assistant 行,否则该轮在消息层蒸发(前端
+  // 按消息行重建只剩提问)。幂等:切片空(无未落库事件)不落;补录行 createdAt 前移 lastMsgTs,
+  // 重复调用切片恒空。EXISTENCE 语义:对话已删不补录。落库失败只记日志不阻断出口(同 safeSalvage 契约)。
+  function preservePausedOutput(convId) {
+    try {
+      if (!getConversation(db, convId)) return
+      const slice = currentTurnTrace(convId)
+      if (!slice.length) return
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: '', reasoning: null, trace: JSON.stringify(slice) })
+    } catch (e) {
+      console.error('[workbench-agent] preservePausedOutput 落库失败:', e?.message || e)
+    }
+  }
+
   // 用户主动停止运行中的对话(输错内容→停止→修改重发)。
   // 标记 cancelled + SSE 通知终结 + **主动 abort 在途 LLM 流**(agent-loop-05,2026-09-07
   // 审计批次三:旧模型在途流「不可中断」是已知边界——shouldAbort 检查点拦的是「下一个工具/
@@ -545,6 +601,9 @@ const CK_TIME_MS = 500
     const conv = getConversation(db, convId)
     if (!conv) return { ok: false, message: '对话不存在' }
     if (conv.status !== 'running' && conv.status !== 'paused') return { ok: false, message: '对话不在运行中' }
+    // paused 出口保全(病根A·A2,2026-09-08):paused 无在途 run,catch 的保留分支护不住——
+    // 终态翻转前先把该轮 trace 切片补落消息行。running 侧由 cancelledCatchGuard/落库前守卫负责。
+    if (conv.status === 'paused') preservePausedOutput(convId)
     updateConversation(db, convId, { status: 'cancelled', pendingApproval: null, error: '用户取消' })
     // 在途流断流(paused 无在途流——run 已返回,登记已摘;可选链空操作)。reason 带「用户取消」
     // 语义:经 ac.abort(reason) 透传为 fetch 的拒绝原因,不被泛型 AbortError 吞掉。
@@ -573,6 +632,10 @@ const CK_TIME_MS = 500
     const conv = getConversation(db, convId)
     if (!conv) return { ok: false }
     if (conv.status !== 'running' && conv.status !== 'paused') return { ok: false }
+    // paused 出口保全(病根A·A2,2026-09-08,同 cancelConversation):running 侧刻意不保全
+    // (上方 ② 注释:旧集群的迟到产出是串味数据,维持 batch-3 裁决);paused 无在途流,
+    // 暂停前已产出的文本/工具与集群戳无关,不保全即在消息层蒸发。
+    if (conv.status === 'paused') preservePausedOutput(convId)
     updateConversation(db, convId, { status: 'failed', pendingApproval: null, error: reason })
     claimRunEpoch(convId) // bump:旧 run 的写点/出口守卫(isSuperseded)即刻过期
     activeRuns.get(convId)?.controller.abort(Object.assign(new Error(reason), { name: 'InvalidatedError' }))
@@ -582,5 +645,5 @@ const CK_TIME_MS = 500
     return { ok: true }
   }
 
-  return { runConversation, resumeConversation, cancelConversation, invalidateConversation, flushCheckpoint }
+  return { runConversation, resumeConversation, cancelConversation, invalidateConversation, preservePausedOutput, flushCheckpoint }
 }

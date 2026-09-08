@@ -1300,3 +1300,74 @@ test('fix round 1:create 响应缺 id → 走失败回滚,不携带 undefined �
   expect(w.emitted('conversation-created'), '不 emit undefined id').toBeUndefined()
   w.unmount()
 })
+
+// ── salvage-gap 审计 2026-09-08(病根A/C 前端面)──
+// A5:重建曾把 failed/cancelled 轮已落库的抢救行硬编码 status:'done'——半截答案渲染成
+// 正常完成答案。契约:终态 failed/cancelled 的末条 assistant 行 → status:'error'(ChatTurn
+// error 态保留 content 渲染为「部分回答」,失真消除)。
+test('A5: 重建 failed 对话的抢救行 → 末条 assistant turn 标 error(不再伪装成完成)', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-a5', status: 'failed', error: 'LLM HTTP 400: messages 参数非法', trace: '[]', steps: 2, recap: '',
+    messages: [
+      { role: 'user', content: '查一下pod' },
+      { role: 'assistant', content: '我先看一下 Pod 列表。', reasoning: '', trace: '[{"type":"assistant","content":"我先看一下 Pod 列表。","ts":2}]' },
+    ],
+  })
+  const w = await mountChat({ conversationId: 'conv-a5' })
+  await flushPromises()
+  const at = w.vm.turns.at(-1)
+  expect(at?.role).toBe('assistant')
+  expect(at?.status).toBe('error', '失败轮抢救行标 error(修复前硬编码 done)')
+  expect(at?.content).toBe('我先看一下 Pod 列表。', '内容保留(ChatTurn error 态渲染部分回答)')
+  expect(String(at?.error)).toContain('LLM HTTP 400')
+})
+
+// C-3:存量缺口兜底——服务端修复前的历史数据(failed/cancelled 轮零产出,无 assistant 行,
+// 产出只活在 conv.trace)在重建时按「末条消息之后」切片合成 error turn(纯展示,不改库)。
+test('C-3: 存量缺口(零 assistant 行 + conv.trace 有本轮事件)→ 合成 error turn 可见', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-c3', status: 'failed', error: 'LLM HTTP 400: messages 参数非法', recap: '', steps: 2,
+    reasoning: '',
+    messages: [
+      { role: 'user', content: '查一下pod', createdAt: 1 },
+    ],
+    trace: JSON.stringify([
+      { type: 'assistant', message: { role: 'assistant', content: '我先查一下。' }, ts: 2 },
+      { type: 'tool', name: 'wb_list', args: {}, result: 'pod1 Running', ts: 3 },
+    ]),
+  })
+  const w = await mountChat({ conversationId: 'conv-c3' })
+  await flushPromises()
+  const at = w.vm.turns.at(-1)
+  expect(at?.role).toBe('assistant', '合成 turn(修复前只有 user 提问)')
+  expect(at?.status).toBe('error')
+  const texts = (at?.trace || []).filter(e => e.type === 'assistant').map(e => e.content)
+  expect(texts).toContain('我先查一下。', '轮文本经切片可见')
+  expect((at?.trace || []).some(e => e.type === 'tool' && e.name === 'wb_list')).toBe(true, '工具事件可见')
+})
+
+// A4:loadRevive(初拉全败后的 5s 续命重试)成功后必须接 running 线(sending + 流/轮询)——
+// 修复前只清 banner,运行中对话在本实例永久冻结(数据在库更新,UI 永不拉取)。
+test('A4: 初拉全败→loadRevive 复活成功 → running 接线(sending+轮询续跑),不再冻结', async () => {
+  api.conversations.get.mockReset()
+  api.conversations.get.mockRejectedValue(new Error('gateway restarting'))
+  vi.useFakeTimers()
+  try {
+    const w = await mountChat({ conversationId: 'conv-a4' })
+    await vi.advanceTimersByTimeAsync(3600) // 首拉 + 3 次退避全败 → banner + scheduleLoadRevive
+    expect(w.vm.convStatus).toBe(null)
+    expect(w.vm.errorBanner).toBe('对话加载失败,请检查网络后重试')
+    api.conversations.get.mockReset()
+    api.conversations.get.mockResolvedValue({ id: 'conv-a4', status: 'running', trace: '[]', steps: 1, recap: '', content: '', reasoning: '', messages: [{ role: 'user', content: 'q', createdAt: 1 }] })
+    await vi.advanceTimersByTimeAsync(5100) // revive 拍到,网关已回
+    expect(w.vm.convStatus).toBe('running', '复活重建成功')
+    expect(w.vm.turns.length).toBeGreaterThanOrEqual(2, 'user + thinking turn')
+    expect(w.vm.sending).toBe(true, 'running 复活须置 sending(修复前恒 false → 冻结)')
+    expect(w.vm.errorBanner).toBe('')
+    const callsAtRevive = api.conversations.get.mock.calls.length
+    await vi.advanceTimersByTimeAsync(2100) // 降级轮询(EventSource 缺席)应持续拉取
+    expect(api.conversations.get.mock.calls.length).toBeGreaterThan(callsAtRevive, '轮询活着(修复前复活后零拉取)')
+  } finally { vi.useRealTimers() }
+})
