@@ -512,6 +512,37 @@ test('maybeSummarizeProject 竞态:窗口内人工精编覆写 → 迟到摘要�
   assert.equal(row.projectRecap, '人工精编:只保留 TLS 轮换结论', '人工精编不被迟到摘要静默覆盖')
 })
 
+// fix round 1(Important):rev 不匹配 + 水位不动的组合——防重摘键不得在丢弃路径提前推进。
+// 生产唯一可达的 changes=0 形态 = 窗口内人工非空精编(setProjectRecap 非空分支刻意不动水位:
+// 契约「自动摘要继续增量」;in-flight Set 已挡同项目并发,双摘要竞态仅测试注入可达)。若 fedRid
+// 在条件写之前推进,本批 ≥8 行被 rid>fedFloor 永久滤出、永不并入 projectRecap——增量语义被
+// 击穿(旧代码下一轮会重喂合并)。契约:丢弃不推进键 → 下一轮重喂本批并与人工精编滚动合并。
+test('rev 竞态×水位不动:迟到摘要丢弃后,下一轮批次行重喂合并(增量语义不丢)', async () => {
+  const db = freshDb()
+  const id = p1Id(db)
+  // wm>0 的存量形状:上一批已摘要到 100;本批 8 行(ts 200..207)触发摘要
+  db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=100 WHERE id=?').run('旧摘要', id)
+  for (let i = 0; i < 8; i++) insertHistory(db, id, 'user', `批次行${i}`, 200 + i)
+  // A:挂在 LLM 上
+  const h = hangLlm('A 迟到摘要')
+  const taskA = maybeSummarizeProject(db, id, h.llm)
+  assert.ok(h.entered)
+  // 窗口内人工非空精编:rev+1、水位不动(100)
+  setProjectRecap(db, id, '人工精编正文')
+  h.release()
+  assert.equal(await taskA, false, 'rev 不匹配 → 条件写丢弃')
+  assert.equal(db.prepare('SELECT historyWatermark FROM workbench_projects WHERE id=?').get(id).historyWatermark, 100, '水位不动(非空精编契约)')
+  // B:下一轮触发——本批 8 行必须重喂(不被 fedFloor 滤掉)并与人工精编滚动合并
+  let transcript = null
+  const llmB = { chat: async ({ messages }) => { transcript = messages[1].content; return { content: '并入人工精编的新摘要' } } }
+  assert.equal(await maybeSummarizeProject(db, id, llmB), true, '批次行重喂 → 落库(增量语义不丢)')
+  assert.ok(transcript.includes('人工精编正文'), '人工精编作为「此前项目摘要」并入输入')
+  assert.ok(transcript.includes('批次行0') && transcript.includes('批次行7'), '本批 8 行全部重进摘要输入')
+  const row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
+  assert.equal(row.projectRecap, '并入人工精编的新摘要')
+  assert.equal(row.historyWatermark, 207, '水位推进到本批最大 ts')
+})
+
 // 回归(乐观锁不许误伤正常链路):人工写在摘要器快照【之前】完成 → rev 快照=当前值,
 // 条件写放行;摘要器自身的写不递增 rev(只有人工写计数),连续两轮摘要互不挤兑。
 test('maybeSummarizeProject 回归:人工清空发生在快照前 → 摘照常落库;摘要写不递增 rev', async () => {

@@ -30,5 +30,6 @@ export const TABLE = {
   'wbp.updateFailed': { zh: '更新项目失败', en: 'Failed to update project' },
   'wbp.patchFieldRequired': { zh: '至少提供 name 或 recap 之一', en: 'Provide at least one of name / recap' },
   'wbp.nameInvalid': { zh: '项目名须非空且 ≤80 字符', en: 'Project name must be non-empty and ≤80 chars' },
-  'wbp.recapTooLong': { zh: 'recap 超长(上限 65536)', en: 'recap too long (limit 65536)' },
+  // wbp.recapTooLong 已随 PT4 fix round 1(Minor#5)删除:setProjectRecap 超长改 clamp 落库,
+  // PATCH 路由的 400 分支成死代码一并清理。
 }

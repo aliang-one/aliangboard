@@ -44,6 +44,9 @@ export function contextWindowFor(modelName) {
 // 不含全角 ASCII \uFF00-\uFFEF(量小且与英文同密度级,按「其余」计不影响估算量级)。
 const CJK_CHAR = /[\u3000-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]/g
 export function countCjkChars(text) {
+  // 契约:text-only(旧 estTokens(chars:number) 签名已退役)。数字入参会经 String(n) 被当
+  // 文本估成 n.length 个 token(如 0→1)——刻意不静默归零:数字入参=调用方形状错误,静默 0 会
+  // 掩盖漏改的消费方(低报余量比形状断言更危险)。当前无数字消费方(grep 在案)。
   const s = String(text ?? '')
   const cjk = (s.match(CJK_CHAR) || []).length
   return { cjk, other: s.length - cjk }

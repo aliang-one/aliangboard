@@ -173,9 +173,6 @@ export async function maybeSummarizeProject(db, projectId, llmClient, { inflight
       if (!recap) return false
       // 长度硬钳(prompt 的「不超过 500 字」只是请求,LLM 不服从时不能无界落库+每轮注入)
       const capped = recap.length > 2000 ? recap.slice(0, 2000) + '…(截断)' : recap
-      // 防重摘键推进(条件写之前:本批行已喂过 LLM,重喂即重摘)。迟到写被丢弃时行内容已并入
-      // 同批/更新批摘要,或人工已接管记忆(gap2-02)——均无需重喂。
-      projectSummarizerFedRid.set(projectId, Math.max(...pending.map(r => r.rid ?? 0)))
       // 落库为条件写(竞态防线):pending 读取后 await LLM 期间,另一任务可能已完成同批/更新
       // 摘要的写入——无条件 UPDATE 会把新 recap 覆写回旧内容(内容回退,水位因 MAX 不回退,
       // 无法自愈)。守卫 COALESCE(historyWatermark,0) < maxTs:不满足则 changes=0 → 本次丢弃。
@@ -187,6 +184,13 @@ export async function maybeSummarizeProject(db, projectId, llmClient, { inflight
         'UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=? AND COALESCE(historyWatermark,0) < ? AND COALESCE(recapRev,0)=?'
       ).run(capped, maxTs, projectId, maxTs, revAtSnapshot)
       if (res.changes === 0) return false // 已有同批/更新的摘要落库,或人工写在快照后发生 → 丢弃
+      // 防重摘键仅在条件写成功后推进(fix round 1,Important):changes=0 的丢弃路径不得提前
+      // 推进——生产唯一可达的丢弃形态是「窗口内人工非空精编」(rev 不匹配而水位刻意不动:
+      // setProjectRecap 非空分支契约=自动摘要继续增量),提前推进会把本批行被 rid>fedFloor
+      // 永久滤出、永不并入 projectRecap,增量语义被击穿。同批/更新批赢家已自行写入 ≥ 本批的
+      // 键值,丢弃方不推进无损;代价仅是极端边界形态(≥8 行同毫秒且全被水位线卡死)下每次触发
+      // 重喂一次 LLM——宁浪费勿丢行。
+      projectSummarizerFedRid.set(projectId, Math.max(...pending.map(r => r.rid ?? 0)))
       return true
     } catch (e) {
       // gap2-04:失败可见(不改语义,仍返 false 由下轮触发重试)

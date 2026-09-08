@@ -231,17 +231,15 @@ export function createWorkbenchProjectRoutes(deps) {
             name = String(input.name).trim()
             if (!name || name.length > 80) { sendJson(res, 400, { message: msg(req, 'wbp.nameInvalid') }); return true }
           }
-          let recapRejected = false
+          // context-assembly-03(PT4 fix round 1 Minor#5):setProjectRecap 超长由 400 拒绝改为
+          // clamp 64KB 落库后恒 {ok:true},旧 recapRejected→400 分支成死代码,已删(wbp.recapTooLong
+          // 键随删)。name+recap 单事务结构不变(M4②)。
           db.exec('BEGIN')
           try {
-            if (hasRecap) {
-              const r = setProjectRecap(db, id, input.recap)
-              if (!r.ok) recapRejected = true   // 400 在 COMMIT 后回话(事务内不能提前 return)
-            }
-            if (!recapRejected && hasName) db.prepare('UPDATE workbench_projects SET name=? WHERE id=?').run(name, id)
+            if (hasRecap) setProjectRecap(db, id, input.recap)
+            if (hasName) db.prepare('UPDATE workbench_projects SET name=? WHERE id=?').run(name, id)
             db.exec('COMMIT')
           } catch (e) { db.exec('ROLLBACK'); throw e }
-          if (recapRejected) { sendJson(res, 400, { message: msg(req, 'wbp.recapTooLong') }); return true }
           writeAudit?.(db, {
             owner: ps.username, verb: 'write', tool: 'project_update', result: 'ok',
             requestSummary: `project=${id}${hasName ? ` name=${name}` : ''}${hasRecap ? ' recap' : ''}`, source: 'platform',
