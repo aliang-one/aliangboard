@@ -572,7 +572,10 @@
     "userCenter": "User Center",
     "logout": "Logout",
     "enterNamespace": "Enter namespace",
-    "groupsGrants": "Groups & Grants"
+    "groupsGrants": "Groups & Grants",
+    "noClusterTitle": "No cluster connected",
+    "selectClusterCta": "Select a cluster",
+    "selectClusterDesc": "Connect to manage cluster resources"
   },
   "userCenter": {
     "activityTitle": "My Activity",

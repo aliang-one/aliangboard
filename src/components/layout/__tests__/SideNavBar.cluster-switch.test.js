@@ -53,7 +53,9 @@ function mockViewport(belowSm, belowLg) {
   }))
 }
 
-beforeEach(() => { setActivePinia(createPinia()) })
+beforeEach(() => {
+  sessionStorage.setItem('aliangboard.session', 'test-session') // round-3:侧边栏区分无集群态,这些用例测有集群行为须声明会话
+ setActivePinia(createPinia()) })
 afterEach(() => { matchMediaSpy?.mockRestore(); document.body.innerHTML = ''; storeMock.switchCluster.mockClear(); pushMock.mockClear() })
 
 function mountNav() {

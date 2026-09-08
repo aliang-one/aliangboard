@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { i18n } from '@/i18n'
@@ -33,6 +33,10 @@ vi.mock('@/composables/useK8sQuery', () => ({
 }))
 
 import SideNavBar from '../SideNavBar.vue'
+
+beforeEach(() => {
+  sessionStorage.setItem('aliangboard.session', 'test-session') // round-3:侧边栏区分无集群态,这些用例测有集群行为须声明会话
+})
 
 function setMode(scope, path) {
   routeRef.meta.scope = scope
