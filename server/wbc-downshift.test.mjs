@@ -72,7 +72,7 @@ function makeHarness({ userId = 'u1', role = 'user', assignedCluster = true } = 
     createLlmClient: () => ({ chat: async () => ({ content: '压缩摘要 ok' }) }),
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } }),
-    busSubscribe: () => {}, busUnsubscribe: () => {}, busSnapshot: () => null, busDispose: () => {},
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busDispose: () => {},
   })
   const call = async (method, pathname, body) => {
     globalThis.__downshiftBody = body || {}

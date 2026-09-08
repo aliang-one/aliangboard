@@ -13,6 +13,7 @@ import {
   appendMessage,
 } from './workbench-projects.mjs'
 import { createWorkbenchAgent } from './workbench-agent.mjs'
+import { createLlmClient } from './llm.mjs' // fix round 1:总限 DB 级测试驱动真 chatStream(滴流桩)
 
 // 构造 fresh db + 项目 + 对话;捕获 bus 事件到数组(可断言事件序列)。
 function setup({ withPriorTurn = false } = {}) {
@@ -97,7 +98,8 @@ test('runConversation paused: updateConversation(paused) + busEmit(approval+paus
   // db:paused + pendingApproval 落库;不追加 assistant(done 才追加)
   const row = getConversation(db, conv.id)
   assert.equal(row.status, 'paused')
-  assert.deepEqual(JSON.parse(row.pendingApproval), pending)
+  // gap3-02:落库载荷=原审批对象+clusterId 戳(创建时项目绑定集群,夹具 c1)
+  assert.deepEqual(JSON.parse(row.pendingApproval), { ...pending, clusterId: 'c1' })
   const msgs = db.prepare('SELECT role FROM workbench_messages WHERE conversationId=?').all(conv.id)
   assert.equal(msgs.length, 1, 'paused 不追加 assistant,仅首条 user')
 
@@ -679,7 +681,9 @@ test('runConversation: budgetChars 按 llmClient.model 派生传入 runner', asy
   const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
   const llmClient = { chat: async () => ({}), model: 'qwen-max' }   // 128k 窗口
   await agent.runConversation(conv.id, llmClient)
-  assert.equal(capturedBudget, 179_200, '128k×0.7×2=179200 字符')
+  // context-assembly-05(2026-09-07 审计批次三)校准:按 CJK 最坏密度(1 token/字)折算——
+  // 旧 ×2(2字/token 折中)对纯中文超发 2 倍预算,硬裁兜底失效。
+  assert.equal(capturedBudget, 89_600, '128k×0.7=89600 字符(CJK 最坏密度校准)')
 })
 
 // ── 项目记忆 T2:refreshSystem 拼入 projectRecap;projectMemory=false 不拼 ──
@@ -753,6 +757,26 @@ test('A2:run done 后 fire 项目摘要——7 条预置 + done 追加 2 = 9 ≥
   assert.equal(recap, '项目摘要X', 'done 后项目摘要异步落库')
   // done 本身不受 fire 阻塞/失败影响(状态与消息先行落定)
   assert.equal(getConversation(db, conv.id).status, 'done')
+})
+
+// ── context-assembly-07(2026-09-07 审计批次三):regenerate 不重复落项目历史提问 ──
+// done 链路 handleAgentResult 每轮 append user(conv.userMessage)+assistant;regenerate 重答
+// 同问(userMessage 不变、messages 截断由路由负责)会把同一提问再落一行 → 项目摘要输入读成
+// Q/A1/Q/A2。契约:appendHistory 同角色同文本紧邻去重 → 提问单条、两轮答案各留。
+test('regenerate(done×2 同问)→ 项目历史提问单条(context-assembly-07)', async () => {
+  const { db, project, conv, busEmit, busDispose, makeRunner } = setup()
+  let call = 0
+  const { createAgentRunner } = makeRunner(async () => {
+    call++
+    return { status: 'done', content: `答案${call}`, trace: [], steps: 1, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  // regenerate:同问重跑(userMessage 'hi' 不变;截断/复位由路由负责,此处直证 done 落 history 链路)
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  const n = role => db.prepare('SELECT COUNT(*) n FROM workbench_history WHERE projectId=? AND role=?').get(project.id, role).n
+  assert.equal(n('user'), 1, '提问单条(regenerate 重答不重复落 user 行)')
+  assert.equal(n('assistant'), 2, '两轮答案各自落库')
 })
 
 // ═══ 终审 I5:P0(F) 不变式对流式运行无效——DELETE 项目后 in-flight run 的结果不许写孤儿行 ═══
@@ -1046,4 +1070,167 @@ test('supersede 写点守卫:被取代 run 的残余 onDelta/onReasoning/onStep(
   assert.equal(db.prepare('SELECT COUNT(*) n FROM workbench_messages WHERE conversationId=?').get(conv.id).n, msgsAfterB, '不追加 A 的消息')
   assert.equal(db.prepare('SELECT COUNT(*) n FROM workbench_history').get().n, historyAfterB, '不追加 A 的项目历史')
   assert.equal(events.length, eventsAfterB, 'A 的残余 delta/reasoning/step 不发任何 bus 事件(bus/SSE 快照属新 run)')
+})
+
+// ═══ 批次三(2026-09-07 审计)Task 3:流与总线卫生——cancel 主动 abort + flushCheckpoint ═══
+
+// agent-loop-05:cancelConversation 主动 abort 在途 LLM 流。旧模型只置 DB cancelled +
+// shouldAbort 检查点(拦的是「下一个工具/下一轮 chat」),在途 fetch 任其烧完(深思考模型
+// 可达分钟级)。契约:run/resume 装配的 runner 收到 AbortSignal;cancel 即 abort;断流抛错
+// → catch → cancelledCatchGuard 走「保留 partial」分支——与 epoch 不 bump 语义正交(abort
+// 只断流,保留分支照常)。
+test('cancelConversation → runner 装配的 AbortSignal abort;断流抛错走保留分支(半截答案落库,状态 cancelled 不写 failed)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner, capturedRunnerArgs } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  const HEAD = '取消前已流出的半截'.repeat(10) // 90 字——刻意 <200 阈:证明保留分支读的是内存累计而非检查点
+  const { createAgentRunner } = makeRunner((opts) => {
+    const sig = capturedRunnerArgs().signal
+    opts.onDelta(HEAD)
+    // 模拟真实链路:chatStream 以 abort reason 拒绝(undici body read 随 signal abort 拒绝)
+    return new Promise((_, reject) => sig.addEventListener('abort', () => reject(sig.reason), { once: true }))
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const p = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+  const sig = capturedRunnerArgs().signal
+  assert.ok(sig, 'run 装配携带 AbortSignal(在途 fetch 的断流通道)')
+  assert.equal(sig.aborted, false, 'run 在途——signal 未 abort')
+  agent.cancelConversation(conv.id)
+  assert.equal(sig.aborted, true, '取消即 abort 在途流(不再等流自然烧完)')
+  await p
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'cancelled', '断流抛错走取消分支(catch → cancelledCatchGuard),不写 failed')
+  const msgs = db.prepare('SELECT role, content FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.at(-1).role, 'assistant')
+  assert.equal(msgs.at(-1).content, HEAD, '半截答案落 assistant 消息(保留分支不受 abort 影响)')
+})
+
+// cancel-races-05:SSE 重连快照零滞后。检查点阈值(200 字/500ms)意味着快照读库时至多滞后
+// 一段未落库的在途文本;flushCheckpoint 在快照前同步落一次检查点(窗口归零)。契约:在途
+// run 的未过阈累计同步落库;无在途 run / run 已结束 = 空操作。
+test('flushCheckpoint: 在途 run 未过阈(<200 字 & <500ms)的累计同步落库;无在途 run 空操作', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let runOpts
+  const { createAgentRunner } = makeRunner((opts) => { runOpts = opts; return new Promise(() => {}) })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+  runOpts.onDelta('才流了十个字')   // 6 字 <200 阈 & <500ms——无检查点(滞后窗口实存)
+  runOpts.onReasoning('想了一点')
+  assert.ok(!getConversation(db, conv.id).content, 'flush 前:未过阈不落库(滞后窗口实存,证明测试没踩在检查点上;建行初始 content=null)')
+  assert.equal(agent.flushCheckpoint('no-such-conv'), undefined, '无在途 run:空操作不抛')
+  agent.flushCheckpoint(conv.id)
+  const row = getConversation(db, conv.id)
+  assert.equal(row.content, '才流了十个字', 'flush 后同步落库(重连快照零滞后)')
+  assert.equal(row.reasoning, '想了一点')
+})
+
+// fix round 1(minor #4):总限 → failed + partial 保留的 agent 层 DB 级测试。滴流桩 + 真
+// createLlmClient(streamTotalMs 短值——与 llm 层同 seam)触发真总限;错误上抛 → catch →
+// 非 cancelled → safeSalvage 保留半截内容 + 标 failed(与取消路径对照:取消走
+// cancelledCatchGuard,状态 cancelled 不写 failed)。
+test('总限到点(agent-loop-05): 滴流超总限 → status=failed + 半截内容落 assistant 消息 + failed 事件', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  const encoder = new TextEncoder()
+  let n = 0
+  const drip = async (u, o) => ({
+    ok: true, status: 200,
+    body: { getReader: () => ({ cancel: async () => {}, read: () => new Promise((resolve, reject) => {
+      const onAbort = () => { clearTimeout(t); reject(o.signal.reason || new Error('aborted')) }
+      const t = setTimeout(() => {
+        o.signal.removeEventListener('abort', onAbort)
+        if (n >= 10) reject(new Error('stub: 滴流耗尽仍未触发总超时'))
+        else resolve({ done: false, value: encoder.encode(`data: {"choices":[{"delta":{"content":"字${n++}"}}]}\n\n`) })
+      }, 30)
+      o.signal.addEventListener('abort', onAbort, { once: true })
+    }) }) },
+  })
+  // runner 桩直接驱动真 chatStream:delta 经 opts.onDelta 进 tracker,总限抛错原样上抛给 run
+  const { createAgentRunner } = makeRunner((opts) =>
+    createLlmClient({ baseURL: 'http://x', model: 'm', timeoutMs: 100000, idleMs: 100000, streamTotalMs: 120, fetch: drip })
+      .chatStream({}, { onDelta: opts.onDelta }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed', '总限超时走 salvage:标 failed(与取消的 cancelled 分支对照)')
+  assert.match(row.error, /总超时/, 'error 带总超时语义')
+  const msgs = db.prepare('SELECT role, content FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.at(-1).role, 'assistant')
+  assert.ok(msgs.at(-1).content.length > 0, `半截内容落 assistant 消息(滴出的 delta 保留): ${msgs.at(-1).content}`)
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed'), 'bus 发 failed 事件(前端不无限 thinking)')
+})
+
+// ═══ gap3-03(2026-09-07 审计批次三):换绑/解绑协调——项目集群变更时在途对话失效 ═══
+// 契约:invalidateConversation(convId, reason) 对 running/paused 对话:
+//   ① DB 置 failed + error=reason + pendingApproval 清空(拒绝语义,PT5 deny 终态形状);
+//   ② bump epoch + abort 在途 LLM 流(被取代 run 的残余写点/出口守卫即刻过期,产出静默丢弃,
+//     不覆写 failed 终态);
+//   ③ bus 三连(status failed + end + dispose)。
+// 非运行态(done/failed/cancelled)或对话不存在 → no-op {ok:false}(幂等,重放无害)。
+test('gap3-03 invalidateConversation: running → failed+原因+bus 三连;在途 run 被取代,迟到产出不覆写终态', async () => {
+  const { db, conv, events, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  let release
+  const hung = new Promise(r => { release = r })
+  const { createAgentRunner } = makeRunner(async () => { await hung; return { status: 'done', content: '迟到答案', steps: 1, messages: [], queue: [], denied: [] } })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const runP = agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  await new Promise(r => setTimeout(r, 10))
+
+  const r = agent.invalidateConversation(conv.id, '项目集群已变更')
+  assert.equal(r.ok, true)
+  let row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed', '换绑 → running 对话置 failed')
+  assert.equal(row.error, '项目集群已变更', '失败原因落库')
+  assert.equal(row.pendingApproval, null, 'pendingApproval 一并清空(拒绝语义)')
+  const types = events.map(e => e.type)
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed' && e.error === '项目集群已变更'), 'bus:status failed+原因')
+  assert.ok(types.includes('end'), 'bus:end')
+  assert.ok(types.includes('disposed'), 'bus:dispose(三连)')
+
+  // 迟到的 done 产出必须被 epoch 闸丢弃——不覆写 failed 终态、不追加 assistant 消息
+  release()
+  await runP
+  row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed', '被取代 run 的 done 不覆写 failed')
+  const msgs = db.prepare('SELECT role FROM workbench_messages WHERE conversationId=?').all(conv.id)
+  assert.equal(msgs.length, 1, '迟到产出不追加 assistant 消息')
+})
+
+test('gap3-03 invalidateConversation: paused → failed+pendingApproval 失效;done/不存在 → no-op', async () => {
+  const { db, conv, events, busEmit, busDispose } = setup()
+  updateConversation(db, conv.id, { status: 'paused', pendingApproval: JSON.stringify({ toolCallId: 'tc1' }) })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner: () => ({}), busEmit, busDispose })
+  assert.equal(agent.invalidateConversation(conv.id, '项目集群已变更').ok, true)
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed', 'paused 审批随换绑失效(拒绝语义 → 终态 failed)')
+  assert.equal(row.pendingApproval, null, 'pendingApproval 清空')
+  assert.ok(events.some(e => e.type === 'status' && e.status === 'failed'), 'bus:failed')
+
+  // 终态(done)与不存在 → {ok:false} no-op,不写库不发音
+  updateConversation(db, conv.id, { status: 'done', error: '' })
+  events.length = 0
+  assert.equal(agent.invalidateConversation(conv.id, '项目集群已变更').ok, false, 'done → no-op')
+  assert.equal(agent.invalidateConversation('no-such', '项目集群已变更').ok, false, '不存在 → no-op')
+  assert.equal(getConversation(db, conv.id).status, 'done', '终态不被改写')
+  assert.equal(events.length, 0, 'no-op 零事件')
+})
+
+// ═══ gap3-02(2026-09-07 审计批次三):审批盖集群戳——裁决快照锚定创建时集群 ═══
+// 契约:handleAgentResult paused 分支落库的 pendingApproval 携带 clusterId(= 创建审批时的
+// project.clusterId);approve/resume 执行前比对当下项目绑定,不一致拒绝(gap3-02 路由门)。
+test('gap3-02 paused 落库:pendingApproval 盖 clusterId 戳(取 project.clusterId)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const pending = { toolCallId: 'tc9', name: 'wb_apply', args: {} }
+  const { createAgentRunner } = makeRunner(async () => ({
+    status: 'pending_approval', pending,
+    messages: [{ role: 'assistant', content: '审批' }], queue: [], denied: [], steps: 1,
+  }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  const pa = JSON.parse(getConversation(db, conv.id).pendingApproval)
+  assert.equal(pa.clusterId, 'c1', '审批载荷盖创建时集群戳(夹具项目绑 c1)')
+  assert.equal(pa.toolCallId, 'tc9', '原载荷字段保留')
 })

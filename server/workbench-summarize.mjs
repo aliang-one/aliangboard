@@ -8,6 +8,7 @@ import {
   getConversation,
   getProject,
   unsummarizedProjectHistory,
+  clampRecap,
 } from './workbench-projects.mjs'
 // 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
 // msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
@@ -55,11 +56,15 @@ export async function maybeSummarize(
     // 吞进"已摘要"(buildHistory 跳过全文)。当前水位已越过现存最大 → 放弃本轮写入。
     const upToFinal = Math.min(upTo, getMaxSeq(db, convId))
     if (upToFinal <= upToPrev) return false
-    const newRecap = conv.recap ? `${conv.recap}\n\n${seg}` : seg
+    // context-assembly-03(2026-09-07 审计批次三):追加式写点 64KB 硬钳——`${旧}\n\n${新}` 滚动
+    // 增长,LLM 不服从「不超过 300 字」时无界落库,recap 每轮全量注入即上下文放大器。
+    const newRecap = clampRecap(conv.recap ? `${conv.recap}\n\n${seg}` : seg)
     updateConversation(db, convId, { recap: newRecap, summarizedUpTo: upToFinal }, { touch: false })
     return true
-  } catch {
-    return false // 摘失败不阻塞对话
+  } catch (e) {
+    // gap2-04(2026-09-07 审计批次三):静默 → 可见(不改语义,仍返 false 不阻塞对话)
+    console.error('[wb-summarize] 轮次摘要失败:', e?.message || e)
+    return false
   }
 }
 
@@ -90,8 +95,10 @@ export async function compactConversation(db, convId, llmClient, instruction = '
         { role: 'user', content: transcript },
       ],
     })
-    const recap = out?.content?.trim()
-    if (!recap) return { ok: false, status: 502, message: 'wbc.compactFailed' }
+    const recapRaw = out?.content?.trim()
+    if (!recapRaw) return { ok: false, status: 502, message: 'wbc.compactFailed' }
+    // context-assembly-03:整体替换写点同钳 64KB(clampRecap 单源);返回值同步用钳后值(与落库一致)
+    const recap = clampRecap(recapRaw)
     // 落库前竞态防线(conv-lifecycle-01,P2 数据丢失):await LLM 是秒级窗口,期间 regenerate/edit
     // 截断(消息大幅回退,水位被路由钳回)或状态翻转都可能发生——按入口陈旧 maxSeq 无条件落库
     // 会使 summarizedUpTo 高于现存/未来消息 seq,buildHistory 把此后 append 的新消息(seq 取现存
@@ -119,43 +126,78 @@ export async function compactConversation(db, convId, llmClient, instruction = '
 }
 
 // 项目级滚动摘要(2026-08-29 spec §3.2):新增未摘要 history ≥ 阈值时,旧摘要+新增历史滚动重摘要。
-// 成功才落库(workbench_projects 无 updatedAt,直 UPDATE);失败/空产出静默 false(append 路由 fire,下轮重试)。
+// 成功才落库(workbench_projects 无 updatedAt,直 UPDATE);失败/空产出 false(append 路由 fire,
+// 下轮重试;gap2-04 起失败落 console.error,不再全链路静默)。
 const PROJECT_SUMMARY_THRESHOLD = 8
-export async function maybeSummarizeProject(db, projectId, llmClient) {
-  const project = getProject(db, projectId)
-  if (!project) return false
-  const pending = unsummarizedProjectHistory(db, projectId)
-  if (pending.length < PROJECT_SUMMARY_THRESHOLD) return false
-  // 乐观锁快照(gap2-02,2026-09-07 审计):await LLM 期间 setProjectRecap 可能人工清空/精编
-  // (两分支都递增 recapRev)。本写入自身不递增 rev(只有人工写计数)——连续两轮自动摘要
-  // 互不挤兑,水位守卫已覆盖同批/更新批的自动写竞争。
-  const revAtSnapshot = project.recapRev ?? 0
-  const transcript = [
-    ...(project.projectRecap ? [`(此前项目摘要)\n${project.projectRecap}`] : []),
-    ...pending.map(h => `${h.role}: ${String(h.content || '').slice(0, 800)}`),
-  ].join('\n')
+
+// gap2-01(2026-09-07 审计批次三):per-project in-flight 去重。messages 路由与 agent done 两
+// 触发点 fire-and-forget 并发到达时,旧实现双双读 pending → 两路 LLM → 条件写只留一路(一次
+// LLM 白烧)。内存 Set,单进程不变式(网关单进程);run 出函即清。测试注入缝 { inflight }:
+// 传入独立 Set 可复现「双双重入」竞态(生产恒默认模块级,勿传)。
+const projectSummarizerInflight = new Set()
+
+// context-assembly-08 防重摘键(2026-09-07 审计批次三):projectId → 已喂给 LLM 的最大 history
+// rowid。`ts >= 水位` 读法(unsummarizedProjectHistory)会把边界毫秒的已摘行重新读出,此键将其
+// 滤掉(同批已摘行不重喂 LLM=不重摘)。内存态,单进程不变式:重启丢失=边界行最多重摘一次(滚动
+// 合并语义下无害);水位为 0(从未摘/人工清空重摘全量)时键失效——全量重摘语义优先(见 floor)。
+// 条目按 projectId 存续(项目删除后残留一个键,有界可忽略;randomUUID 不复用无串味面)。
+const projectSummarizerFedRid = new Map()
+
+export async function maybeSummarizeProject(db, projectId, llmClient, { inflight = projectSummarizerInflight } = {}) {
+  if (inflight.has(projectId)) return false
+  inflight.add(projectId)
   try {
-    const out = await llmClient.chat({
-      messages: [
-        { role: 'system', content: `你负责维护一份项目记忆摘要。把「此前项目摘要」与「新增对话」滚动合并为一份新摘要:保留已做出的决定、关键事实与数据、尚未解决的问题;丢弃过程性闲聊;中文,紧凑,不超过 500 字。输出只有摘要本身。${CAPABILITY_CONSTRAINT}` },
-        { role: 'user', content: transcript },
-      ],
-    })
-    const recap = out?.content?.trim()
-    if (!recap) return false
-    // 长度硬钳(prompt 的「不超过 500 字」只是请求,LLM 不服从时不能无界落库+每轮注入)
-    const capped = recap.length > 2000 ? recap.slice(0, 2000) + '…(截断)' : recap
-    // 落库为条件写(竞态防线):pending 读取后 await LLM 期间,另一任务可能已完成同批/更新
-    // 摘要的写入——无条件 UPDATE 会把新 recap 覆写回旧内容(内容回退,水位因 MAX 不回退,
-    // 无法自愈)。守卫 COALESCE(historyWatermark,0) < maxTs:不满足则 changes=0 → 本次丢弃。
-    // gap2-02 追加 AND COALESCE(recapRev,0)=快照值:人工清空/精编在窗口内发生(rev 已推进)
-    // 则丢弃——尤其清空分支归零了水位,水位守卫「< maxTs」反而放行,rev 是唯一拦截线
-    // (清掉的毒 recap 不被迟到摘要复活、人工精编不被静默覆盖)。
-    const maxTs = pending[pending.length - 1].ts
-    const res = db.prepare(
-      'UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=? AND COALESCE(historyWatermark,0) < ? AND COALESCE(recapRev,0)=?'
-    ).run(capped, maxTs, projectId, maxTs, revAtSnapshot)
-    if (res.changes === 0) return false // 已有同批/更新的摘要落库,或人工写在快照后发生 → 丢弃
-    return true
-  } catch { return false }
+    const project = getProject(db, projectId)
+    if (!project) return false
+    const wm = project.historyWatermark ?? 0
+    // 防重摘下限:wm==0(从未摘/人工清空)时忽略键——清空重摘语义=从头吞全量
+    const fedFloor = wm === 0 ? 0 : (projectSummarizerFedRid.get(projectId) ?? 0)
+    const pending = unsummarizedProjectHistory(db, projectId).filter(r => (r.rid ?? 0) > fedFloor)
+    if (pending.length < PROJECT_SUMMARY_THRESHOLD) return false
+    // 乐观锁快照(gap2-02,2026-09-07 审计):await LLM 期间 setProjectRecap 可能人工清空/精编
+    // (两分支都递增 recapRev)。本写入自身不递增 rev(只有人工写计数)——连续两轮自动摘要
+    // 互不挤兑,水位守卫已覆盖同批/更新批的自动写竞争。
+    const revAtSnapshot = project.recapRev ?? 0
+    const transcript = [
+      ...(project.projectRecap ? [`(此前项目摘要)\n${project.projectRecap}`] : []),
+      ...pending.map(h => `${h.role}: ${String(h.content || '').slice(0, 800)}`),
+    ].join('\n')
+    try {
+      const out = await llmClient.chat({
+        messages: [
+          { role: 'system', content: `你负责维护一份项目记忆摘要。把「此前项目摘要」与「新增对话」滚动合并为一份新摘要:保留已做出的决定、关键事实与数据、尚未解决的问题;丢弃过程性闲聊;中文,紧凑,不超过 500 字。输出只有摘要本身。${CAPABILITY_CONSTRAINT}` },
+          { role: 'user', content: transcript },
+        ],
+      })
+      const recap = out?.content?.trim()
+      if (!recap) return false
+      // 长度硬钳(prompt 的「不超过 500 字」只是请求,LLM 不服从时不能无界落库+每轮注入)
+      const capped = recap.length > 2000 ? recap.slice(0, 2000) + '…(截断)' : recap
+      // 落库为条件写(竞态防线):pending 读取后 await LLM 期间,另一任务可能已完成同批/更新
+      // 摘要的写入——无条件 UPDATE 会把新 recap 覆写回旧内容(内容回退,水位因 MAX 不回退,
+      // 无法自愈)。守卫 COALESCE(historyWatermark,0) < maxTs:不满足则 changes=0 → 本次丢弃。
+      // gap2-02 追加 AND COALESCE(recapRev,0)=快照值:人工清空/精编在窗口内发生(rev 已推进)
+      // 则丢弃——尤其清空分支归零了水位,水位守卫「< maxTs」反而放行,rev 是唯一拦截线
+      // (清掉的毒 recap 不被迟到摘要复活、人工精编不被静默覆盖)。
+      const maxTs = pending[pending.length - 1].ts
+      const res = db.prepare(
+        'UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=? AND COALESCE(historyWatermark,0) < ? AND COALESCE(recapRev,0)=?'
+      ).run(capped, maxTs, projectId, maxTs, revAtSnapshot)
+      if (res.changes === 0) return false // 已有同批/更新的摘要落库,或人工写在快照后发生 → 丢弃
+      // 防重摘键仅在条件写成功后推进(fix round 1,Important):changes=0 的丢弃路径不得提前
+      // 推进——生产唯一可达的丢弃形态是「窗口内人工非空精编」(rev 不匹配而水位刻意不动:
+      // setProjectRecap 非空分支契约=自动摘要继续增量),提前推进会把本批行被 rid>fedFloor
+      // 永久滤出、永不并入 projectRecap,增量语义被击穿。同批/更新批赢家已自行写入 ≥ 本批的
+      // 键值,丢弃方不推进无损;代价仅是极端边界形态(≥8 行同毫秒且全被水位线卡死)下每次触发
+      // 重喂一次 LLM——宁浪费勿丢行。
+      projectSummarizerFedRid.set(projectId, Math.max(...pending.map(r => r.rid ?? 0)))
+      return true
+    } catch (e) {
+      // gap2-04:失败可见(不改语义,仍返 false 由下轮触发重试)
+      console.error('[wb-summarize] 项目摘要失败:', e?.message || e)
+      return false
+    }
+  } finally {
+    inflight.delete(projectId) // gap2-01:run 结束清除(含早退/抛错路径)
+  }
 }

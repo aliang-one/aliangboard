@@ -446,7 +446,10 @@ test('deleteProject:repo 目录本就不存在(已被人手删)→ force 静默,
   assert.equal(getProject(db, p.id), null)
 })
 
-test('setProjectRecap:空串清空归零水位;非空覆写不动水位;超长 400', () => {
+// context-assembly-03(2026-09-07 审计批次三):recap 三写点统一 clamp 64KB chars——人工写从
+// 400 整单拒绝改为截断落库(与 maybeSummarize/compact 两摘要写点同语义:recap 是喂给 LLM 的
+// 记忆,截断优于拒绝;三写点共用 workbench-projects.clampRecap 单源)。
+test('setProjectRecap:空串清空归零水位;非空覆写不动水位;超长 clamp 64KB 截断落库', () => {
   const db = makeDb()
   const p = createProject(db, { name: 'r', clusterId: 'c1', ownerId: 'u1' })
   db.prepare('UPDATE workbench_projects SET historyWatermark=42 WHERE id=?').run(p.id)
@@ -457,10 +460,34 @@ test('setProjectRecap:空串清空归零水位;非空覆写不动水位;超长 4
   const after = getProject(db, p.id)
   assert.equal(after.projectRecap, null)
   assert.equal(after.historyWatermark, 0)                   // 清空归零
-  const too = setProjectRecap(db, p.id, 'x'.repeat(65537))
-  assert.equal(too.ok, false)
-  assert.equal(too.status, 400)
-  assert.equal(setProjectRecap(db, p.id, 'x'.repeat(65536)).ok, true)  // 边界值恰好通过
+  assert.equal(setProjectRecap(db, p.id, 'x'.repeat(70_000)).ok, true, '超长不再 400,截断落库')
+  const clamped = getProject(db, p.id).projectRecap
+  assert.ok(clamped.includes('…(截断)'), '截断标记')
+  assert.equal(clamped.length, 65_536 + '…(截断)'.length, '落库为 64KB 截断值')
+  assert.equal(setProjectRecap(db, p.id, 'x'.repeat(65_536)).ok, true)  // 边界值原样通过(无标记)
+  assert.equal(getProject(db, p.id).projectRecap.length, 65_536)
+})
+
+// context-assembly-07(2026-09-07 审计批次三):regenerate 后 history 重复落同一提问——
+// done 链路每轮 append user(conv.userMessage)+assistant 两行,regenerate 重答同问(userMessage
+// 不变)会把同一提问再落一行,项目摘要输入读成 Q/A1/Q/A2。去重:同角色最近一行同文本不再落。
+test('appendHistory 去重:同角色同文本紧邻重复不落(regenerate 重答不重复记提问)', () => {
+  const db = makeDb()
+  const p = createProject(db, { name: 'h', clusterId: 'c1', ownerId: 'u1' })
+  appendHistory(db, p.id, 'user', '怎么修 Ingress 503?')
+  appendHistory(db, p.id, 'assistant', '答案一')
+  // regenerate:同一提问重答(handleAgentResult 再次 append 同文本 user 行)
+  appendHistory(db, p.id, 'user', '怎么修 Ingress 503?')
+  appendHistory(db, p.id, 'assistant', '答案二')
+  const rows = recentHistory(db, p.id)
+  assert.equal(rows.filter(r => r.role === 'user').length, 1, '提问单条')
+  assert.deepEqual(rows.map(r => r.content), ['怎么修 Ingress 503?', '答案一', '答案二'], '两轮答案各自保留')
+  // 不同文本正常落;同文本隔了新内容后再问仍可落(比对锚=最近一条同角色行)
+  appendHistory(db, p.id, 'user', '换个问题')
+  appendHistory(db, p.id, 'user', '换个问题')   // 紧邻同文本 → 去重
+  appendHistory(db, p.id, 'user', '怎么修 Ingress 503?')  // 非紧邻(最近 user 行是「换个问题」)→ 落
+  const users = recentHistory(db, p.id).filter(r => r.role === 'user').map(r => r.content)
+  assert.deepEqual(users, ['怎么修 Ingress 503?', '换个问题', '怎么修 Ingress 503?'])
 })
 
 // 终审 I1:last_reconcile 以 projectId 为键,不级联 → 删除后成永久孤儿行

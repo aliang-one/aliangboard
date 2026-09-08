@@ -25,6 +25,10 @@ const props = defineProps({
 
 const spec = computed(() => getCardSpec(props.resource?.kind))
 
+// 截断资源的原始体积(服务端 clampResource 落的 truncatedBytes → KB 整数;缺失兜底 64=上限值)
+const truncatedKb = computed(() =>
+  props.resource?.truncatedBytes ? Math.round(props.resource.truncatedBytes / 1024) : 64)
+
 const attrs = computed(() =>
   spec.value.attributes
     .map((a) => ({ ...a, value: getPath(props.resource, a) }))
@@ -71,6 +75,13 @@ function relTime(ts) {
         class="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-warning/10 text-status-warning"
         :title="t('component.resourceCard.sourceCluster', { name: sourceCluster })">
         <span class="material-symbols-outlined text-xs">lan</span>{{ t('component.resourceCard.sourceCluster', { name: sourceCluster }) }}
+      </span>
+      <!-- refs-injection-06 残余(2026-09-07 审计批次三):服务端 clampResource 把 >64KB resource
+           替换为骨架+truncated 标记——卡片须显示截断提示,否则「暂无属性」会被误读为资源本就空。 -->
+      <span v-if="resource?.truncated" data-testid="resource-truncated"
+        class="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface-container-high text-on-surface-variant"
+        :title="t('component.resourceCard.truncated', { kb: truncatedKb })">
+        <span class="material-symbols-outlined text-xs">content_cut</span>{{ t('component.resourceCard.truncated', { kb: truncatedKb }) }}
       </span>
     </div>
 

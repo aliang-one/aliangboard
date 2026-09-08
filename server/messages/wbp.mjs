@@ -30,5 +30,10 @@ export const TABLE = {
   'wbp.updateFailed': { zh: '更新项目失败', en: 'Failed to update project' },
   'wbp.patchFieldRequired': { zh: '至少提供 name 或 recap 之一', en: 'Provide at least one of name / recap' },
   'wbp.nameInvalid': { zh: '项目名须非空且 ≤80 字符', en: 'Project name must be non-empty and ≤80 chars' },
-  'wbp.recapTooLong': { zh: 'recap 超长(上限 65536)', en: 'recap too long (limit 65536)' },
+  // gap3-03(2026-09-07 审计批次三):换绑/解绑时在途对话失效原因——落 conv.error(前端错误
+  // 横幅直显)且随 bus status 事件推送。与 gap3-02 的 wbc.approvalClusterChanged(审批戳门,
+  // 指引用户重新发起)分工:本键描述「对话为何死了」。
+  'wbp.clusterChanged': { zh: '项目集群已变更', en: 'The project cluster binding has changed' },
+  // wbp.recapTooLong 已随 PT4 fix round 1(Minor#5)删除:setProjectRecap 超长改 clamp 落库,
+  // PATCH 路由的 400 分支成死代码一并清理。
 }

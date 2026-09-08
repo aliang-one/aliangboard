@@ -45,7 +45,11 @@ export function buildToolDefs(tier) {
 // excludeTools(可选,2026-08-28 SSH):Set<string> 从合并后的 toolDefs 剔除(零暴露时隐藏 SSH 工具)。
 // shouldAbort(可选,2026-09-06 审计#3):() => bool | Promise<bool>——透传 createAgent 的轻量
 //   取消检查点(workbench-agent 注入「读对话状态 === cancelled」闭包);缺省零行为变化。
-export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps, disabledTools, budgetChars, dynamicApproval, excludeTools, shouldAbort }) {
+// signal(可选,2026-09-07 审计批次三 agent-loop-05):AbortSignal 透传 llmClient.chatStream
+// (用户取消 → cancelConversation 主动 abort 在途 fetch;与 shouldAbort 分工:shouldAbort 拦
+// 「下一个工具/下一轮」,signal 断「在途流」)。只对流式路径生效(chat 非流式自有 timeoutMs
+// 总限);缺省零行为变化(API key agent 路径不传)。
+export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps, disabledTools, budgetChars, dynamicApproval, excludeTools, shouldAbort, signal }) {
   const toolDefs = [
     ...(keyRow ? registry.toolDefsFor(effectiveTools(keyRow)) : []),
     ...(workbench ? registry.workbenchToolDefs(disabledTools) : []),
@@ -73,7 +77,7 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     }
   }
   const chat = (messages, tools, opts) =>
-    (opts?.onDelta || opts?.onReasoning) ? llmClient.chatStream({ messages, tools }, { onDelta: opts.onDelta, onReasoning: opts.onReasoning })
+    (opts?.onDelta || opts?.onReasoning) ? llmClient.chatStream({ messages, tools }, { onDelta: opts.onDelta, onReasoning: opts.onReasoning, ...(signal ? { signal } : {}) })
                   : llmClient.chat({ messages, tools })
   // 只对「本次 offered 的写工具」要求人审;K8s tier 够不上的写工具不 offered → 直接不调。
   // 静态命中才问 dynamicApproval(SSH 按服务器策略放宽/收紧);无钩子保持旧行为。

@@ -33,7 +33,7 @@ import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
 import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB, UPLOAD_PROBE_SCRIPT, evaluateUploadProbe } from './podfile-stream.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
-import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose, snapshot as busSnapshot } from './conv-bus.mjs'
+import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
 import { scrubSecrets } from './secret-scrub.mjs'
 import { createWorkbenchSchema, listProjects, getProject, setPendingDistill, setLastDistill, getLastDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, getMaxSeq, setActiveConversation, listMessages, salvageInterrupted, projectRepoPath, learningLedgerPath } from './workbench-projects.mjs'
 import { listApiPath, getApiPath, KIND_API } from './kind-paths.mjs'
@@ -447,9 +447,10 @@ function requirePlatform(req, res) {
   }
   return ps
 }
-// 审计标注(2026-08-31 ④):workbench 路由族的 ownerId 归属检查(POST messages/regenerate/
-// edit/compact 等)在本守卫之后,当前恒通过(ps.role 恒 'admin')——属纵深防御,为将来放开
-// 非 admin 使用工作台预留;真要放开时须同步把这些内层守卫降为 requirePlatform。
+// 审计标注(2026-08-31 ④;W2 Phase D 起已生效而非预留):workbench 路由族的 owner 归属链
+// (POST messages/regenerate/edit/compact 等)在本守卫之后——对话域已降门 requirePlatform +
+// owner/admin 链(workbench-conversations.mjs 头注契约,Phase D = c982a9a 契约注释所要求的
+// 隔离裁决),非 owner 平台会话在这些内层守卫被拒。
 function requireAdmin(req, res) {
   const ps = requirePlatform(req, res)
   if (!ps) return null
@@ -1836,7 +1837,7 @@ async function handle(req, res) {
   const convRoutes = createWorkbenchConvRoutes({
     db, sendJson, readBody, requireAdmin, requirePlatform, wbAgent, writeAudit,
     getLlmConfig, createLlmClient, buildCallContext, requestKubernetes,
-    busSubscribe, busUnsubscribe, busSnapshot, busDispose,
+    busSubscribe, busUnsubscribe, busDispose,
   })
   // SP3: 工作台对话端点 dispatcher(7 端点抽到 routes/workbench-conversations.mjs)。命中即 return。
   // 放在 convRoutes 构造后、项目 CRUD 前——无路径冲突,仅须早于 404 兜底。

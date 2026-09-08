@@ -35,12 +35,35 @@ export function contextWindowFor(modelName) {
   return DEFAULT_WINDOW_TOKENS
 }
 
-// 混合估算(中文≈1字/token、英文≈4字符/token 的折中);UI 标注「估算」
-export function estTokens(chars) {
-  return Math.ceil(Number(chars || 0) / 2)
+// CJK 感知估算(context-assembly-05,2026-09-07 审计批次三):旧 chars/2 折中在纯中文上低估
+// ~2 倍(中文≈1字/token 而非 2字/token)——willTrim 漏报、硬裁剪预算超发。模型:cjk≈1 token/字,
+// 其余≈1 token/4字符(ASCII/JSON 主体)。两入口:estTokens(整段文本)/estTokensFromCounts
+// (装配侧按块累计计数,refs 体积估算等纯计数成分按非 CJK 计)。UI 标注「估算」不变。
+// 范围(escape 明示):CJK 标点+假名 \u3000-\u30FF / 扩展A \u3400-\u4DBF / 统一表意
+// \u4E00-\u9FFF / 谚文音节 \uAC00-\uD7AF / 兼容表意 \uF900-\uFAFF——覆盖中/日/韩正文;
+// 不含全角 ASCII \uFF00-\uFFEF(量小且与英文同密度级,按「其余」计不影响估算量级)。
+const CJK_CHAR = /[\u3000-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]/g
+export function countCjkChars(text) {
+  // 契约:text-only(旧 estTokens(chars:number) 签名已退役)。数字入参会经 String(n) 被当
+  // 文本估成 n.length 个 token(如 0→1)——刻意不静默归零:数字入参=调用方形状错误,静默 0 会
+  // 掩盖漏改的消费方(低报余量比形状断言更危险)。当前无数字消费方(grep 在案)。
+  const s = String(text ?? '')
+  const cjk = (s.match(CJK_CHAR) || []).length
+  return { cjk, other: s.length - cjk }
 }
 
-// 硬裁剪预算(spec D4):窗口 70% 折算字符;60K 固定线退役
+export function estTokensFromCounts(cjkChars, otherChars) {
+  return Math.ceil((Number(cjkChars) || 0) + (Number(otherChars) || 0) / 4)
+}
+
+export function estTokens(text) {
+  const { cjk, other } = countCjkChars(text)
+  return estTokensFromCounts(cjk, other)
+}
+
+// 硬裁剪预算(spec D4;context-assembly-05 校准):窗口 70% 折算字符,按最坏密度(CJK 1 token/字)
+// 计——旧 ×2(2字/token 折中)对纯中文超发 2 倍,硬裁兜底失效才轮到 provider 报错。英文为主的
+// 长上下文会偏保守(提前裁),硬裁只丢旧轮且摘要链路兜底,宁保守勿溢出。60K 固定线退役不变。
 export function trimBudgetChars(windowTokens) {
-  return Math.floor(Number(windowTokens || DEFAULT_WINDOW_TOKENS) * 0.7 * 2)
+  return Math.floor(Number(windowTokens || DEFAULT_WINDOW_TOKENS) * 0.7)
 }

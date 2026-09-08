@@ -450,7 +450,8 @@
       "unknownKind": "Unknown",
       "noAttributes": "No attributes",
       "justNow": "just now",
-      "sourceCluster": "From cluster {name}"
+      "sourceCluster": "From cluster {name}",
+      "truncated": "Too large; truncated (original {kb}KB)"
     },
     "kvRows": {
       "add": "Add row"
@@ -3799,13 +3800,13 @@
       "noAnswer": "No answer returned",
       "agentFailed": "Agent call failed",
       "stop": "Stop",
+      "cancelPaused": "Cancel conversation",
       "stopped": "Stopped",
       "jumpBottom": "Jump to bottom",
       "stopFailed": "Failed to stop",
       "defaultProjectName": "Project",
       "loadProjectFailed": "Failed to load project",
       "title": "AI Assistant",
-      "clearChat": "Clear chat",
       "subtitle": "Reuses cluster ledger first, then the agent writes project files (needs your approval); approving write / apply manifests mutates the cluster.",
       "hint": "Ask, investigate, fix — it works directly on your cluster; writes need your approval.",
       "toolTrace": "Tool trace ({n} step(s))",

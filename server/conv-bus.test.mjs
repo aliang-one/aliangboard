@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { emit, snapshot, snapshotsSize, subscribe, unsubscribe, dispose } from './conv-bus.mjs'
+import { emit, subscribe, unsubscribe, dispose } from './conv-bus.mjs'
+
+// cancel-races-07(2026-09-07 审计批次三):emit 的 per-conv 快照累积机制已整体退役
+// (零消费方的死代码——SSE 重连补齐走 DB(turnSnapshot)+ 建连前 flushCheckpoint;见
+// conv-bus.mjs 头注)。本文件锁定退役后的表面积:纯事件分发(subscribe/unsubscribe/dispose)。
 
 test('subscribe 收到 emit 的事件', () => {
   const got = []
@@ -37,47 +41,13 @@ test('dispose 清理该 convId 所有监听', () => {
   assert.equal(got.length, 0)
 })
 
-// ═══ 断流修复(2026-08-16):per-conv 快照——重连/晚连补齐 ═══
-import { emit as _emit, snapshot as _snapshot, subscribe as _sub, dispose as _dispose } from './conv-bus.mjs'
-
-test('snapshot: delta/step 累积;status running 重置新一轮;dispose 后保留;返回只读副本', () => {
-  const events = []
-  _sub('snap-conv', e => events.push(e))
-  _emit('snap-conv', { type: 'status', status: 'running' })
-  _emit('snap-conv', { type: 'delta', text: '回答' })
-  _emit('snap-conv', { type: 'delta', text: '前半' })
-  _emit('snap-conv', { type: 'step', step: { name: 'wb_list_resources' } })
-  let s = _snapshot('snap-conv')
-  assert.equal(s.content, '回答前半', 'delta 拼接')
-  assert.equal(s.trace.length, 1, 'step 累积')
-  assert.equal(s.steps, 1)
-  assert.equal(s.status, 'running')
-  // 副本只读:改副本不影响内部
-  s.content = 'tampered'
-  assert.equal(_snapshot('snap-conv').content, '回答前半')
-  // done 终态:快照保留(重连仍可补齐)
-  _emit('snap-conv', { type: 'status', status: 'done' })
-  _dispose('snap-conv')
-  s = _snapshot('snap-conv')
-  assert.equal(s.status, 'done')
-  assert.equal(s.content, '回答前半', 'dispose 后保留')
-  // 新一轮 running 重置
-  _emit('snap-conv', { type: 'status', status: 'running' })
-  assert.equal(_snapshot('snap-conv').content, '', '新一轮清零')
-  // approval 记录
-  _emit('snap-conv', { type: 'approval', pending: { toolCallId: 't1', name: 'wb_scale', args: {} } })
-  assert.equal(_snapshot('snap-conv').pending.name, 'wb_scale')
-})
-
-test('snapshot: 未 start 的 conv 返回 null', () => {
-  assert.equal(_snapshot('never-started'), null)
-})
-
-// dev31 复查:快照 Map 容量上限——超限按插入序淘汰最旧,防长跑内存泄漏
-test('snapshots 超上限淘汰最旧(≤256 条),活跃对话不被淘汰', () => {
-  for (let i = 0; i < 300; i++) emit('conv-' + i, { type: 'status', status: 'done' })
-  const s = snapshot('conv-0')
-  assert.equal(s, null, '最旧的 conv-0 被淘汰')
-  assert.notEqual(snapshot('conv-299'), null, '最新仍在')
-  assert.ok(snapshotsSize() <= 256, '容量受控')
+// 退役守卫:emit 大量事件不再有任何按 convId 的累积状态(旧快照 Map 的内存/写放大源)。
+// 以 dispose 后再 emit 不炸 + 高频 emit 快速完成为行为面;结构性无快照由源码形态保证
+// (模块不再导出 snapshot/snapshotsSize——import 即编译期锁定,缺导出直接 SyntaxError)。
+test('高频 emit 无累积副作用(快照机制退役后 emit 只做分发)', () => {
+  const got = []
+  subscribe('t5', e => got.push(e))
+  for (let i = 0; i < 1000; i++) emit('t5', { type: 'delta', text: 'x' })
+  assert.equal(got.length, 1000, '分发不丢事件')
+  dispose('t5')
 })

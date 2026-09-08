@@ -2,6 +2,7 @@
 // platform_settings 四键(additionalInstructions/disabledTools/projectMemory/maxSteps);提示词拼装(workbench-prompt)/工具过滤(agent-runner)/透明面板三处消费,
 // 不存在"面板显示的和实际发的不一致"。垃圾值兜底照 getPresenceConfig 的 clamp 模式。
 import { registry } from './tool-registry.mjs'
+import { listSshServers } from './ssh/store.mjs'
 
 const MAX_INSTRUCTIONS = 4000
 
@@ -20,6 +21,21 @@ export function getWorkbenchAiConfig(db) {
   // 项目记忆开关(T2,2026-08-29):仅字面 'false' 关闭,缺键/垃圾值兜底 true
   const projectMemory = readSetting(db, 'workbench.projectMemory') !== 'false'
   return { additionalInstructions: String(readSetting(db, 'workbench.additionalInstructions') || '').slice(0, MAX_INSTRUCTIONS), disabledTools, projectMemory }
+}
+
+// 提示词可用的 SSH 清单(单一事实源,context-assembly-06 2026-09-07 审计批次三):仅
+// id/name/description/clusterRef(凭据/host 不进 prompt)。消费方=admin 预览(effectivePreview)
+// + 对话创建烘焙 + 用户透明面板——三面共源「所见即所发」;此前 admin 预览漏传 sshServers,
+// 有暴露服务器时预览无 SSH 段而实际发送有(两副面孔)。防御式:ssh_servers 表可能尚未建
+// (旧库/测试夹具)——清单不可用不该让预览/对话创建整体 500,失败降级空清单(= 无 SSH 段,
+// 零暴露语义不变),落 stderr 供运维跟进。
+export function sshPromptServers(db) {
+  try {
+    return listSshServers(db, { exposedOnly: true }).map(s => ({ id: s.id, name: s.name, description: s.description, clusterRef: s.clusterRef }))
+  } catch (e) {
+    console.error('[wb-ai-config] SSH 清单读取失败,提示词按无 SSH 服务器装配:', e?.message || e)
+    return []
+  }
 }
 
 // PUT 校验:必须数组且每项为已成名。失败给 detail(route 层转 i18n 400),不给整段 message。

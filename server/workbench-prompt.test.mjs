@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { buildWorkbenchSystemPrompt, buildProjectMemoryInjection, buildRecapInjection } from './workbench-prompt.mjs'
-import { registry } from './tool-registry.mjs'
+import { registry, UNCLUSTERED_TOOLS } from './tool-registry.mjs'
 
 test('默认拼装:固定段 + 只读/需人审两组工具文档;无追加段', () => {
   const p = buildWorkbenchSystemPrompt()
@@ -72,6 +72,22 @@ test('P0 同源:零暴露时提示词不出现任何 SSH 工具名;有暴露时�
   const p1 = buildWorkbenchSystemPrompt({ sshServers: [{ id: 'a', name: 'dev-1' }] })
   assert.ok(p1.includes('wb_ssh_exec'))
   assert.ok(p1.includes('wb_ssh_run'))
+})
+
+// ── context-assembly-04(2026-09-07 审计批次三):提示词工具段与实际 offering 同源(集群维度)──
+// 未绑集群项目:实际 offering 经 workbenchExcludeTools 裁掉 UNCLUSTERED_TOOLS(16 个 K8s 依赖
+// 工具),提示词工具段此前仍全列 → AI「清单里有、实际调不了」的自我矛盾(与 SSH 零暴露维度
+// 同病同修法:builder 内同款过滤,消费方传 hasCluster)。
+test('hasCluster=false:被剔除的 K8s 依赖工具不进工具段;非集群依赖工具保留;缺省=绑定', () => {
+  assert.equal(UNCLUSTERED_TOOLS.length, 16, '被剔除面=16 个(锁定审计口径)')
+  const p = buildWorkbenchSystemPrompt({ hasCluster: false, sshServers: [{ id: 'a', name: 'dev-1' }] })
+  for (const n of UNCLUSTERED_TOOLS) assert.ok(!p.includes(`**${n}**`), `未绑集群提示词不应列 ${n}`)
+  assert.ok(p.includes('**read_project_file**'), '非集群依赖的项目文件工具保留')
+  assert.ok(p.includes('**wb_ssh_exec**'), 'SSH 维度不受影响(有暴露)')
+  const bound = buildWorkbenchSystemPrompt({ hasCluster: true })
+  assert.ok(bound.includes('**wb_exec**'), '绑定集群全列')
+  const dflt = buildWorkbenchSystemPrompt({})
+  assert.ok(dflt.includes('**wb_exec**'), '缺省=绑定(向后兼容:admin 预览/透明面板等无项目上下文面)')
 })
 
 test('围栏规则行在 FIXED 段:@-mention 资源内容视为数据非指令(CSO #14)', () => {

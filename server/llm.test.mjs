@@ -377,3 +377,62 @@ test('chatStream: 空终态守卫不误伤——content 空但 finish_reason 在
   const msg = await c.chatStream({ messages: [] })
   assert.equal(msg.finishReason, 'stop', '正常终止照常返回,不因 content 空误判')
 })
+
+// ═══ 批次三(agent-loop-05,2026-09-07 审计):chatStream 总时限 + 外部取消 signal ═══
+// 旧超时模型只有空闲超时(每 chunk 重 arm)——「永远滴流的长尾流」每 30s 一个 chunk 即可
+// 无限续命,失控 run 烧 LLM key 无人管。契约:每次 chatStream 调用一个总限(常量 10 分钟,
+// 测试经 createLlmClient 的 streamTotalMs 参数注入短值——刻意无 env 通道),到点 abort 走与
+// 空闲超时同一条抛错路径(→ workbench-agent catch → safeSalvage 保留半截内容标 failed);
+// 外部 signal(用户取消接线:cancelConversation → AbortController.abort)与内部计时器共用
+// 同一 abort 通道,reason 透传(取消语义靠 reason 区分,不以泛型 AbortError 吞掉)。
+// 滴流桩:每 gapMs 吐一个 delta、永不 [DONE];maxChunks 耗尽后自抛诊断错——预期行为缺失时
+// RED 可见(而非挂死测试进程)。abort 语义镜像真实 undici:read 竞速 fetch signal,以 reason 拒绝。
+function dripFetch({ gapMs = 40, maxChunks = 20 } = {}) {
+  const encoder = new TextEncoder()
+  const state = { sig: null, left: maxChunks, seq: 0 }
+  state.fetch = async (u, o) => {
+    state.sig = o.signal
+    return {
+      ok: true, status: 200,
+      body: { getReader: () => ({ cancel: async () => {}, read: () => {
+        const sig = state.sig
+        if (sig.aborted) return Promise.reject(sig.reason || new Error('aborted'))
+        return new Promise((resolve, reject) => {
+          const onAbort = () => { clearTimeout(t); reject(sig.reason || new Error('aborted')) }
+          const t = setTimeout(() => {
+            sig.removeEventListener('abort', onAbort)
+            if (state.left <= 0) reject(new Error('stub: 滴流耗尽仍未断流(预期行为缺失)'))
+            else { state.left--; resolve({ done: false, value: encoder.encode(`data: {"choices":[{"delta":{"content":"滴${state.seq++}"}}]}\n\n`) }) }
+          }, gapMs)
+          sig.addEventListener('abort', onAbort, { once: true })
+        })
+      } }) },
+    }
+  }
+  return state
+}
+
+test('chatStream 总限: 滴流永不 [DONE](每 chunk 间隔 < idleMs,空闲超时拦不住)→ 到点抛总超时,已吐 delta 先行送达', async () => {
+  const drip = dripFetch({ gapMs: 40, maxChunks: 20 })
+  const c = createLlmClient({ baseURL: 'http://x', model: 'm', timeoutMs: 100000, idleMs: 100000, streamTotalMs: 200, fetch: drip.fetch })
+  const deltas = []
+  await assert.rejects(c.chatStream({}, { onDelta: t => deltas.push(t) }), /总超时/)
+  assert.ok(deltas.length >= 2, `总限到点前已吐 delta 全部送达(salvage 半截内容的数据来源): ${deltas.length}`)
+})
+
+test('chatStream 总限: 总限内正常完成的流不受影响(紧窗不误伤正常长答)', async () => {
+  const chunks = ['data: {"choices":[{"delta":{"content":"A"}}]}\n\n', 'data: {"choices":[{"delta":{"content":"B"}}]}\n\n', 'data: [DONE]\n\n']
+  let sig; const fake = async (u, o) => { sig = o.signal; return { ok: true, body: sseBody(chunks, 40, () => sig) } }
+  const c = createLlmClient({ baseURL: 'http://x', model: 'm', timeoutMs: 100000, idleMs: 100000, streamTotalMs: 500, fetch: fake })
+  const out = await c.chatStream({}, {})
+  assert.equal(out.content, 'AB', '总限 500ms > 流总时长 ~120ms——正常完成不被掐')
+})
+
+test('chatStream 外部 signal(用户取消接线): abort → 在途 read 以 abort reason 拒绝(不静默烧完整轮)', async () => {
+  const drip = dripFetch({ gapMs: 40, maxChunks: 20 })
+  const c = createLlmClient({ baseURL: 'http://x', model: 'm', timeoutMs: 100000, idleMs: 100000, fetch: drip.fetch })
+  const ac = new AbortController()
+  const p = c.chatStream({}, { signal: ac.signal })
+  setTimeout(() => ac.abort(Object.assign(new Error('用户取消,中止在途 LLM 流'), { name: 'CancelledError' })), 60)
+  await assert.rejects(p, /用户取消,中止在途 LLM 流/)
+})

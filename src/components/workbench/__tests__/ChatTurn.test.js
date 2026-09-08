@@ -237,3 +237,28 @@ test('ChatTurn 无戳存量 refs(向后兼容):无徽标,渲染不回归', () =>
   expect(w.find('[data-testid="resource-source-cluster"]').exists()).toBe(false)
   expect(w.text()).toContain('nginx')
 })
+
+// refs-injection-06 残余(2026-09-07 审计批次三):服务端 clampResource 把 >64KB 的 resource
+// 替换为骨架+truncated 标记——ResourceCard 必须显示截断提示(否则用户看到的「无属性」卡片
+// 会被误读为资源本就空,而非「内容过大被截断」)。骨架 kind/metadata 保留,卡片头部照常。
+const truncI18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: {
+  common: { copy: '复制' },
+  component: { resourceCard: { truncated: '内容过大,已截断(原始 {kb}KB)' } },
+  workbench: { chat: { roleYou: '你', editTitle: '编辑并重发' } },
+} } })
+
+test('ChatTurn refs 截断提示:resource.truncated → 卡片显示截断标记(带原始 KB);未截断不显示', () => {
+  const turn = { role: 'user', content: '看下', refs: [
+    { kind: 'configmaps', namespace: 'default', name: 'big-cm', resource: { kind: 'ConfigMap', metadata: { name: 'big-cm', namespace: 'default' }, truncated: true, truncatedBytes: 1048576 + 512 } },
+  ] }
+  const w = mount(ChatTurn, { props: { turn }, global: { plugins: [truncI18n] } })
+  expect(w.find('[data-testid="resource-truncated"]').exists()).toBe(true)
+  expect(w.text()).toContain('已截断')
+  expect(w.text()).toContain('1025KB') // Math.round((1048576+512)/1024)=1024.5→1025
+
+  const turn2 = { role: 'user', content: '看下', refs: [
+    { kind: 'pods', namespace: 'default', name: 'nginx', resource: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } },
+  ] }
+  const w2 = mount(ChatTurn, { props: { turn: turn2 }, global: { plugins: [truncI18n] } })
+  expect(w2.find('[data-testid="resource-truncated"]').exists()).toBe(false)
+})

@@ -17,6 +17,10 @@ function makeHarness({ userId = 'u1', role = 'user', requestKubernetes: reqK8s }
   db.exec(`CREATE TABLE clusters (id TEXT PRIMARY KEY, name TEXT, apiServer TEXT, nsAuthMode TEXT DEFAULT 'open')`)
   db.exec(`CREATE TABLE user_clusters (userId TEXT, clusterId TEXT, assignedBy TEXT, assignedAt INTEGER)`)
   db.exec(`CREATE TABLE last_reconcile (projectId TEXT PRIMARY KEY, result TEXT, ts INTEGER NOT NULL)`)
+  // gap3-03(2026-09-07 审计批次三):PUT :id/cluster 换绑时须查在途对话做失效协调——真实
+  // schema(createWorkbenchSchema)恒有 workbench_conversations,夹具补齐(下方
+  // listConversationsByOwner/makeOwnedHarness 原各自再建,形状与这里一致,IF NOT EXISTS 幂等)。
+  db.exec(`CREATE TABLE IF NOT EXISTS workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT)`)
   db.prepare(`INSERT INTO clusters VALUES ('c1','cluster-one',NULL,'open')`).run()
   db.prepare(`INSERT INTO clusters VALUES ('c2','cluster-two',NULL,'open')`).run()
   db.prepare(`INSERT INTO user_clusters VALUES ('u1','c1','admin',1)`).run()
@@ -96,7 +100,7 @@ test('assertProjectOwnership:owner true;admin true;他人 false;缺参 false', (
 
 test('listConversationsByOwner:只回该用户名下项目对话,倒序,含项目名/消息数', () => {
   const h = makeHarness()
-  h.db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT)`)
+  h.db.exec(`CREATE TABLE IF NOT EXISTS workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT)`)
   h.db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER)`)
   h.db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id TEXT, source TEXT)`)
   h.db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p2','other','c1','u2',2)`).run()
@@ -118,7 +122,7 @@ test('listConversationsByOwner:只回该用户名下项目对话,倒序,含项�
 // 改造 harness:requireAdmin 语义化(非 admin 返 null),补对话/消息/ssh_servers 表。
 function makeOwnedHarness({ userId = 'u1', role = 'user', requestKubernetes: reqK8s } = {}) {
   const h = makeHarness({ userId, role, requestKubernetes: reqK8s })
-  h.db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT)`)
+  h.db.exec(`CREATE TABLE IF NOT EXISTS workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT)`)
   h.db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER)`)
   h.db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id TEXT, source TEXT)`)
   h.db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p2','other-proj','c1','u2',2)`).run()
