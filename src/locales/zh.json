@@ -2956,6 +2956,7 @@
     "logout": "退出登录",
     "skipClusterTitle": "暂不连接集群?",
     "skipClusterDesc": "工作台 · SSH 服务器 · 个人中心,无需集群也能使用",
+    "entering": "正在进入…",
     "skipClusterCta": "进入工作台"
   },
   "addCluster": {
