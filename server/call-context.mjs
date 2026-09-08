@@ -38,10 +38,18 @@ function _dispatcherSig({ ca, cert, key, insecure }) {
   return createHash('sha256').update(`${insecure ? 1 : 0}\n${ca || ''}\n${cert || ''}\n${key || ''}`).digest('hex')
 }
 
+// 2026-09-08 性能批:undici Agent 默认 keepAliveTimeout=4s——两次操作间隔一超即拆连,
+// 下个请求重付 TCP+TLS 握手(部署实例实测网关→apiserver 闲置后 +40ms、冷连接 ~687ms)。
+// 拉到 60s(上限 600s):面板两次点击间隔几乎不再重建连接;kube-apiserver 侧空闲连接由
+// 其自身 keepalive 策略收敛,不会挂死。
+export const KUBE_KEEPALIVE_TIMEOUT_MS = 60_000
+export const KUBE_KEEPALIVE_MAX_TIMEOUT_MS = 600_000
+
 // 取(并缓存)undici dispatcher:承载 mTLS(client cert+key+CA)与 insecure 开关。
 // 缓存按 TLS 配置签名——同集群连接的多身份共享 agent(身份差异在每请求 Authorization 头,非连接级);
 // client-cert 身份(cert/key 不同)自然分到不同 agent。API-key 高频调用不重复 new agent。
-export function getDispatcher(opts) {
+// AgentCtor 仅测试注入(断言 keep-alive 参数);生产恒走 undici Agent。
+export function getDispatcher(opts, AgentCtor = UndiciAgent) {
   const sig = _dispatcherSig(opts)
   let agent = _dispatcherCache.get(sig)
   if (!agent) {
@@ -49,7 +57,11 @@ export function getDispatcher(opts) {
     if (opts.ca) connect.ca = opts.ca
     if (opts.cert) connect.cert = opts.cert
     if (opts.key) connect.key = opts.key
-    agent = new UndiciAgent({ connect })
+    agent = new AgentCtor({
+      connect,
+      keepAliveTimeout: KUBE_KEEPALIVE_TIMEOUT_MS,
+      keepAliveMaxTimeout: KUBE_KEEPALIVE_MAX_TIMEOUT_MS,
+    })
     _dispatcherCache.set(sig, agent)
     if (_dispatcherCache.size > 64) _dispatcherCache.delete(_dispatcherCache.keys().next().value) // 简单上限防泄漏
   }

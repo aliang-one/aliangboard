@@ -32,6 +32,22 @@ const STEP_UP_MAX_AGE_MS = 10 * 60_000
 // oidcCodes:callback 成功签发 → exchange 消费(读即删)。60s TTL、单次、绑 IP——兑换码经浏览器 302
 //   落地(可能进 Referrer),换 IP 即失效。导出仅供测试播种(过期用例),生产只经三端点触碰。
 export const oidcStates = new Map() // state -> { nonce, verifier, redirectUri, exp }
+
+// ===== 2026-09-08 性能批:/version 探活 TTL 缓存(模块级) =====
+// connect-cluster 串行 await /version 是「首次连接慢」的直接构成(网关→apiserver 冷连接
+// 实测 ~687ms);版本仅展示用,重连(应用重开/token 轮换)走 10min 缓存即可。
+// 必须 module 级:createAuthRoutes 构造在每请求 handle() 内(见 index.mjs SP4 注释),
+// 闭包级 Map 每请求重建=永不命中——与 mfaTickets/oidcStates 同款「单进程网关不变式」。
+// 凭据签名(apiServer+authHeader+TLS 材料)入值,换凭据自然失效重探;凭据失效的暴露时点
+// 从 connect 顺延到首个资源请求(hydrate 已有清晰错误面),TTL 过期即自愈。
+const VERSION_CACHE_TTL_MS = 10 * 60_000
+const versionCache = new Map() // clusterId -> { sig, version, at }
+function versionCacheSig(cluster) {
+  return createHash('sha256').update(JSON.stringify([
+    cluster.apiServer, cluster.authHeader, cluster.ca, cluster.cert, cluster.key, !!cluster.insecure,
+  ])).digest('hex')
+}
+
 export const oidcCodes = new Map()  // code  -> { userId, username, role, ip, exp }
 const OIDC_STATE_TTL_MS = 10 * 60_000
 const OIDC_CODE_TTL_MS = 60_000
@@ -814,8 +830,16 @@ export function createAuthRoutes(deps) {
           // legacy ps(无 userId)→ 空数组 = 不注入。
           impersonate: buildImpersonation(db, ps.userId),
           impersonateDisplayname: impersonateDisplaynameFor(db, ps.userId) }
-        const probe = await requestKubernetes(k8sSession, '/version')
-        k8sSession.version = probe.body?.gitVersion || 'unknown'
+        // 2026-09-08 性能批:命中 TTL 缓存(凭据未变)则跳过 /version 往返;未命中仍同步探活验凭据
+        const vsig = versionCacheSig(cluster)
+        const vhit = versionCache.get(cluster.id)
+        if (vhit && vhit.sig === vsig && Date.now() - vhit.at < VERSION_CACHE_TTL_MS) {
+          k8sSession.version = vhit.version
+        } else {
+          const probe = await requestKubernetes(k8sSession, '/version')
+          k8sSession.version = probe.body?.gitVersion || 'unknown'
+          versionCache.set(cluster.id, { sig: vsig, version: k8sSession.version, at: Date.now() })
+        }
         const k8sToken = randomUUID()
         // CSO #11:重连先吊销旧 k8s token(旧行为只覆盖单标量,旧行留存成孤儿活 8h、重启还复活)
         const oldTok = ps.k8sSessionToken

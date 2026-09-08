@@ -94,8 +94,10 @@ async function createUser(g, username, { password, role } = {}) {
 // 假 apiserver:/version 供 connect-cluster 探测,其余路径通配 200 {kind:'PodList',items:[]},
 // 供 GET /api/k8s/api/v1/namespaces/default/pods 断言;t.after 自动关闭。
 async function startGatewayWithCluster(t) {
+  let versionHits = 0
   const k8s = createServer((req, res) => {
     if (req.url === '/version') {
+      versionHits++
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ gitVersion: 'v1.31.0-fake' }))
       return
@@ -113,6 +115,7 @@ async function startGatewayWithCluster(t) {
   assert.equal(r.status, 200, `register cluster failed: ${r.status}`)
   const { cluster } = await r.json()
   g.clusterId = cluster.id
+  g.versionHits = () => versionHits
   g.connectCluster = async () => {
     const cc = await fetch(`${g.base}/api/connect-cluster`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-platform-token': g.ptok },
@@ -209,4 +212,22 @@ test('重置密码踢掉该用户全部存量会话', { timeout: 60000 }, async 
     body: JSON.stringify({ username: 'dave4', password: 'z'.repeat(12) }),
   })
   assert.equal(re.status, 200)
+})
+
+// ═══ 2026-09-08 性能批:/version 探活 TTL 缓存 ═══
+// connect-cluster 串行 await /version 是首连慢的直接构成;10min TTL 内重复 connect(应用重开/
+// token 轮换)应命中缓存不再打 apiserver。凭据签名入值防换凭据吃旧版本(生产无原地改凭据
+// 路径——删除重注册即新 id 新键,签名是防御性冗余,不在本测试断言面内)。
+// 注:POST /api/admin/clusters 注册时也会探一次 /version(routes/admin.mjs),计数以 connect 前为基线。
+test('connect-cluster: /version 探活走 TTL 缓存,重连不再打 apiserver', { timeout: 60000 }, async (t) => {
+  const g = await startGatewayWithCluster(t)
+  const base = g.versionHits() // 注册探活已发生
+  const t1 = await g.connectCluster()
+  assert.equal(g.versionHits() - base, 1, '首次 connect 应真实探活一次')
+  assert.equal((await k8sGet(g, t1)).status, 200, '连接本身可用')
+
+  await g.connectCluster()
+  await g.connectCluster()
+  await g.connectCluster()
+  assert.equal(g.versionHits() - base, 1, 'TTL 内重复 connect 应全部命中缓存(不再打 /version)')
 })
