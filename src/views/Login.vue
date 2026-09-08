@@ -55,7 +55,9 @@ async function landing() {
   // 尝试自动连接上次使用的集群；成功直接进集群，失败才跳选择页
   const auto = await authStore.tryAutoConnect()
   if (auto) {
-    window.location.href = '/cluster'
+    // SPA 跳转(2026-09-08):旧版 window.location.href 整页刷新 = 白屏重解析 + 守卫双网络
+    // 往返,全程无反馈。push 后守卫走 getSession→api.session→setConnectedCluster 链路接管。
+    router.push('/cluster')
   } else {
     router.push('/select-cluster')
   }

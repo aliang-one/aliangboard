@@ -1,6 +1,8 @@
 <script setup>
 // 集群选择页（Layer 2）：平台登录后选择要连接的集群。
 // admin 无集群时可直接跳转集群管理添加；普通用户无集群时提示联系管理员。
+// 免集群通道卡(2026-09-08):全员可见——工作台/个人中心等平台能力不依赖集群
+// (路由 requiresCluster:false),未选集群也能进平台,不再只有 admin 的集群管理一条暗路。
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -29,17 +31,30 @@ async function loadClusters() {
 }
 onMounted(loadClusters)
 
+// 连接反馈(2026-09-08 根治「反复点击卡死在选择页」):
+// - 卡片级 pending:点中的卡自己转圈、其余卡置灰禁用,网格不消失(保上下文);
+// - connecting 只在失败时清零——成功路径保持到 SPA 跳转发生。旧版 finally 清零 +
+//   window.location.href 整页刷新的组合,会让网格在页面真正跳走前复活数秒(冷缓存更久),
+//   用户误以为没点上而反复点击,每次点击都重新走一遍服务端探测并重置导航 = 恶性循环;
+// - 跳转改 SPA router.push:无整页白屏,AppLayout 顶部进度条 + Overview 自身加载接管
+//   (守卫看到 currentCluster 已设,不会重复 api.session 验证)。
 async function connect(cluster) {
+  if (connecting.value) return // in-flight 守卫:disabled 之外的双保险(合成事件可穿透 disabled)
   connecting.value = cluster.id
   errorMsg.value = ''
   try {
     const res = await authStore.connectCluster(cluster.id)
     clusterStore.setConnectedCluster({ apiServer: res.cluster.apiServer.replace(/\/$/, ''), version: res.cluster.version })
-    // 不在这里全量水合——改为进入 AppLayout 后后台加载（避免阻塞，用户先看到页面）
-    window.location.href = '/cluster'
+    router.push('/cluster')
   } catch (e) {
+    connecting.value = ''
     errorMsg.value = e?.message || t('selectCluster.connectFailed')
-  } finally { connecting.value = '' }
+  }
+}
+
+function goWorkbench() {
+  if (connecting.value) return
+  router.push('/workbench')
 }
 
 function goLogout() {
@@ -65,21 +80,25 @@ function goLogout() {
         <span class="material-symbols-outlined animate-spin inline-block text-3xl">progress_activity</span>
       </div>
 
-      <div v-else-if="connecting" class="text-center py-md text-on-surface-variant text-body-sm flex items-center justify-center gap-sm">
-        <span class="material-symbols-outlined animate-spin">progress_activity</span> {{ t('selectCluster.connecting') }} {{ clusters.find(c => c.id === connecting)?.name }}…
-      </div>
-
       <div v-else-if="clusters.length" class="grid grid-cols-1 md:grid-cols-2 gap-md">
-        <button v-for="c in clusters" :key="c.id" @click="connect(c)"
-          class="text-left p-lg rounded-xl border-2 border-outline-variant hover:border-primary bg-surface-container-lowest transition-all group">
+        <button v-for="c in clusters" :key="c.id" data-testid="select-cluster-card"
+          :disabled="!!connecting" @click="connect(c)"
+          class="text-left p-lg rounded-xl border-2 bg-surface-container-lowest transition-all group"
+          :class="connecting === c.id
+            ? 'border-primary cursor-progress'
+            : (connecting ? 'border-outline-variant opacity-40' : 'border-outline-variant hover:border-primary cursor-pointer')">
           <div class="flex items-center gap-md">
-            <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-              <span class="material-symbols-outlined text-primary text-2xl">dns</span>
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+              :class="connecting === c.id ? 'bg-primary/20' : 'bg-primary/10'">
+              <span v-if="connecting === c.id" class="material-symbols-outlined text-primary text-2xl animate-spin">progress_activity</span>
+              <span v-else class="material-symbols-outlined text-primary text-2xl">dns</span>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="text-body-md font-semibold text-on-surface truncate group-hover:text-primary transition-colors">{{ c.name }}</p>
+              <p class="text-body-md font-semibold text-on-surface truncate" :class="{ 'group-hover:text-primary': !connecting }">{{ c.name }}</p>
               <p class="font-mono text-xs text-on-surface-variant truncate">{{ c.apiServer }}</p>
-              <p class="text-body-xs text-on-surface-variant/60 mt-xs">{{ c.version || t('selectCluster.versionUnknown') }}</p>
+              <p class="text-body-xs mt-xs" :class="connecting === c.id ? 'text-primary font-medium' : 'text-on-surface-variant/60'">
+                {{ connecting === c.id ? `${t('selectCluster.connecting')} ${c.name}…` : (c.version || t('selectCluster.versionUnknown')) }}
+              </p>
             </div>
           </div>
         </button>
@@ -95,6 +114,22 @@ function goLogout() {
           <span class="material-symbols-outlined text-base">add</span> {{ t('selectCluster.addCluster') }}
         </button>
         <p v-else class="text-body-xs text-on-surface-variant/60 mt-xs">{{ t('selectCluster.contactAdmin') }}</p>
+      </div>
+
+      <!-- 免集群通道卡:全员可见(工作台不依赖集群);虚线描边与实卡区分——它是通道,不是集群 -->
+      <div v-if="!loading" class="mt-lg rounded-xl border-2 border-dashed p-md flex items-center gap-md transition-colors"
+        :class="connecting ? 'border-outline-variant opacity-50' : 'border-outline-variant hover:border-primary/60'">
+        <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <span class="material-symbols-outlined text-primary text-xl">workspaces</span>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-body-md font-semibold text-on-surface">{{ t('selectCluster.skipClusterTitle') }}</p>
+          <p class="text-body-xs text-on-surface-variant truncate">{{ t('selectCluster.skipClusterDesc') }}</p>
+        </div>
+        <button data-testid="select-cluster-workbench-entry" :disabled="!!connecting" @click="goWorkbench"
+          class="shrink-0 inline-flex items-center gap-xs px-md py-sm rounded-lg border border-primary/50 text-primary text-body-sm font-semibold hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none">
+          {{ t('selectCluster.skipClusterCta') }} <span class="material-symbols-outlined text-sm">arrow_forward</span>
+        </button>
       </div>
 
       <div class="flex items-center justify-center gap-md mt-xl">

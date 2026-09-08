@@ -2953,7 +2953,10 @@
     "addCluster": "添加集群",
     "contactAdmin": "请联系管理员分配集群访问权限",
     "clusterManagement": "集群管理",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "skipClusterTitle": "暂不连接集群?",
+    "skipClusterDesc": "工作台 · SSH 服务器 · 个人中心,无需集群也能使用",
+    "skipClusterCta": "进入工作台"
   },
   "addCluster": {
     "title": "添加集群",
