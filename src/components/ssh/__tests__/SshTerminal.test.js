@@ -48,3 +48,82 @@ test('onError → 状态 error 展示重连按钮;重连同 sid(网关回放续�
   expect(calls.length).toBe(2)
   expect(calls[1].sid).toBe('sid-1')                  // sid 不变 → 网关保活会话回放续跑
 })
+
+// —— 断线自动重连(2026-09-08 线上事故:WS 瞬断被显示成「会话结束」,用户被迫手动刷新)——
+// 契约:曾成功 open 的流断开 → reconnecting 态 + 指数退避(1s 起)同 sid 自动重连;
+// CH_ERROR 终态与从未 open 的握手失败不自动重连;重连成功(onOpen)重置退避并提示已恢复。
+test('断开自动重连:onOpen 后 onClose → reconnecting,1s 后同 sid 二连', async () => {
+  vi.useFakeTimers()
+  try {
+    const w = mountTerm()
+    await flushPromises()
+    calls[0].onOpen()
+    calls[0].onClose()
+    await flushPromises()
+    expect(w.vm.status).toBe('reconnecting')
+    expect(calls.length).toBe(1)
+    vi.advanceTimersByTime(1000)
+    await flushPromises()
+    expect(calls.length).toBe(2)
+    expect(calls[1].sid).toBe('sid-1')
+  } finally { vi.useRealTimers() }
+})
+
+test('指数退避:连续失败第二次等待翻倍(1s → 2s)', async () => {
+  vi.useFakeTimers()
+  try {
+    mountTerm()
+    await flushPromises()
+    calls[0].onOpen()
+    // 第一次断开 → 1s 后重连
+    calls[0].onClose(); await flushPromises()
+    vi.advanceTimersByTime(1000); await flushPromises()
+    expect(calls.length).toBe(2)
+    // 重连尝试握手失败(未 onOpen 即 close,如 502 闪断)→ 计入退避,2s 后再连(1s 时点不应连)
+    calls[1].onClose(); await flushPromises()
+    vi.advanceTimersByTime(1000); await flushPromises()
+    expect(calls.length).toBe(2)
+    vi.advanceTimersByTime(1000); await flushPromises()
+    expect(calls.length).toBe(3)
+  } finally { vi.useRealTimers() }
+})
+
+test('重连成功重置退避并提示已恢复:下一轮断开又从 1s 起', async () => {
+  vi.useFakeTimers()
+  try {
+    const w = mountTerm()
+    await flushPromises()
+    calls[0].onOpen(); calls[0].onClose(); await flushPromises()
+    vi.advanceTimersByTime(1000); await flushPromises()
+    calls[1].onOpen(); await flushPromises()
+    expect(w.vm.status).toBe('open')
+    calls[1].onClose(); await flushPromises()
+    vi.advanceTimersByTime(1000); await flushPromises()
+    expect(calls.length).toBe(3, '成功后重置退避:新断开仍 1s 起')
+  } finally { vi.useRealTimers() }
+})
+
+test('CH_ERROR 终态不自动重连;从未 open 的握手失败同样不重连', async () => {
+  vi.useFakeTimers()
+  try {
+    const w = mountTerm()
+    await flushPromises()
+    calls[0].onOpen()
+    calls[0].onError('channel closed')
+    await flushPromises()
+    expect(w.vm.status).toBe('error')
+    vi.advanceTimersByTime(60000)
+    await flushPromises()
+    expect(calls.length).toBe(1, 'error 态不自动重连')
+
+    await w.find('[data-test="btnReconnect"]').trigger('click')   // 手动重连回到 connecting
+    await flushPromises()
+    expect(calls.length).toBe(2)
+    calls[1].onClose()   // 从未 onOpen(握手失败,如 401/502)
+    await flushPromises()
+    expect(w.vm.status).toBe('closed')
+    vi.advanceTimersByTime(60000)
+    await flushPromises()
+    expect(calls.length).toBe(2, '握手失败不自动重连')
+  } finally { vi.useRealTimers() }
+})

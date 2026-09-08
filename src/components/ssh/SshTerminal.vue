@@ -30,13 +30,20 @@ const isChrome = computed(() => props.chrome === 'window' || props.chrome === 'p
 const isWindowChrome = computed(() => props.chrome === 'window')
 
 const root = ref(null)
-// idle 未连接 | connecting 连接中 | open 会话进行中 | closed 会话结束 | error 出错
+// idle 未连接 | connecting 连接中 | open 会话进行中 | reconnecting 断线自动重连中 | closed 会话结束 | error 出错
 const status = ref('idle')
 const statusMsg = ref('')
 const replayed = ref(false)   // 收到过回放帧(同 sid 重连) → 头部徽标
 
 let term = null, fit = null, stream = null, ro = null
 let gen = 0                   // 连接代际:重连时旧流回调作废,避免重复 handleEnd
+
+// 断线自动重连(2026-09-08 线上事故:WS 瞬断被显示成「会话结束」,用户被迫手动刷新):
+// 曾成功 open 的流断开 → 指数退避自动重连同 sid(网关回放续跑)。首连握手失败(401/502)
+// 走既有探针/手动重试,CH_ERROR 终态(LOST/属主不符)重连无意义,均不自动重试。
+const RECONNECT_BASE_MS = 1000, RECONNECT_CAP_MS = 30000, RECONNECT_MAX_ATTEMPTS = 10
+let reconnectAttempts = 0
+let reconnectTimer = null
 
 function setStatus(s, msg = '') { status.value = s; statusMsg.value = msg }
 
@@ -60,6 +67,7 @@ let resizeTimer = null  // 初始 resize 重试定时器(需在 teardown 清理)
 function closeStream() {
   gen++
   if (resizeTimer) { clearInterval(resizeTimer); resizeTimer = null }
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
   try { stream?.close() } catch { /* noop */ }
   stream = null
 }
@@ -74,6 +82,7 @@ function teardown() {
 function openStream() {
   gen++
   const my = gen
+  let openedThisGen = false   // 本代流是否成功握手(区分「断线」与「从未连上」)
   stream = sshTerminalStream({
     serverId: props.serverId,
     sid: props.sid,
@@ -81,11 +90,38 @@ function openStream() {
     rows: term.rows,
     onStdout: d => { if (term) term.write(d) },
     onReplay: d => { if (term) term.write(d); replayed.value = true },
+    onOpen: () => {
+      if (my !== gen) return
+      openedThisGen = true
+      reconnectAttempts = 0   // 成功一轮,退避从头计
+      if (status.value === 'reconnecting') term?.writeln(`\x1b[32m${t('terminal.reconnected')}\x1b[0m`)
+      setStatus('open')
+    },
     onError: m => { if (my === gen) handleEnd(m) },
-    onClose: () => { if (my === gen && status.value !== 'error' && status.value !== 'closed') handleEnd() },
+    onClose: () => {
+      if (my !== gen || status.value === 'error' || status.value === 'closed') return
+      // 首连握手失败(401/502):探针已分流鉴权,本地报 closed 交手动重试;重连轮次中的
+      // 握手失败(如 502 闪断)计入退避继续重试
+      if (!openedThisGen && reconnectAttempts === 0) { handleEnd(); return }
+      scheduleReconnect()
+    },
   })
   const tryResize = () => { if (stream?.isOpen && term) { stream.resize({ cols: term.cols, rows: term.rows }); return true } return false }
   if (!tryResize()) resizeTimer = setInterval(() => { if (tryResize() || status.value === 'closed' || status.value === 'error') { clearInterval(resizeTimer); resizeTimer = null } }, 120)
+}
+
+function scheduleReconnect() {
+  reconnectAttempts++
+  if (reconnectAttempts > RECONNECT_MAX_ATTEMPTS) { handleEnd(); return }
+  const delay = Math.min(RECONNECT_BASE_MS * 2 ** (reconnectAttempts - 1), RECONNECT_CAP_MS)
+  setStatus('reconnecting')
+  term?.writeln(`\x1b[33m${t('terminal.reconnecting', { n: reconnectAttempts })}\x1b[0m`)
+  const my = gen
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    // gen 变(手动 connect/unmount)或已进入终态 → 本次自动重连作废
+    if (my === gen && status.value === 'reconnecting') connect()
+  }, delay)
 }
 
 function handleEnd(errMsg) {
@@ -101,8 +137,7 @@ async function connect() {
   await nextTick()          // 等 <div ref="root"> 挂载,xterm 才能 open
   ensureTerm()
   term.writeln(`\x1b[36m${t('ssh.connectingHint', { name: props.serverName || props.serverId })}\x1b[0m`)
-  openStream()
-  setStatus('open')
+  openStream()               // 状态在 onOpen(真握手成功)时才转 open
   if (root.value && typeof ResizeObserver !== 'undefined') {
     ro = new ResizeObserver(() => { try { fit?.fit() } catch { /* noop */ } })
     ro.observe(root.value)
@@ -119,7 +154,7 @@ function refit() { try { fit?.fit() } catch { /* noop */ } }
 function connectIfIdle() {
   if (status.value === 'idle' || status.value === 'closed' || status.value === 'error') connect()
 }
-defineExpose({ refit, replayed, connectIfIdle, connect })
+defineExpose({ refit, replayed, connectIfIdle, connect, status })
 </script>
 
 <template>
@@ -157,7 +192,7 @@ defineExpose({ refit, replayed, connectIfIdle, connect })
           <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
           <span class="text-body-sm text-primary">Live</span>
         </span>
-        <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
+        <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'reconnecting' ? t('terminal.statusReconnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
         <button data-test="btnReconnect" @click="connect" :title="t('ssh.reconnect')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
           <span class="material-symbols-outlined text-lg">refresh</span>
         </button>

@@ -68,5 +68,5 @@ test('事故③:恢复的 minimized 窗口不在挂载时建连;恢复(open)时�
   expect(win).toContain(':auto-connect="connectAtMount"')
   expect(win).toContain('termRef.value?.connectIfIdle?.()')
   expect(src).toContain('function connectIfIdle()')
-  expect(src).toContain('defineExpose({ refit, replayed, connectIfIdle, connect })')
+  expect(src).toContain('defineExpose({ refit, replayed, connectIfIdle, connect, status })')
 })

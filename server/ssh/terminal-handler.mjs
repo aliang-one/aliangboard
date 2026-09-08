@@ -93,6 +93,7 @@ export function createSshTerminalHandler(deps) {
         connId: ws,
         touch: () => service.touch(tid),
         onDetach: () => service.detach(tid, ws, 'ws-close'),
+        replayMaxBytes: deps.replayMaxBytes || 0,
         types: { stdin: CH_STDIN, resize: CH_RESIZE, replay: CH_REPLAY },
       })
       sentinel.dispose()   // 此后 close/error 由 attachSocketToSession 的 drop 全权负责

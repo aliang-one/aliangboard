@@ -156,3 +156,87 @@ test('resize 仲裁:primary 断开顺延由 service.detach 完成;wire drop 仅�
   ws1.emit('message', Buffer.concat([Buffer.from([RESIZE]), Buffer.from(JSON.stringify({ cols: 150, rows: 50 }))]))
   assert.deepEqual(windows, [[50, 150]])
 })
+
+// —— 回放尾部裁剪(2026-09-08 线上事故:4MB ring 全量回放 × 慢客户端 = 60-90s liveness 死亡螺旋)——
+// 只回放尾部 maxBytes,行首对齐 + UTF-8 边界回退,杜绝从 ANSI/多字节序列中间起刀。
+import { clampReplay } from './terminal-wire.mjs'
+
+test('clampReplay:快照不超限时原样返回(同一 Buffer 引用)', () => {
+  const snap = Buffer.from('hello world')
+  assert.ok(clampReplay(snap, 1024) === snap)
+})
+
+test('clampReplay:超限裁尾并对齐到下一行首(丢弃不完整行)', () => {
+  const lines = []
+  for (let i = 0; i < 100; i++) lines.push(`line-${String(i).padStart(3, '0')}-padding-padding-padding\n`)
+  const snap = Buffer.from(lines.join(''))
+  const out = clampReplay(snap, 1024)
+  assert.ok(out.length <= 1024, `裁后 ${out.length} 应 <= 1024`)
+  const text = out.toString('utf8')
+  assert.ok(text.startsWith('line-'), `裁后应从行首开始,实际开头:${JSON.stringify(text.slice(0, 12))}`)
+  assert.ok(!text.startsWith('line-000'), '开头若干行应被丢弃')
+})
+
+test('clampReplay:尾部无换行时按字节裁剪并回退 UTF-8 续字节(中文不劈半)', () => {
+  const head = Buffer.from('x'.repeat(2048))
+  const cjk = Buffer.from('汉'.repeat(1024))   // 3072 字节,无换行
+  const snap = Buffer.concat([head, cjk])
+  const out = clampReplay(snap, 1000)
+  assert.ok(out.length <= 1000)
+  const text = out.toString('utf8')
+  assert.ok(!text.includes('�'), `不得出现替换字符(UTF-8 劈半),实际:${text.slice(0, 5)}`)
+  assert.ok(text.endsWith('汉汉汉') || text.endsWith('汉'), '尾部内容保真')
+})
+
+test('attachSocketToSession:replayMaxBytes 生效时回放帧含截断提示且不超限;缺省不裁剪', () => {
+  const session = fakeSession()
+  session.ring.push('z'.repeat(4096))          // 4KB ring
+  const sent = []
+  const send = (ws, type, payload) => sent.push({ type, payload })
+
+  const ws1 = fakeWs()
+  attach(session, ws1)
+  attachSocketToSession(ws1, session, { send, replayMaxBytes: 1024 })
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].type, REPLAY)
+  assert.ok(sent[0].payload.length <= 1024, `回放帧 ${sent[0].payload.length} 应 <= 1024`)
+  assert.ok(sent[0].payload.includes(Buffer.from('回放已截断')), '截断时前置提示')
+
+  const session2 = fakeSession()
+  session2.ring.push('z'.repeat(4096))
+  const sent2 = []
+  const ws2 = fakeWs()
+  attach(session2, ws2)
+  attachSocketToSession(ws2, session2, { send: (w, t, p) => sent2.push({ type: t, payload: p }) })
+  assert.equal(sent2.length, 1)
+  assert.equal(sent2[0].payload.length, 4096, '缺省 replayMaxBytes 不裁剪(向后兼容)')
+})
+
+// —— WS 关闭原因可观测(2026-09-08 排查盲区:连接被杀时网关侧零日志,谁关的分不清)——
+// close 带 code/reason、error 带消息,一行落 stdout;error+close 连锁只记第一因。
+test('drop 落一行关闭日志:close 记 code/reason,error 优先记 error(连锁静默)', t => {
+  const logs = []
+  t.mock.method(console, 'log', (...a) => logs.push(a.join(' ')))
+  const send = () => {}
+  const session = fakeSession()
+  session.id = 'ssh-test-sid'
+  const ws = fakeWs()
+  attach(session, ws)
+  attachSocketToSession(ws, session, { send, onDetach: () => {} })
+
+  ws.emit('close', 1006, Buffer.from('abnormal'))
+  assert.equal(logs.length, 1)
+  assert.ok(logs[0].includes('ssh-test-sid'), `日志应含 sid:${logs[0]}`)
+  assert.ok(logs[0].includes('code=1006') && logs[0].includes('abnormal'), `日志应含 close code/reason:${logs[0]}`)
+
+  logs.length = 0
+  const ws2 = fakeWs()
+  const session2 = fakeSession()
+  session2.id = 'ssh-test-sid2'
+  attach(session2, ws2)
+  attachSocketToSession(ws2, session2, { send, onDetach: () => {} })
+  ws2.emit('error', new Error('ECONNRESET boom'))
+  ws2.emit('close', 1006, Buffer.from(''))
+  assert.equal(logs.length, 1, 'error+close 连锁只记第一因(error)')
+  assert.ok(logs[0].includes('ECONNRESET'), `日志应含 error 消息:${logs[0]}`)
+})
