@@ -6,7 +6,10 @@ export const TABLE = {
   'wbc.projectNotFound': { zh: '项目不存在', en: 'Project not found' },
   'wbc.noProjectAccess': { zh: '无权访问该项目', en: 'No access to this project' },
   'wbc.noAccess': { zh: '无权访问', en: 'Access denied' },
-  'wbc.llmNotConfigured': { zh: 'LLM 未配置', en: 'LLM is not configured' },
+  // approval-flow-02(2026-09-07 审计批次三)文案明确化:approve 400 此前被前端当 CAS 竞态
+  // 静默吞掉,现横幅直显服务端文案——裸「LLM 未配置」不指路;对齐 api.llmNotConfigured 的
+  // 可操作风格。全端点共用(create/messages/regenerate/edit/approve/deny 终态)。
+  'wbc.llmNotConfigured': { zh: 'LLM 未配置,无法继续执行(需管理员在「LLM 配置」设置 baseURL/model 后重试)', en: 'LLM is not configured and execution cannot continue (an admin must set baseURL/model in "LLM config", then retry)' },
   'wbc.createFailed': { zh: '创建对话失败', en: 'Failed to create conversation' },
   'wbc.busyNoResume': { zh: '对话运行中/待审批,不能续接', en: 'Conversation is running or awaiting approval; cannot continue' },
   'wbc.messageRequired': { zh: '消息内容不能为空', en: 'Message content is required' },

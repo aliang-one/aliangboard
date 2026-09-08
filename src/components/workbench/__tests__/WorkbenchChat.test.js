@@ -1162,3 +1162,102 @@ test('@server:关键字 → server 搜索分支 + dns chip(无 namespace 空串)
   expect(chip.text()).not.toContain('undefined')
   w.unmount()
 })
+
+// ── 2026-09-07 审计批次三(PT5)──
+
+// contracts-09:新发 user turn 恒 messageId:null(发送后本会话内永不可编辑,刷新重建才有 id)。
+// 契约:create/append 响应回带 user 消息行 id,乐观 turn 立即改持——发送后即可编辑重发。
+test('contracts-09:发送后 user turn 改持响应 messageId,完成即可编辑(无需刷新)', async () => {
+  const w = await mountChat()
+  await w.find('textarea').setValue('刚发出去的问题')
+  api.conversations.create.mockResolvedValue({ id: 'conv-new', status: 'running', messageId: 'm-row-1', references: [] })
+  api.conversations.get.mockResolvedValue({ id: 'conv-new', status: 'done', content: '答了', trace: '[]', steps: 1, messages: [] })
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  await flushPromises()
+  expect(w.vm.sending).toBe(false)
+  const userTurn = w.vm.turns.find(t => t.role === 'user')
+  expect(userTurn.messageId).toBe('m-row-1', '乐观 turn 改持服务端消息行 id')
+  expect(w.find('[data-testid="edit-msg-btn"]').exists(), '发送后立即可编辑').toBe(true)
+  w.unmount()
+})
+
+// contracts-09 续:append 分支同款(续接既有对话)。
+test('contracts-09:续接(append)响应 messageId 同样回填乐观 user turn', async () => {
+  const w = await mountChat({ activeConversationId: 'conv-app' })
+  await w.find('textarea').setValue('追问')
+  api.conversations.append.mockResolvedValue({ status: 'running', messageId: 'm-row-2', references: [] })
+  api.conversations.get.mockResolvedValue({ id: 'conv-app', status: 'done', content: '答', trace: '[]', steps: 1, messages: [] })
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  await flushPromises()
+  const userTurn = w.vm.turns.find(t => t.role === 'user')
+  expect(userTurn.messageId).toBe('m-row-2')
+  w.unmount()
+})
+
+// frontend-chat-07:stopRun 回填最后一条 user 消息会覆盖未发送草稿——运行中输入框可打字
+// (排队语义),用户草稿须幸存;仅输入框为空才回填(修改重发场景不回归)。
+test('frontend-chat-07:stopRun 不覆盖未发送草稿(输入框非空不回填)', async () => {
+  const w = await mountChat({ activeConversationId: 'conv-x' })
+  api.conversations.append.mockResolvedValue({ status: 'running' })
+  api.conversations.get.mockResolvedValue({ id: 'conv-x', status: 'running', messages: [{ role: 'user', content: '输错的消息' }], trace: '[]', steps: 0, recap: '' })
+  await w.find('textarea').setValue('输错的消息')
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  // 运行中用户打了新草稿(未发送)
+  await w.find('textarea').setValue('想改的版本')
+  api.conversations.cancel.mockResolvedValue({ status: 'cancelled' })
+  const stopBtn = w.findAll('button').find(b => b.find('span').exists() && b.find('span').text() === 'stop')
+  await stopBtn.trigger('click')
+  await flushPromises()
+  expect(api.conversations.cancel).toHaveBeenCalledWith('conv-x')
+  expect(w.find('textarea').element.value).toBe('想改的版本', '草稿在 stopRun 后幸存(不被回填覆盖)')
+  w.unmount()
+})
+
+// frontend-chat-03:startStick 粘底观测盯错元素——scrollEl.firstElementChild 是项目背景
+// details 卡(常驻首子),流式增长发生在消息列(末子)。契约:ResizeObserver 观察消息列;
+// 内容增长(回调触发)时贴底钉住(scrollTop 跟随 scrollHeight)。
+test('frontend-chat-03:粘底观测盯流式消息容器(非项目背景卡),增长触发钉底', async () => {
+  class FakeRO {
+    constructor(cb) { this.cb = cb; FakeRO.last = this; this.targets = [] }
+    observe(t) { this.targets.push(t) }
+    disconnect() { this.disconnected = true }
+  }
+  vi.stubGlobal('ResizeObserver', FakeRO)
+  try {
+    api.conversations.get.mockResolvedValue({
+      id: 'conv-s', status: 'done', content: '答', trace: '[]', steps: 1, recap: '',
+      messages: [{ id: 'm1', role: 'user', content: '问题一', createdAt: 1 }, { id: 'm2', role: 'assistant', content: '答', createdAt: 2 }],
+    })
+    const w = await mountChat({ conversationId: 'conv-s' })
+    await flushPromises()
+    await flushPromises()
+    const ro = FakeRO.last
+    expect(ro, '粘底观测建立(重建后 scrollToBottom)').toBeTruthy()
+    expect(ro.targets.length).toBeGreaterThan(0, '有观察目标')
+    expect(ro.targets.every(t => t.tagName !== 'DETAILS'), '不观察项目背景卡(首子)').toBe(true)
+    // 载入窗口(convLoading)内消息列未渲染,先兜底观察占位 div;列挂载后重指向——
+    // 最终观察集合必须含真实消息列(流式内容所在)。
+    const column = ro.targets.find(t => t.querySelector?.('[data-role="user"]'))
+    expect(column, '观察的是消息列(含流式内容)').toBeTruthy()
+
+    // 增长钉底:观测回调触发(内容撑高)→ 贴底 scrollTop 跟随 scrollHeight
+    const scroller = w.find('.overflow-y-auto').element
+    let h = 1000
+    Object.defineProperty(scroller, 'scrollHeight', { get: () => h, configurable: true })
+    Object.defineProperty(scroller, 'clientHeight', { get: () => 400, configurable: true })
+    scroller.scrollTop = 550 // 距底 50px(贴底阈值 100px 内)
+    ro.cb()
+    await flushPromises()
+    expect(scroller.scrollTop).toBe(1000, '首次钉底')
+    h = 1050 // 流式增长 50px
+    ro.cb()
+    await flushPromises()
+    expect(scroller.scrollTop).toBe(1050, '增长后持续钉底')
+    w.unmount()
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})

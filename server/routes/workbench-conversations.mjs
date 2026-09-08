@@ -15,6 +15,9 @@
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
 import { getWorkbenchAiConfig, getMaxRunningConversationsConfig, getMaxConversationsPerProjectConfig, sshPromptServers } from '../workbench-ai-config.mjs'
 import { registry, SSH_HIDDEN_TOOLS } from '../tool-registry.mjs'
+// approval-flow-02:deny 无 LLM 终态转换需要向 conv-bus 广播(与 wbAgent.cancelConversation
+// 同款 failed+end+dispose 三连)。模块级单例,与 deps 注入的 busSubscribe/busDispose 同源。
+import { emit as busEmit } from '../conv-bus.mjs'
 import {
   getProject, getConversation, updateConversation, listConversations,
   createConversation, appendMessage, getMaxSeq, setActiveConversation, listMessages,
@@ -345,11 +348,13 @@ export function createWorkbenchConvRoutes(deps) {
         setActiveConversation(db, input.projectId, conv.id)
         // T4:首条 user 消息写入 workbench_messages(干净 content;@-ref 由 runConversation 的 refreshSystem 每轮刷新注入 system,不 baked 进 message)。
         // gap3-01:消息级 refs 同带戳(ResourceCard 徽标数据源;换绑后旧消息卡片可标注来源集群)。
-        appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(stampedRefs) ? stampedRefs.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
+        // contracts-09(2026-09-07 审计批次三):捕获 user 行回带 messageId——前端乐观 turn
+        // 据此立即可编辑(旧响应无 id,发送后本会话内 user turn 恒 messageId:null 不可编辑)。
+        const userRow = appendMessage(db, { conversationId: conv.id, role: 'user', content: String(input.message), refs: Array.isArray(stampedRefs) ? stampedRefs.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
         db.exec('COMMIT')
         wbAgent.runConversation(conv.id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程(k8sSession 由 runConversation 内部按 conv.projectId 重建)
         auditConv(ps, 'create', conv.id, input.projectId)
-        sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, conv.id)) })
+        sendJson(res, 200, { id: conv.id, status: 'running', references: fetchedResources, messageId: userRow?.id || null, context: contextInfo(getConversation(db, conv.id)) })
         return true
       } catch (e) {
         // conv-lifecycle-05:事务中途失败整体回滚(无活动事务时吞掉——错误可能来自 BEGIN 之前)
@@ -414,7 +419,8 @@ export function createWorkbenchConvRoutes(deps) {
         // 事务不引入 await,审计#1 的零 await 同步块原子性不受影响。
         const llmClient = createLlmClient(cfg)
         db.exec('BEGIN')
-        appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(stampedRefs) ? stampedRefs.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
+        // contracts-09(2026-09-07 审计批次三):捕获 user 行回带 messageId(同 create 路径)。
+        const userRow = appendMessage(db, { conversationId: id, role: 'user', content: cleanMessage, refs: Array.isArray(stampedRefs) ? stampedRefs.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null })
         // 4) 新 refs 并入对话级 "references"(去重 kind/namespace/name):runConversation 的
         //    refreshSystem 每轮重写 messages[0] 注入引用资源最新状态(agent.mjs T5 漂移修复),
         //    上下文与烤进 content 等价且更新鲜;新建路径(POST /conversations)本就走此机制。
@@ -446,7 +452,7 @@ export function createWorkbenchConvRoutes(deps) {
         maybeSummarize(db, id, llmClient).catch(e => console.error('[wb-conversations] 异步轮次摘要失败:', e?.message || e)) // 异步摘要,失败不阻塞
         maybeSummarizeProject(db, conv.projectId, llmClient).catch(e => console.error('[wb-conversations] 异步项目摘要失败:', e?.message || e)) // 项目记忆滚动摘要(spec §3.2,fire-and-forget)
         auditConv(ps, 'message', id, conv.projectId)
-        sendJson(res, 200, { status: 'running', references: fetchedResources, context: contextInfo(getConversation(db, id)) })
+        sendJson(res, 200, { status: 'running', references: fetchedResources, messageId: userRow?.id || null, context: contextInfo(getConversation(db, id)) })
         return true
       } catch (e) {
         // conv-lifecycle-05:事务中途失败整体回滚(无活动事务时吞掉——错误可能来自 BEGIN 之前)
@@ -909,9 +915,29 @@ export function createWorkbenchConvRoutes(deps) {
       // F4(authz-entitlement-02):deny 同 approve 门——deny 也走 resumeConversation(detached
       // 续跑 denied 队列),失权 owner 不得经任何审批面触碰 run;先于 CAS,拒绝零副作用。
       if (!clusterEntitled(ps, projectForGate.clusterId)) { sendJson(res, 403, { message: msg(req, 'wbp.clusterForbidden') }); return true }
-      // 配置先于 CAS(同 approve,2026-09-06 审计#2)
+      // approval-flow-02(2026-09-07 审计批次三):「拒绝」不依赖 LLM。审批决策本身(不执行
+      // 该工具调用)无需模型;续跑(把拒绝回喂 LLM 出终答)才需要。旧实现配置缺失 400 拒绝
+      // deny → 无 LLM 时 paused 审批死局(approve/deny 双拒,唯一出路重启网关)。裁决:配置
+      // 缺失的 deny = 决策受理(CAS + 审计留痕)+ 会话终态 failed(明确文案,已流出内容保留,
+      // pendingApproval 消费),不悬 paused。approve 保持 400(续跑即出终答,paused 可重试)。
       const cfg = getLlmConfig()
-      if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
+      if (!cfg.baseURL || !cfg.model) {
+        const cas = claimPausedForResume(req, db, id)
+        if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
+        try {
+          // 归属持久留痕(同 approve:审计链是 durable 权威源;pendingApproval 随终态清,不落 stamp)
+          writeAudit?.(db, { owner: ps.username, verb: 'deny', tool: 'wb_approval', result: 'ok', requestSummary: `conv=${id} approverId=${ps.userId}`, source: 'platform' })
+          updateConversation(db, id, { status: 'failed', pendingApproval: null, error: msg(req, 'wbc.llmNotConfigured') })
+          busEmit(id, { type: 'status', status: 'failed', error: msg(req, 'wbc.llmNotConfigured') })
+          busEmit(id, { type: 'end' })
+          busDispose?.(id)
+        } catch (e) {
+          try { db.prepare("UPDATE workbench_conversations SET status='paused' WHERE id=?").run(id) } catch { /* 行已删等,尽力回滚 */ }
+          sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.denyFailed') }); return true
+        }
+        sendJson(res, 200, { status: 'failed' })
+        return true
+      }
       const cas = claimPausedForResume(req, db, id)
       if (!cas.ok) { sendJson(res, cas.status, { message: cas.message }); return true }
       // cancel-races-06:同 approve——CAS 后留痕/客户端构造抛错兜住 + 回滚 paused,不悬 running。

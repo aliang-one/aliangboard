@@ -476,14 +476,47 @@ test('审计#2 approve:LLM 配置缺失 → 400 且不翻 paused(可重试,不�
   assert.ok(row.pendingApproval, 'pendingApproval 完好,配置恢复后可直接重试审批')
 })
 
-test('审计#2 deny:同样先查配置再 CAS(状态不动)', async () => {
+// approval-flow-02(2026-09-07 审计批次三):deny 不依赖 LLM——审批决策本身(不执行该工具)
+// 无需模型;续跑(把拒绝回喂 LLM 出终答)才需要。旧实现配置缺失 400 拒绝 deny → 无 LLM 时
+// paused 审批死局(approve/deny 双拒)。契约:决策受理 200,会话终态 failed(明确文案、
+// pendingApproval 已消费),不悬 paused。approve 仍 400(续跑即出终答,保持 paused 可重试)。
+test('approval-flow-02 deny:LLM 配置缺失 → 决策仍受理(200),终态 failed 不悬 paused', async () => {
   const h = makeHarness({ overrides: { getLlmConfig: () => ({ baseURL: '', apiKey: '', model: '' }) } })
   const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'hi' })
   h.db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval=?, queue='[]', messages='[]', denied='[]' WHERE id=?")
     .run(JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }), conv.id)
   await h.call('POST', `/api/workbench/conversations/${conv.id}/deny`)
-  assert.equal(h.sent.at(-1).status, 400)
-  assert.equal(getConversation(h.db, conv.id).status, 'paused')
+
+  assert.equal(h.sent.at(-1).status, 200, 'deny 决策受理(拒绝恒可用)')
+  assert.equal(h.sent.at(-1).json.status, 'failed', '响应如实带回终态')
+  const row = getConversation(h.db, conv.id)
+  assert.equal(row.status, 'failed', '无法续跑 → 终态 failed,不悬 paused')
+  assert.ok(!row.pendingApproval, 'pendingApproval 已消费')
+  assert.match(String(row.error), /LLM/, '失败原因文案明确')
+})
+
+// contracts-09(2026-09-07 审计批次三):create/messages 响应回带 user 消息行 id——前端乐观
+// turn 据此可编辑(旧响应无 id,messageId 恒 null,发送后本会话内永不可编辑)。
+test('contracts-09 create:响应回带首条 user 消息行 id(messageId)', async () => {
+  const h = makeHarness()
+  h.setBody({ projectId: h.pid, message: '第一问' })
+  assert.ok(await h.call('POST', '/api/workbench/conversations'))
+  const last = h.sent.at(-1)
+  assert.equal(last.status, 200)
+  const userRows = listMessages(h.db, last.json.id).filter(m => m.role === 'user')
+  assert.equal(last.json.messageId, userRows[0].id, 'messageId = 落库 user 行 id')
+})
+
+test('contracts-09 messages:响应回带本条 user 消息行 id(messageId)', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: '首轮' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  h.setBody({ message: '第二问' })
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`))
+  const last = h.sent.at(-1)
+  assert.equal(last.status, 200)
+  const userRows = listMessages(h.db, conv.id).filter(m => m.role === 'user')
+  assert.equal(last.json.messageId, userRows.at(-1).id, 'messageId = 本条(最新)user 行 id')
 })
 
 test('审计#4 续接更新 conv.userMessage:项目历史每轮记真实提问,不再复读第一问', async () => {

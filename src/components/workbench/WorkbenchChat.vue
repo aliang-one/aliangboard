@@ -374,14 +374,28 @@ function isNearBottom() { const t = chatScroller(); if (!t) return true; return 
 // 2s 后渲染稳定自动停;无 ResizeObserver 环境(测试)静默退化为单次落底。
 let stickObserver = null, stickTimer = null
 function stopStick() { if (stickObserver) { stickObserver.disconnect(); stickObserver = null } if (stickTimer) { clearTimeout(stickTimer); stickTimer = null } }
+// 阅读列容器(流式消息真正生长的元素;见 startStick 注释)
+const msgColEl = ref(null)
 function startStick() {
   stopStick()
   const el = scrollEl.value
   if (!el || typeof ResizeObserver === 'undefined') return
   stickObserver = new ResizeObserver(() => { if (isNearBottom()) { const t = chatScroller(); if (t) t.scrollTop = t.scrollHeight } })
-  if (el.firstElementChild) stickObserver.observe(el.firstElementChild)
+  // frontend-chat-03(2026-09-07 审计批次三):粘底观测必须盯**流式消息容器**——旧实现盯
+  // scrollEl.firstElementChild,而有 projectId 时首子是项目背景 details 卡(常驻、高度
+  // 不随消息变):delta 撑高发生在末子消息列,盯错元素 = 观测永不触发,粘底失效(渲染
+  // 晚撑高时视口被顶离底部)。消息列挂 msgColEl;空态/加载态(无消息列)兜底 lastElementChild
+  //(互斥 v-if 链的唯一内容子)。
+  const target = msgColEl.value || el.lastElementChild
+  if (target) stickObserver.observe(target)
   stickTimer = setTimeout(stopStick, 2000)
 }
+// 观测目标动态接线(frontend-chat-03 续):scrollToBottom→startStick 发生在 pollOnce 内部
+// (重建即滚底),此刻 convLoading 仍 true——消息列(v-else)尚未渲染,msgColEl 为 null,
+// 兜底 lastElementChild 拿到的是转圈占位 div,turns 渲染后该节点被替换脱链,观测落空。
+// 消息列挂载时若粘底观测仍在窗内(2s),重指向 observe 到真实消息列(追加观察;脱链旧
+// 节点不再回调,stopStick 统一回收,无泄漏)。
+watch(msgColEl, el => { if (el && stickObserver) stickObserver.observe(el) })
 async function scrollToBottom() {
   await nextTick()
   const t = chatScroller(); if (!t) return
@@ -679,6 +693,18 @@ async function pollOnce(id) {
           const p = { turnId: agentTurn ? agentTurn._id : null, toolCallId: pa.toolCallId, name: pa.name, args: pa.args }
           lastApproval.value = p
           pendingApproval.value = p
+        } else {
+          // frontend-chat-09 残余(2026-09-07 审计批次三;批二 fix-wave 只修了他端决策的
+          // running/终态对齐):本实例已决策(approve/deny 已 resolve)但快照仍 paused——
+          // 决策在途/服务端转换延迟的过渡窗。旧实现在此停轮询+停看门狗后此态无人再观测:
+          // 过渡窗因网络分区/他端 CAS 消费永久化时,本端冻结在 paused(输入禁用、modal 被
+          // decidedApprovals 压制、黄条已被决策路径清掉)。修复:①决策后观测哨——直接装
+          // 2s 轮询 interval(刻意不经 startPolling:它会立即 pollOnce,本函数尚在栈上,
+          // 重入会在自停/重启间振荡;上方 stopPolling 已清旧柄,守卫防重复叠加),状态离开
+          // paused 后由 running(继续轮询)/终态(stopPolling)分支自然接管;②黄条重开入口
+          // 保留——决策若实际未生效,用户可重开 modal 重试(已被他端消费则 CAS 400 对齐)。
+          if (!pollTimer.value) pollTimer.value = setInterval(() => pollOnce(id), 2000)
+          lastApproval.value = { turnId: agentTurn ? agentTurn._id : null, toolCallId: pa.toolCallId, name: pa.name, args: pa.args }
         }
       }
       sending.value = false
@@ -763,6 +789,10 @@ function startStreaming(id) {
     return
   }
   es.onmessage = (ev) => {
+    // frontend-chat-04(2026-09-07 审计批次三):消息到达本身证明连接活着——重连风暴计数
+    // 即刻清零。旧实现只增不清:长会话累计 6 次瞬时 CONNECTING 错误(可跨数小时)即被
+    // 永久降级轮询(流式丢失)。清零先于解析:坏帧也算连接活(数据在流)。
+    esErrCount = 0
     let evt
     try { evt = JSON.parse(ev.data) } catch { return }
     // ── 全局事件处理(approval/终态/end/convStatus):不依赖 agent turn ──
@@ -927,11 +957,36 @@ async function stopRun() {
     sending.value = false
     // 有排队消息时不回填:cancelled 终态会触发 drainQueue,回填文本会被出队内容覆盖,
     // 且「停止旧回答→队列继续」语义下旧内容无回填意义。
-    if (lastUser && !queued.value.length) { input.value = lastUser.content; nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' }) }
+    // frontend-chat-07(2026-09-07 审计批次三):输入框非空(用户运行中打了未发送草稿——
+    // 运行态不禁输入)也不回填——旧实现无条件覆盖,草稿凭空蒸发,用户被迫凭记忆重打。
+    if (lastUser && !queued.value.length && !input.value.trim()) { input.value = lastUser.content; nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' }) }
   } else {
     // 已终态(等):拉一次对齐显示
     try { await pollOnce(conversationId.value) } catch { /* 忽略 */ }
   }
+}
+
+// approval-flow-02(2026-09-07 审计批次三):paused 无取消入口 = 审批死局兜底——LLM 配置
+// 缺失时 approve 400 恒拒(服务端保持 paused 供配置后重试),用户若只想放弃整个会话,
+// 旧 UI 无路可走(输入禁用,只能刷新)。paused 态状态栏露出「取消会话」:调既有 cancel
+// 端点(服务端 cancelConversation 支持 paused),本地对齐 cancelled(撤 modal/黄条、解禁
+// 输入)。取消失败(他端已决策等)→ pollOnce 对齐服务端真实状态自愈。
+async function cancelPaused() {
+  if (!conversationId.value || convStatus.value !== 'paused') return
+  let cancelled = false
+  try { await workbenchApi.conversations.cancel(conversationId.value); cancelled = true } catch { cancelled = false }
+  if (!cancelled) {
+    try { await pollOnce(conversationId.value) } catch { /* 对齐兜底(pollOnce 内部自吞错) */ }
+    return
+  }
+  stopStreaming(); stopPolling(); stopWatchdog()
+  const at = activeAgentTurn()
+  if (at && (at.status === 'pending_approval' || at.status === 'thinking')) updateTurn(at._id, { status: 'error', error: t('workbench.chat.stopped') })
+  convStatus.value = 'cancelled'
+  sending.value = false
+  pendingApproval.value = null
+  lastApproval.value = null
+  errorBanner.value = ''   // 会话已整体放弃:审批失败的残留横幅(如 LLM 未配置)一并清场
 }
 
 // ── 运行中追加(2026-09-03):本地排队,本轮终态后自动逐条发出 ──
@@ -1036,26 +1091,32 @@ async function send() {
     // 无则 POST /conversations 新建并通知父级刷新列表。
     // feature LLM 硬化:startStreaming(EventSource SSE)为 主路径;es.onerror 降级到 pollOnce + startPolling 兜底。
     if (props.activeConversationId) {
-      const { references } = await workbenchApi.conversations.append(props.activeConversationId, { message: msg, references: payload.references })
+      const resp = await workbenchApi.conversations.append(props.activeConversationId, { message: msg, references: payload.references })
       if (unmounted) return // P0(C):await 期间被卸载(切对话/关 Modal)——不再碰已死组件
       conversationId.value = props.activeConversationId
       convStatus.value = 'running'
       netLost.value = false; pollFailStreak = 0   // POST 成功 = 网络已活,熄断连横幅(免得残留到下次轮询)
-      if (Array.isArray(references) && references.length) {
+      // contracts-09(2026-09-07 审计批次三):响应回带 user 消息行 id——乐观 turn 改持之,
+      // 发送后本会话内即可编辑(旧实现恒 null,要等刷新重建才有 id;pollOnce 见 turns 非空不重建)。
+      if (resp?.messageId) updateTurn(userId, { messageId: resp.messageId })
+      if (Array.isArray(resp?.references) && resp.references.length) {
         const ut = turns.value.find(x => x._id === userId)
-        if (ut?.refs) pairRefResources(ut.refs, references) // 按下标配对(审计#11:同名不同 kind 不再错绑)
+        if (ut?.refs) pairRefResources(ut.refs, resp.references) // 按下标配对(审计#11:同名不同 kind 不再错绑)
       }
       startStreaming(props.activeConversationId)
     } else {
-      const { id, references } = await workbenchApi.conversations.create(payload)
+      const resp = await workbenchApi.conversations.create(payload)
       if (unmounted) return // P0(C)
+      const id = resp?.id
       conversationId.value = id
       convStatus.value = 'running'
       netLost.value = false; pollFailStreak = 0   // 同上:POST 成功即网络已活
+      // contracts-09:同 append 分支,create 响应亦回带首条 user 行 id。
+      if (resp?.messageId) updateTurn(userId, { messageId: resp.messageId })
       // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
-      if (Array.isArray(references) && references.length) {
+      if (Array.isArray(resp?.references) && resp.references.length) {
         const ut = turns.value.find(x => x._id === userId)
-        if (ut?.refs) pairRefResources(ut.refs, references) // 按下标配对(审计#11:同名不同 kind 不再错绑)
+        if (ut?.refs) pairRefResources(ut.refs, resp.references) // 按下标配对(审计#11:同名不同 kind 不再错绑)
       }
       emit('conversation-created', id)
       startStreaming(id)
@@ -1081,9 +1142,18 @@ async function decideApproval(approved) {
   await scrollToBottom()
   try {
     const id = conversationId.value
-    if (approved) { await workbenchApi.conversations.approve(id) }
-    else { await workbenchApi.conversations.deny(id) }
+    const resp = approved ? await workbenchApi.conversations.approve(id)
+      : await workbenchApi.conversations.deny(id)
     if (unmounted) return // P0(C)
+    // approval-flow-02(2026-09-07 审计批次三):deny 可能直接终态(无 LLM 配置:决策受理、
+    // 无法续跑,服务端置 failed)——本地即刻对齐终态 + pollOnce 落显示,不建流假装 running。
+    if (resp?.status && TERMINAL_STATUSES.includes(resp.status)) {
+      convStatus.value = resp.status
+      sending.value = false
+      lastApproval.value = null   // 审批已消费:黄条重开入口下线
+      await pollOnce(id)          // 终态对齐(错误横幅/turn 终态显示)
+      return
+    }
     convStatus.value = 'running'
     lastApproval.value = null   // 审批已消费:黄条重开入口下线
     if (pa.turnId) updateTurn(pa.turnId, { status: 'thinking' })
@@ -1091,13 +1161,25 @@ async function decideApproval(approved) {
   } catch (e) {
     if (unmounted) return
     if (e?.status === 400) {
-      // 审批准入 CAS 拒绝:已被别处决策(多实例双开/悬浮 Modal 同批)→ 对齐服务端真实状态;
-      // 对齐后若仍在跑则续流,若又 paused(下一道审批)pollOnce 自会弹新审批。
-      // 该审批已被消费 → 黄条重开入口下线(重开注定再吃 400)。
-      lastApproval.value = null
+      // 400 两形状(approval-flow-02,2026-09-07 审计批次三):
+      // ①CAS 拒绝(已被别处决策,多实例双开/悬浮 Modal 同批)→ 对齐服务端真实状态:对齐后
+      //   running 则续流、终态则收尾,黄条/弹窗由 running/终态分支撤下。
+      // ②决策未生效的非 CAS 拒绝(如 LLM 未配置:approve 续跑即出终答,服务端 400 且状态
+      //   未动)→ 对齐后仍 paused 且审批未消费:恢复 modal+黄条供重试/改拒绝、撤销重放压制,
+      //   横幅亮服务端明确文案——旧实现一刀切当 CAS 吞掉,用户锁死在 paused 无任何提示。
       await pollOnce(conversationId.value)
-      if (!agentTurnDoneOrFinal() && convStatus.value === 'running') startStreaming(conversationId.value)
-      else sending.value = false
+      if (convStatus.value === 'paused') {
+        decidedApprovals.delete(pa.toolCallId)
+        pendingApproval.value = pa
+        lastApproval.value = pa
+        errorBanner.value = e?.message || t('workbench.chat.agentFailed')
+        sending.value = false
+      } else if (!agentTurnDoneOrFinal() && convStatus.value === 'running') {
+        startStreaming(conversationId.value)
+      } else {
+        lastApproval.value = null   // 已消费(终态):黄条重开入口下线(重开注定再吃 400)
+        sending.value = false
+      }
     } else {
       // 网络/5xx:恢复 modal 供重试,并撤销重放压制——否则 modal 已清 + replay 被压 + 轮询已停
       // (paused 分支停轮询),本实例永远不再弹该审批,只剩别的实例能看到(2026-08-26 锁死修复)。
@@ -1150,7 +1232,6 @@ function resetInput() {
   nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' })
 }
 function useHint(h) { input.value = h }
-function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.value = []; pendingApproval.value = null; lastApproval.value = null; errorBanner.value = ''; netLost.value = false; pollFailStreak = 0; conversationId.value = null; convStatus.value = null; recap.value = ''; renderLimit.value = WINDOW }
 </script>
 
 <template>
@@ -1159,6 +1240,11 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
     <div v-if="convStatus" class="shrink-0 flex items-center justify-center gap-xs py-0.5 bg-surface-container-low border-b border-outline-variant">
       <span class="w-2 h-2 rounded-full animate-pulse" :class="{ 'bg-status-running': convStatus === 'running', 'bg-status-warning': convStatus === 'paused', 'bg-error': convStatus === 'failed', 'bg-on-surface-variant/30': convStatus === 'done' || convStatus === 'cancelled' }"></span>
       <span class="text-body-xs font-medium" :class="convStatusBadgeClass">{{ convStatusLabel }}</span>
+      <!-- approval-flow-02:paused 逃生口——审批死局(LLM 缺失/异地冻结)可整会话取消 -->
+      <button v-if="convStatus === 'paused'" data-testid="cancel-paused-btn" type="button" @click="cancelPaused"
+        class="flex items-center gap-xs px-xs rounded text-body-xs text-on-surface-variant hover:text-error transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+        <span class="material-symbols-outlined text-sm">close</span>{{ t('workbench.chat.cancelPaused') }}
+      </button>
     </div>
     <div v-if="errorBanner || netLost" class="shrink-0 flex items-center gap-sm text-body-sm text-error bg-error/5 border-b border-error/20 px-md py-xs">
       <span class="material-symbols-outlined text-base" :class="{ 'animate-spin': netLost && !errorBanner }">{{ netLost && !errorBanner ? 'progress_activity' : 'error' }}</span> {{ errorBanner || t('workbench.chat.reconnecting') }}
@@ -1229,8 +1315,9 @@ function clearChat() { stopPolling(); stopStreaming(); stopWatchdog(); turns.val
         </p>
       </div>
 
-      <!-- 阅读列:消息/摘要限宽居中(宽屏下行长失控、左右失衡的根因),与输入列同宽对齐 -->
-      <div v-else class="mx-auto w-full max-w-3xl px-md">
+      <!-- 阅读列:消息/摘要限宽居中(宽屏下行长失控、左右失衡的根因),与输入列同宽对齐。
+           msgColEl = 流式消息容器(startStick 粘底观测目标,frontend-chat-03) -->
+      <div v-else ref="msgColEl" class="mx-auto w-full max-w-3xl px-md">
         <!-- Recap card: earlier conversation summary (collapsible, shown only when conv.recap exists) -->
         <details v-if="recap" class="mt-md bg-surface-container-low border border-outline-variant rounded-lg">
           <summary class="cursor-pointer select-none px-md py-sm text-body-sm font-medium text-on-surface-variant flex items-center gap-xs">

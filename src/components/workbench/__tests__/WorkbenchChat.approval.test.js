@@ -278,3 +278,100 @@ test('他端 approve 后运行中:pollOnce 对齐 running → 过期 modal 撤�
   expect(w.find('[data-testid="approval-approve"]').exists(), '运行中过期 modal 撤下').toBe(false)
   expect(w.find('textarea').attributes('disabled'), '输入解禁(禁用键= pendingApproval/paused)').toBeUndefined()
 })
+
+// ── 2026-09-07 审计批次三(PT5):approval-flow-02 + frontend-chat-09 残余 ──
+
+// approval-flow-02:paused 无取消入口——审批死局(LLM 配置缺失时 approve/deny 曾双拒)的
+// 前端逃生口。契约:paused 态状态栏露出「取消会话」,调既有 cancel 端点(服务端支持
+// paused 取消),本地对齐 cancelled:modal 撤下、输入解禁。
+test('approval-flow-02:paused 状态栏露出「取消会话」,点击调 cancel 并对齐已取消', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-cancel', name: 'wb_exec',
+    args: { namespace: 'default', pod: 'nginx-1', command: 'ls' },
+  })
+  expect(w.find('textarea').attributes('disabled'), '审批期间输入禁用').toBeDefined()
+  const btn = w.find('[data-testid="cancel-paused-btn"]')
+  expect(btn.exists(), 'paused 有取消入口').toBe(true)
+  expect(btn.text()).toContain(zh.workbench.chat.cancelPaused)
+
+  await btn.trigger('click')
+  await flushPromises()
+  expect(api.conversations.cancel).toHaveBeenCalledWith('conv-ap')
+  expect(w.html()).toContain(zh.workbench.chat.convStatus.cancelled, '状态栏对齐已取消')
+  expect(w.find('[data-testid="approval-approve"]').exists(), '审批 modal 撤下').toBe(false)
+  expect(w.find('textarea').attributes('disabled'), '输入解禁').toBeUndefined()
+})
+
+// approval-flow-02:LLM 配置缺失的 approve 400 此前被当 CAS 竞态吞掉——黄条清了、modal 不
+// 恢复(重放压制)、轮询已停,用户锁死在 paused 无提示。契约:400 后对齐仍是 paused +
+// 同一审批未消费 → 恢复 modal+黄条、撤销重放压制、横幅亮服务端明确文案(如「LLM 未配置」)。
+test('approval-flow-02:approve 400(LLM 未配置)→ 横幅亮明确文案 + modal 恢复可重试', async () => {
+  const pa = { toolCallId: 't-llm', name: 'wb_exec', args: { command: 'ls' } }
+  const w = await mountPausedApproval(pa)
+  // 服务端:配置缺失 400,状态未动(仍 paused,pendingApproval 完好)
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-ap', status: 'paused', content: '', trace: '[]', steps: 1, recap: '', messages: [],
+    pendingApproval: JSON.stringify(pa),
+  })
+  api.conversations.approve.mockRejectedValueOnce(Object.assign(new Error('LLM 未配置,无法继续执行'), { status: 400 }))
+
+  await w.find('[data-testid="approval-approve"]').trigger('click')
+  await flushPromises()
+
+  expect(w.vm.errorBanner).toContain('LLM 未配置', '横幅亮服务端明确文案(不再静默)')
+  expect(w.find('[data-testid="approval-approve"]').exists(), 'modal 恢复(配置恢复后可重试/可拒绝)').toBe(true)
+  expect(w.vm.lastApproval, '黄条重开入口保留').toBeTruthy()
+  expect(w.find('textarea').attributes('disabled'), '仍 paused:输入保持禁用').toBeDefined()
+})
+
+// approval-flow-02 续:deny 响应可能直接终态 failed(无 LLM 配置:决策受理、无法续跑)——
+// 本地即刻对齐失败态,不假装 running 再等对齐。
+test('approval-flow-02:deny 响应直接终态 failed(无 LLM)→ 即刻对齐失败并亮原因', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-d9', name: 'wb_exec', args: { command: 'ls' },
+  })
+  api.conversations.deny.mockResolvedValueOnce({ status: 'failed' })
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-ap', status: 'failed', content: '', trace: '[]', steps: 1, recap: '', messages: [],
+    error: 'LLM 未配置,无法继续执行',
+  })
+  await w.find('[data-testid="approval-deny"]').trigger('click')
+  await flushPromises()
+  expect(api.conversations.deny).toHaveBeenCalledWith('conv-ap')
+  expect(w.vm.convStatus).toBe('failed')
+  expect(w.vm.errorBanner).toContain('LLM 未配置')
+  expect(w.find('[data-testid="approval-approve"]').exists(), 'modal 撤下').toBe(false)
+})
+
+// frontend-chat-09 残余(批次二 fix-wave 后):本实例已决策(approve 已 resolve)但降级轮询
+// 快照仍 paused——旧实现在此停轮询+停看门狗且 modal 被 decidedApprovals 压制、黄条已清:
+// 过渡窗因他端消费/网络分区永久化时本端冻结在 paused。契约:恢复 2s 观测哨(状态离开
+// paused 由各分支接管)+ 黄条重开入口;他端决策落地(running)后过期黄条/弹窗撤下。
+test('frontend-chat-09 残余:已决策但快照仍 paused → 恢复观测+黄条重开;他端决策后对齐', async () => {
+  const pa = { toolCallId: 't-stale', name: 'wb_exec', args: { command: 'ls' } }
+  const w = await mountPausedApproval(pa)
+  // 模拟 decideApproval 成功路径的本地残态:决策记忆在、黄条已清、modal 已撤
+  w.vm.decidedApprovals.add('t-stale')
+  w.vm.lastApproval = null
+  w.vm.pendingApproval = null
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-ap', status: 'paused', content: '', trace: '[]', steps: 1, recap: '', messages: [],
+    pendingApproval: JSON.stringify(pa),
+  })
+  await w.vm.pollOnce('conv-ap')
+  await flushPromises()
+
+  expect(w.vm.pollTimer, '决策后观测哨建立(不再冻结)').toBeTruthy()
+  expect(w.vm.lastApproval, '黄条重开入口保留').toBeTruthy()
+  expect(w.find('[data-testid="pending-approval-bar"]').exists(), 'turn 黄条在(pending_approval)').toBe(true)
+  expect(w.find('[data-testid="approval-approve"]').exists(), 'modal 不重弹(已决策)').toBe(false)
+
+  // 他端决策落地 → running:黄条/弹窗撤下(批次二 running 分支),观测继续交还轮询
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-ap', status: 'running', content: '', trace: '[]', steps: 2, recap: '', messages: [],
+  })
+  await w.vm.pollOnce('conv-ap')
+  await flushPromises()
+  expect(w.vm.lastApproval).toBeNull()
+  expect(w.vm.pendingApproval).toBeNull()
+})

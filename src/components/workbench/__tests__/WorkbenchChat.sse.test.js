@@ -378,3 +378,32 @@ test('SSE:审批被他端决策(running/done)→ 本实例 modal 消失、输入
   expect(w.find('textarea').attributes('disabled')).toBeUndefined()
 })
 
+
+// ── 2026-09-07 审计批次三(PT5)──
+
+// frontend-chat-04:esErrCount 只增不清——重连风暴计数(>5 降级轮询)在 onmessage 成功后
+// 不归零,长会话里累计 6 次瞬时 CONNECTING 错误(跨数小时)即被永久降级轮询(流式丢失)。
+// 契约:onmessage 到达(连接活)即清零;一次成功后瞬时错误重新计窗。
+test('frontend-chat-04:onmessage 成功清零重连计数——瞬时错误不再永久降级', async () => {
+  const w = await mountChat()
+  const es = await sendAndStream(w)
+  expect(es).toBeTruthy()
+
+  // 5 次 CONNECTING 自动重连窗口(计数 1..5,未降级)
+  es.readyState = 0
+  for (let i = 0; i < 5; i++) es.onerror()
+  expect(es.readyState).not.toBe(2, '5 次仍在自动重连窗口内,未关流')
+
+  // 重连成功:消息到达(连接活)→ 计数清零
+  es.readyState = 1
+  es.emit({ type: 'delta', text: 'alive' })
+  await flushPromises()
+  expect(w.html()).toContain('alive')
+
+  // 清零后的瞬时错误(旧实现累计到 6 → 立即降级关流)
+  es.readyState = 0
+  es.onerror()
+  await flushPromises()
+  expect(es.readyState, '一次成功后计数清零,单次瞬时错误不降级').not.toBe(2)
+  expect(w.html()).toContain('alive', '流未被降级切断')
+})
