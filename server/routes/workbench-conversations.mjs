@@ -412,7 +412,8 @@ export function createWorkbenchConvRoutes(deps) {
         if (typeof input.message !== 'string' || !input.message.trim()) {
           sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true
         }
-        // refs-injection-02:messages 入口同门(归一单源,400 零副作用先行)。
+        // refs-injection-02:messages 入口同门(归一单源;authz-entitlement-07 把 ownership
+        // 前移后此门不再最先——403 先于 400,拒绝仍零副作用)。
         const inputRefs = normalizeInputRefs(req, res, input.references)
         if (inputRefs === REFS_REJECTED) return true
         // P0 守卫(D):运行中/待审批拒绝续接——detached run 无互斥,并发双 run 会交错写
@@ -616,8 +617,21 @@ export function createWorkbenchConvRoutes(deps) {
         if (!nowConv || nowConv.status === 'running' || nowConv.status === 'paused') {
           sendJson(res, 400, { message: msg(req, 'wbc.busyNoResume') }); return true
         }
+        // conv-lifecycle-05(final-review 收尾,2026-09-08):截断→active 指针→append→置 running
+        // 多语句写包事务(对照 create/messages/regenerate 兄弟路径)——截断成功而 append/update
+        // 失败 = 旧消息白截 + active 指针已改 + 孤儿新 user 行的半状态(regenerate 同款危害:
+        // 不可恢复的数据丢失 + 孤儿行污染 buildHistory)。客户端构造挪到事务前:commit 后再
+        // 失败只剩 detached run 启动,无半状态窗口。事务不引入 await,审计#1 的零 await
+        // 同步块原子性不受影响。
+        const llmClient = createLlmClient(cfg)
+        db.exec('BEGIN')
         const t = truncateFromMessage(db, id, anchor.id)
-        if (!t) { sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true }
+        // truncate 无锚早退(锚行在 await 窗口被并发截掉):该形状未写任何行,COMMIT 空事务
+        // 再 400——留 BEGIN 不收会在单连接上悬挂(后续一切 BEGIN/写全炸),同 regenerate 约定。
+        if (!t) {
+          db.exec('COMMIT')
+          sendJson(res, 400, { message: msg(req, 'wbc.editAnchorInvalid') }); return true
+        }
         setActiveConversation(db, conv.projectId, id)
         // 新 refs 并入对话级 references(与 append 的 mergeRefs 同款;gap3-01:带戳形状入列,
         // 同 key 重发 → 原地替换重锚定,未提及旧条目保留旧戳不静默改锚)
@@ -651,7 +665,7 @@ export function createWorkbenchConvRoutes(deps) {
           // 编辑首条(fromSeq-1=0)归 0。原 keptMinSeq-1 因 seq 从 1 起恒为 0,会把摘要覆盖每次归零。
           summarizedUpTo: Math.min(nowConv.summarizedUpTo ?? 0, t.fromSeq - 1),
         })
-        const llmClient = createLlmClient(cfg)
+        db.exec('COMMIT')
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached
         auditConv(ps, 'edit', id, conv.projectId)
         // 2026-09-01 锚 id 失联修复:截断已删旧锚行,响应必须回带新 user 行 id——
@@ -663,7 +677,11 @@ export function createWorkbenchConvRoutes(deps) {
         // 占位。clampResource 防御性 no-op(两来源理论均已 clamp,双 clamp 幂等安全)。
         sendJson(res, 200, { status: 'running', anchorMessageId: appendedAnchor?.id || null, references: refsValue ? refsValue.map((r, i) => clampResource(r.resource ?? fetchedResources[i] ?? null)) : [], context: contextInfo(getConversation(db, id)) })
         return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.editFailed') }); return true }
+      } catch (e) {
+        // conv-lifecycle-05:事务中途失败整体回滚(无活动事务时吞掉——错误可能来自 BEGIN 之前)
+        try { db.exec('ROLLBACK') } catch { /* 无活动事务 */ }
+        sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.editFailed') }); return true
+      }
     }
 
     // GET /api/workbench/conversations/active — 悬浮入口原料:近期动态模型(running/paused 永在 +
@@ -924,9 +942,11 @@ export function createWorkbenchConvRoutes(deps) {
       // cancel-races-06(2026-09-07 审计批次三):CAS 翻 running 后的留痕/客户端构造须兜住
       // ——旧无 try/catch,stampApprover/writeAudit/createLlmClient 任一抛错直穿全局兜底:
       // 前端拿 500 的同时对话悬在 running(resume 未启动,无人再写终态,只能重启网关抢救)。
-      // 失败回滚 paused:pendingApproval 未动,恢复后可直接重试;resumeConversation 是 async
-      // 函数(同步段抛错即未起跑),catch 触发时 run 必未启动,回滚无竞态。200 响应刻意留在
-      // try 外——sendJson 自身异常不得触发误回滚(run 已在跑)。
+      // 失败回滚 paused 仅还原 status:pendingApproval 若已被 stampApprover 增补 approverId/
+      // approvedAt 则保留(回滚不还原)——增补幂等,重试时再盖同款戳覆盖,无害;载荷本体
+      // 未动,恢复后可直接重试。resumeConversation 是 async 函数(同步段抛错即未起跑),
+      // catch 触发时 run 必未启动,回滚无竞态。200 响应刻意留在 try 外——sendJson 自身异常
+      // 不得触发误回滚(run 已在跑)。
       try {
         // 审批归属留痕:approverId/approvedAt 并入 pendingApproval(载荷原样保留)。
         stampApprover(db, id, ps.userId)

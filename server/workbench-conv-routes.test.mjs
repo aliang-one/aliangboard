@@ -810,10 +810,12 @@ test('conv-lifecycle-07 rename: readBody 413 → 保留 413(不被兜底改 500)
   assert.equal(h.sent.at(-1).status, 413, '413 保码')
 })
 
-// ── conv-lifecycle-05:写路径非事务×3——中途抛错留孤儿行 ──
-// create(conv 行+active 指针+首消息)、messages(append+置 running)、regenerate(截断+置 running)
-// 都是多语句写,任一中途失败即半状态:running 孤儿行毒化并发限额 / 孤儿 user 消息污染
-// buildHistory / 截断后白丢旧回复。对照 DELETE 既有事务模式(失败注入用 SQLite 触发器)。
+// ── conv-lifecycle-05:写路径非事务×4——中途抛错留孤儿行 ──
+// create(conv 行+active 指针+首消息)、messages(append+置 running)、regenerate(截断+置 running)、
+// edit(截断+active 指针+append+置 running;final-review 收尾 2026-09-08 补齐,此前 createLlmClient
+// 还在写块之后=conv-lifecycle-05 同款隐患漏网)都是多语句写,任一中途失败即半状态:running
+// 孤儿行毒化并发限额 / 孤儿 user 消息污染 buildHistory / 截断后白丢旧回复。
+// 对照 DELETE 既有事务模式(失败注入用 SQLite 触发器)。
 
 test('conv-lifecycle-05 create: 中途写失败整体回滚——不留 running 孤儿行/active 不指孤儿', async () => {
   const h = makeHarness()
@@ -850,6 +852,49 @@ test('conv-lifecycle-05 regenerate: 截断后置 running 失败整体回滚—�
   assert.equal(h.sent.at(-1).status, 500)
   assert.equal(listMessages(h.db, conv.id).length, 2, '回滚:截断恢复,旧回复不丢')
   assert.equal(getConversation(h.db, conv.id).status, 'done', '状态未动')
+})
+
+// final-review 收尾(2026-09-08):edit 写块(截断→setActive→append→置 running)此前裸奔在
+// 事务外且 createLlmClient 在写块之后——与 conv-lifecycle-05 关闭的 create/messages/regenerate
+// 同款隐患。置 running(末语句)失败注入:截断/active 指针/新 user 行必须整体回滚。
+test('conv-lifecycle-05 edit: 截断后置 running 失败整体回滚——旧消息不被白截/不落孤儿新消息', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  const anchor = appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: 'a1', trace: '[]' })
+  h.db.exec("CREATE TRIGGER boom_run BEFORE UPDATE ON workbench_conversations WHEN NEW.status='running' BEGIN SELECT RAISE(ABORT, 'boom'); END")
+  h.setBody({ messageId: anchor.id, content: '改后的问题' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`)
+  assert.equal(h.sent.at(-1).status, 500)
+  const msgs = listMessages(h.db, conv.id)
+  assert.equal(msgs.length, 2, '回滚:截断恢复,原问题/旧回复都不丢(白截=不可恢复的数据丢失)')
+  assert.ok(!msgs.some(m => m.content === '改后的问题'), '回滚:不落孤儿新 user 行(孤儿行污染 buildHistory)')
+  assert.equal(getConversation(h.db, conv.id).status, 'done', '状态未动(不悬 running)')
+  assert.equal(h.db.prepare('SELECT activeConversationId FROM workbench_projects WHERE id=?').get(h.pid).activeConversationId, null, 'active 指针回滚(setActive 不残留)')
+  assert.equal(h.runs.length, 0, 'run 未启动')
+})
+
+// 空事务 COMMIT 约定(regenerate 同款):锚行在 buildRefsContext 的 await 窗口被并发删 →
+// truncateFromMessage 重查锚缺失 → 早退 400。该形状零写入,但 BEGIN 已开——不 COMMIT 收尾
+// 会在单连接上悬挂(后续一切 BEGIN 抛「cannot start a transaction within a transaction」)。
+test('conv-lifecycle-05 edit: 锚在 await 窗口被并发删 → 400 空事务 COMMIT,后续写不悬挂', async () => {
+  const h = makeHarness({ overrides: { requestKubernetes: async function () {
+    h.db.prepare('DELETE FROM workbench_messages WHERE id=?').run(anchor.id) // 并发截掉锚行
+    return { status: 200, headers: {}, body: { kind: 'Pod', metadata: { name: 'nginx', namespace: 'default' } } }
+  } } })
+  const conv = createConversation(h.db, { projectId: h.pid, system: 's', userMessage: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  const anchor = appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'assistant', content: 'a1', trace: '[]' })
+  h.setBody({ messageId: anchor.id, content: '改后的问题', references: [{ kind: 'pods', namespace: 'default', name: 'nginx' }] })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`)
+  assert.equal(h.sent.at(-1).status, 400, '锚失效 400(truncate 未写任何行)')
+  assert.equal(listMessages(h.db, conv.id).length, 1, '只删了锚行,assistant 原样(truncate 零写入)')
+  // 连接不悬挂探针:同一 db 上再走一条会 BEGIN 的写路径,200 即无悬挂事务
+  h.setBody({ message: '后续追问' })
+  await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`)
+  assert.equal(h.sent.at(-1).status, 200, '后续 messages 可正常开事务(空事务已 COMMIT)')
 })
 
 // ── conv-lifecycle-09:列表 SELECT 剔除 content(全文不随列表回传) ──
