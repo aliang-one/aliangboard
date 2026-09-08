@@ -1025,6 +1025,7 @@ function wsSend(ws, type, payload) {
 // 建立 Pod exec 终端会话
 async function handleExec(ws, session, url, req) {
   markAlive(ws)   // WS 存活探测打标(半开 TCP 不发 close,靠 ping/pong 发现死连接)
+  ws.terminalId = `exec:${url.searchParams.get('namespace')}/${url.searchParams.get('pod')}`   // liveness 日志盖章
   const sentinel = createCloseSentinel(ws)   // 入口关闭哨兵(复审 F1,同 handleSshTerminal)
   const namespace = url.searchParams.get('namespace')
   const pod = url.searchParams.get('pod')

@@ -374,3 +374,25 @@ test('状态修复:有附着/有等待者的 ATTACHED 不误伤;CREATING 悬挂�
   svc.sweep({}, clock + 61_000)
   assert.equal(d.status, 'CREATING')
 })
+
+// —— LOST 资源释放钉子(2026-09-08 复查#4:CH_ERROR/broadcast 后 markLost 是否关浏览器 WS)——
+// 证据测试:markLost → transition(LOST) → releaseBackend 必须关闭全部附着 socket(含等待者),
+// 服务端不存在「CH_ERROR 后浏览器 WS 悬挂」的泄漏路径。
+test('markLost 关闭全部附着浏览器 socket(LOST 即收流,无悬挂)', async () => {
+  const closed = []
+  const mkWs = () => ({ close() { closed.push(this) } })
+  const svc = createTerminalService({ now: () => 1000 })
+  svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  const ready = svc.readyForOwner('t1')
+  const wsA = mkWs()
+  const p = svc.attach('t1', wsA, wsA)
+  ready.resolve()
+  const res = await p
+  assert.equal(res.ok, true)
+  const wsB = mkWs()
+  const r2 = await svc.attach('t1', wsB, wsB)
+  assert.equal(r2.ok, true)
+  svc.markLost('t1', 'channel-closed')
+  assert.equal(svc.get('t1').status, 'LOST')
+  assert.equal(closed.length, 2, '两个附着的浏览器 socket 均被关闭')
+})
