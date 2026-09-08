@@ -1,8 +1,29 @@
+import { computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useClusterStore } from '@/stores/cluster'
 
 // K8s 资源查询封装（服务端状态归 Vue Query）。
 // canonical cache = 每资源一个 cluster-wide 单 key（如 ['cluster', clusterId, 'pods']）；
 // 命名空间视图用 select 过滤；watch 增量经 useWatchMerger 写回同一 key（live 与 cache 同源）。
+
+// ===== watch 感知的大列表节流(2026-09-08 性能批) =====
+// 五个 watch 全覆盖族(pods/events/workloads/services/ingresses)恰是带宽大头(部署实例实测
+// pods 全量 1.2MB/次、deploy+sts+ds 合并 ~1.4MB/次,每 15-40s 重拉一轮);watch live 时增量
+// 持续写回同一 queryKey(每次 setQueryData 都重置 dataUpdatedAt),全量重拉是冗余——却会把
+// 浏览器 HTTP/1.1 同源 6 连接池占满,小请求(如 workbench/summary)排队 20s+ 的直接成因。
+// live:拉长 staleTime + 关窗口聚焦重拉;非 live(降级/断开/未启):维持原默认,行为零变化。
+// pods 略短:fetchPods 捆绑的 per-pod 指标只在全量拉取时刷新,120s 是指标停摆的体验上限;
+// 其余四族纯结构数据,watch 增量即权威,300s 仅是「watch 断了之后的兜底陈旧窗口」上限。
+export const WATCH_THROTTLED_KINDS = new Set(['pods', 'events', 'workloads', 'services', 'ingresses'])
+export function watchAwareListDefaults(kind, state) {
+  if (!WATCH_THROTTLED_KINDS.has(String(kind || '')) || state !== 'live') {
+    return { staleTime: 15_000, refetchOnWindowFocus: true }
+  }
+  return {
+    staleTime: kind === 'pods' ? 120_000 : 300_000,
+    refetchOnWindowFocus: false,
+  }
+}
 
 // 身份键：优先 uid（K8s 稳定标识）；兜底 ns/name（uid 缺失时按展示项定位）。
 export function uidKey(item) {
@@ -36,12 +57,20 @@ export function applyWatchEvent(list, type, item, identityKey = uidKey) {
 //   key: canonical queryKey（数组）；fetcher: () => Promise<mapped[]>；
 //   select: 派生（如按 namespace 过滤），Vue Query 按 key memoize，无 per-tick 全表重扫。
 export function useResourceList({ key, fetcher, select, identityKey = uidKey, options = {} }) {
+  // watch 感知默认值(2026-09-08 性能批,策略见 watchAwareListDefaults):以 computed ref 传入,
+  // watch 状态升降(live↔degraded)时无需重挂载即自动切换节流/兜底。显式 options 恒优先。
+  // 无 pinia 环境(纯逻辑单测)按 'off' 兜底 = 原默认行为。
+  const kind = String(key?.[2] ?? '')
+  const watchState = computed(() => {
+    try { return useClusterStore().watchStateOf(kind) || 'off' } catch { return 'off' }
+  })
+  const listDefaults = computed(() => watchAwareListDefaults(kind, watchState.value))
   return useQuery({
     queryKey: key,
     queryFn: fetcher,
-    staleTime: options.staleTime ?? 15_000,
+    staleTime: options.staleTime ?? computed(() => listDefaults.value.staleTime),
     gcTime: options.gcTime ?? Infinity,   // 缓存永驻：正确性靠 watch 纠偏 + mutation 显式 invalidate（spec §5.1）
-    refetchOnWindowFocus: options.refetchOnWindowFocus ?? true,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? computed(() => listDefaults.value.refetchOnWindowFocus),
     retry: options.retry ?? 1,
     refetchInterval: options.refetchInterval ?? false,
     enabled: options.enabled ?? true,
