@@ -32,6 +32,7 @@ import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
 import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB, UPLOAD_PROBE_SCRIPT, evaluateUploadProbe } from './podfile-stream.mjs'
+import { entryNameError, deleteTargetError, joinDirName, parentOfFsPath, classifyOpFailure, POD_OP_ARGV } from './file-ops.mjs'
 import { createAgentRunner } from './agent-runner.mjs'
 import { emit as busEmit, subscribe as busSubscribe, unsubscribe as busUnsubscribe, dispose as busDispose } from './conv-bus.mjs'
 import { scrubSecrets } from './secret-scrub.mjs'
@@ -2177,6 +2178,32 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
           return { name: isDir ? line.slice(0, -1) : line, type: isDir ? 'dir' : 'file' }
         })
         return sendJson(res, 200, { path, entries })
+      }
+      // 文件三件套(2026-09-08):mkdir/delete/rename。operate 档门已在上方统一通过;
+      // 校验/命令构造/失败归类走 file-ops.mjs(与 sshfile 侧同源),全程审计。
+      if (action === 'mkdir' || action === 'delete' || action === 'rename') {
+        const name = String(input.name || '')
+        const vErr = action === 'delete' ? deleteTargetError(path) : entryNameError(name)
+        if (vErr) {
+          writeAudit(db, { owner: session.userId || 'k8s-session', verb: 'write', tool: 'podfile_' + action, result: 'denied', reason: vErr, source: 'session', requestSummary: `ns=${namespace} pod=${pod} c=${container || ''} path=${path} name=${name}` })
+          return sendJson(res, 400, { message: msg(req, vErr === 'root' ? 'api.fileOpRefuseRoot' : 'api.fileOpBadName') })
+        }
+        const target = action === 'mkdir' ? joinDirName(path, name)
+          : action === 'rename' ? joinDirName(parentOfFsPath(path), name) : path
+        const argv = action === 'rename' ? POD_OP_ARGV.rename(path, target) : POD_OP_ARGV[action](target)
+        try {
+          const r = await execCapture(session, namespace, pod, container, argv, false, { timeoutMs: 30000 })
+          const fail = classifyOpFailure(action, r.exitCode, r.stderr)
+          if (fail) {
+            writeAudit(db, { owner: session.userId || 'k8s-session', verb: 'write', tool: 'podfile_' + action, result: 'denied', reason: 'exec', source: 'session', requestSummary: `ns=${namespace} pod=${pod} c=${container || ''} path=${path} → ${target}` })
+            return sendJson(res, fail.status, { message: fail.message })
+          }
+          writeAudit(db, { owner: session.userId || 'k8s-session', verb: 'write', tool: 'podfile_' + action, result: 'ok', source: 'session', requestSummary: `ns=${namespace} pod=${pod} c=${container || ''} path=${path} → ${target}` })
+          return sendJson(res, 200, { ok: true, path: target })
+        } catch (e) {
+          writeAudit(db, { owner: session.userId || 'k8s-session', verb: 'write', tool: 'podfile_' + action, result: 'denied', reason: 'gateway', source: 'session', requestSummary: `ns=${namespace} pod=${pod} c=${container || ''} path=${path}` })
+          throw e
+        }
       }
       if (action === 'read') {
         const result = await execCapture(session, namespace, pod, container, ['sh', '-c', 'head -c "$1" "$2"', 'head', String(PODFILE_PREVIEW_LIMIT + 1), path])

@@ -58,6 +58,9 @@ function download() {
       <span v-if="file?.binary" class="text-[10px] px-1 rounded bg-surface-container text-on-surface-variant shrink-0">{{ t('component.fileBrowser.binary') }}</span>
       <span v-else-if="file?.truncated" class="text-[10px] px-1 rounded bg-tertiary-container/20 text-tertiary-container shrink-0">{{ t('component.fileBrowser.truncated') }}</span>
       <button class="p-1 rounded-md text-on-surface-variant hover:text-primary hover:bg-primary/10 shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.download')" @click="download"><span class="material-symbols-outlined text-base">download</span></button>
+      <!-- 三件套(2026-09-08):重命名/删除(经编排器弹窗) -->
+      <button data-test="btn-file-rename" class="p-1 rounded-md text-on-surface-variant hover:text-primary hover:bg-primary/10 shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.renameTitle')" @click="x.askRename(file?.path || props.path)"><span class="material-symbols-outlined text-base">edit</span></button>
+      <button data-test="btn-file-delete" class="p-1 rounded-md text-on-surface-variant hover:text-error hover:bg-error/10 shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.deleteTitle')" @click="x.askDelete(file?.path || props.path, false)"><span class="material-symbols-outlined text-base">delete</span></button>
       <template v-if="editable && !editing">
         <button class="fb-edit flex items-center gap-0.5 px-sm py-1 rounded-md bg-primary/10 text-primary text-xs hover:bg-primary/20 shrink-0" @click="startEdit"><span class="material-symbols-outlined text-sm">edit</span>{{ t('common.edit') }}</button>
       </template>

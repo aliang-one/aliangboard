@@ -57,6 +57,8 @@ export const TABLE = {
   'api.uploadInsufficientSpace': { zh: '目标磁盘空间不足:需 {need},仅剩 {avail}', en: 'Not enough disk space at target: need {need}, only {avail} available' },
   'api.missingNsPod': { zh: '缺少 namespace / pod', en: 'Missing namespace / pod' },
   'api.downloadFailed': { zh: '下载失败', en: 'Download failed' },
+  'api.fileOpBadName': { zh: '名字不合法：不能为空、不能含 / 或 \\、不能是 . 或 ..', en: 'Invalid name: must not be empty, contain / or \\, or be . or ..' },
+  'api.fileOpRefuseRoot': { zh: '拒绝删除根目录', en: 'Refusing to delete the root directory' },
   'api.podfileOpFailed': { zh: 'Pod 文件操作失败', en: 'Pod file operation failed' },
   'api.terminalOpFailed': { zh: '终端会话操作失败', en: 'Terminal session operation failed' },
   'api.rekeySourceUnknown': { zh: '旧会话不存在或已过期清理，无法迁移', en: 'Previous session unknown or expired; cannot migrate' },

@@ -2,6 +2,8 @@
 // Pod 文件浏览（VSCode 式）：左懒加载树 + 右上下文区（文件夹/文件）。
 // 编排器：持有 selected/expanded，provide('fileExplorer') 给子树，复用 usePodFiles。
 // props 契约不变（namespace/pod/container），根 h-full min-h-0 供 SplitPane 取尺寸。
+// 文件三件套(2026-09-08):新建文件夹/重命名/删除在编排器统一弹窗+执行,FolderPreview/
+// FilePreview 经 inject 的 askRename/askDelete 发起;pod 容器删坏重启即恢复,删除走普通确认。
 import { ref, computed, provide, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
@@ -11,6 +13,8 @@ import SplitPane from './SplitPane.vue'
 import FileTree from './FileTree.vue'
 import FolderPreview from './FolderPreview.vue'
 import FilePreview from './FilePreview.vue'
+import PromptDialog from './PromptDialog.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const { t } = useI18n()
 const props = defineProps({
@@ -49,9 +53,63 @@ provide('fileExplorer', {
   listDir: (path, opts) => files.listDir(ctx.value, path, opts),
   readFile: (path, opts) => files.readFile(ctx.value, path, opts),
   writeFile: (path, bytes) => files.writeFile(ctx.value, path, bytes),
+  askRename, askDelete,
   ctx,
   dirCache: files.dirCache,
 })
+
+// —— 文件三件套:弹窗状态机 + 执行(成功后强刷父目录,并修复选中/展开态) ——
+const op = ref(null)        // { kind:'mkdir'|'rename'|'delete', dir?, path?, name?, isDir? }
+const opName = ref('')      // mkdir/rename 的输入值(PromptDialog v-model)
+const opBusy = ref(false)
+
+function targetDir() { return selectedIsDir.value ? selected.value : (selected.value ? parentDir(selected.value) : '/') }
+function askMkdir() { op.value = { kind: 'mkdir', dir: targetDir() } }
+function askRename(path) { op.value = { kind: 'rename', path } }
+function askDelete(path, isDir) { op.value = { kind: 'delete', path, isDir: !!isDir } }
+
+// 删除的目录若正被选中/展开(含其后代) → 清理,避免右栏指向已删路径
+function pruneAfterDelete(path) {
+  if (selected.value === path || selected.value?.startsWith(path + '/')) { selected.value = null; selectedIsDir.value = false }
+  const s = new Set([...expanded.value].filter(p => p !== path && !p.startsWith(path + '/')))
+  expanded.value = s
+}
+// 重命名路径变化 → 选中/展开键随迁(右栏 FilePreview 以 selected 为 key 自动重读)
+function migrateAfterRename(path, target) {
+  if (selected.value === path) selected.value = target
+  else if (selected.value?.startsWith(path + '/')) selected.value = target + selected.value.slice(path.length)
+  if (expanded.value.has(path)) { const s = new Set(expanded.value); s.delete(path); s.add(target); expanded.value = s }
+}
+
+async function runOp() {
+  if (!op.value || opBusy.value) return
+  opBusy.value = true
+  const o = op.value
+  try {
+    if (o.kind === 'mkdir') {
+      await files.mkdirDir(ctx.value, o.dir, opName.value)
+      notify('success', t('component.fileBrowser.created', { name: opName.value }))
+      await files.listDir(ctx.value, o.dir, { force: true }).catch(() => {})
+      op.value = null
+    } else if (o.kind === 'rename') {
+      const target = joinPath(parentDir(o.path), opName.value)
+      await files.renamePath(ctx.value, o.path, opName.value)
+      notify('success', t('component.fileBrowser.renamed', { name: opName.value }))
+      migrateAfterRename(o.path, target)
+      await files.listDir(ctx.value, parentDir(o.path), { force: true }).catch(() => {})
+      op.value = null
+    } else {
+      await files.deletePath(ctx.value, o.path)
+      notify('success', t('component.fileBrowser.deleted', { path: o.path }))
+      pruneAfterDelete(o.path)
+      await files.listDir(ctx.value, parentDir(o.path), { force: true }).catch(() => {})
+      op.value = null
+    }
+  } catch (e) {
+    notify('error', e?.message || t('component.fileBrowser.opFailed'))
+    // 窗留着可重试(与 ConfirmDialog 惯例一致);delete 失败也可直接取消
+  } finally { opBusy.value = false }
+}
 
 // 上传：写入到「当前选中文件夹」或其父目录
 function joinPath(d, n) { return d.endsWith('/') ? d + n : d + '/' + n }
@@ -103,6 +161,9 @@ watch(() => transferStore.tasks, (ts) => {
       <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('common.sync')" @click="refresh">
         <span class="material-symbols-outlined text-base" :class="files.inflight.value.size ? 'animate-spin' : ''">refresh</span>
       </button>
+      <button data-test="btn-mkdir" class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.newFolderIn', { path: targetDir() })" @click="askMkdir">
+        <span class="material-symbols-outlined text-base">create_new_folder</span>
+      </button>
       <span class="font-mono text-xs text-on-surface-variant truncate flex-1">{{ selected || '/' }}</span>
       <button class="flex items-center gap-0.5 px-sm py-1 rounded-md bg-primary/10 text-primary text-xs hover:bg-primary/20 shrink-0" :title="t('component.fileBrowser.uploadToDir')" @click="pickUpload">
         <span class="material-symbols-outlined text-sm">upload</span>{{ t('component.fileBrowser.upload') }}
@@ -126,5 +187,29 @@ watch(() => transferStore.tasks, (ts) => {
     </div>
 
     <input ref="fileInput" type="file" class="hidden" @change="onUpload">
+
+    <!-- 三件套弹窗:mkdir/rename=PromptDialog(重命名全选初始值);delete=ConfirmDialog(普通确认,容器可恢复) -->
+    <PromptDialog
+      v-if="op && (op.kind === 'mkdir' || op.kind === 'rename')"
+      :model-value="true"
+      :title="op.kind === 'mkdir' ? t('component.fileBrowser.newFolder') : t('component.fileBrowser.renameTitle')"
+      :message="op.kind === 'mkdir' ? t('component.fileBrowser.newFolderIn', { path: op.dir }) : op.path"
+      :label="op.kind === 'mkdir' ? t('component.fileBrowser.nameLabel') : t('component.fileBrowser.newNameLabel')"
+      :initial-value="op.kind === 'rename' ? (op.path.split('/').pop() || op.path) : ''"
+      :select-all="op.kind === 'rename'"
+      :loading="opBusy"
+      @confirm="v => { opName = v; runOp() }"
+      @cancel="op = null"
+    />
+    <ConfirmDialog
+      v-else-if="op && op.kind === 'delete'"
+      :model-value="true"
+      :title="t('component.fileBrowser.deleteTitle')"
+      :message="op.isDir ? t('component.fileBrowser.deleteConfirmDir', { path: op.path }) : t('component.fileBrowser.deleteConfirmFile', { path: op.path })"
+      danger
+      :loading="opBusy"
+      @confirm="runOp"
+      @cancel="op = null"
+    />
   </div>
 </template>

@@ -2,10 +2,14 @@
 // SSH 文件浏览体(Task 14):面包屑 + 扁平列表(目录优先,服务端已排序)+ 上传/下载进度。
 // 进度走本地 ref(transfers store 为 pod 专属契约,不硬套);512MB 客户端预检;
 // 上传名含 / \ .. . 前端先拦(服务端同样拒绝);ENOENT → 「路径不存在」。
+// 文件三件套(2026-09-08):新建文件夹/重命名/删除。SSH 是真机——目录递归删除走
+// PromptDialog 输名字确认(type-to-confirm),文件删除普通确认。
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
 import { sshFileApi } from '@/api/client'
+import PromptDialog from '@/components/common/PromptDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const { t } = useI18n()
 const props = defineProps({
@@ -131,6 +135,37 @@ async function onUpload(e) {
 }
 function cancelTransfer() { clearTimeout(doneTimer); doneTimer = null; transferAbort?.abort(); progress.value = null }
 
+// —— 文件三件套(2026-09-08):弹窗状态机 + 执行(成功后刷新当前目录) ——
+const op = ref(null)        // { kind:'mkdir'|'rename'|'delete', name?, path?, isDir? }
+const opBusy = ref(false)
+const fullOf = name => (path.value === '/' ? '/' + name : path.value + '/' + name)
+function askMkdir() { op.value = { kind: 'mkdir' } }
+function askRename(en) { op.value = { kind: 'rename', path: fullOf(en.name), name: en.name } }
+function askDelete(en) { op.value = { kind: 'delete', path: fullOf(en.name), isDir: en.type === 'dir', name: en.name } }
+
+async function runOp(name) {
+  if (!op.value || opBusy.value) return
+  opBusy.value = true
+  const o = op.value
+  try {
+    if (o.kind === 'mkdir') {
+      await sshFileApi.mkdir({ serverId: props.serverId, path: path.value, name })
+      notify('success', t('component.fileBrowser.created', { name }))
+    } else if (o.kind === 'rename') {
+      await sshFileApi.rename({ serverId: props.serverId, path: o.path, name })
+      notify('success', t('component.fileBrowser.renamed', { name }))
+    } else {
+      await sshFileApi.delete({ serverId: props.serverId, path: o.path })
+      notify('success', t('component.fileBrowser.deleted', { path: o.path }))
+    }
+    op.value = null
+    load(path.value)
+  } catch (e) {
+    notify('error', e?.message || t('component.fileBrowser.opFailed'))
+    // 窗留着可重试(与 ConfirmDialog 惯例一致)
+  } finally { opBusy.value = false }
+}
+
 onMounted(() => load('/'))
 onBeforeUnmount(() => { clearTimeout(doneTimer); transferAbort?.abort() })   // 关窗中止在途传输
 </script>
@@ -148,6 +183,9 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); transferAbort?.abort() })   // 
       <button class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('common.sync')" @click="refresh">
         <span class="material-symbols-outlined text-base" :class="loading ? 'animate-spin' : ''">refresh</span>
       </button>
+      <button data-test="btn-mkdir" class="p-1 rounded-md text-on-surface-variant hover:bg-surface-container shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.newFolderIn', { path })" @click="askMkdir">
+        <span class="material-symbols-outlined text-base">create_new_folder</span>
+      </button>
       <button data-test="btnUpload" class="flex items-center gap-0.5 px-sm py-1 rounded-md bg-primary/10 text-primary text-xs hover:bg-primary/20 shrink-0"
         :title="t('ssh.uploadLimit')" @click="pickUpload">
         <span class="material-symbols-outlined text-sm">upload</span>{{ t('ssh.upload') }}
@@ -161,14 +199,32 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); transferAbort?.abort() })   // 
       <div v-else-if="!entries.length" class="p-md text-body-sm text-on-surface-variant/60">{{ t('ssh.emptyDir') }}</div>
       <template v-else>
         <div v-for="en in entries.filter(x => x.type === 'dir')" :key="'d' + en.name" data-test="dirRow"
-          class="flex items-center gap-sm px-sm py-1.5 rounded-md hover:bg-surface-container/60 cursor-pointer font-mono text-body-sm"
+          class="group flex items-center gap-sm px-sm py-1.5 rounded-md hover:bg-surface-container/60 cursor-pointer font-mono text-body-sm"
           @click="openDir(en.name)">
-          <span class="material-symbols-outlined text-base text-primary">folder</span>{{ en.name }}
+          <span class="material-symbols-outlined text-base text-primary shrink-0">folder</span>
+          <span class="flex-1 truncate min-w-0">{{ en.name }}</span>
+          <!-- 三件套(2026-09-08):hover 钮(手机常显);@click.stop 防触发行导航 -->
+          <span class="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 max-sm:opacity-100" @click.stop>
+            <button :data-test="'entry-rename-' + en.name" class="p-0.5 rounded text-on-surface-variant/60 hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.renameTitle')" @click="askRename(en)">
+              <span class="material-symbols-outlined text-sm">edit</span>
+            </button>
+            <button :data-test="'entry-delete-' + en.name" class="p-0.5 rounded text-on-surface-variant/60 hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.deleteTitle')" @click="askDelete(en)">
+              <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+          </span>
         </div>
         <div v-for="en in entries.filter(x => x.type === 'file')" :key="'f' + en.name" data-test="fileRow"
-          class="flex items-center gap-sm px-sm py-1.5 rounded-md hover:bg-surface-container/60 font-mono text-body-sm">
-          <span class="material-symbols-outlined text-base text-on-surface-variant">description</span>
-          <span class="flex-1 truncate">{{ en.name }}</span>
+          class="group flex items-center gap-sm px-sm py-1.5 rounded-md hover:bg-surface-container/60 font-mono text-body-sm">
+          <span class="material-symbols-outlined text-base text-on-surface-variant shrink-0">description</span>
+          <span class="flex-1 truncate min-w-0">{{ en.name }}</span>
+          <span class="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 max-sm:opacity-100" @click.stop>
+            <button :data-test="'entry-rename-' + en.name" class="p-0.5 rounded text-on-surface-variant/60 hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.renameTitle')" @click="askRename(en)">
+              <span class="material-symbols-outlined text-sm">edit</span>
+            </button>
+            <button :data-test="'entry-delete-' + en.name" class="p-0.5 rounded text-on-surface-variant/60 hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.fileBrowser.deleteTitle')" @click="askDelete(en)">
+              <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+          </span>
           <button data-test="btnDownload" class="flex items-center gap-0.5 px-sm py-0.5 rounded bg-primary/10 text-primary text-xs hover:bg-primary/20 shrink-0"
             @click="onDownload(en)">
             <span class="material-symbols-outlined text-sm">download</span>{{ t('ssh.download') }}
@@ -192,5 +248,41 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); transferAbort?.abort() })   // 
     </div>
 
     <input ref="fileInput" type="file" class="hidden" @change="onUpload">
+
+    <!-- 三件套弹窗:mkdir/rename=输入;文件删除=普通确认;目录删除=输名字确认(真机最后一道闸) -->
+    <PromptDialog
+      v-if="op && (op.kind === 'mkdir' || op.kind === 'rename')"
+      :model-value="true"
+      :title="op.kind === 'mkdir' ? t('component.fileBrowser.newFolder') : t('component.fileBrowser.renameTitle')"
+      :message="op.kind === 'mkdir' ? t('component.fileBrowser.newFolderIn', { path }) : op.path"
+      :label="op.kind === 'mkdir' ? t('component.fileBrowser.nameLabel') : t('component.fileBrowser.newNameLabel')"
+      :initial-value="op.kind === 'rename' ? op.name : ''"
+      :select-all="op.kind === 'rename'"
+      :loading="opBusy"
+      @confirm="runOp"
+      @cancel="op = null"
+    />
+    <PromptDialog
+      v-else-if="op && op.kind === 'delete' && op.isDir"
+      :model-value="true"
+      :title="t('component.fileBrowser.deleteTitle')"
+      :message="t('component.fileBrowser.deleteConfirmDir', { path: op.path })"
+      :label="t('component.fileBrowser.deleteTypeName')"
+      :require-text="op.name"
+      danger
+      :loading="opBusy"
+      @confirm="runOp"
+      @cancel="op = null"
+    />
+    <ConfirmDialog
+      v-else-if="op && op.kind === 'delete'"
+      :model-value="true"
+      :title="t('component.fileBrowser.deleteTitle')"
+      :message="t('component.fileBrowser.deleteConfirmFile', { path: op.path })"
+      danger
+      :loading="opBusy"
+      @confirm="runOp"
+      @cancel="op = null"
+    />
   </div>
 </template>

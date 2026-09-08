@@ -238,6 +238,10 @@ export const podFileApi = {
     const q = new URLSearchParams({ namespace, pod, container: container || '', path })
     return k8sHttp.uploadBinary(`/api/podfile/upload?${q}`, file, { onProgress, signal })
   },
+  // 文件三件套(2026-09-08):mkdir={path:父目录,name} / delete={path} / rename={path,name}
+  mkdir: payload => k8sHttp.request('/api/podfile/mkdir', { method: 'POST', body: JSON.stringify(payload) }),
+  delete: payload => k8sHttp.request('/api/podfile/delete', { method: 'POST', body: JSON.stringify(payload) }),
+  rename: payload => k8sHttp.request('/api/podfile/rename', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
 // SSH 服务器管理(Task 3 REST;全部 admin-only)。行经服务端脱敏:只有 hasPassword 等布尔,无凭据本体。
@@ -268,6 +272,10 @@ export const sshFileApi = {
     const q = new URLSearchParams({ serverId, path, name })
     return platformHttp.uploadBinary(`/api/sshfile/upload?${q}`, file, { onProgress, signal })
   },
+  // 文件三件套(2026-09-08):与 podFileApi 同形({serverId,path[,name]})
+  mkdir: payload => platformHttp.request('/api/sshfile/mkdir', { method: 'POST', body: JSON.stringify(payload) }),
+  delete: payload => platformHttp.request('/api/sshfile/delete', { method: 'POST', body: JSON.stringify(payload) }),
+  rename: payload => platformHttp.request('/api/sshfile/rename', { method: 'POST', body: JSON.stringify(payload) }),
 }
 
 // 注入 Ephemeral Container（kubectl debug），用于调试无 shell / distroless 镜像。仅远端模式。

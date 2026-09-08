@@ -61,6 +61,25 @@ export function usePodFiles() {
     invalidateDir(ctx.container, parentDir(path))
   }
 
+  // 文件三件套(2026-09-08):成功后失效受影响缓存,由调用方 force 重拉目录刷新树/右栏
+  async function mkdirDir(ctx, dir, name) {
+    const r = await podFileApi.mkdir({ namespace: ctx.namespace, pod: ctx.pod, container: ctx.container, path: dir, name })
+    invalidateDir(ctx.container, dir)
+    return r
+  }
+  async function deletePath(ctx, path) {
+    const r = await podFileApi.delete({ namespace: ctx.namespace, pod: ctx.pod, container: ctx.container, path })
+    invalidate(ctx.container, path)          // 文件内容缓存(选中预览)
+    invalidateDir(ctx.container, parentDir(path))
+    return r
+  }
+  async function renamePath(ctx, path, name) {
+    const r = await podFileApi.rename({ namespace: ctx.namespace, pod: ctx.pod, container: ctx.container, path, name })
+    invalidate(ctx.container, path)
+    invalidateDir(ctx.container, parentDir(path))
+    return r
+  }
+
   function invalidate(container, path) {
     const k = dk(container, path)
     if (fileCache.value.has(k)) setMap(fileCache, (() => { const n = new Map(fileCache.value); n.delete(k); return n })())
@@ -77,5 +96,5 @@ export function usePodFiles() {
     setMap(fileCache, filterMap(fileCache.value))
   }
 
-  return { dirCache, fileCache, inflight, lastError, listDir, readFile, writeFile, invalidate, invalidateDir, resetForContainer }
+  return { dirCache, fileCache, inflight, lastError, listDir, readFile, writeFile, mkdirDir, deletePath, renamePath, invalidate, invalidateDir, resetForContainer }
 }

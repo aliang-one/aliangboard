@@ -244,7 +244,20 @@
       "binaryHint": "二进制文件不提供预览，可下载查看",
       "collapse": "折叠",
       "expand": "展开",
-      "closeTitle": "关闭文件窗口"
+      "closeTitle": "关闭文件窗口",
+      "newFolder": "新建文件夹",
+      "newFolderIn": "在 {path} 下新建文件夹",
+      "nameLabel": "名称",
+      "newNameLabel": "新名称",
+      "renameTitle": "重命名",
+      "deleteTitle": "删除",
+      "deleteTypeName": "输入目录名以确认",
+      "deleteConfirmFile": "确定删除文件 {path}?此操作不可撤销。",
+      "deleteConfirmDir": "确定删除目录 {path} 及其全部内容?此操作不可撤销。",
+      "created": "已创建 {name}",
+      "renamed": "已重命名为 {name}",
+      "deleted": "已删除 {path}",
+      "opFailed": "操作失败"
     },
     "asyncState": {
       "loadFailed": "加载失败，请稍后重试",
@@ -464,6 +477,9 @@
       "lineCount": "{n} 行",
       "emptyHint": "暂无数据键。点击左栏「添加键」开始。",
       "toggleMask": "显示/隐藏值"
+    },
+    "promptDialog": {
+      "typeToConfirm": "输入 {text} 以确认"
     }
   },
   "ingressController": {

@@ -9,10 +9,13 @@ import { msg } from '../messages.mjs'
 import { withSftp, sftpReaddir, sftpStatSize, sftpStreamSession } from './sftp.mjs'
 import { streamUpload, streamDownload, UPLOAD_PROBE_SCRIPT_B64, evaluateUploadProbe } from '../podfile-stream.mjs'
 import { sshExecCommand, shellQuote } from './exec.mjs'
+import { entryNameError, deleteTargetError, joinDirName, parentOfFsPath, classifyOpFailure, sshOpCommand } from '../file-ops.mjs'
 import { renderServerLedger } from './ledger.mjs'
 
 export function createSshRoutes(deps) {
-  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting, evictSshServer, closeSshServerSessions, listSshSessions, killSshSession } = deps
+  const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting, evictSshServer, closeSshServerSessions, listSshSessions, killSshSession,
+    // 文件三件套 exec 超时(默认 60s——rm -rf 大树);测试注入小值
+    sshFileOpTimeoutMs = 60000 } = deps
 
   async function handle(req, res, url) {
     // 审计/文案助手定义在函数顶(TDZ:sshfile 分支在其原定义之前就要用,曾致 ReferenceError→502)
@@ -84,7 +87,7 @@ export function createSshRoutes(deps) {
           return true
         } finally { try { conn?.release() } catch { /* noop */ } }
       }
-      const body = action === 'list' || action === 'download' ? await readBody(req) : null
+      const body = action === 'list' || action === 'download' || action === 'mkdir' || action === 'delete' || action === 'rename' ? await readBody(req) : null
       const serverId = body?.serverId || url.searchParams.get('serverId')
       const path = body?.path || url.searchParams.get('path') || '/'
       if (!serverId) { sendJson(res, 400, { message: msg(req, 'ssh.badInput', { reason: 'serverId' }) }); return true }
@@ -125,6 +128,35 @@ export function createSshRoutes(deps) {
               return rs
             }),
           })
+          return true
+        }
+        // 文件三件套(2026-09-08):mkdir/delete/rename。SFTP 无递归删除,统一走 exec
+        // (sshExecCommand,与上传预检同通道);校验/归类与 podfile 同源(file-ops.mjs)。
+        if (action === 'mkdir' || action === 'delete' || action === 'rename') {
+          const name = String(body?.name || '')
+          const vErr = action === 'delete' ? deleteTargetError(path) : entryNameError(name)
+          if (vErr) {
+            audit('write', 'ssh_sftp', 'denied', { owner: ps.username, summary: `server=${serverId} ${action} path=${path} name=${name} reason=${vErr}` })
+            sendJson(res, 400, { message: msg(req, vErr === 'root' ? 'api.fileOpRefuseRoot' : 'api.fileOpBadName') })
+            return true
+          }
+          const target = action === 'mkdir' ? joinDirName(path, name)
+            : action === 'rename' ? joinDirName(parentOfFsPath(path), name) : path
+          const cmd = action === 'rename' ? sshOpCommand('rename', path, target) : sshOpCommand(action, target)
+          const r = await sshExecCommand(conn.client, cmd, { timeoutMs: sshFileOpTimeoutMs })
+          if (!r) {
+            audit('write', 'ssh_sftp', 'denied', { owner: ps.username, summary: `server=${serverId} ${action} path=${path} reason=timeout-or-exec-failed` })
+            sendJson(res, 502, { message: msg(req, 'ssh.testGeneric', { message: 'exec failed/timeout' }) })
+            return true
+          }
+          const fail = classifyOpFailure(action, r.code, r.stderr)
+          if (fail) {
+            audit('write', 'ssh_sftp', 'denied', { owner: ps.username, summary: `server=${serverId} ${action} path=${path} → ${target} reason=exec` })
+            sendJson(res, fail.status, { message: fail.message })
+            return true
+          }
+          audit('write', 'ssh_sftp', 'ok', { owner: ps.username, summary: `server=${serverId} ${action} path=${path} → ${target}` })
+          sendJson(res, 200, { ok: true, path: target })
           return true
         }
         sendJson(res, 404, { message: msg(req, 'ssh.notFound') })
