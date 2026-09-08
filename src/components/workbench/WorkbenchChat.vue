@@ -1108,6 +1108,10 @@ async function send() {
       const resp = await workbenchApi.conversations.create(payload)
       if (unmounted) return // P0(C)
       const id = resp?.id
+      // fix round 1(Minor):退化响应体(无 id)不得继续——旧解构 `const { id } = resp` 天然
+      // 抛错进 catch 回滚;改 resp?.id 后护栏消失,undefined 会带着 conversation-created
+      // (undefined) 与 startStreaming(undefined) 跑下去。抛错走既有回滚(撤 turns/还原输入/亮横幅)。
+      if (!id) throw new Error(t('workbench.chat.agentFailed'))
       conversationId.value = id
       convStatus.value = 'running'
       netLost.value = false; pollFailStreak = 0   // 同上:POST 成功即网络已活
@@ -1161,19 +1165,27 @@ async function decideApproval(approved) {
   } catch (e) {
     if (unmounted) return
     if (e?.status === 400) {
-      // 400 两形状(approval-flow-02,2026-09-07 审计批次三):
-      // ①CAS 拒绝(已被别处决策,多实例双开/悬浮 Modal 同批)→ 对齐服务端真实状态:对齐后
-      //   running 则续流、终态则收尾,黄条/弹窗由 running/终态分支撤下。
-      // ②决策未生效的非 CAS 拒绝(如 LLM 未配置:approve 续跑即出终答,服务端 400 且状态
-      //   未动)→ 对齐后仍 paused 且审批未消费:恢复 modal+黄条供重试/改拒绝、撤销重放压制,
-      //   横幅亮服务端明确文案——旧实现一刀切当 CAS 吞掉,用户锁死在 paused 无任何提示。
+      // 400 不能预设含义(approval-flow-02,2026-09-07 审计批次三):先 pollOnce 对齐服务端
+      // 真实状态,再按对齐结果分类(仍 paused 的两形状见下方 fix round 1 注;running 续流、
+      // 终态收尾由对应分支撤下黄条/弹窗)。旧实现一刀切当 CAS 竞态吞掉,LLM 未配置的用户
+      // 锁死在 paused 无任何提示。
       await pollOnce(conversationId.value)
       if (convStatus.value === 'paused') {
-        decidedApprovals.delete(pa.toolCallId)
-        pendingApproval.value = pa
-        lastApproval.value = pa
-        errorBanner.value = e?.message || t('workbench.chat.agentFailed')
-        sending.value = false
+        // 对齐后仍 paused 又两形状(fix round 1 终审):
+        // a) 决策未消费(如 LLM 未配置:服务端 400 状态未动)——本实例 pa 在 decidedApprovals,
+        //    pollOnce 的 decided 分支不弹 modal(pendingApproval 仍 null)→ 恢复 modal+黄条
+        //    供重试/改拒绝、撤销重放压制,横幅亮服务端明确文案。
+        // b) 他端已消费本审批并 resume 后又停在**下一道审批**——pollOnce 已展示新审批
+        //    modal/黄条(approve/deny 端点按行上的 pendingApproval 决策,不钉 toolCallId):
+        //    恢复旧 pa 会盖掉新审批 = 用户看着旧工具、批准的却是没见过的新动作。旧 pa 不复活,
+        //    新审批展示原样保留(pollOnce 已置 sending=false),CAS 竞态也不是错误、不亮横幅。
+        if (!pendingApproval.value) {
+          decidedApprovals.delete(pa.toolCallId)
+          pendingApproval.value = pa
+          lastApproval.value = pa
+          errorBanner.value = e?.message || t('workbench.chat.agentFailed')
+          sending.value = false
+        }
       } else if (!agentTurnDoneOrFinal() && convStatus.value === 'running') {
         startStreaming(conversationId.value)
       } else {

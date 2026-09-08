@@ -1261,3 +1261,20 @@ test('frontend-chat-03:粘底观测盯流式消息容器(非项目背景卡),增
     vi.unstubAllGlobals()
   }
 })
+
+// fix round 1(Minor):create 响应退化体(无 id)——旧解构 `const { id } = undefined` 天然抛错
+// 进 catch 回滚;改 resp?.id 后护栏消失,undefined id 会带着 conversation-created(undefined)
+// 与 startStreaming(undefined) 继续跑。契约:无 id 即抛错走既有回滚(撤乐观 turns/还原输入/
+// 亮横幅,不 emit)。
+test('fix round 1:create 响应缺 id → 走失败回滚,不携带 undefined 续跑', async () => {
+  const w = await mountChat()
+  await w.find('textarea').setValue('hello')
+  api.conversations.create.mockResolvedValueOnce(undefined)
+  await w.find('button.bg-primary').trigger('click')
+  await flushPromises()
+  expect(w.vm.turns.length, '乐观 user/agent turns 回滚').toBe(0)
+  expect(w.find('textarea').element.value).toBe('hello', '输入还原供重发')
+  expect(w.vm.errorBanner).not.toBe('', '失败横幅可见')
+  expect(w.emitted('conversation-created'), '不 emit undefined id').toBeUndefined()
+  w.unmount()
+})

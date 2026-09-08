@@ -375,3 +375,32 @@ test('frontend-chat-09 残余:已决策但快照仍 paused → 恢复观测+黄�
   expect(w.vm.lastApproval).toBeNull()
   expect(w.vm.pendingApproval).toBeNull()
 })
+
+// ── fix round 1(2026-09-07 审计批次三 PT5 终审)──
+
+// Important:approve 400 的「对齐后仍 paused → 恢复旧 modal」分支无法区分「决策未消费
+// (LLM 缺失)」与「CAS 竞态 + 他端 resume 又停在**下一道审批**」——后者对齐轮询已展示新
+// 审批 modal(approve/deny 端点按行上的 pendingApproval 决策,不钉 toolCallId),恢复旧 pa
+// 会盖掉新审批:用户看着旧工具,批准的却是没见过的新动作。契约:对齐后已有新审批在展示
+// (pendingApproval 非空)→ 旧 pa 不复活(modal/黄条保持新审批,不亮横幅)。
+test('fix round 1:approve 400 对齐揭示新审批 → 旧审批不复活(modal 保持新审批)', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-old', name: 'wb_scale',
+    args: { kind: 'Deployment', name: 'api', replicas: 3 },
+  })
+  api.conversations.approve.mockRejectedValueOnce(Object.assign(new Error('对话不在待审批状态(并发审批已被处理)'), { status: 400 }))
+  // 对齐:他端已消费 t-old 并 resume,又停在下一道审批(新 toolCallId)
+  const newPa = { toolCallId: 't-new', name: 'wb_exec', args: { pod: 'nginx-1', command: 'rm -rf /data' } }
+  api.conversations.get.mockResolvedValue({
+    id: 'conv-ap', status: 'paused', content: '', trace: '[]', steps: 2, recap: '', messages: [],
+    pendingApproval: JSON.stringify(newPa),
+  })
+  await w.find('[data-testid="approval-approve"]').trigger('click')
+  await flushPromises()
+
+  expect(w.vm.pendingApproval, 'modal 在场').toBeTruthy()
+  expect(w.vm.pendingApproval.toolCallId).toBe('t-new', '旧 pa 不盖新审批(修复前被旧 pa 覆盖)')
+  expect(w.vm.lastApproval?.toolCallId).toBe('t-new', '黄条重开入口=新审批')
+  expect(w.html()).toContain('rm -rf /data', '新审批参数可见(人审的是将决策的动作)')
+  expect(w.vm.errorBanner, 'CAS 竞态非错误,不亮横幅').toBe('')
+})

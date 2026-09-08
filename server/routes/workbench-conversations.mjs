@@ -932,7 +932,11 @@ export function createWorkbenchConvRoutes(deps) {
           busEmit(id, { type: 'end' })
           busDispose?.(id)
         } catch (e) {
-          try { db.prepare("UPDATE workbench_conversations SET status='paused' WHERE id=?").run(id) } catch { /* 行已删等,尽力回滚 */ }
+          // fix round 1(Minor):回滚必须连 pendingApproval 一起还原——本分支的 try 内
+          // updateConversation 已同步清了 pendingApproval,若其后语句(busEmit 监听器抛错等)
+          // 失败,只回滚 status 会留下「paused 但无审批」的死形状(前端黄条/modal 均不再弹,
+          // 服务端 resume 也无 pending 可续)。原值取自 CAS 前读取的 convForGate。
+          try { db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval=? WHERE id=?").run(convForGate.pendingApproval ?? null, id) } catch { /* 行已删等,尽力回滚 */ }
           sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wbc.denyFailed') }); return true
         }
         sendJson(res, 200, { status: 'failed' })
