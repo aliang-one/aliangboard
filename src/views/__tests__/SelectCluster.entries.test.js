@@ -1,6 +1,8 @@
 // SelectCluster 添加集群入口:空状态主按钮与底部常驻入口(仅 admin)都指 /add-cluster。
 // 连接反馈根治(2026-09-08):卡片级 pending(connecting 期网格不消失、其余卡禁用)、
 // 成功 SPA push /cluster 且 connecting 不提前清零、失败恢复;免集群通道卡全员可见。
+// 追加(round-2):通道卡进入工作台也有 pending 态(懒加载 chunk + 守卫 tryAutoConnect
+// 期间选择页纹丝不动 = 无反馈);独立页语言切换 LocaleToggle 挂载。
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { i18n } from '@/i18n'
@@ -30,6 +32,9 @@ vi.mock('@/stores/auth', () => ({
 }))
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({ setConnectedCluster: (...a) => setConnectedMock(...a) }),
+}))
+vi.mock('@/stores/preferences', () => ({
+  usePreferencesStore: () => ({ language: 'zh', setLanguage: vi.fn() }),
 }))
 
 import SelectCluster from '../SelectCluster.vue'
@@ -140,4 +145,48 @@ test('连接失败:connecting 清零恢复可选,错误信息展示', async () =
   await flushPromises()
   expect(w.text()).toContain('probe timeout')
   expect(cards(w)[0].attributes('disabled')).toBeUndefined()
+})
+
+// === 通道卡进入工作台的 pending 态(round-2:懒加载 chunk + 守卫期间无反馈) ===
+
+test('进入工作台:点击后按钮 pending(禁用+转圈文案),push 未决时重复点击不重复触发', async () => {
+  let resolvePush
+  pushMock.mockImplementation(() => new Promise(r => { resolvePush = r }))
+  myClustersMock.mockResolvedValue({ clusters: [{ id: 'c1', name: 'demo', apiServer: 'https://x' }] })
+  const w = mountView()
+  await flushPromises()
+  const btn = w.find('[data-testid="select-cluster-workbench-entry"]')
+  await btn.trigger('click')
+  await flushPromises()
+  expect(pushMock).toHaveBeenCalledWith('/workbench')
+  expect(btn.attributes('disabled')).toBeDefined()
+  expect(btn.text()).toContain('正在进入')
+  await btn.trigger('click')
+  expect(pushMock).toHaveBeenCalledTimes(1)
+  resolvePush()
+  await flushPromises()
+})
+
+test('进入工作台 pending 期间:集群卡同步禁用,点击集群卡不触发连接', async () => {
+  let resolvePush
+  pushMock.mockImplementation(() => new Promise(r => { resolvePush = r }))
+  myClustersMock.mockResolvedValue({ clusters: [{ id: 'c1', name: 'demo', apiServer: 'https://x' }] })
+  const w = mountView()
+  await flushPromises()
+  await w.find('[data-testid="select-cluster-workbench-entry"]').trigger('click')
+  await flushPromises()
+  expect(w.find('[data-testid="select-cluster-card"]').attributes('disabled')).toBeDefined()
+  await cards(w)[0].trigger('click')
+  expect(connectClusterMock).not.toHaveBeenCalled()
+  resolvePush()
+  await flushPromises()
+})
+
+// === 独立页语言切换 ===
+
+test('语言切换:LocaleToggle 挂载于页面右上角', async () => {
+  myClustersMock.mockResolvedValue({ clusters: [{ id: 'c1', name: 'demo', apiServer: 'https://x' }] })
+  const w = mountView()
+  await flushPromises()
+  expect(w.find('[data-testid="locale-toggle"]').exists()).toBe(true)
 })

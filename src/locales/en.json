@@ -2956,6 +2956,7 @@
     "logout": "Logout",
     "skipClusterTitle": "Not connecting a cluster yet?",
     "skipClusterDesc": "Workbench · SSH servers · profile — all usable without a cluster",
+    "entering": "Entering…",
     "skipClusterCta": "Open workbench"
   },
   "addCluster": {
