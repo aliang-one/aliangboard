@@ -43,6 +43,21 @@ test('getDispatcher: 不同 client-cert 身份(cert/key)分到不同 agent(身�
   assert.notEqual(certUser1, certUser2, '不同 client-cert 身份应隔离(防跨身份凭证复用)')
 })
 
+// --- 2026-09-08 性能批:agent 必须携带长 keep-alive ---
+// undici Agent 默认 keepAliveTimeout=4s,操作间隔一超即拆连,下个请求重付 TCP+TLS 握手
+// (部署实例实测闲置后 +40ms、冷连接 ~687ms)。undici Agent 不暴露 options,用注入的
+// AgentCtor 捕获构造参数断言(生产恒走真 undici Agent,注入仅测试用)。
+test('getDispatcher: agent 构造参数携带 keepAliveTimeout 60s / keepAliveMaxTimeout 600s', () => {
+  _clearDispatcherCacheForTest()
+  const built = []
+  const FakeAgent = class { constructor(opts) { built.push(opts) } }
+  getDispatcher({ insecure: false }, FakeAgent)
+  assert.equal(built.length, 1, '应恰好构造一个 agent')
+  assert.equal(built[0].keepAliveTimeout, 60_000, 'keepAliveTimeout 应为 60s')
+  assert.equal(built[0].keepAliveMaxTimeout, 600_000, 'keepAliveMaxTimeout 应为 600s')
+  assert.deepEqual(built[0].connect, { rejectUnauthorized: true }, 'connect TLS 参数保持原语义')
+})
+
 // --- buildCallContext 形状契约(回归核心:6 条 kube 路径吃的形状不能变)---
 test('buildCallContext: 返回 {apiServer(URL), authHeader, ca, cert, key, insecure, dispatcher}', () => {
   const ctx = buildCallContext({ apiServer: 'https://10.0.0.1:6443', authHeader: 'Bearer xyz', ca: 'CA', cert: null, key: null, insecure: false })
