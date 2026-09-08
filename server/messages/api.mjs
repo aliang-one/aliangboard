@@ -46,6 +46,7 @@ export const TABLE = {
   'api.applyYamlFailed': { zh: '应用 YAML 失败', en: 'Failed to apply YAML' },
   'api.missingNsNamePort': { zh: '缺少 namespace / name / port', en: 'Missing namespace / name / port' },
   'api.portForwardFailed': { zh: '端口转发建立失败', en: 'Failed to establish port forwarding' },
+  'api.portForwardNotYours': { zh: '该端口转发属于其他用户,仅创建者或管理员可关断', en: 'This port forward belongs to another user; only its creator or an admin may stop it' },
   'api.missingNsPvc': { zh: '缺少 namespace / pvc', en: 'Missing namespace / pvc' },
   'api.pvcBrowseFailed': { zh: 'PVC 文件浏览失败', en: 'PVC file browsing failed' },
   'api.missingNsPodPath': { zh: '缺少 namespace / pod / path', en: 'Missing namespace / pod / path' },

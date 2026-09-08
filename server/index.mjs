@@ -16,7 +16,7 @@ import { createClusterProber } from './cluster-probe.mjs'
 import { createClusterCerts } from './cluster-certs.mjs'
 import { createClusterCertsRoutes } from './routes/cluster-certs.mjs'
 import { createApiKeysSchema, listKeys } from './auth-keys.mjs'
-import { sweepOrphanGrants, effectiveGrants, levelForRequest, wbToolGate, gateApplyNamespaces } from './authz.mjs'
+import { sweepOrphanGrants, effectiveGrants, levelForRequest, wbToolGate, gateApplyNamespaces, canAccessCluster } from './authz.mjs'
 import { provisionSa, teardownSa, sweepStaleTierBindings, sweepNsBindings,
   provisionGroupBindings, teardownGroupBindings, sweepGroupBindings, groupBindingKeepSet } from './sa-provision.mjs'
 // withTimeout 别名:本文件已有 T5 @-ref 同名 helper(p,ms,label),避免标识符冲突。
@@ -1377,7 +1377,7 @@ async function startForward(session, sessionId, kind, namespace, name, port, loc
       server.removeListener('error', onError)
       const id = randomUUID()
       const actualPort = server.address().port
-      forwards.set(id, { server, pf, sessionId, id, kind, namespace, name, pod, targetPort, localPort: actualPort, host })
+      forwards.set(id, { server, pf, sessionId, id, kind, namespace, name, pod, targetPort, localPort: actualPort, host, ownerUserId: session?.userId })
       resolve({ id, kind, namespace, name, pod, targetPort, localPort: actualPort, host })
     })
   })
@@ -2056,8 +2056,17 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/portforward/')) {
     const session = req.abSession // 路由鉴权门已预检并缓存
     const id = decodeURIComponent(url.pathname.slice('/api/portforward/'.length))
+    const f = forwards.get(id)
+    // W2 审计 B2(2026-09-07):归属比对——端口转发是创建者的个人会话资产,仅 owner(或平台
+    // admin)可关断。原状只过 ns operate 门:同 ns 的其他用户可停掉别人的隧道。归属键 = 平台
+    // userId(k8s token 会轮换自锁,见终端记录 rekey 事故前科);无归属键的行(内存 Map,网关
+    // 重启即清,仅部署瞬间存在)维持旧语义(仅 ns 门)。
+    if (f && f.ownerUserId !== undefined && f.ownerUserId !== session.userId) {
+      const roleRow = db.prepare('SELECT role FROM platform_users WHERE id=? AND disabled=0').get(session.userId)
+      if (roleRow?.role !== 'admin') return sendJson(res, 403, { message: msg(req, 'api.portForwardNotYours') })
+    }
     // W2 Phase B:关断复检 operate(经 forwards Map 记录的 namespace;行不存在也过门 = fail-closed)
-    if (!k8sGate.gateK8sSession(session, { namespace: forwards.get(id)?.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
+    if (!k8sGate.gateK8sSession(session, { namespace: f?.namespace, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
     const removed = stopForward(id)
     return sendJson(res, removed ? 200 : 404, { ok: removed })
   }
@@ -2695,7 +2704,24 @@ if (reconcileInterval > 0) {
         try {
           const cluster = db.prepare('SELECT * FROM clusters WHERE id=?').get(p.clusterId)
           if (!cluster) continue
+          // B1(W2 审计 2026-09-07):调度器补门,与 HTTP reconcile 按钮(workbench-projects.mjs)
+          // 同一心智——授权主体恒取项目 owner(P0-① 同源):owner 失权/禁用(canAccessCluster
+          // 现查)即停止维护该项目;manifests 逐文档过 gateApplyNamespaces(operate / 集群级
+          // null-ns / 不可发现拒)。原状零门 = 缩权 owner 的存量 manifests 被系统周期续命,
+          // 架空「缩权即刻生效」(spec §4.5)。拒绝只跳过该项目,不阻断整轮。
+          if (!canAccessCluster(db, { userId: p.ownerId }, p.clusterId)) {
+            console.error(`[reconcile] ${p.name}: owner 已失权/禁用,跳过维护`)
+            continue
+          }
           const k8sSession = { ...buildCallContext({ apiServer: cluster.apiServer, authHeader: cluster.authHeader, ca: cluster.ca, cert: cluster.cert, key: cluster.key, insecure: !!cluster.insecure }), createdAt: Date.now() }
+          const gate = wbToolGate(db, { userId: p.ownerId }, p.clusterId)
+          const manifestsYaml = await wbReadManifests(projectRepoPath(WORKBENCH_DIR, p))
+          if (manifestsYaml && manifestsYaml.trim()) {
+            let docNss = []
+            try { docNss = await resolveApplyNamespaces(k8sSession, manifestsYaml, undefined) } catch { /* 无效 YAML:apply 同因失败(无法写,无绕过面) */ }
+            try { gateApplyNamespaces(gate, docNss, 'reconcile') }
+            catch (e) { console.error(`[reconcile] ${p.name}: 授权拒绝(${e.reason}),跳过`); continue }
+          }
           const r = await reconcileProject({ db, projectId: p.id, readManifests: () => wbReadManifests(projectRepoPath(WORKBENCH_DIR, p)), applyYaml: (yaml) => applyYamlPartial(k8sSession, yaml) })
           if (r.failed?.length) console.error(`[reconcile] ${p.name}: ${r.failed.length} 失败`)
         } catch (e) { console.error(`[reconcile] project ${p.id} 失败:`, e.message) }
