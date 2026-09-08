@@ -13,7 +13,13 @@ export function sshExecCommand(client, cmd, { timeoutMs = 5000 } = {}) {
         const out = [], errOut = []
         s.on('data', d => out.push(d))
         s.stderr?.on('data', d => errOut.push(d))
-        s.on('close', () => done({ stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(errOut).toString('utf8') }))
+        // close(code):退出码一并回传(文件三件套按码归类成败;null=信号杀/异常,按失败处理)。
+        // 旧调用方(上传预检)只读 stdout,加字段向后兼容。
+        s.on('close', (code, signal) => done({
+          stdout: Buffer.concat(out).toString('utf8'),
+          stderr: Buffer.concat(errOut).toString('utf8'),
+          code: signal ? 1 : (code ?? 0),
+        }))
         s.on('error', () => done(null))
       })
     } catch { done(null) }

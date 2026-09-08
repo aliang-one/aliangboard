@@ -244,7 +244,20 @@
       "binaryHint": "Binary file — preview unavailable, download to view",
       "collapse": "Collapse",
       "expand": "Expand",
-      "closeTitle": "Close file window"
+      "closeTitle": "Close file window",
+      "newFolder": "New Folder",
+      "newFolderIn": "Create folder under {path}",
+      "nameLabel": "Name",
+      "newNameLabel": "New name",
+      "renameTitle": "Rename",
+      "deleteTitle": "Delete",
+      "deleteTypeName": "Type the folder name to confirm",
+      "deleteConfirmFile": "Delete file {path}? This cannot be undone.",
+      "deleteConfirmDir": "Delete directory {path} and ALL its contents? This cannot be undone.",
+      "created": "Created {name}",
+      "renamed": "Renamed to {name}",
+      "deleted": "Deleted {path}",
+      "opFailed": "Operation failed"
     },
     "asyncState": {
       "loadFailed": "Load failed, please retry later",
@@ -464,6 +477,9 @@
       "lineCount": "{n} lines",
       "emptyHint": "No data keys yet. Click \"Add Key\" in the left panel to start.",
       "toggleMask": "Show/hide value"
+    },
+    "promptDialog": {
+      "typeToConfirm": "Type {text} to confirm"
     }
   },
   "ingressController": {
