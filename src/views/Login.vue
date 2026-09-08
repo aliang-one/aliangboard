@@ -10,6 +10,7 @@ import { authApi, purgeSession } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
 import { safeRedirectPath } from '@/utils/safeRedirect'
+import LocaleToggle from '@/components/common/LocaleToggle.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -158,7 +159,9 @@ function ssoLogin() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-surface flex items-center justify-center p-md">
+  <div class="relative min-h-screen bg-surface flex items-center justify-center p-md">
+    <!-- 独立页语言切换(round-2):无应用壳,用户菜单不可达;登录前 savePreferences 401 被 catch,本地已生效 -->
+    <div class="absolute top-md right-md"><LocaleToggle /></div>
     <div class="w-full max-w-sm">
       <!-- Logo -->
       <div class="text-center mb-xl">

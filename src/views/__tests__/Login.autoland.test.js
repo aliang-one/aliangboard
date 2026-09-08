@@ -15,7 +15,7 @@ vi.mock('@/stores/auth', () => ({
   }),
 }))
 vi.mock('@/stores/preferences', () => ({
-  usePreferencesStore: () => ({ hydrateFromServer: vi.fn(), landingView: '' }),
+  usePreferencesStore: () => ({ hydrateFromServer: vi.fn(), landingView: '', language: 'zh', setLanguage: vi.fn() }),
 }))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: state.pushMock }),
@@ -56,4 +56,13 @@ test('auto-connect 失败:push /select-cluster(原行为回归锁)', async () =>
   await w.find('[data-testid="login-submit"]').trigger('click')
   await flushPromises()
   expect(state.pushMock).toHaveBeenCalledWith('/select-cluster')
+})
+
+test('独立页语言切换:LocaleToggle 挂载(round-2)', async () => {
+  setActivePinia(createPinia())
+  state.loginMock.mockResolvedValue({ token: 'tok', user: { username: 'u' }, prefs: {} })
+  state.autoMock.mockResolvedValue(null)
+  const w = mount(Login, { global: { plugins: [i18n] } })
+  await flushPromises()
+  expect(w.find('[data-testid="locale-toggle"]').exists()).toBe(true)
 })
