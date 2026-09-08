@@ -3,8 +3,9 @@
 // URL: /ssh-terminal-popup?serverId=xxx&sid=xxx&name=xxx
 // 平台 token 走 localStorage(同源新标签页自动可用),SshTerminal→sshTerminalStream 自取。
 // 同 sid + 网关保活 → 打开即回放续跑(比 pod 的 per-connection exec 更顺)。
-// 关闭语义(2026-09-04 收敛):「关闭窗口」按钮是该标签页唯一杀会话入口——点击 = 杀网关
-// 会话 + 关标签页;F5/标签页丢弃(pagehide)只发墓碑摘本地记录,绝不杀会话(多开保护)。
+// 关闭语义(2026-09-04 收敛,2026-09-08 单行头部收编:外部顶条退役,红点承接):
+// 终端头部红点是该标签页唯一杀会话入口——点击 = 杀网关会话 + 关标签页;
+// F5/标签页丢弃(pagehide)只发墓碑摘本地记录,绝不杀会话(多开保护)。
 import { computed, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -38,13 +39,6 @@ function closeWindow() {
 
 <template>
   <div class="h-screen w-screen flex flex-col bg-code-surface">
-    <div class="flex items-center gap-sm px-md shrink-0 bg-surface-container-high border-b border-outline-variant" style="height: 36px">
-      <span class="material-symbols-outlined text-base text-secondary">dns</span>
-      <span class="text-body-sm font-medium text-on-surface truncate flex-1 font-mono">ssh://{{ name }}</span>
-      <button data-test="btnClosePopup" @click="closeWindow" class="flex items-center gap-xs px-sm py-0.5 rounded-md bg-error/10 text-error hover:bg-error/20 text-body-xs font-medium transition-colors shrink-0">
-        <span class="material-symbols-outlined text-sm">close</span>{{ t('terminal.closeWindow') }}
-      </button>
-    </div>
     <div class="flex-1 min-h-0">
       <div v-if="sidMissing" data-test="sid-missing" class="h-full flex items-center justify-center px-md">
         <div class="text-center max-w-md">
@@ -52,7 +46,7 @@ function closeWindow() {
           <p class="mt-sm text-body-md text-on-surface-variant">{{ t('ssh.popupMissingSid') }}</p>
         </div>
       </div>
-      <SshTerminal v-else :server-id="serverId" :server-name="name" :sid="sid" :auto-connect="true" />
+      <SshTerminal v-else :server-id="serverId" :server-name="name" :sid="sid" :auto-connect="true" chrome="page" @win-close="closeWindow" />
     </div>
   </div>
 </template>

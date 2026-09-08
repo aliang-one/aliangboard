@@ -19,9 +19,10 @@ import { POPUP_ALIVE_KEY } from '@/utils/popupSync'
 // InteractiveTerminal 桩:捕获 props(真组件会开 WS,桩内不连)
 const termProps = []
 const TermStub = defineComponent({
-  props: ['podName', 'namespace', 'container', 'sessionId', 'attach', 'autoConnect'],
-  template: '<div data-testid="term-stub" :data-sid="sessionId"></div>',
-  mounted() { termProps.push({ sessionId: this.sessionId, podName: this.podName, namespace: this.namespace, container: this.container }) },
+  props: ['podName', 'namespace', 'container', 'sessionId', 'attach', 'autoConnect', 'chrome'],
+  emits: ['win-close'],
+  template: '<div data-testid="term-stub" :data-sid="sessionId" @click="$emit(\'win-close\')"></div>',
+  mounted() { termProps.push({ sessionId: this.sessionId, podName: this.podName, namespace: this.namespace, container: this.container, chrome: this.chrome }) },
 })
 
 async function mountPopup(query) {
@@ -39,6 +40,20 @@ test('URL query.sid 透传为 InteractiveTerminal 的 session-id', async () => {
   const w = await mountPopup('ns=ns1&pod=pod-a&container=main&name=term1&sid=term-abc123')
   expect(w.find('[data-testid="term-stub"]').attributes('data-sid')).toBe('term-abc123')
   expect(termProps[0]).toMatchObject({ sessionId: 'term-abc123', podName: 'pod-a', namespace: 'ns1', container: 'main' })
+})
+
+// 2026-09-08 单行头部收编:外部 36px 顶条退役,终端 chrome='page'(头部仅红点=关窗,
+// 仅 window.close() 不杀会话——会话由 tmux 承载,任务栏 chip 靠墓碑对账回收)。
+test('单行头部:chrome=page 透传;红点(win-close)只关标签页不杀会话', async () => {
+  sessionStorage.setItem('aliangboard.session', 'tok')
+  const w = await mountPopup('ns=ns1&pod=pod-a&container=main&name=term1&sid=term-abc123')
+  expect(termProps[0].chrome).toBe('page')
+  const realClose = window.close
+  window.close = vi.fn()
+  try {
+    await w.find('[data-testid="term-stub"]').trigger('click')
+    expect(window.close).toHaveBeenCalled()
+  } finally { window.close = realClose }
 })
 
 test('URL 无 sid(直接敲地址):session-id 退化为空串,由网关按一次性 exec 兜底,不炸', async () => {

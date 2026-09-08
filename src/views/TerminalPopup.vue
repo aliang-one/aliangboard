@@ -1,6 +1,9 @@
 <script setup>
 // 独立终端弹窗页面（新浏览器标签页打开）：全屏 xterm，无侧栏/顶栏。
 // URL: /terminal-popup?ns=xxx&pod=xxx&container=xxx&name=xxx&sid=xxx(token 由 main.js 落 sessionStorage)
+// 2026-09-08 单行头部收编:外部 36px 顶条退役,关窗入口=终端头部红点(chrome='page')。
+// 语义保持:红点仅 window.close() 不杀会话——pod 会话由 tmux 承载,任务栏 chip 靠
+// popupSync 墓碑对账回收(与旧「关闭窗口」按钮一致)。
 import { computed, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -35,22 +38,16 @@ if (!hasToken) {
   if (sid.value) stopHeartbeat = startPopupHeartbeat('pod', sid.value, { namespace: ns.value, podName: pod.value, container: container.value, name: name.value })
 }
 onUnmounted(() => { if (stopHeartbeat) stopHeartbeat() })
+
+// 红点关窗:只关标签页,会话保留(见头部注释)
+function closeWindow() { window.close() }
 </script>
 
 <template>
   <div class="h-screen w-screen flex flex-col bg-code-surface">
-    <!-- 顶部条（终端名 + 关闭） -->
-    <div class="flex items-center gap-sm px-md shrink-0 bg-surface-container-high border-b border-outline-variant" style="height: 36px">
-      <span class="material-symbols-outlined text-base text-primary">terminal</span>
-      <span class="text-body-sm font-medium text-on-surface truncate flex-1">{{ name }}</span>
-      <span class="text-body-xs text-on-surface-variant/60 font-mono">{{ ns }}/{{ pod }}{{ container ? ':' + container : '' }}</span>
-      <button @click="window.close()" class="flex items-center gap-xs px-sm py-0.5 rounded-md bg-error/10 text-error hover:bg-error/20 text-body-xs font-medium transition-colors shrink-0">
-        <span class="material-symbols-outlined text-sm">close</span>{{ t('terminal.closeWindow') }}
-      </button>
-    </div>
-    <!-- 全屏终端 -->
+    <!-- 全屏终端(chrome='page':头部仅红点=关窗;黄/绿在浏览器标签页无对应物,不渲染) -->
     <div class="flex-1 min-h-0">
-      <InteractiveTerminal class="h-full" :pod-name="pod" :namespace="ns" :container="container || 'main'" :session-id="sid" :auto-connect="true" />
+      <InteractiveTerminal class="h-full" :pod-name="pod" :namespace="ns" :container="container || 'main'" :session-id="sid" :auto-connect="true" chrome="page" @win-close="closeWindow" />
     </div>
   </div>
 </template>
