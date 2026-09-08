@@ -586,7 +586,10 @@ export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdou
     else if (type === 6) onReplay?.(payload)
     else if (type === 4) onError?.(utf8.decode(payload))
   }
-  ws.onerror = () => { probeAuthIfHandshakeFailed(); onError?.(i18n.global.t('ssh.sessionTerminated')) }
+  // 传输错误≠终态(2026-09-08 复查 P0):浏览器对异常断开的既定事件序是 error→close,若 error
+  // 也上报 onError,组件会先置 error 终态拦掉随后的 close,自动重连被整个吞掉。onError 仅保留
+  // 给 CH_ERROR 帧(服务端明确宣判);传输错误只走鉴权探针(未 open 时),善后归 onClose。
+  ws.onerror = () => { probeAuthIfHandshakeFailed() }
   ws.onclose = () => { probeAuthIfHandshakeFailed(); onClose?.() }
   const encoder = new TextEncoder()
   function frame(type, data) {
