@@ -57,8 +57,18 @@ export function clampTraceStep(e, cap = TRACE_RESULT_MAX_BYTES) {
 // (非末条)及其后连续的 tool 消息为一组(assistant 和它的 tool 一起走,不产生孤儿 tool),
 // 循环直到达标;若某组的 tool 连到末条(末条恰是该 assistant 的 tool 结果),该组不可丢
 // ——丢 assistant 会孤儿、丢 tool 违反保尾部,system + 该配对即裁剪下限。
+// 预算计量投影(salvage-gap 审计 2026-09-08 B3):assistant 的内部字段 reasoning/finishReason
+// 不发给 provider(llm.mjs sanitizeMessages 请求边界消毒),也不该吃预算——旧 JSON.stringify(m)
+// 全量口径让深思考模型的 reasoning 全文虚占预算,提前触发裁剪丢轮。口径与白名单投影一致
+// (tool_calls 是真载荷,全额计)。
+const budgetSize = m => JSON.stringify(
+  m?.role === 'assistant'
+    ? { role: m.role, content: m.content, ...(Array.isArray(m.tool_calls) && m.tool_calls.length ? { tool_calls: m.tool_calls } : {}) }
+    : m
+).length
+
 export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
-  const total = messages.reduce((n, m) => n + JSON.stringify(m).length, 0)
+  const total = messages.reduce((n, m) => n + budgetSize(m), 0)
   if (total <= budget) return { messages, truncated: false }
   const startIdx = messages[0]?.role === 'system' ? 1 : 0
   const kept = messages.slice()
@@ -67,7 +77,7 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
   for (let i = startIdx; i < kept.length - 1 && cur > budget; i++) {
     const m = kept[i]
     if (m.role === 'system' || m.role === 'assistant') continue  // 不丢 system/assistant
-    cur -= JSON.stringify(m).length
+    cur -= budgetSize(m)
     if (m.role === 'tool' && m.tool_call_id) droppedToolIds.add(m.tool_call_id)
     kept[i] = null
   }
@@ -84,14 +94,14 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
   }
   // phase2:仍超预算 → assistant 轮从最旧整组丢弃(assistant + 其后连续 tool 一体走,无孤儿)
   if (cur > budget) {
-    cur = out.reduce((n, m) => n + JSON.stringify(m).length, 0)  // 悬空清理可能已丢 assistant,重算
+    cur = out.reduce((n, m) => n + budgetSize(m), 0)  // 悬空清理可能已丢 assistant,重算
     while (cur > budget) {
       const idx = out.findIndex((m, i) => m.role === 'assistant' && i < out.length - 1)
       if (idx === -1) break                                    // 无可丢的 assistant 轮(只剩 system+末条)
       let end = idx + 1
       while (end < out.length && out[end].role === 'tool') end++
       if (end >= out.length) break                             // 组触末条:末条是该轮的 tool → 到下限,不可拆
-      for (let i = idx; i < end; i++) cur -= JSON.stringify(out[i]).length
+      for (let i = idx; i < end; i++) cur -= budgetSize(out[i])
       out.splice(idx, end - idx)
     }
   }
