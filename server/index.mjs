@@ -2533,6 +2533,9 @@ const httpServer = createServer((req, res) => {
 // 会话注册表:浏览器断开 ≠ 会话死亡;重连同 sid 先回放(CH_REPLAY)再接直播。
 // 环形缓冲字节上限(2026-09-04 P1):防无换行大流/超长单行打爆堆;SSH_RING_MAX_BYTES 可调,下限 64KB。
 const SSH_RING_MAX_BYTES = Math.max(64 * 1024, Number(process.env.SSH_RING_MAX_BYTES) || 4 * 1024 * 1024)
+// 重连回放上限(2026-09-08 线上事故):满 4MB ring 全量回放 × 慢下行客户端 = ping/pong 排队
+// 超时被 liveness 误杀的死亡螺旋;默认只回放尾部 256KB。SSH_REPLAY_MAX_BYTES 可调,合法正值生效。
+const SSH_REPLAY_MAX_BYTES = (() => { const n = Number(process.env.SSH_REPLAY_MAX_BYTES); return Number.isFinite(n) && n > 0 ? n : 256 * 1024 })()
 const terminalService = createTerminalService({
   ringMaxBytes: SSH_RING_MAX_BYTES,
   // 分级审计(复审二 P2):不可逆/有损转换进 audit 链;高频 attach/detach 走行内字段
@@ -2596,6 +2599,7 @@ const handleSshTerminal = createSshTerminalHandler({
   writeAudit: entry => { try { writeAudit(db, entry) } catch (e) { console.error('[ssh] terminal audit failed:', e?.message) } },
   wsSend,
   lookupServer: serverId => db.prepare('SELECT id FROM ssh_servers WHERE id=?').get(serverId),
+  replayMaxBytes: SSH_REPLAY_MAX_BYTES,
   CH: { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT },
 })
 // WebSocket 升级：/api/ssh/terminal(平台 token) + /api/exec(集群 session)

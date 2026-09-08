@@ -15,11 +15,37 @@ export function broadcastToSockets(session, send, type, payload) {
   for (const a of session.connIds.values()) send(a.socket, type, payload)
 }
 
+// 回放快照尾部裁剪(2026-09-08 线上事故:满 4MB ring × 慢下行客户端 = 重连即灌 4MB,ping/pong
+// 排队 60-90s 到不了 → liveness 两轮无 pong 误杀 → 再重连再 4MB 的死亡螺旋)。只回放尾部
+// maxBytes,行首对齐(丢弃首个不完整行)+ UTF-8 续字节回退,杜绝从 ANSI/多字节序列中间起刀。
+// maxBytes<=0 / 非法值 / 快照未超限 = 原样返回(调用方可据此判断是否发生了截断)。
+export function clampReplay(snap, maxBytes) {
+  if (!Buffer.isBuffer(snap) || !Number.isFinite(maxBytes) || maxBytes <= 0 || snap.length <= maxBytes) return snap
+  let start = snap.length - maxBytes
+  const nl = snap.indexOf(10, start)                    // 对齐到下一行首;尾部无换行则按字节硬裁
+  if (nl >= 0 && nl + 1 < snap.length) start = nl + 1
+  while (start > 0 && (snap[start] & 0xC0) === 0x80) start--   // 0b10xxxxxx = 续字节,回退到前导字节
+  // 回退可能使结果超限 ≤2 字节:向前跳过整个多字节字符,UTF-8 完整性与硬上限兼得
+  while (snap.length - start > maxBytes && start < snap.length) {
+    start++
+    while (start < snap.length && (snap[start] & 0xC0) === 0x80) start++
+  }
+  return snap.subarray(start)
+}
+
 // 把一个浏览器 ws 接到已就绪的终端会话:先发快照(重连续跑),再进直播;断开即摘除。
+// replayMaxBytes>0 时快照按尾部裁剪(截断时前置一行黄色提示,提示字节计入预算);缺省 0 = 全量。
 export function attachSocketToSession(ws, session, { connId = ws, send, touch = () => {}, onDetach = () => {},
-  types = { stdin: 1, resize: 2, replay: 6 } } = {}) {
-  const snap = session.ring.snapshot()
-  if (snap.length) send(ws, types.replay, snap)
+  replayMaxBytes = 0, types = { stdin: 1, resize: 2, replay: 6 } } = {}) {
+  const full = session.ring.snapshot()
+  if (replayMaxBytes > 0 && full.length > replayMaxBytes) {
+    const NOTICE_RESERVE = 96   // 提示行字节数上界(全角文案+转义序列实测 ≤53,留裕量)
+    const clamped = clampReplay(full, Math.max(1, replayMaxBytes - NOTICE_RESERVE))
+    const notice = Buffer.from(`\r\n\x1b[33m[回放已截断:仅显示尾部 ${Math.round(clamped.length / 1024)}KB]\x1b[0m\r\n`)
+    send(ws, types.replay, Buffer.concat([notice, clamped]))
+  } else if (full.length) {
+    send(ws, types.replay, full)
+  }
   // 登记(primary 置位)由调用链上游的 service.attach(doAttach)完成;wire 不写 connIds/primary。
 
   // 上行帧:首字节 = 流标识,payload 为其余字节
@@ -45,14 +71,17 @@ export function attachSocketToSession(ws, session, { connId = ws, send, touch = 
   // onDetach → browserCount 双减,多浏览器会话被提前打到 0 → idle 清道夫误杀活会话。
   // connIds/primary 的清理在 onDetach(=service.detach:摘键+primary 顺延+空则转 DETACHED)
   // 内完成,wire 不再直写。
+  // 关闭原因一行日志(2026-09-08 排查盲区:连接被杀时网关侧零日志,谁关的/为何关分不清)。
+  // error 先到则记 error 为第一因,随后到达的 close 静默(幂等守卫自然吞掉)。
   let dropped = false
-  const drop = () => {
+  const drop = detail => {
     if (dropped) return
     dropped = true
+    console.log(`[ssh] terminal ${session.id || 'unknown'} ws ${detail}`)
     onDetach()
   }
-  ws.on('close', drop)
-  ws.on('error', drop)
+  ws.on('close', (code, reason) => drop(`close code=${code} reason=${Buffer.from(reason || []).toString('utf8').slice(0, 80)}`))
+  ws.on('error', err => drop(`error ${String(err?.message || err).slice(0, 80)}`))
 }
 
 // —— WS 存活探测(2026-09-04 事故①;复审 F2 改真双振)——
