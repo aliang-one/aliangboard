@@ -4222,7 +4222,10 @@
     "persistentBadge": "Persists",
     "persistentHint": "Backed by tmux — commands survive refresh / reconnect",
     "ephemeralBadge": "Lost on refresh",
-    "ephemeralHint": "Image has no tmux — this terminal won't survive refresh"
+    "ephemeralHint": "Image has no tmux — this terminal won't survive refresh",
+    "statusReconnecting": "Reconnecting…",
+    "reconnecting": "Connection lost, reconnecting… (attempt {n})",
+    "reconnected": "Reconnected"
   },
   "logPopup": {
     "title": "Logs · {pod}/{container}",

@@ -549,7 +549,7 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
 
 // SSH 终端双向通道:浏览器 WS ↔ 网关保活会话(浏览器断开不杀 shell,~10min 保活窗口)。
 // 帧同 exec + 下行 6=回放(重连同 sid 时网关先发快照再续直播);上行 1=stdin、2=resize。鉴权走平台 token。
-export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdout, onReplay, onError, onClose } = {}) {
+export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdout, onReplay, onError, onClose, onOpen } = {}) {
   const token = getPlatformToken()
   const proto = globalThis.location?.protocol === 'https:' ? 'wss' : 'ws'
   const host = globalThis.location?.host || '127.0.0.1:8787'
@@ -568,7 +568,7 @@ export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdou
     probed = true
     platformHttp.request('/api/auth/me').catch(() => {})
   }
-  ws.onopen = () => { opened = true }
+  ws.onopen = () => { opened = true; onOpen?.() }
   ws.onmessage = ev => {
     const buf = new Uint8Array(ev.data)
     if (!buf.length) return

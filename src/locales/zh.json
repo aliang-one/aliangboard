@@ -4222,7 +4222,10 @@
     "persistentBadge": "会保留",
     "persistentHint": "此终端由 tmux 承载,刷新浏览器/断线后命令继续运行",
     "ephemeralBadge": "刷新不保留",
-    "ephemeralHint": "该镜像内无 tmux,终端不会在刷新后保留"
+    "ephemeralHint": "该镜像内无 tmux,终端不会在刷新后保留",
+    "statusReconnecting": "重连中…",
+    "reconnecting": "连接断开,正在重连…(第 {n} 次)",
+    "reconnected": "已重新连接"
   },
   "logPopup": {
     "title": "日志 · {pod}/{container}",
