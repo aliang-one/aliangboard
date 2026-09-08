@@ -97,7 +97,7 @@ function loadPersisted() {
     const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]')
     return (Array.isArray(arr) ? arr : [])
       .filter(r => r && r.id && r.serverId && !isTombstoned(r.id))
-      .map(r => ({ id: r.id, serverId: r.serverId, name: r.name || r.serverId, status: 'minimized', zIndex: 0 }))
+      .map(r => ({ id: r.id, serverId: r.serverId, name: r.name || r.serverId, label: r.label || '', status: 'minimized', zIndex: 0 }))
   } catch { return [] }
 }
 
@@ -132,7 +132,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
       try { base = JSON.parse(localStorage.getItem(LS_KEY) || '[]') } catch { base = [] }
       if (!Array.isArray(base)) base = []
       const byId = new Map(base.map(r => [r.id, r]))
-      for (const w of windows.value) byId.set(w.id, { id: w.id, serverId: w.serverId, name: w.name })
+      for (const w of windows.value) byId.set(w.id, { id: w.id, serverId: w.serverId, name: w.name, label: w.label || '' })
       localStorage.setItem(LS_KEY, JSON.stringify([...byId.values()].filter(r => !locallyRemoved.has(r.id) && !isTombstoned(r.id))))
     } catch { /* 隐私模式等存储不可用:降级为会话内有效 */ }
   }
@@ -144,13 +144,13 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     windows.value = loadPersisted().map(r => {
       const cur = byId.get(r.id)
       byId.delete(r.id)
-      return cur ? { ...cur, serverId: r.serverId, name: r.name } : r
+      return cur ? { ...cur, serverId: r.serverId, name: r.name, label: r.label || '' } : r
     })
   }
   storageSyncTargets.add(syncFromStorage)
 
   function addWindow(server) {
-    const w = { id: genSid(), serverId: server.id, name: server.name, status: 'open', zIndex: takeZ() }
+    const w = { id: genSid(), serverId: server.id, name: server.name, label: '', status: 'open', zIndex: takeZ() }
     windows.value.push(w)
     persist()
     return w
@@ -199,7 +199,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     }, 2000)
   }
   const popupUrl = w => {
-    const params = new URLSearchParams({ serverId: w.serverId, sid: w.id, name: w.name })
+    const params = new URLSearchParams({ serverId: w.serverId, sid: w.id, name: w.label || w.name })
     return `${window.location.origin}/ssh-terminal-popup?${params}`
   }
   // 孤儿会话重附(2026-09-06):网关有会话而本地记录已丢(清过存储/换浏览器/旧版墓碑摘除),
@@ -208,7 +208,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     clearTombstone(id)   // 撤销旧版删除残留的墓碑,否则 persist/装载会再次滤掉重附窗口
     let w = windows.value.find(x => x.id === id)
     if (!w) {
-      w = { id, serverId, name: name || serverId, status: 'minimized', zIndex: 0 }
+      w = { id, serverId, name: name || serverId, label: '', status: 'minimized', zIndex: 0 }
       windows.value.push(w)
       persist()
     }
@@ -253,7 +253,7 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     if (type === 'alive') {
       let w = windows.value.find(x => x.id === sid)
       if (!w && meta?.serverId) {   // opener 错过创建窗口期:按信标元数据重建,不失明
-        w = { id: sid, serverId: meta.serverId, name: meta.name || meta.serverId, status: 'external', zIndex: 0 }
+        w = { id: sid, serverId: meta.serverId, name: meta.name || meta.serverId, label: '', status: 'external', zIndex: 0 }
         windows.value.push(w)
         persist()
         return
@@ -272,6 +272,13 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   }
   popupSyncTargets.add(onPopupSignal)
   const minimizeWindow = id => { const w = windows.value.find(w => w.id === id); if (w) w.status = 'minimized' }
+  // 会话标签(2026-09-08):同服多会话区分——label 空 = 显示回退服务器名;trim 后落盘
+  const renameWindow = (id, label) => {
+    const w = windows.value.find(w => w.id === id)
+    if (!w) return
+    w.label = String(label ?? '').trim()
+    persist()
+  }
   const restoreWindow = id => { const w = windows.value.find(w => w.id === id); if (w) { w.status = 'open'; w.zIndex = takeZ() } }
   function focusWindow(id) { const w = windows.value.find(w => w.id === id); if (w) w.zIndex = takeZ() }
 
@@ -297,5 +304,5 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   const markAliveSid = id => { if (deadSids.value.has(id)) { const s = new Set(deadSids.value); s.delete(id); deadSids.value = s } }
   const isDead = id => deadSids.value.has(id)
 
-  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, reattachOrphan, focusExternal, closeWindow, minimizeWindow, restoreWindow, focusWindow, isRecentlyClosed, isDead, markDeadSids, markAliveSid }
+  return { windows, openWindows, attachedWindows, groups, openOrFocus, openNew, openExternal, reattachOrphan, focusExternal, closeWindow, minimizeWindow, renameWindow, restoreWindow, focusWindow, isRecentlyClosed, isDead, markDeadSids, markAliveSid }
 })

@@ -291,3 +291,49 @@ test('reattachOrphan:清除历史墓碑,重附后刷新(loadPersisted)窗口仍�
     expect(reloaded.windows.map(w => w.id)).toContain('ssh-stale')
   } finally { window.open = _open }
 })
+
+// —— 会话标签(2026-09-08):同服多会话靠 #N 区分太弱,每会话可自定义 label(空=回退服务器名)——
+test('renameWindow:设置 label 并持久化;trim 空串=清除标签(回退服务器名)', () => {
+  fresh()
+  const store = useSshTerminalStore()
+  const w = store.openNew({ id: 'sv1', name: 'web-1' })
+  store.renameWindow(w.id, '  生产-前端  ')
+  expect(store.windows[0].label).toBe('生产-前端')
+  expect(JSON.parse(localStorage.getItem(LS_KEY)).find(r => r.id === w.id).label).toBe('生产-前端')
+  store.renameWindow(w.id, '   ')
+  expect(store.windows[0].label).toBe('')
+  // 清除后 persist 也回落(记录里 label 恒存,空串即「用服务器名」)
+  expect(JSON.parse(localStorage.getItem(LS_KEY)).find(r => r.id === w.id).label).toBe('')
+})
+
+test('label 持久化往返:刷新(loadPersisted)后 label 仍在;跨页对账(syncFromStorage)跟随磁盘 label', () => {
+  fresh()
+  const store = useSshTerminalStore()
+  const w = store.openNew({ id: 'sv1', name: 'web-1' })
+  store.renameWindow(w.id, '日志排查')
+  // 刷新模拟:新 store 装载
+  setActivePinia(createPinia())
+  const reloaded = useSshTerminalStore()
+  expect(reloaded.windows.find(x => x.id === w.id)?.label).toBe('日志排查')
+  // 他页改名落盘 → 本页 storage 对账跟随
+  const disk = JSON.parse(localStorage.getItem(LS_KEY))
+  disk.find(r => r.id === w.id).label = '他页改的名'
+  localStorage.setItem(LS_KEY, JSON.stringify(disk))
+  window.dispatchEvent(new StorageEvent('storage', { key: LS_KEY }))   // 模块级监听触发对账,不直调内部函数
+  expect(reloaded.windows.find(x => x.id === w.id)?.label).toBe('他页改的名')
+})
+
+test('openExternal:弹窗 URL 与窗口名用 label||name(新标签页里也能区分会话)', () => {
+  fresh()
+  const fakeWin = { closed: false, focus: vi.fn() }
+  window.open = vi.fn(() => fakeWin)
+  try {
+    const store = useSshTerminalStore()
+    const w = store.openNew({ id: 'sv1', name: 'web-1' })
+    store.renameWindow(w.id, '生产-前端')
+    store.openExternal(w.id)
+    const url = window.open.mock.calls[0][0]
+    expect(url).toContain(encodeURIComponent('生产-前端'))
+    expect(url).not.toContain(encodeURIComponent('web-1'))
+  } finally { window.open = _open }
+})

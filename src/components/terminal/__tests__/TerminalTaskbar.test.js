@@ -222,3 +222,31 @@ test('pod chip 点击本体仍是聚焦语义:多实例时点 chip 不新建', a
   await chips[0].trigger('click')
   expect(term.terminals).toHaveLength(2)   // 点击 chip 本体不新建(openOrFocus 语义不变)
 })
+
+// —— 会话标签(2026-09-08):同服多会话菜单行显示 label||name;✏️ → PromptDialog → renameWindow ——
+test('会话菜单行显示 label(有标签时);✏️ 改名 → PromptDialog → renameWindow 落库', async () => {
+  const bar = mountBar()
+  const ssh = useSshTerminalStore()
+  const a = ssh.openNew({ id: 'sv1', name: 'web-1' })
+  const b = ssh.openNew({ id: 'sv1', name: 'web-1' })
+  ssh.renameWindow(b.id, '日志排查')
+  await bar.vm.$nextTick()
+  await findSshChip(bar)[0].trigger('click')
+  const menu = bar.find('[data-test="ssh-session-menu"]')
+  expect(menu.text()).toContain('日志排查')
+  expect(menu.text()).toContain('web-1')          // a 未改标签 → 服务器名回退
+  // ✏️(第二行)→ PromptDialog 初值=当前标签 → 改名确认
+  const editBtns = menu.findAll('[title="重命名会话"]')
+  expect(editBtns.length).toBe(2)
+  await editBtns[1].trigger('click')
+  await bar.vm.$nextTick()
+  const dlg = document.querySelector('[data-testid="prompt-input"]')   // Modal Teleport body
+  expect(dlg?.value).toBe('日志排查')
+  dlg.value = '数据库维护'
+  dlg.dispatchEvent(new Event('input', { bubbles: true }))
+  document.querySelector('[data-testid="prompt-ok"]').click()
+  await bar.vm.$nextTick()
+  expect(ssh.windows.find(w => w.id === b.id).label).toBe('数据库维护')
+  expect(ssh.windows.find(w => w.id === a.id).label).toBe('')          // 只改了目标行
+  expect(JSON.parse(localStorage.getItem('aliangboard.ssh.windows')).find(r => r.id === b.id).label).toBe('数据库维护')
+})
