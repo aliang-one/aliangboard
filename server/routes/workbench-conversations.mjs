@@ -171,6 +171,8 @@ export function createWorkbenchConvRoutes(deps) {
     try {
       // 归属持久留痕(同 deny-no-LLM:审计链是 durable 权威源,先于终态翻转落账)
       writeAudit?.(db, { owner: ps.username, verb: 'deny', tool: 'wb_approval', result: 'ok', requestSummary: `conv=${conv.id} cluster-stamp=${pa.clusterId} current=${project.clusterId || '(unbound)'} approverId=${ps.userId}`, source: 'platform' })
+      // 病根A·A2(salvage-gap 审计 2026-09-08):paused 翻终态前补录该轮 trace 产出(同 deny-no-LLM)
+      wbAgent.preservePausedOutput?.(conv.id)
       updateConversation(db, conv.id, { status: 'failed', pendingApproval: null, error: reason })
       busEmit(conv.id, { type: 'status', status: 'failed', error: reason })
       busEmit(conv.id, { type: 'end' })
@@ -472,7 +474,10 @@ export function createWorkbenchConvRoutes(deps) {
         //    gap3-01:并入的是带戳形状(比对键随行);同 key 重 @ → 原地替换(重锚定当前集群,
         //    激活被停用的引用),未提及的旧条目原样保留(旧戳=换绑后由 agent 停用,不静默改锚)。
         let mergedRefs = []
-        try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { mergedRefs = [] }
+        // B5a(salvage-gap 审计 2026-09-08):现值不可解析 → 跳过对话级 references 更新(原值
+        // 保留待诊断),不再静默清空落回 [];消息级 refs 照常落,本轮无损。
+        let refsParseOk = true
+        try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { refsParseOk = false }
         if (Array.isArray(stampedRefs)) {
           const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
           const idxOf = new Map(mergedRefs.map((r, i) => [key(r), i]))
@@ -489,7 +494,9 @@ export function createWorkbenchConvRoutes(deps) {
         //    不再复读对话首问污染项目记忆(projectRecap)输入。
         //    conv-lifecycle-04:error 一并复位(regenerate 已有,对照同款)——上轮失败原因
         //    残留会让轮询端点恒回旧 error,前端错误横幅跨轮不消。
-        updateConversation(db, id, { status: 'running', references: mergedRefs, content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, userMessage: cleanMessage })
+        const runResetPatch = { status: 'running', content: '', reasoning: '', error: '', trace: '[]', steps: 0, pendingApproval: null, userMessage: cleanMessage }
+        if (refsParseOk) runResetPatch.references = mergedRefs // B5a:损坏时跳过,原值保留
+        updateConversation(db, id, runResetPatch)
         db.exec('COMMIT')
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached — 不 await;.catch 防未捕获 rejection 杀进程
         // gap2-04(2026-09-07 审计批次三):摘要 fire-and-forget 不再静默吞错——内层 catch 已落
@@ -649,7 +656,10 @@ export function createWorkbenchConvRoutes(deps) {
         // 新 refs 并入对话级 references(与 append 的 mergeRefs 同款;gap3-01:带戳形状入列,
         // 同 key 重发 → 原地替换重锚定,未提及旧条目保留旧戳不静默改锚)
         let mergedRefs = []
-        try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { mergedRefs = [] }
+        // B5a(salvage-gap 审计 2026-09-08,与 messages 路径同款):现值不可解析 → 跳过对话级
+        // references 更新,原值保留,不再静默清空。
+        let refsParseOk = true
+        try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { refsParseOk = false }
         const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
         const idxOf = new Map(mergedRefs.map((r, i) => [key(r), i]))
         for (const r of (refsValue || [])) {
@@ -668,8 +678,8 @@ export function createWorkbenchConvRoutes(deps) {
           conversationId: id, role: 'user', content,
           refs: refsValue ? refsValue.map((r, i) => ({ ...r, resource: r.resource ?? fetchedResources[i] ?? null })) : null,
         })
-        updateConversation(db, id, {
-          status: 'running', references: mergedRefs, content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null,
+        const editRunPatch = {
+          status: 'running', content: '', reasoning: '', trace: '[]', steps: 0, pendingApproval: null,
           // 审计#4:编辑后的提问即本轮真实问题,userMessage 同步更新(done 时项目历史记对)
           userMessage: content,
           // conv-lifecycle-04:error 复位与 messages/regenerate 同款——上轮失败原因不跨轮残留
@@ -677,7 +687,9 @@ export function createWorkbenchConvRoutes(deps) {
           // 水位钳制(spec §3.1 修正):min(现值, fromSeq-1)——前缀连续 1..fromSeq-1,保留其摘要覆盖;
           // 编辑首条(fromSeq-1=0)归 0。原 keptMinSeq-1 因 seq 从 1 起恒为 0,会把摘要覆盖每次归零。
           summarizedUpTo: Math.min(nowConv.summarizedUpTo ?? 0, t.fromSeq - 1),
-        })
+        }
+        if (refsParseOk) editRunPatch.references = mergedRefs // B5a:损坏时跳过,原值保留
+        updateConversation(db, id, editRunPatch)
         db.exec('COMMIT')
         wbAgent.runConversation(id, llmClient, { userId: ps.userId, username: ps.username, role: ps.role }).catch(e => console.error('[wbAgent] detached run 崩溃:', e?.message || e)) // detached
         auditConv(ps, 'edit', id, conv.projectId)
@@ -1002,6 +1014,9 @@ export function createWorkbenchConvRoutes(deps) {
         try {
           // 归属持久留痕(同 approve:审计链是 durable 权威源;pendingApproval 随终态清,不落 stamp)
           writeAudit?.(db, { owner: ps.username, verb: 'deny', tool: 'wb_approval', result: 'ok', requestSummary: `conv=${id} approverId=${ps.userId}`, source: 'platform' })
+          // 病根A·A2(salvage-gap 审计 2026-09-08):paused 翻终态前补录该轮 trace 产出
+          // (conv.content 已被轮间清零,不补录即消息层蒸发——前端按消息行重建只剩提问)。
+          wbAgent.preservePausedOutput?.(id)
           updateConversation(db, id, { status: 'failed', pendingApproval: null, error: msg(req, 'wbc.llmNotConfigured') })
           busEmit(id, { type: 'status', status: 'failed', error: msg(req, 'wbc.llmNotConfigured') })
           busEmit(id, { type: 'end' })

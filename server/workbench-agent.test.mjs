@@ -1234,3 +1234,105 @@ test('gap3-02 paused 落库:pendingApproval 盖 clusterId 戳(取 project.cluste
   assert.equal(pa.clusterId, 'c1', '审批载荷盖创建时集群戳(夹具项目绑 c1)')
   assert.equal(pa.toolCallId, 'tc9', '原载荷字段保留')
 })
+
+// ── 病根A 门扩展(salvage-gap 审计 2026-09-08):落库判据与「当前轮 partial」解耦 ──
+// 背景:assistant 轮完成即 resetRound 清零 partial/conv.content(2026-08-25 防回灌,自身正确);
+// 后续轮在首 delta 前死亡(400 建连即拒的典型形态)时 partial/reasoning 恒空,旧门
+// if(partial||reasoning) 走 else 不落行 → 整轮此前产出(轮1 文本+工具)对按消息行重建的前端
+// 永不可见(用户实测「只剩提问」)。契约:traceArr(本轮事件切片)有实际事件即落行
+// (content 空 + trace 交错渲染可见);三皆空才纯状态 failed。
+test('病根A回归:后续轮首 delta 前失败 + 此前轮有产出 → trace 兜底落行(不再只剩提问)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onReasoning('用户要查pod,先列资源')
+    opts.onDelta('我先看一下 Pod 列表。')
+    opts.onStep({ type: 'assistant', message: { role: 'assistant', content: '我先看一下 Pod 列表。' }, ts: Date.now() + 1 }) // 轮1 完成 → 真 resetRound 清零
+    opts.onStep({ type: 'tool', name: 'wb_list', args: { kind: 'pods' }, result: 'pod1 Running', ts: Date.now() + 2 })
+    throw new Error('LLM HTTP 400: messages 参数非法') // 轮2 首 delta 前死亡(零产出)
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+
+  assert.equal(getConversation(db, conv.id).status, 'failed')
+  const msgs = db.prepare('SELECT role, content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.length, 2, 'user + 抢救 assistant 行(修复前只有 user 行)')
+  const saved = msgs.at(-1)
+  assert.equal(saved.role, 'assistant')
+  assert.equal(saved.content, '', '当前轮零产出 → content 空(trace 兜底)')
+  const trace = JSON.parse(saved.trace || '[]')
+  assert.ok(trace.some(e => e?.type === 'assistant' && e.content === '我先看一下 Pod 列表。'), '轮1 文本经 trace 可见')
+  assert.ok(trace.some(e => e?.type === 'tool' && e.name === 'wb_list'), '轮1 工具事件经 trace 可见')
+})
+
+test('病根A·取消变体:轮1 完成后取消(当前轮零产出)→ cancelled 保留分支同样落行', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  updateConversation(db, conv.id, { status: 'running' })
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onStep({ type: 'assistant', message: { role: 'assistant', content: '轮1已答一半去查工具' }, ts: Date.now() + 1 })
+    opts.onStep({ type: 'tool', name: 'wb_list', args: {}, result: 'ok', ts: Date.now() + 2 })
+    updateConversation(db, conv.id, { status: 'cancelled' })
+    throw new Error('对话已取消,中止工具执行')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  assert.equal(getConversation(db, conv.id).status, 'cancelled')
+  const msgs = db.prepare('SELECT role, content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.length, 2, '取消也落抢救行(修复前整轮蒸发)')
+  assert.ok(JSON.parse(msgs.at(-1).trace || '[]').some(e => e?.type === 'assistant' && e.content === '轮1已答一半去查工具'), '轮1 文本保留')
+})
+
+// paused 出口保全(审计 A2):paused 时 conv.content 已被 :120 轮间清零,该轮产出只活在
+// conv.trace——凡把 paused 推向终态的出口(cancel/invalidate/deny 无 LLM/审批戳失效)须先按
+// 「末条消息之后」切片补落 assistant 行,否则该轮在消息层蒸发。
+test('病根A·paused 出口:cancelConversation 打在 paused → trace 切片补录消息行', async () => {
+  const { db, conv, busEmit, busDispose } = setup()
+  updateConversation(db, conv.id, { ...PAUSED, content: '', reasoning: '',
+    trace: JSON.stringify([
+      { type: 'assistant', message: { role: 'assistant', content: '我先查一下。' }, ts: Date.now() + 1 },
+      { type: 'tool', name: 'wb_list', args: {}, result: 'ok', ts: Date.now() + 2 },
+    ]) })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner: () => ({ run: async () => ({}) }), busEmit, busDispose })
+  const r = agent.cancelConversation(conv.id)
+  assert.equal(r.ok, true)
+  assert.equal(getConversation(db, conv.id).status, 'cancelled')
+  const msgs = db.prepare('SELECT role, content, trace FROM workbench_messages WHERE conversationId=? ORDER BY seq').all(conv.id)
+  assert.equal(msgs.length, 2, 'paused 取消前补录该轮产出')
+  const trace = JSON.parse(msgs.at(-1).trace || '[]')
+  assert.ok(trace.some(e => e?.type === 'assistant' && e.content === '我先查一下。'), '轮文本可见')
+  assert.ok(trace.some(e => e?.type === 'tool'), '工具事件可见')
+})
+
+test('病根A·paused 出口:invalidateConversation(换绑)同款补录;trace 空 → 不落行(幂等)', async () => {
+  const { db, conv, busEmit, busDispose } = setup()
+  updateConversation(db, conv.id, { ...PAUSED, content: '', trace: JSON.stringify([
+    { type: 'assistant', message: { role: 'assistant', content: '半程结论' }, ts: Date.now() + 1 },
+  ]) })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner: () => ({ run: async () => ({}) }), busEmit, busDispose })
+  const r = agent.invalidateConversation(conv.id, '项目已换绑集群')
+  assert.equal(r.ok, true)
+  let msgs = db.prepare('SELECT role FROM workbench_messages WHERE conversationId=?').all(conv.id)
+  assert.equal(msgs.length, 2, '换绑失效前补录')
+  // 幂等:再次对终态行调用 → no-op(状态门已挡);空 trace 的 paused → 取消不落行
+  const conv2 = (() => { const c = createConversation(db, { projectId: conv.projectId, system: 's', userMessage: 'q2' }); appendMessage(db, { conversationId: c.id, role: 'user', content: 'q2' }); return c })()
+  updateConversation(db, conv2.id, { ...PAUSED, content: '', trace: '[]' })
+  const agent2 = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner: () => ({ run: async () => ({}) }), busEmit, busDispose })
+  agent2.cancelConversation(conv2.id)
+  msgs = db.prepare('SELECT role FROM workbench_messages WHERE conversationId=?').all(conv2.id)
+  assert.equal(msgs.length, 1, '空切片不落行(无可保全内容)')
+})
+
+// ── A6(salvage-gap 审计 2026-09-08):paused 状态字段解析守卫 ──
+// 旧实现三处裸 JSON.parse 置于 updateConversation(running) 之后,任一损坏字段抛错落 catch →
+// safeSalvage 把 paused 翻 failed + 整份审批队列丢弃。契约:解析前置,损坏 = 数据问题而非
+// 续跑失败——回滚 paused(路由 CAS 已翻 running)、审批态原样保留、end 收尾、不进 run。
+test('A6: paused 状态字段损坏 → 不翻 failed,回滚 paused(审批态保留)', async () => {
+  const { db, conv, events, busEmit, busDispose } = setup()
+  updateConversation(db, conv.id, { ...PAUSED, messages: 'NOT-JSON', queue: '[]', denied: '[]' })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner: () => ({ run: async () => ({ status: 'done', content: 'x' }) }), busEmit, busDispose })
+  await agent.resumeConversation(conv.id, true, { chat: async () => ({}) }, { userId: 'u1', username: 'u' })
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'paused', '不翻 failed(修复前 safeSalvage 翻 failed 吞审批)')
+  assert.ok(row.pendingApproval, '审批态原样保留')
+  assert.ok(!events.some(e => e.type === 'status' && e.status === 'failed'), '不发 failed')
+  assert.ok(events.some(e => e.type === 'end'), 'end 收尾(前端不卡)')
+})

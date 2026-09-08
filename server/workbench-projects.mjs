@@ -181,7 +181,13 @@ export function appendTrace(db, id, step) {
   const row = db.prepare('SELECT trace FROM workbench_conversations WHERE id=?').get(id)
   if (!row) throw new Error(`appendTrace: conversation ${id} not found`)
   let trace = []
-  try { trace = JSON.parse(row.trace || '[]') } catch { trace = [] }
+  try { trace = JSON.parse(row.trace || '[]') } catch {
+    // A7(salvage-gap 审计 2026-09-08):现值损坏时不再以 [] 覆写——旧实现 catch 后照常
+    // push+落库,等于把全对话 trace 静默清零(当前轮事件唯一副本随之蒸发)。跳过本次追加,
+    // 原值保留待诊断;调用方(makeOnStep)不消费返回值,零影响。
+    console.error(`[workbench-projects] appendTrace: conversation ${id} trace 损坏,跳过追加(原值保留)`)
+    return []
+  }
   trace.push(step)
   // 收缩单遍完成(对抗审查性能发现):逐条丢弃×全量重序列化是 O(drops×cap),存量数千
   // 事件超限行(无上限时代遗留)首 append 实测 2-4s 同步停摆——单进程不变式下全进程冻结。
@@ -332,6 +338,10 @@ export function truncateAfterLastUser(db, conversationId) {
 // 启动抢救(2026-08-17 意外中断内容保全):上次运行中的对话标记 failed('Server restarted');
 // 若流式检查点已写过 conv.content 而末条消息不是该内容(中断轮的答案从未 append),补录为
 // assistant 消息——否则重开对话时,用户亲眼看着流出来的答案会"蒸发"(重建只吃 messages)。
+// 病根A·启动抢救变体(salvage-gap 审计 2026-09-08):run 在后续轮死亡时,轮间清零已把
+// conv.content 写空,旧判据 c.content 恒假 → 不补录,本轮已流出文本/工具只活在 conv.trace
+// 对消息层不可见。契约:content 空但「末条消息之后」的 trace 切片非空 → 照样补录
+// (content 空 + 切片,交错渲染可见);contentSaved 路径保持旧形状(整包 trace)不变。
 // 返回补录条数。
 export function salvageInterrupted(db, { now = Date.now() } = {}) {
   const running = db.prepare("SELECT id, content, reasoning, trace FROM workbench_conversations WHERE status='running'").all()
@@ -339,8 +349,20 @@ export function salvageInterrupted(db, { now = Date.now() } = {}) {
   for (const c of running) {
     const msgs = listMessages(db, c.id)
     const last = msgs[msgs.length - 1]
-    if (c.content && !(last && last.role === 'assistant' && last.content === c.content)) {
-      appendMessage(db, { conversationId: c.id, role: 'assistant', content: c.content, reasoning: c.reasoning || null, trace: c.trace || null })
+    const contentSaved = c.content && !(last && last.role === 'assistant' && last.content === c.content)
+    // 切片只在 contentSaved 不成立时计算(两判据互斥:content 路径走旧形状;已录过同文 →
+    // 末条 assistant 行 createdAt 晚于本轮 trace 事件 ts,切片自然为空,不会重复补录)。
+    let slice = []
+    if (!contentSaved) {
+      try {
+        const lastTs = last?.createdAt || 0
+        slice = (JSON.parse(c.trace || '[]'))
+          .filter(e => e && (e.ts || 0) > lastTs && e.type !== 'tool_start')
+          .map(e => e?.type === 'assistant' ? { type: 'assistant', content: e.message?.content ?? e.content ?? '', ts: e.ts } : e)
+      } catch { slice = [] }
+    }
+    if (contentSaved || slice.length) {
+      appendMessage(db, { conversationId: c.id, role: 'assistant', content: c.content || '', reasoning: c.reasoning || null, trace: contentSaved ? (c.trace || null) : JSON.stringify(slice) })
       salvaged++
     }
     db.prepare("UPDATE workbench_conversations SET status='failed', error='Server restarted', updatedAt=? WHERE id=?").run(now, c.id)

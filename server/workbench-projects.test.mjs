@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { join, resolve } from 'node:path'
-import { createWorkbenchSchema, createProject, listProjects, getProject, projectRepoPath, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted, truncateFromMessage, learningLedgerPath } from './workbench-projects.mjs'
+import { createWorkbenchSchema, createProject, listProjects, getProject, projectRepoPath, appendHistory, recentHistory, setPendingDistill, getPendingDistill, clearPendingDistill, createConversation, getConversation, updateConversation, listConversations, appendMessage, listMessages, getMaxSeq, buildHistory, setActiveConversation, getActiveConversationId, salvageInterrupted, truncateFromMessage, appendTrace, learningLedgerPath } from './workbench-projects.mjs'
 import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 
 function makeDb() {
@@ -537,4 +537,48 @@ test('deleteProject:默认 removeDir 走 rmSync,目录被清除', () => {
   assert.equal(r.ok, true)
   assert.equal(r.repoRemoved, true)
   assert.ok(!existsSync(repo))
+})
+
+// 病根A·启动抢救变体(salvage-gap 审计 2026-09-08):run 在后续轮工具期进程硬死——轮1 完成
+// 时 resetRound 已把 conv.content 清零,旧判据 c.content 恒空 → 不补录,轮1 产出只活在
+// conv.trace 对消息层不可见。契约:content 空但「末条消息之后」的 trace 切片非空 → 照样补录
+// (content 空 + trace 切片,交错渲染可见)。
+test('salvageInterrupted:content 轮间清零但 trace 有本轮事件 → 补录 content 空+切片', () => {
+  const db = new DatabaseSync(':memory:')
+  createWorkbenchSchema(db)
+  createProject(db, { name: 'p', clusterId: 'c1', ownerId: 'u1' })
+  const proj = db.prepare("SELECT id FROM workbench_projects WHERE name='p'").get()
+  const c = createConversation(db, { projectId: proj.id, system: '', userMessage: 'q' })
+  appendMessage(db, { conversationId: c.id, role: 'user', content: 'q' })
+  const lastTs = listMessages(db, c.id).at(-1).createdAt
+  updateConversation(db, c.id, {
+    status: 'running', content: '', reasoning: '',
+    trace: JSON.stringify([
+      { type: 'assistant', message: { role: 'assistant', content: '轮1的半程回答' }, ts: lastTs + 1 },
+      { type: 'tool', name: 'wb_list', args: {}, result: 'ok', ts: lastTs + 2 },
+    ]),
+  })
+  const salvaged = salvageInterrupted(db)
+  assert.equal(salvaged, 1, '切片非空 → 补录')
+  const msgs = listMessages(db, c.id)
+  assert.equal(msgs.at(-1).role, 'assistant')
+  assert.equal(msgs.at(-1).content, '', 'content 空(检查点已被轮间清零)')
+  const trace = JSON.parse(msgs.at(-1).trace || '[]')
+  assert.ok(trace.some(e => e?.type === 'assistant' && e.content === '轮1的半程回答'), '轮文本经切片保留')
+  assert.ok(trace.some(e => e?.type === 'tool'), '工具事件经切片保留')
+  assert.equal(getConversation(db, c.id).status, 'failed')
+})
+
+// A7(salvage-gap 审计 2026-09-08):appendTrace 现值损坏时不再以 [] 覆写——旧实现 catch 后
+// 照常 push+落库,等于把全对话 trace 静默清零(当前轮事件唯一副本蒸发)。契约:跳过本次追加,
+// 原值保留待诊断。
+test('A7: appendTrace 现值损坏 → 跳过追加,不以 [] 覆写(原值保留)', () => {
+  const db = new DatabaseSync(':memory:')
+  createWorkbenchSchema(db)
+  createProject(db, { name: 'p', clusterId: 'c1', ownerId: 'u1' })
+  const proj = db.prepare("SELECT id FROM workbench_projects WHERE name='p'").get()
+  const c = createConversation(db, { projectId: proj.id, system: '', userMessage: 'q' })
+  db.prepare("UPDATE workbench_conversations SET trace='CORRUPT{' WHERE id=?").run(c.id)
+  appendTrace(db, c.id, { type: 'tool', name: 'x', result: 'r', ts: 1 })
+  assert.equal(getConversation(db, c.id).trace, 'CORRUPT{', '原值保留(修复前被 [新事件] 覆写清零)')
 })
