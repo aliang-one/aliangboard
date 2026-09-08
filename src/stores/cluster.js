@@ -373,12 +373,21 @@ export const useClusterStore = defineStore('cluster', () => {
       apiReachable.value = true
     } catch { apiReachable.value = false }
   }
+  // 2026-09-08 性能批:后台标签页暂停健康轮询(常驻 10s × nodes?limit=500,此前无 hidden 守卫,
+  // 是后台标签页的常连接占用者);visibilitychange 回前台立即补一次,断连感知不丢。
+  let healthVisHandler = null
   function startHealthCheck() {
     if (healthTimer) return
     refreshNodeHealth()
-    healthTimer = setInterval(refreshNodeHealth, 10000)
+    healthTimer = setInterval(() => { if (!document.hidden) refreshNodeHealth() }, 10000)
+    healthVisHandler = () => { if (!document.hidden) refreshNodeHealth() }
+    document.addEventListener('visibilitychange', healthVisHandler)
   }
-  function stopHealthCheck() { if (healthTimer) clearInterval(healthTimer); healthTimer = null }
+  function stopHealthCheck() {
+    if (healthTimer) clearInterval(healthTimer)
+    healthTimer = null
+    if (healthVisHandler) { document.removeEventListener('visibilitychange', healthVisHandler); healthVisHandler = null }
+  }
 
   // 节点列表拉取（自包含：nodes + node-metrics → mapNode）。供 Nodes 页 Vue Query 作 fetcher，不依赖 hydrate。
 
@@ -630,6 +639,7 @@ export const useClusterStore = defineStore('cluster', () => {
     podWatchLive, startPodWatch, stopPodWatch,
     eventWatchLive, startEventWatch, stopEventWatch,
     watchStates, watchStateOf, startWorkloadFamilyWatch, stopWorkloadFamilyWatch,
+    startHealthCheck, stopHealthCheck,
     // CRD
     crInstancePath, refreshCRDInstances, applyCRYaml, deleteCRInstance,
     // 审计
