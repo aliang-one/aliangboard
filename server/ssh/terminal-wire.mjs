@@ -96,7 +96,14 @@ export function markAlive(ws) {
   ws.on('pong', () => { ws.isAlive = true })
 }
 
-export function attachWsLiveness(wsServer, { intervalMs = 30000, maxMissed = 2, onDead = ws => ws.terminate() } = {}) {
+export function attachWsLiveness(wsServer, { intervalMs = 30000, maxMissed = 2,
+  onDead = ws => {
+    // 终结前先落元数据(2026-09-08 复查#5):terminate 在对端也表现为 1006,与中间层断连
+    // 不可区分——此处记录是谁杀的 + 发送队列深度(大 bufferedAmount ≈ 回放/输出拥堵压垮
+    // ping/pong 的直接证据)。terminalId 由 handler 盖章(见 terminal-handler.mjs)。
+    console.log(`[ssh] liveness terminate id=${ws.terminalId || 'unknown'} missedPongs=${ws.missedPongs} buffered=${ws.bufferedAmount ?? 0}`)
+    ws.terminate()
+  } } = {}) {
   const sweep = () => {
     for (const ws of wsServer.clients) {
       if (ws.isAlive === false) {

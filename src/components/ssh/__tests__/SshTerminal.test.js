@@ -7,11 +7,18 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 
 const calls = vi.hoisted(() => [])
+const writes = vi.hoisted(() => [])
 vi.mock('@/api/client', () => ({
   sshTerminalStream: vi.fn(opts => { calls.push(opts); return { send() {}, resize() {}, close() {}, isOpen: true } }),
 }))
 vi.mock('@xterm/xterm', () => ({
-  Terminal: class { constructor() { this.cols = 80; this.rows = 24 } open() {} write() {} writeln() {} onData() {} onResize() {} loadAddon() {} focus() {} dispose() {} },
+  Terminal: class {
+    constructor() { this.cols = 80; this.rows = 24 }
+    open() {}
+    write(d) { writes.push(typeof d === 'string' ? d : new TextDecoder().decode(d)) }
+    writeln(d) { writes.push((typeof d === 'string' || d == null ? d ?? '' : new TextDecoder().decode(d)) + '\n') }
+    onData() {} onResize() {} loadAddon() {} focus() {} dispose() {}
+  },
 }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
@@ -22,7 +29,7 @@ const mountTerm = () => mount(SshTerminal, {
   props: { serverId: 'sv1', serverName: 'web-1', sid: 'sid-1', autoConnect: true },
   global: { plugins: [i18n] },
 })
-beforeEach(() => { calls.length = 0 })
+beforeEach(() => { calls.length = 0; writes.length = 0 })
 
 test('回放先于直播:CH_REPLAY 写入 xterm、徽标亮起、不产生第二次连接', async () => {
   const w = mountTerm()
@@ -88,7 +95,7 @@ test('指数退避:连续失败第二次等待翻倍(1s → 2s)', async () => {
   } finally { vi.useRealTimers() }
 })
 
-test('重连成功重置退避并提示已恢复:下一轮断开又从 1s 起', async () => {
+test('重连成功提示「已重新连接」;退避须过稳定窗(15s)才清零', async () => {
   vi.useFakeTimers()
   try {
     const w = mountTerm()
@@ -97,9 +104,19 @@ test('重连成功重置退避并提示已恢复:下一轮断开又从 1s 起', 
     vi.advanceTimersByTime(1000); await flushPromises()
     calls[1].onOpen(); await flushPromises()
     expect(w.vm.status).toBe('open')
+    expect(writes.some(x => x.includes(i18n.global.t('terminal.reconnected')))).toBe(true, '终端应写入「已重新连接」')
+    // 稳定窗内闪断:退避不清零(attempts 累计到 2)→ 下一轮等 2s 而非 1s
     calls[1].onClose(); await flushPromises()
     vi.advanceTimersByTime(1000); await flushPromises()
-    expect(calls.length).toBe(3, '成功后重置退避:新断开仍 1s 起')
+    expect(calls.length).toBe(2, '1s 时点不应连(退避已升级)')
+    vi.advanceTimersByTime(1000); await flushPromises()
+    expect(calls.length).toBe(3)
+    // 熬过稳定窗后退避清零:新断开又从 1s 起
+    calls[2].onOpen(); await flushPromises()
+    vi.advanceTimersByTime(15000); await flushPromises()
+    calls[2].onClose(); await flushPromises()
+    vi.advanceTimersByTime(1000); await flushPromises()
+    expect(calls.length).toBe(4, '稳定窗后清零:新断开仍 1s 起')
   } finally { vi.useRealTimers() }
 })
 

@@ -9,6 +9,7 @@ export function createSshTerminalHandler(deps) {
 
   const handler = async (ws, ps, url) => {
     markAlive(ws)   // WS 存活探测打标(半开 TCP 不发 close,靠 ping/pong 发现死连接)
+    ws.terminalId = url.searchParams.get('sid') || 'ssh:?'   // liveness terminate 日志的盖章
     // 入口关闭哨兵:建连链路的 await 窗口内浏览器断开时,close 先于接线发生会被
     // EventEmitter 丢失 → 计数卡死泄漏。每个 await 后 bail 并释放已取得资源。
     const sentinel = createCloseSentinel(ws)

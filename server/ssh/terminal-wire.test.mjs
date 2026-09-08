@@ -240,3 +240,25 @@ test('drop 落一行关闭日志:close 记 code/reason,error 优先记 error(连
   assert.equal(logs.length, 1, 'error+close 连锁只记第一因(error)')
   assert.ok(logs[0].includes('ECONNRESET'), `日志应含 error 消息:${logs[0]}`)
 })
+
+// —— liveness 终结可观测(2026-09-08 复查#5:terminate 也表现为 1006,与中间层断连不可区分)——
+// 默认 onDead 在 terminate 前先落一行元数据日志:terminalId / missedPongs / bufferedAmount,
+// 事后 grep 即可回答「是不是网关心跳误杀」。
+test('attachWsLiveness 默认 onDead:terminate 前记 terminalId/missedPongs/bufferedAmount', t => {
+  const logs = []
+  t.mock.method(console, 'log', (...a) => logs.push(a.join(' ')))
+  const terminated = []
+  const ws = {
+    terminalId: 'ssh-liv-1', isAlive: true, missedPongs: 0, bufferedAmount: 4096,
+    ping() { ws.isAlive = false },   // 模拟「发出 ping 但永远没有 pong 回来」
+    terminate() { terminated.push('yes') },
+  }
+  const fakeServer = { clients: new Set([ws]) }
+  const { sweep, stop } = attachWsLiveness(fakeServer, { intervalMs: 3_600_000 })
+  try {
+    sweep(); sweep(); sweep()   // 3 轮:置 false→ping / miss=1→reping / miss=2→terminate
+    assert.deepEqual(terminated, ['yes'])
+    assert.equal(logs.length, 1)
+    assert.ok(logs[0].includes('ssh-liv-1') && logs[0].includes('missedPongs=2') && logs[0].includes('buffered=4096'), `元数据齐全:${logs[0]}`)
+  } finally { stop() }
+})

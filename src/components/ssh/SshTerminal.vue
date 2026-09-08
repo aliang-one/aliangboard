@@ -41,9 +41,11 @@ let gen = 0                   // 连接代际:重连时旧流回调作废,避免
 // 断线自动重连(2026-09-08 线上事故:WS 瞬断被显示成「会话结束」,用户被迫手动刷新):
 // 曾成功 open 的流断开 → 指数退避自动重连同 sid(网关回放续跑)。首连握手失败(401/502)
 // 走既有探针/手动重试,CH_ERROR 终态(LOST/属主不符)重连无意义,均不自动重试。
-const RECONNECT_BASE_MS = 1000, RECONNECT_CAP_MS = 30000, RECONNECT_MAX_ATTEMPTS = 10
+// 退避清零须过稳定窗(复查#3):连接反复「秒开秒断」不重置计数,防 reload/抖动下的重连风暴。
+const RECONNECT_BASE_MS = 1000, RECONNECT_CAP_MS = 30000, RECONNECT_MAX_ATTEMPTS = 10, RECONNECT_STABLE_MS = 15000
 let reconnectAttempts = 0
 let reconnectTimer = null
+let stableTimer = null
 
 function setStatus(s, msg = '') { status.value = s; statusMsg.value = msg }
 
@@ -68,6 +70,7 @@ function closeStream() {
   gen++
   if (resizeTimer) { clearInterval(resizeTimer); resizeTimer = null }
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+  if (stableTimer) { clearTimeout(stableTimer); stableTimer = null }
   try { stream?.close() } catch { /* noop */ }
   stream = null
 }
@@ -93,8 +96,10 @@ function openStream() {
     onOpen: () => {
       if (my !== gen) return
       openedThisGen = true
-      reconnectAttempts = 0   // 成功一轮,退避从头计
-      if (status.value === 'reconnecting') term?.writeln(`\x1b[32m${t('terminal.reconnected')}\x1b[0m`)
+      if (reconnectAttempts > 0) term?.writeln(`\x1b[32m${t('terminal.reconnected')}\x1b[0m`)
+      // 熬过稳定窗才清零退避(复查#3:闪断不重置,防重连风暴;窗口内断开计数继续爬)
+      if (stableTimer) clearTimeout(stableTimer)
+      stableTimer = setTimeout(() => { stableTimer = null; if (my === gen) reconnectAttempts = 0 }, RECONNECT_STABLE_MS)
       setStatus('open')
     },
     onError: m => { if (my === gen) handleEnd(m) },
@@ -127,6 +132,9 @@ function scheduleReconnect() {
 function handleEnd(errMsg) {
   if (errMsg) term?.writeln(`\x1b[31m${errMsg}\x1b[0m`)
   else term?.writeln(`\x1b[33m${t('terminal.sessionEnded', { detail: '' })}\x1b[0m`)
+  // 终态立即收流(复查#4 前端半):不等浏览器/服务端侧握手收尾,当前代 WS 主动关闭,
+  // 免得半开连接挂着吃网关 liveness ping(服务端 LOST 亦会关,此处为双保险)。
+  try { stream?.close() } catch { /* noop */ }
   setStatus(errMsg ? 'error' : 'closed', errMsg || '')
 }
 
