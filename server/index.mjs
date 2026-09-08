@@ -59,6 +59,7 @@ import { reapExpiredSessions, enforceSessionCap, removeSessionRecord } from './p
 import { seedAdminIfNeeded } from './admin-seed.mjs'
 import { authClassFor, createAuthGate, isMfaPendingAllowed } from './route-auth-map.mjs'
 import { acquireSingleProcessLock } from './single-process-lock.mjs'
+import { enableFastJournal } from './db-pragma.mjs'
 import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { createSshRoutes } from './ssh/routes.mjs'
@@ -109,6 +110,8 @@ if (!_singleProcessLock.ok) {
 }
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { _singleProcessLock.release() } catch { /* noop */ } process.exit(0) })
 const db = new DatabaseSync(dbPath)
+// 2026-09-08 性能批:WAL + synchronous=NORMAL(delete 模式每写 ~20ms 同步阻塞事件循环,见 db-pragma.mjs 注释)
+enableFastJournal(db)
 // 工作台 repo 根目录(per-project repo + cluster ledger 的 git repo 落在这下面)
 const WORKBENCH_DIR = process.env.ALIANG_WORKBENCH_DIR || join(__dirname, '..', 'data', 'workbench')
 const STATIC_DIR = process.env.ALIANG_STATIC_DIR || join(__dirname, '..', 'dist')
