@@ -20,6 +20,7 @@ import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { sshApi } from '@/api/client'
 import { runFitLoop } from '@/utils/taskbarFit'
 import { Z } from '@/styles/zScale'
+import PromptDialog from '@/components/common/PromptDialog.vue'
 
 const { t } = useI18n()
 const termStore = useTerminalStore()
@@ -74,6 +75,16 @@ function onSshChipClick(chip, evt) {
 }
 const closeMenus = () => { menuOpenFor.value = ''; overflowOpen.value = false }
 const onSshNew = chip => { sshStore.openNew({ id: chip.id, name: chip.name }); menuOpenFor.value = '' }
+
+// —— 会话标签改名(2026-09-08):同服多会话区分。入口=会话菜单行 ✏️;初值=当前有效名
+// (label||name,非纯 label——改后缀比重敲省事);清回默认=手输服务器名。 ——
+const menuRenameFor = ref('')
+const renameTarget = computed(() => sshStore.windows.find(w => w.id === menuRenameFor.value) || null)
+const renameInitial = computed(() => renameTarget.value ? (renameTarget.value.label || renameTarget.value.name) : '')
+function onRenameConfirm(v) {
+  if (menuRenameFor.value) sshStore.renameWindow(menuRenameFor.value, v)
+  menuRenameFor.value = ''
+}
 
 // —— 网关真值对账(2026-08-29 泄漏审计)——
 // 任务栏是 localStorage 视图,网关侧可能存在本地不知情的存活会话(弹窗标签页自建 sid /
@@ -282,13 +293,30 @@ function closeAll() {
     <!-- 点击遮罩:点任意处关闭菜单/下拉(透明,恒在弹层之下) -->
     <div v-if="menuChip || overflowOpen" class="fixed inset-0" :style="{ zIndex: Z.modal }" @click="closeMenus"></div>
 
-    <!-- SSH 会话菜单:任务栏根部渲染(overflow-hidden 裁切修复),按 chip 锚点定位 -->
+    <!-- 会话标签改名弹窗(Modal Teleport body,恒在菜单之上) -->
+    <PromptDialog
+      v-if="menuRenameFor"
+      :model-value="true"
+      :title="t('ssh.renameSession')"
+      :message="renameTarget ? `ssh://${renameTarget.name}` : ''"
+      :label="t('ssh.sessionLabel')"
+      :initial-value="renameInitial"
+      select-all
+      @confirm="onRenameConfirm"
+      @cancel="menuRenameFor = ''"
+    />
+
+    <!-- SSH 会话菜单:任务栏根部渲染(overflow-hidden 裁切修复),按 chip 锚点定位。
+         会话标签(2026-09-08):行名 label||name——同服多会话不再全同名;✏️ 改名(PromptDialog) -->
     <div v-if="menuChip" data-test="ssh-session-menu" class="absolute bottom-full mb-xs min-w-[200px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs" :style="{ left: menuLeft + 'px', zIndex: Z.modal + 1 }">
       <button v-for="(w, i) in menuChip.windows" :key="w.id" @click="onSshItemClick(w); menuOpenFor = ''"
         class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
         <span class="material-symbols-outlined text-sm" :class="w.status === 'open' ? 'text-secondary' : 'text-on-surface-variant/50'">{{ w.status === 'open' ? 'terminal' : 'hide_source' }}</span>
-        <span class="truncate flex-1 font-mono">#{{ i + 1 }} · {{ w.name }}</span>
-        <span class="text-on-surface-variant/50">{{ w.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized') }}</span>
+        <span class="truncate flex-1 font-mono min-w-0">#{{ i + 1 }} · {{ w.label || w.name }}</span>
+        <span class="text-on-surface-variant/50 shrink-0">{{ w.status === 'open' ? t('terminal.statusFloating') : t('terminal.statusMinimized') }}</span>
+        <span @click.stop="menuRenameFor = w.id" class="p-0.5 rounded hover:bg-surface-container text-on-surface-variant/50 hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('ssh.renameSession')">
+          <span class="material-symbols-outlined" style="font-size:13px">edit</span>
+        </span>
         <span @click.stop="sshStore.closeWindow(w.id)" class="p-0.5 rounded hover:bg-error/20 text-on-surface-variant/50 hover:text-error">
           <span class="material-symbols-outlined" style="font-size:13px">close</span>
         </span>

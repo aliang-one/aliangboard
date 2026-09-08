@@ -4784,7 +4784,9 @@
     "ledgerHint": "Structured facts (address/OS/status/exposure) are maintained automatically; here you edit each server's role, duties and deployment notes. AI conversations can read and update this ledger too (with approval).",
     "ledgerStructure": "Structured layer (auto-maintained)",
     "ledgerNotesPlaceholder": "This server's role/duties/deployments, e.g. K8s master + bastion",
-    "ledgerEmpty": "No servers yet — add one first"
+    "ledgerEmpty": "No servers yet — add one first",
+    "renameSession": "Rename session",
+    "sessionLabel": "Session label (to distinguish multiple sessions on the same server)"
   },
   "mykeys": {
     "formIncomplete": "Pick a cluster and fill in the namespace"

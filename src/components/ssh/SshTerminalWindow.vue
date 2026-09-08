@@ -46,7 +46,8 @@ watch(() => props.window.status, (s) => {
     @minimize="sshStore.minimizeWindow(window.id)"
     @maximize-change="isMax = $event"
   >
-    <SshTerminal ref="termRef" :server-id="window.serverId" :server-name="window.name" :sid="window.id"
+    <!-- 会话标签(2026-09-08):头部 ssh://label(有 label 时);标签经任务栏会话菜单改名 -->
+    <SshTerminal ref="termRef" :server-id="window.serverId" :server-name="window.label || window.name" :sid="window.id"
       :auto-connect="connectAtMount" chrome="window" :maximized="isMax"
       @win-close="sshStore.closeWindow(window.id)"
       @win-minimize="sshStore.minimizeWindow(window.id)"
