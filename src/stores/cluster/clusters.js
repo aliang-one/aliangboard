@@ -42,6 +42,9 @@ export function createClustersDomain({ cluster, activeApiServerRef, apiReachable
   function setConnectedCluster(info) {
     // 先停旧 watch:换集群不灭旧流会留 7 条僵尸连接(与 switchCluster 对称)
     try { stopWorkloadFamilyWatch() } catch { /* noop */ }
+    // 清 Vue Query 缓存(与 switchCluster 对称):SelectCluster 连接成功改 SPA 跳转后,
+    // 「死集群 A 弹回选择页再连 B」不再整页刷新——旧集群缓存不清会让 B 页面先闪现 A 的数据
+    queryClient.clear()
     connectionState.value = 'loading'
     let name = info.name
     try { name = name || new URL(info.apiServer).hostname } catch { name = name || info.apiServer }

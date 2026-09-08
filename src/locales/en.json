@@ -2953,7 +2953,10 @@
     "addCluster": "Add Cluster",
     "contactAdmin": "Please contact your administrator to assign cluster access permissions",
     "clusterManagement": "Cluster Management",
-    "logout": "Logout"
+    "logout": "Logout",
+    "skipClusterTitle": "Not connecting a cluster yet?",
+    "skipClusterDesc": "Workbench · SSH servers · profile — all usable without a cluster",
+    "skipClusterCta": "Open workbench"
   },
   "addCluster": {
     "title": "Add Cluster",
