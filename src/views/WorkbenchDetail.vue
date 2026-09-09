@@ -94,7 +94,8 @@ const convStatusStyle = {
   done: 'bg-surface-container-high text-on-surface-variant',
   failed: 'bg-error/10 text-error',
 }
-function selectConversation(convId) { activeConversationId.value = convId }
+// 手机抽屉同值重选也收:重选已激活对话时 activeConversationId 不变,watch 不触发 → handler 内显式收。
+function selectConversation(convId) { activeConversationId.value = convId; if (isPhone.value) listDrawerOpen.value = false }
 function newConversation() { activeConversationId.value = null }
 
 // 手机抽屉(Wave5 R6):Agent 对话列表 / Edit 文件树在 <640px 收进左侧滑入面板。
@@ -234,6 +235,9 @@ async function bindCluster(v) {
 }
 
 async function openFile(path) {
+  // 手机抽屉同值重开也收:重开已打开文件 currentPath 不变,watch 不触发 → 进 handler 即显式收
+  // (置于 dirty 早退之前,任何点击路径都收)。
+  if (isPhone.value) treeDrawerOpen.value = false
   if (dirty.value && !confirm(t('workbench.detail.unsavedChangesWarning'))) return
   try {
     const res = await workbenchApi.readFile(id, path)
