@@ -1792,7 +1792,7 @@ function podStatusBorder(s) {
         <template #type="{ row }">
           <span class="text-xs px-1.5 py-0.5 rounded" :class="row.type === 'warning' ? 'bg-error/10 text-error' : 'bg-primary/10 text-primary'">{{ row.type }}</span>
         </template>
-        <template #message="{ row }"><span class="text-xs text-on-surface-variant block truncate" :title="row.message">{{ row.message }}</span></template>
+        <template #message="{ row }"><span class="text-xs text-on-surface-variant block truncate max-w-[400px]" :title="row.message">{{ row.message }}</span></template>
         <template #age="{ row }"><span class="text-xs text-on-surface-variant">{{ row.age }}</span></template>
       </DataTable>
     </div>

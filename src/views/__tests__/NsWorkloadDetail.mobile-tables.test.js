@@ -9,6 +9,11 @@ import { i18n } from '@/i18n'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 import { fetchWorkloadRevisions } from '@/composables/useFetchers'
+import { mapEvent } from '@/composables/useResourceMappers'
+import { api } from '@/api/client'
+
+// Events 用:经真实 mapEvent 管线渲染出 message 单元(修复轮:钉 width cap 防回归)
+const DEMO_EVENT_MESSAGE = 'Scaled up replica set demo-abc123 to 1'
 
 vi.mock('@/api/client', () => ({
   // replicasets 分流:两个 owned RS(rev2=当前 / rev1=旧版)让回滚钮(v-if="!row.current")
@@ -32,6 +37,11 @@ vi.mock('@/api/client', () => ({
       metadata: { name: 'demo-deploy', namespace: 'default',
         annotations: { 'deployment.kubernetes.io/revision': '2' } },
       spec: { template: { spec: { containers: [{ image: 'nginx:1.27' }] } } } }
+    if (p.includes('/api/v1/events')) return { items: [{
+      metadata: { name: 'demo-deploy.17abc', namespace: 'default', uid: 'ev-1',
+        creationTimestamp: new Date(Date.now() - 60_000).toISOString() },
+      involvedObject: { kind: 'Deployment', name: 'demo-deploy', namespace: 'default' },
+      type: 'Warning', reason: 'FailedScaling', message: DEMO_EVENT_MESSAGE, count: 1 }] }
     return { items: [] }
   }) },
   cronJobApi: { get: vi.fn(async () => ({})) },
@@ -53,6 +63,12 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   // revisions 独立 query 走此门:接真 fetchWorkloadRevisions(useFetchers 只 import 被mock的
   // api/client,replicasets 分流即在此生效),完整跑 buildRevisions 映射。
   fetchWorkloadRevisions: vi.fn(fetchWorkloadRevisions),
+  // events query 同门(真 cluster.js fetchEvents 是内联 api.k8s('/api/v1/events')+mapEvent,
+  // 无独立导出可复用,按同管线内联),让 message 单元真实渲染。
+  fetchEvents: vi.fn(async () => {
+    const d = await api.k8s('/api/v1/events?limit=1000')
+    return ((d?.items || []).map(mapEvent)).sort((a, b) => (b._ts || 0) - (a._ts || 0))
+  }),
 }) }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { name: 'demo-deploy', namespace: 'default' }, query: {} }), useRouter: () => ({ push: () => {} }) }))
 
@@ -87,6 +103,12 @@ test('Events tab:不再有裸 <table>(DataTable 双分支接管)', async () => {
     const tabBar = w.findAll('div').find(d => d.findAll('button').some(b => b.text() === i18n.global.t('workload.tabs.events')))
     await tabBar.findAll('button').find(b => b.text() === i18n.global.t('workload.tabs.events')).trigger('click')
     expect(w.find('table').exists()).toBe(false)
+    // 修复轮:message 单元必须有宽度上限(旧裸表 td 是 truncate max-w-[400px];无上限时
+    // auto-layout 表格 min-content=全文宽,列被挤穿+省略号永不出现)
+    expect(w.findAll('[data-card-row]').length).toBeGreaterThanOrEqual(1)
+    const msgSpan = w.findAll('[data-card-row] span').find(s => s.attributes('title') === DEMO_EVENT_MESSAGE)
+    expect(msgSpan).toBeTruthy()
+    expect(msgSpan.classes().join(' ')).toContain('max-w-[400px]')
     w.unmount(); document.body.innerHTML = ''
   } finally { spy.mockRestore() }
 })
