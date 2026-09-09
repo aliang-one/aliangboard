@@ -7,6 +7,7 @@ import { api, adminApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { useTableColumns } from '@/composables/useTableColumns'
 import ColumnManager from '@/components/common/ColumnManager.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import SettingsAboutPanel from '@/components/settings/SettingsAboutPanel.vue'
 import { i18n } from '@/i18n'
 import { usePreferencesStore } from '@/stores/preferences'
@@ -60,6 +61,13 @@ async function loadComponents() {
     csError.value = e.message || 'Failed to read component status'
   }
 }
+
+// Components 表头(DataTable 双分支共用:桌面=表列,手机=首列卡片标题+其余键值行;Wave5 B11 裸表迁移)
+const compHeaders = computed(() => [
+  { key: 'name', label: t('settings.component') },
+  { key: 'status', label: t('settings.componentStatus') },
+  { key: 'message', label: t('settings.message') },
+])
 
 watch(activeTab, tab => { if (tab === 'components' && csState.value === 'idle') loadComponents() })
 onMounted(() => {
@@ -267,7 +275,7 @@ const { catalog, resetAll } = useTableColumns()
       <div class="col-span-12 lg:col-span-3">
         <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-sm">
           <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
-            class="w-full flex items-center gap-sm px-sm py-1.5 rounded-lg text-body-sm transition-all"
+            class="w-full flex items-center gap-sm px-sm py-1.5 rounded-lg text-body-sm transition-all max-sm:min-h-[40px]"
             :class="activeTab === tab.key ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container'"
           >
             <span class="material-symbols-outlined text-sm">{{ tab.icon }}</span>
@@ -289,8 +297,8 @@ const { catalog, resetAll } = useTableColumns()
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/50">
               <span class="text-body-sm text-on-surface-variant">{{ t('settings.language') }}</span>
               <div class="flex items-center gap-xs">
-                <button @click="preferences.setLanguage('zh')" :class="i18n.global.locale.value === 'zh' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">{{ t('settings.zhName') }}</button>
-                <button @click="preferences.setLanguage('en')" :class="i18n.global.locale.value === 'en' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors">EN</button>
+                <button @click="preferences.setLanguage('zh')" :class="i18n.global.locale.value === 'zh' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors max-sm:min-h-[40px]">{{ t('settings.zhName') }}</button>
+                <button @click="preferences.setLanguage('en')" :class="i18n.global.locale.value === 'en' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors max-sm:min-h-[40px]">EN</button>
               </div>
             </div>
             <div class="flex justify-between py-sm border-b border-outline-variant/50">
@@ -323,14 +331,15 @@ const { catalog, resetAll } = useTableColumns()
         </div>
 
         <!-- Components -->
-        <div v-if="activeTab === 'components'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
+        <div v-if="activeTab === 'components'" class="space-y-md">
+          <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
           <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center justify-between">
             <div class="flex items-center gap-sm">
               <span class="material-symbols-outlined text-primary text-lg">extension</span>
               <span class="text-body-sm font-semibold">{{ t('settings.componentStatus') }}</span>
             </div>
             <button @click="loadComponents" :disabled="csState === 'loading'"
-              class="flex items-center gap-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container disabled:opacity-50">
+              class="flex items-center gap-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container disabled:opacity-50 max-sm:min-h-[40px]">
               <span class="material-symbols-outlined text-sm" :class="csState === 'loading' ? 'animate-spin' : ''">refresh</span>
               {{ t('settings.refresh') }}
             </button>
@@ -351,7 +360,7 @@ const { catalog, resetAll } = useTableColumns()
             </span>
           </div>
 
-          <!-- 加载 / 错误 / 表格 -->
+          <!-- 加载 / 错误(表格外置,DataTable 自带卡壳) -->
           <div v-if="csState === 'loading'" class="p-md text-center text-on-surface-variant">
             <span class="material-symbols-outlined animate-spin">progress_activity</span>
             <p class="text-body-sm mt-xs">{{ t('settings.loadingComponent') }}</p>
@@ -359,34 +368,22 @@ const { catalog, resetAll } = useTableColumns()
           <div v-else-if="csState === 'error'" class="p-md text-center">
             <span class="material-symbols-outlined text-error">error</span>
             <p class="text-body-sm text-error mt-xs">{{ csError }}</p>
-            <button @click="loadComponents" class="mt-md px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container">{{ t('settings.retry') }}</button>
+            <button @click="loadComponents" class="mt-md px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container max-sm:min-h-[40px]">{{ t('settings.retry') }}</button>
           </div>
-          <table v-else class="w-full text-left">
-            <thead>
-              <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('settings.component') }}</th>
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('settings.componentStatus') }}</th>
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('settings.message') }}</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-outline-variant/15">
-              <tr v-for="c in components" :key="c.name" class="hover:bg-surface-container-low/40">
-                <td class="px-md py-2 text-body-sm font-medium">{{ c.name }}</td>
-                <td class="px-md py-2">
-                  <span class="flex items-center gap-sm">
-                    <span class="w-2 h-2 rounded-full" :class="c.status === 'Healthy' ? 'bg-primary' : 'bg-error'"></span>
-                    <span class="text-xs font-medium" :class="c.status === 'Healthy' ? 'text-primary' : 'text-error'">{{ c.status }}</span>
-                  </span>
-                </td>
-                <td class="px-md py-2 font-mono text-code-sm text-on-surface-variant">{{ c.message || '—' }}</td>
-              </tr>
-              <tr v-if="!components.length">
-                <td colspan="3" class="px-md py-md text-center text-on-surface-variant text-body-sm">
-                  {{ t('settings.noComponents') }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          </div>
+          <!-- 裸表迁 DataTable(Wave5 B11):message 列长 URL(etcd healthz)手机卡片模式自带 min-w-0 收敛 -->
+          <DataTable v-if="csState === 'loaded'" :headers="compHeaders" :rows="components" row-key="name">
+            <template #name="{ row }"><span class="text-body-sm font-medium">{{ row.name }}</span></template>
+            <template #status="{ row }">
+              <span class="flex items-center gap-sm">
+                <span class="w-2 h-2 rounded-full" :class="row.status === 'Healthy' ? 'bg-primary' : 'bg-error'"></span>
+                <span class="text-xs font-medium" :class="row.status === 'Healthy' ? 'text-primary' : 'text-error'">{{ row.status }}</span>
+              </span>
+            </template>
+            <template #message="{ row }">
+              <span class="font-mono text-code-sm text-on-surface-variant block truncate max-w-[400px]" :title="row.message">{{ row.message || '—' }}</span>
+            </template>
+          </DataTable>
         </div>
 
         <!-- API Server -->
@@ -418,7 +415,7 @@ const { catalog, resetAll } = useTableColumns()
               <span class="material-symbols-outlined text-primary text-lg">view_column</span>
               <span class="text-body-sm font-semibold">{{ t('settings.customDisplay') }}</span>
             </div>
-            <button @click="resetAll" class="px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium text-on-surface-variant hover:bg-surface-container">{{ t('settings.resetAll') }}</button>
+            <button @click="resetAll" class="px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium text-on-surface-variant hover:bg-surface-container max-sm:min-h-[40px]">{{ t('settings.resetAll') }}</button>
           </div>
           <div class="p-md space-y-md">
             <p class="text-xs text-on-surface-variant">{{ t('settings.customDisplayDesc') }}</p>
@@ -442,8 +439,8 @@ const { catalog, resetAll } = useTableColumns()
             <span class="text-body-sm font-semibold">{{ t('settings.mcpTitle') }}</span>
           </div>
           <div class="p-md space-y-md">
-            <!-- Toggle + Status card -->
-            <div class="flex items-center justify-between p-md rounded-lg border transition-colors"
+            <!-- Toggle + Status card(开关本体 w-12 h-6 不改尺寸;行给 max-sm:min-h-[40px],开关钮以 after 扩命中区) -->
+            <div class="flex items-center justify-between p-md rounded-lg border transition-colors max-sm:min-h-[40px]"
               :class="mcpEnabled ? 'border-status-running/30 bg-status-running/5' : 'border-outline-variant bg-surface-container-low'">
               <div class="flex items-center gap-md">
                 <span class="w-3 h-3 rounded-full transition-colors" :class="mcpEnabled ? 'bg-status-running' : 'bg-on-surface-variant/30'"></span>
@@ -455,7 +452,7 @@ const { catalog, resetAll } = useTableColumns()
                 </div>
               </div>
               <button @click="toggleMcp" :disabled="mcpLoading"
-                class="relative w-12 h-6 rounded-full transition-colors flex-shrink-0"
+                class="relative w-12 h-6 rounded-full transition-colors flex-shrink-0 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
                 :class="mcpEnabled ? 'bg-status-running' : 'bg-outline-variant'">
                 <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow-sm"
                   :class="mcpEnabled ? 'translate-x-6' : 'translate-x-0'"></span>
@@ -470,7 +467,7 @@ const { catalog, resetAll } = useTableColumns()
                 <div class="flex items-center justify-between">
                   <span class="text-body-xs font-semibold text-on-surface">{{ t('settings.mcpAddCmdLabel') }}</span>
                   <button @click="copyText(mcpAddCmd)" type="button"
-                    class="flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+                    class="relative flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
                     <span class="material-symbols-outlined text-sm">content_copy</span>{{ t('common.copy') }}
                   </button>
                 </div>
@@ -484,7 +481,7 @@ const { catalog, resetAll } = useTableColumns()
                 <div class="flex items-center justify-between">
                   <span class="text-body-xs font-semibold text-on-surface">{{ t('settings.mcpRemoveCmdLabel') }}</span>
                   <button @click="copyText(mcpRemoveCmd)" type="button"
-                    class="flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+                    class="relative flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
                     <span class="material-symbols-outlined text-sm">content_copy</span>{{ t('common.copy') }}
                   </button>
                 </div>
@@ -497,7 +494,7 @@ const { catalog, resetAll } = useTableColumns()
                 <div class="flex items-center justify-between">
                   <span class="text-body-xs font-semibold text-on-surface">{{ t('settings.mcpInstallCliLabel') }}</span>
                   <button @click="copyText(mcpInstallCliCmd)" type="button"
-                    class="flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+                    class="relative flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
                     <span class="material-symbols-outlined text-sm">content_copy</span>{{ t('common.copy') }}
                   </button>
                 </div>
@@ -519,7 +516,7 @@ const { catalog, resetAll } = useTableColumns()
             <div class="flex items-center gap-sm">
               <label class="text-body-sm text-on-surface-variant shrink-0">{{ t('settings.transfersLimitLabel') }}</label>
               <input v-model="tfLimit" type="number" min="1" max="10240" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
-              <button @click="saveTransfersConfig" :disabled="tfSaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+              <button @click="saveTransfersConfig" :disabled="tfSaving" class="px-sm py-1 rounded-md bg-primary text-on-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50 max-sm:min-h-[40px]">
                 {{ t('common.save') }}
               </button>
             </div>
@@ -537,8 +534,8 @@ const { catalog, resetAll } = useTableColumns()
             <!-- SSH 会话回收(2026-08-29 spec 迁入) -->
             <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
               <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.sshPolicyTitle') }}</p>
-              <div v-for="f in [['detachedIdleMin', 'sshPolicyDetachedLabel'], ['attachedIdleMin', 'sshPolicyAttachedLabel'], ['maxLifetimeMin', 'sshPolicyMaxLifetimeLabel'], ['backendIdleMin', 'sshPolicyBackendLabel']]" :key="f[0]" class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.' + f[1]) }}</label>
+              <div v-for="f in [['detachedIdleMin', 'sshPolicyDetachedLabel'], ['attachedIdleMin', 'sshPolicyAttachedLabel'], ['maxLifetimeMin', 'sshPolicyMaxLifetimeLabel'], ['backendIdleMin', 'sshPolicyBackendLabel']]" :key="f[0]" class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('settings.' + f[1]) }}</label>
                 <input v-model="sshPolicy[f[0]]" type="number" min="0" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
                 <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>
               </div>
@@ -548,8 +545,8 @@ const { catalog, resetAll } = useTableColumns()
             <!-- Pod 终端空闲回收 -->
             <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
               <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.podTerminalPolicyTitle') }}</p>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.podIdleReapLabel') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('settings.podIdleReapLabel') }}</label>
                 <input v-model="podPolicy.idleReapMin" type="number" min="0" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
                 <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>
               </div>
@@ -558,18 +555,18 @@ const { catalog, resetAll } = useTableColumns()
             <!-- SSH 异步任务 -->
             <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
               <p class="text-body-sm font-semibold text-on-surface">{{ t('settings.sshJobPolicyTitle') }}</p>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.jobTtlLabel') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('settings.jobTtlLabel') }}</label>
                 <input v-model="jobPolicy.ttlMin" type="number" min="1" max="10080" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
                 <span class="text-body-xs text-on-surface-variant">{{ t('settings.sshPolicyUnit') }}</span>
               </div>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('settings.jobMaxPerServerLabel') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('settings.jobMaxPerServerLabel') }}</label>
                 <input v-model="jobPolicy.maxPerServer" type="number" min="1" max="16" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
               </div>
               <p class="text-body-xs text-on-surface-variant">{{ t('settings.jobPolicyHint') }}</p>
             </div>
-            <button @click="saveSshPolicy" :disabled="sshPolicySaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.save') }}</button>
+            <button @click="saveSshPolicy" :disabled="sshPolicySaving" class="px-sm py-1 rounded-md bg-primary text-on-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50 max-sm:min-h-[40px]">{{ t('common.save') }}</button>
             <p class="text-body-xs text-on-surface-variant">{{ t('settings.terminalPolicyEffectiveHint') }}</p>
           </div>
         </div>
@@ -584,8 +581,8 @@ const { catalog, resetAll } = useTableColumns()
             <!-- 密码策略 -->
             <div class="space-y-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
               <p class="text-body-sm font-semibold text-on-surface">{{ t('admin.securityPolicy.password') }}</p>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.securityPolicy.minLength') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('admin.securityPolicy.minLength') }}</label>
                 <input v-model="pwPolicy.minLength" type="number" min="8" max="128" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
               </div>
               <label class="flex items-center gap-sm text-body-sm text-on-surface-variant cursor-pointer">
@@ -600,26 +597,26 @@ const { catalog, resetAll } = useTableColumns()
                 <input v-model="pwPolicy.requireSymbol" type="checkbox" class="accent-primary w-4 h-4" />
                 {{ t('admin.securityPolicy.requireSymbol') }}
               </label>
-              <button data-testid="policy-save" @click="savePasswordPolicy" :disabled="pwPolicySaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.save') }}</button>
+              <button data-testid="policy-save" @click="savePasswordPolicy" :disabled="pwPolicySaving" class="px-sm py-1 rounded-md bg-primary text-on-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50 max-sm:min-h-[40px]">{{ t('common.save') }}</button>
             </div>
             <!-- 令牌有效期上限 -->
             <div class="flex items-center gap-sm p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
               <label class="text-body-sm text-on-surface-variant shrink-0">{{ t('admin.securityPolicy.tokenTtl') }}</label>
               <input data-testid="token-ttl-input" v-model="tokenTtl" type="number" min="1" max="365" class="w-32 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
-              <button data-testid="token-ttl-save" @click="saveTokenTtl" :disabled="tokenTtlSaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+              <button data-testid="token-ttl-save" @click="saveTokenTtl" :disabled="tokenTtlSaving" class="px-sm py-1 rounded-md bg-primary text-on-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50 max-sm:min-h-[40px]">
                 {{ t('common.save') }}
               </button>
             </div>
             <!-- 强制两步验证(W3 §1.5,外评 2026-09-07 修复 1):开后未启用用户登录只进 MFA 引导 -->
             <div data-testid="mfa-policy-card" class="p-md rounded-lg bg-surface-container-low border border-outline-variant/50">
-              <div class="flex items-center justify-between gap-md">
+              <div class="flex items-center justify-between gap-md max-sm:min-h-[40px]">
                 <div class="min-w-0">
                   <p class="text-body-sm font-semibold text-on-surface">{{ t('admin.securityPolicy.mfaRequired') }}</p>
                   <p class="text-body-xs text-on-surface-variant mt-xs">{{ t('admin.securityPolicy.mfaRequiredHint') }}</p>
                   <p class="text-body-xs text-on-surface-variant">{{ t('admin.securityPolicy.mfaRequiredLogoutHint') }}</p>
                 </div>
                 <button data-testid="mfa-policy-toggle" @click="toggleMfaPolicy" :disabled="mfaPolicyLoading"
-                  class="relative w-12 h-6 rounded-full transition-colors flex-shrink-0"
+                  class="relative w-12 h-6 rounded-full transition-colors flex-shrink-0 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
                   :class="mfaRequired ? 'bg-status-running' : 'bg-outline-variant'">
                   <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow-sm"
                     :class="mfaRequired ? 'translate-x-6' : 'translate-x-0'"></span>
@@ -635,51 +632,51 @@ const { catalog, resetAll } = useTableColumns()
                 {{ t('admin.oidc.enabled') }}
               </label>
               <p class="text-body-xs text-on-surface-variant">{{ t('admin.oidc.enabledHint') }}</p>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.issuer') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('admin.oidc.issuer') }}</label>
                 <input v-model="oidc.issuer" data-testid="oidc-issuer" type="text" placeholder="https://idp.example.com"
                   class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
               </div>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.clientId') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('admin.oidc.clientId') }}</label>
                 <input v-model="oidc.clientId" data-testid="oidc-client-id" type="text"
                   class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
               </div>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.clientSecret') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('admin.oidc.clientSecret') }}</label>
                 <input v-model="oidc.clientSecret" data-testid="oidc-client-secret" type="password" autocomplete="new-password"
                   :placeholder="oidcHasSecret ? t('admin.oidc.clientSecretSet') : ''"
                   class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
               </div>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.scopes') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('admin.oidc.scopes') }}</label>
                 <input v-model="oidc.scopes" data-testid="oidc-scopes" type="text" placeholder="openid profile email"
                   class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
               </div>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.groupsClaim') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('admin.oidc.groupsClaim') }}</label>
                 <input v-model="oidc.groupsClaim" data-testid="oidc-groups-claim" type="text"
                   class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
               </div>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.usernameClaim') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('admin.oidc.usernameClaim') }}</label>
                 <input v-model="oidc.usernameClaim" data-testid="oidc-username-claim" type="text"
                   class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-body-sm font-mono focus:outline-none focus:border-primary" />
               </div>
-              <div class="flex items-center gap-sm">
-                <label class="text-body-sm text-on-surface-variant shrink-0 w-56">{{ t('admin.oidc.redirectUri') }}</label>
+              <div class="flex items-center gap-sm max-sm:flex-col max-sm:items-start">
+                <label class="text-body-sm text-on-surface-variant shrink-0 w-56 max-sm:w-full">{{ t('admin.oidc.redirectUri') }}</label>
                 <div class="flex flex-1 min-w-0 items-center gap-xs">
                   <input :value="oidcRedirectUri" data-testid="oidc-redirect-uri" type="text" readonly
                     class="flex-1 min-w-0 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-low/60 text-code-sm font-mono text-on-surface-variant" />
                   <button @click="copyText(oidcRedirectUri)" type="button"
-                    class="flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+                    class="relative flex items-center gap-xs px-xs py-0.5 rounded text-body-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
                     <span class="material-symbols-outlined text-sm">content_copy</span>{{ t('common.copy') }}
                   </button>
                 </div>
               </div>
               <div class="flex items-center gap-sm">
-                <button data-testid="oidc-save" @click="saveOidcConfig" :disabled="oidcSaving" class="px-sm py-1 rounded-md bg-primary text-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50">{{ t('common.save') }}</button>
-                <button data-testid="oidc-test" @click="testOidcConnection" :disabled="oidcTesting" class="px-sm py-1 rounded-md border border-outline-variant text-body-xs font-semibold hover:bg-surface-container disabled:opacity-50">
+                <button data-testid="oidc-save" @click="saveOidcConfig" :disabled="oidcSaving" class="px-sm py-1 rounded-md bg-primary text-on-primary text-xs font-semibold hover:opacity-90 disabled:opacity-50 max-sm:min-h-[40px]">{{ t('common.save') }}</button>
+                <button data-testid="oidc-test" @click="testOidcConnection" :disabled="oidcTesting" class="px-sm py-1 rounded-md border border-outline-variant text-body-xs font-semibold hover:bg-surface-container disabled:opacity-50 max-sm:min-h-[40px]">
                   <span v-if="oidcTesting" class="material-symbols-outlined text-sm align-middle animate-spin">progress_activity</span>
                   <span v-else class="material-symbols-outlined text-sm align-middle">network_check</span>
                   {{ t('admin.oidc.test') }}

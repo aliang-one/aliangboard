@@ -30,9 +30,9 @@ function switchTab(key) { router.replace({ query: { ...route.query, tab: key } }
     <div><h2 class="text-headline-lg font-bold text-on-surface">{{ $t('userCenter.title') }}</h2>
       <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('userCenter.subtitle') }}</p></div>
 
-    <div class="flex gap-xs border-b border-outline-variant" data-testid="profile-tabs">
+    <div class="flex gap-xs overflow-x-auto border-b border-outline-variant" data-testid="profile-tabs">
       <button v-for="tab in TABS" :key="tab.key" :data-testid="`profile-tab-${tab.key}`"
-        class="flex items-center gap-xs px-md py-sm text-body-sm border-b-2 -mb-px transition-colors"
+        class="flex items-center gap-xs px-md py-sm text-body-sm border-b-2 -mb-px transition-colors shrink-0 whitespace-nowrap"
         :class="activeTab === tab.key ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
         @click="switchTab(tab.key)">
         <span class="material-symbols-outlined text-base">{{ tab.icon }}</span>{{ $t(tab.labelKey) }}

@@ -45,12 +45,12 @@ function close() { window.close() }
 
 <template>
   <div class="h-screen w-screen flex flex-col bg-code-surface">
-    <!-- 顶栏（pod 名 + 定位 + 关闭） -->
-    <div class="flex items-center gap-sm px-md shrink-0 bg-surface-container-high border-b border-outline-variant" style="height: 36px">
+    <!-- 顶栏（pod 名 + 定位 + 关闭）:定高 36px 手机放宽到 44px 容纳 40px 关窗钮(关窗是本页唯一应用内关窗入口,存活优先) -->
+    <div class="flex items-center gap-sm px-md shrink-0 bg-surface-container-high border-b border-outline-variant h-9 max-sm:h-11">
       <span class="material-symbols-outlined text-base text-primary">subject</span>
       <span class="text-body-sm font-medium text-on-surface truncate flex-1">{{ pod }}</span>
-      <span class="text-body-xs text-on-surface-variant/60 font-mono">{{ ns }}/{{ pod }}{{ container ? ':' + container : '' }}</span>
-      <button @click="close" class="flex items-center gap-xs px-sm py-0.5 rounded-md bg-error/10 text-error hover:bg-error/20 text-body-xs font-medium transition-colors shrink-0">
+      <span class="text-body-xs text-on-surface-variant/60 font-mono truncate min-w-0">{{ ns }}/{{ pod }}{{ container ? ':' + container : '' }}</span>
+      <button @click="close" class="flex items-center gap-xs px-sm py-0.5 rounded-md bg-error/10 text-error hover:bg-error/20 text-body-xs font-medium transition-colors shrink-0 max-sm:min-h-[40px]">
         <span class="material-symbols-outlined text-sm">close</span>{{ t('logPopup.closeWindow') }}
       </button>
     </div>

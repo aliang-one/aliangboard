@@ -60,7 +60,7 @@ onUnmounted(() => store.stopEventWatch())
     <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="flex gap-xs">
         <button v-for="opt in ['All', 'normal', 'warning']" :key="opt" @click="typeFilter = opt"
-          class="px-md py-xs rounded-full text-xs font-medium border transition-all capitalize"
+          class="relative px-md py-xs rounded-full text-xs font-medium border transition-all capitalize max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
           :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
           {{ opt === 'All' ? t('ns.events.filterAll') : opt }}
         </button>
@@ -91,7 +91,7 @@ onUnmounted(() => store.stopEventWatch())
         <span class="font-semibold text-on-surface text-body-sm">{{ row.reason }}</span>
         <span class="ml-sm px-2 py-0.5 rounded text-xs" :class="row.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ row.type }}</span>
       </template>
-      <template #message="{ row }"><span class="text-body-sm text-on-surface-variant max-w-md">{{ row.message }}</span></template>
+      <template #message="{ row }"><span class="text-body-sm text-on-surface-variant max-w-md break-words">{{ row.message }}</span></template>
       <template #time="{ row }"><span class="font-mono text-xs text-on-surface-variant whitespace-nowrap">{{ row.time }}</span></template>
       <template v-if="filtered.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />

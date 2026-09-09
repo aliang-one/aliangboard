@@ -211,7 +211,7 @@ const thStyle = (h) => h.width ? { width: h.width + 'px', minWidth: h.width + 'p
               class="w-5 h-5 accent-[rgb(var(--md-sys-color-primary))] cursor-pointer" />
           </span>
           <button v-if="expandable" data-card-expand @click.stop="toggleExpand(row)"
-            class="shrink-0 p-xs text-on-surface-variant hover:text-primary rounded">
+            class="shrink-0 p-xs text-on-surface-variant hover:text-primary rounded relative inline-flex items-center justify-center max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
             <span class="material-symbols-outlined text-base">{{ isExpanded(row) ? 'expand_more' : 'chevron_right' }}</span>
           </button>
         </div>

@@ -62,7 +62,7 @@ onMounted(load)
         <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('userCenter.tokens.tokensHint') }}</p>
       </div>
       <button data-testid="token-mint-btn"
-        class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm shrink-0"
+        class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm shrink-0 max-sm:min-h-[40px]"
         @click="showMint = true">
         <span class="material-symbols-outlined text-base">add</span>{{ $t('userCenter.tokens.mintBtn') }}
       </button>
@@ -88,7 +88,7 @@ onMounted(load)
           </p>
         </div>
         <button v-if="!k.revokedAt" :data-testid="`token-revoke-${k.id}`"
-          class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 shrink-0" :title="$t('userCenter.tokens.revokeConfirmTitle')"
+          class="relative p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 shrink-0 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('userCenter.tokens.revokeConfirmTitle')"
           @click="askRevoke(k)"><span class="material-symbols-outlined text-base">block</span></button>
       </div>
     </div>

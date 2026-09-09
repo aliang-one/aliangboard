@@ -250,7 +250,7 @@ onUnmounted(() => store.stopMetricsSampling())
                   <h4 class="text-body-sm font-semibold text-on-surface truncate">{{ event.reason }}</h4>
                   <span class="font-mono text-xs text-on-surface-variant whitespace-nowrap ml-sm">{{ event.time }}</span>
                 </div>
-                <p class="text-xs text-on-surface-variant">{{ event.message }}</p>
+                <p class="text-xs text-on-surface-variant break-words">{{ event.message }}</p>
               </div>
             </div>
           </div>

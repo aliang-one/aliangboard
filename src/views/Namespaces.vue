@@ -140,7 +140,7 @@ function submitDelete() {
           <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.namespaces.subtitle') }}</p>
         </div>
         <div class="flex gap-sm">
-          <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? t('ns.namespaces.syncing') : t('common.sync') }}
           </button>
           <CreateWithYamlButton :label="t('ns.namespaces.new')" :main-action="openCreate" yaml-template="Namespace" />
@@ -173,15 +173,15 @@ function submitDelete() {
             @click.stop="router.push(`/ns/${row.name}`)"
             :title="t('nav.enterNamespace')"
             :aria-label="t('nav.enterNamespace')"
-            class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all"
+            class="relative p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
           >
             <span class="material-symbols-outlined text-lg">login</span>
           </button>
-          <button @click.stop="router.push(`/namespaces/${row.name}`)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="t('ns.namespaces.view')">
+          <button @click.stop="router.push(`/namespaces/${row.name}`)" class="relative p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('ns.namespaces.view')">
             <span class="material-symbols-outlined text-lg">edit</span>
           </button>
           <button
-            class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+            class="relative p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
             :class="{ 'opacity-40 cursor-not-allowed': isProtected(row.name) }"
             :title="isProtected(row.name) ? t('ns.namespaces.systemNamespace') : t('common.delete')"
             :disabled="isProtected(row.name)"

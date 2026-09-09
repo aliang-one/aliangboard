@@ -68,10 +68,10 @@ function removeCluster(c) {
         </p>
       </div>
       <div class="flex gap-sm">
-        <button @click="sync" :disabled="syncing" class="flex items-center gap-sm px-3 py-1.5 bg-surface-container-highest text-on-surface text-body-sm font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+        <button @click="sync" :disabled="syncing" class="flex items-center gap-sm px-3 py-1.5 bg-surface-container-highest text-on-surface text-body-sm font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? t('clusters.syncing') : t('common.sync') }}
         </button>
-        <button @click="addCluster" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary text-body-sm font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all">
+        <button @click="addCluster" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary text-body-sm font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">add</span> {{ t('clusters.addCluster') }}
         </button>
       </div>

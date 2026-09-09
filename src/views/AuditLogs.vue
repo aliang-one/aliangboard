@@ -94,8 +94,8 @@ onUnmounted(() => store.stopEventWatch())
       </p>
     </div>
 
-    <!-- 统计卡片 -->
-    <div class="grid grid-cols-3 gap-sm mb-md">
+    <!-- 统计卡片(手机单列:390px 下三列每卡仅 ~103px,标签行必折行) -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-sm mb-md">
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant p-md">
         <div class="flex items-center gap-sm text-on-surface-variant mb-xs">
           <span class="material-symbols-outlined text-base">history</span>
@@ -123,7 +123,7 @@ onUnmounted(() => store.stopEventWatch())
     <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="flex gap-xs">
         <button v-for="opt in ['All', 'normal', 'warning']" :key="opt" @click="typeFilter = opt"
-          class="px-md py-xs rounded-full text-xs font-medium border transition-all capitalize"
+          class="relative px-md py-xs rounded-full text-xs font-medium border transition-all capitalize max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
           :class="typeFilter === opt ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary'">
           {{ opt === 'All' ? t('audit.all') : opt }}
         </button>
@@ -148,7 +148,7 @@ onUnmounted(() => store.stopEventWatch())
         <span class="ml-sm px-2 py-0.5 rounded text-xs" :class="row.type === 'warning' ? 'bg-tertiary-container/10 text-tertiary-container' : 'bg-primary-container/10 text-primary'">{{ row.type }}</span>
       </template>
       <template #resource="{ row }">
-        <button v-if="row.relatedKind" @click="goToRelated(row)" class="font-mono text-code-sm text-primary hover:underline whitespace-nowrap">
+        <button v-if="row.relatedKind" @click="goToRelated(row)" class="font-mono text-code-sm text-primary hover:underline truncate" :title="`${row.relatedKind}/${row.relatedName}`">
           {{ row.relatedKind }}/{{ row.relatedName }}
         </button>
         <span v-else class="text-on-surface-variant text-xs">—</span>
@@ -157,7 +157,7 @@ onUnmounted(() => store.stopEventWatch())
         <span v-if="row.namespace" class="px-2 py-0.5 bg-surface-container rounded-full text-xs text-on-surface-variant border border-outline-variant">{{ row.namespace }}</span>
         <span v-else class="text-on-surface-variant text-xs">—</span>
       </template>
-      <template #message="{ row }"><span class="text-xs text-on-surface-variant max-w-md">{{ row.message }}</span></template>
+      <template #message="{ row }"><span class="text-xs text-on-surface-variant max-w-md break-words">{{ row.message }}</span></template>
       <template #time="{ row }"><span class="font-mono text-code-sm text-on-surface-variant whitespace-nowrap">{{ row.time }}</span></template>
       <template v-if="filtered.length" #pagination>
         <Pagination :total="total" :page-size="pageSize" :current-page="currentPage" show-size-selector @page-change="(p) => currentPage = p" @size-change="(s) => { pageSize = s; currentPage = 1 }" />
