@@ -10,8 +10,12 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { sshTerminalStream } from '@/api/client'
 import { codeTheme } from '@/styles/code-theme'
+import { useIsPhone } from '@/composables/useBreakpoint'
+import { useTerminalFont } from '@/composables/useTerminalFont'
+import TerminalKeyBar from '@/components/common/TerminalKeyBar.vue'
 
 const { t } = useI18n()
+const { isPhone } = useIsPhone()
 
 const props = defineProps({
   serverId: { type: String, required: true },
@@ -38,6 +42,13 @@ const replayed = ref(false)   // 收到过回放帧(同 sid 重连) → 头部�
 let term = null, fit = null, stream = null, ro = null
 let gen = 0                   // 连接代际:重连时旧流回调作废,避免重复 handleEnd
 
+// 手机虚拟按键条输入(Wave5 B6,与 pod 终端同源):复用 term.onData 同款数据通路
+// (WS 协议语义不变)+ 发送后回焦 xterm 收软键盘(终审 B)
+function sendInput(d) { stream?.send(d); term?.focus() }
+
+// 手机字号热调(Wave5 B6,与 pod 终端同源 useTerminalFont):term/fit 为晚绑定局部实例,经 getter 传入
+const { termFont, adjustFont, resetFont } = useTerminalFont({ term: () => term, fit: () => fit })
+
 // 断线自动重连(2026-09-08 线上事故:WS 瞬断被显示成「会话结束」,用户被迫手动刷新):
 // 曾成功 open 的流断开 → 指数退避自动重连同 sid(网关回放续跑)。首连握手失败(401/502)
 // 走既有探针/手动重试,CH_ERROR 终态(LOST/属主不符)重连无意义,均不自动重试。
@@ -51,8 +62,9 @@ function setStatus(s, msg = '') { status.value = s; statusMsg.value = msg }
 
 function ensureTerm() {
   if (term) return
+  resetFont()  // 重连重建时复位(与 pod 终端同款,终审 E):热调值不跨会话残留
   term = new Terminal({
-    cursorBlink: true, fontSize: 13,
+    cursorBlink: true, fontSize: termFont.value,
     fontFamily: '"JetBrains Mono","JetBrains Mono NF",monospace',
     theme: { background: codeTheme.surface, foreground: codeTheme.onSurface, cursor: codeTheme.onSurface, selectionBackground: codeTheme.selection },
   })
@@ -211,6 +223,14 @@ defineExpose({ refit, replayed, connectIfIdle, connect, status })
       </div>
     </div>
     <div ref="root" class="flex-1 min-h-0 p-sm"></div>
+    <!-- 手机档虚拟按键条(Wave5 B6,与 pod 终端同源):软键盘发不出的 Esc/Tab/方向键/Ctrl+C
+         刚需 + 字号钮;字号钮经默认槽注入(渲染在 7 键之前,与 pod 布局一致) -->
+    <TerminalKeyBar v-if="isPhone" :send="sendInput">
+      <button @pointerdown.prevent @click="adjustFont(-1)"
+        class="shrink-0 min-h-[40px] min-w-[40px] px-sm rounded-lg border border-outline-variant bg-surface-container-lowest text-body-sm font-mono font-semibold active:bg-primary-container/20 transition-colors">A-</button>
+      <button @pointerdown.prevent @click="adjustFont(1)"
+        class="shrink-0 min-h-[40px] min-w-[40px] px-sm rounded-lg border border-outline-variant bg-surface-container-lowest text-body-sm font-mono font-semibold active:bg-primary-container/20 transition-colors">A+</button>
+    </TerminalKeyBar>
     <p v-if="statusMsg" class="px-md py-xs text-xs text-error bg-error-container/10">{{ statusMsg }}</p>
   </div>
 </template>
