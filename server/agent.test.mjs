@@ -531,9 +531,9 @@ test('chat 已吐 delta 后失败 → 不重试,错误照抛(salvage 由上层�
   assert.equal(calls, 1, '已吐 delta 不重试(前端内容会被重复拼接)')
 })
 
-test('重试也失败 → 抛第二次错误', async () => {
+test('重试也失败 → 抛第二次错误(4xx 单次重试路径;无状态码网络类由 5xx 用例覆盖)', async () => {
   let calls = 0
-  const chat = async () => { calls++; throw new Error(`boom #${calls}`) }
+  const chat = async () => { calls++; const e = new Error(`boom #${calls}`); e.status = 400; throw e }
   await assert.rejects(
     () => createAgent({ chat, execTool: async () => 'x' }).run({ history: [{ role: 'user', content: 'hi' }] }),
     /boom #2/,
@@ -739,4 +739,139 @@ test('trimMessages: tool_calls 仍全额计预算(是真发给 provider 的载�
   ]
   const { truncated } = trimMessages(msgs, 1000)
   assert.equal(truncated, true, '超预算照常裁剪(只剥内部字段,载荷字段不豁免)')
+})
+
+// ===== 上下文子系统系统性修复(2026-09-09 多维审计):trim 执法面 =====
+// bug①(生产 400 根因):phase1 只丢 user/tool 把 user 裁光 → GLM error 1214「messages 参数非法」。
+// 不变式:最新一条 user 与 system 同属不可裁集(旧 user 保持可丢,预算强制不失效)。
+test('trimMessages: 生产形态(尾条=tool)裁剪后最新 user 幸存', () => {
+  const msgs = [
+    { role: 'system', content: 'sys' },
+    { role: 'system', content: 'recap 注入段' },
+    { role: 'user', content: '帮我查 minio 的状态' },
+  ]
+  for (let k = 0; k < 10; k++) {
+    msgs.push({ role: 'assistant', content: null, tool_calls: [{ id: 'c' + k, type: 'function', function: { name: 'wb_describe_resource', arguments: '{"kind":"pods"}' } }] })
+    msgs.push({ role: 'tool', tool_call_id: 'c' + k, content: 'X'.repeat(12000) })
+  }
+  const { messages: out } = trimMessages(msgs, 30000)
+  const users = out.filter(m => m.role === 'user')
+  assert.equal(users.length, 1, '最新 user 幸存(旧轮全裁)')
+  assert.equal(users[0].content, '帮我查 minio 的状态')
+})
+
+test('trimMessages: 多轮纯文本形态——只丢旧 user,最新 user(非末位)幸存', () => {
+  const msgs = [{ role: 'system', content: 's' }]
+  for (let k = 0; k < 15; k++) {
+    msgs.push({ role: 'user', content: 'Q'.repeat(4000) })
+    msgs.push({ role: 'assistant', content: 'A'.repeat(3000) })
+  }
+  const { messages: out } = trimMessages(msgs, 40000) // assistant 体积 45KB>预算:phase1 须裁光全部 user 才够(修复前形态)
+  const users = out.filter(m => m.role === 'user')
+  assert.equal(users.length, 1, '仅最新 user 幸存')
+  assert.equal(out[out.length - 2].role, 'user', '最新 user 仍在末条 assistant 之前')
+})
+
+// T1:maxSteps=0(不限制)的「预算兜底」不成立——trim 不动点使循环无界;硬顶兜底 200 轮
+test('maxSteps=0 硬顶兜底:200 轮后强制收尾终答,不再无界', async () => {
+  let calls = 0
+  const chat = async (messages, tools) => {
+    calls++
+    return tools && tools.length
+      ? { role: 'assistant', content: null, tool_calls: [{ id: 't' + calls, type: 'function', function: { name: 'noop', arguments: '{}' } }] }
+      : { role: 'assistant', content: '终答' }
+  }
+  const run = createAgent({ chat, execTool: async () => "ok", maxSteps: 0, toolDefs: [{ type: "function", function: { name: "noop", parameters: { type: "object" } } }] }).run
+  const out = await run({ system: 's', history: [{ role: 'user', content: 'q' }] })
+  assert.equal(out.content, '终答')
+  assert.equal(out.truncated, true)
+  assert.ok(out.steps <= 201, `200 轮硬顶内收束(实际 ${out.steps})`)
+})
+
+// T3:裁剪下限(system+末组)自身超预算 → 尾部 tool 内容二次钳制(截断+标记),绝不 drop
+test('trimMessages: 下限仍超预算 → 尾部 tool 钳制带截断标记,user 不丢', () => {
+  const msgs = [
+    { role: 'system', content: 'S'.repeat(82000) },
+    { role: 'user', content: 'q' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'T'.repeat(8000) },
+  ]
+  const budget = 89600
+  const { messages: out } = trimMessages(msgs, budget)
+  assert.equal(out.filter(m => m.role === 'user').length, 1, 'user 绝不被 drop(1214 防线)')
+  const tool = out.find(m => m.role === 'tool')
+  assert.ok(tool, 'tool 保留(与 tool_call 配对,无孤儿)')
+  assert.ok(tool.content.length < 8000 && /truncated/.test(tool.content), '超限 tool 被钳制且带标记')
+  const total = out.reduce((n, m) => n + budgetSizeOf(m), 0)
+  assert.ok(total <= budget, `钳制后回到预算内(实际 ${total})`)
+})
+
+function budgetSizeOf(m) {
+  return JSON.stringify(m?.role === 'assistant'
+    ? { role: m.role, content: m.content, ...(Array.isArray(m.tool_calls) && m.tool_calls.length ? { tool_calls: m.tool_calls } : {}) }
+    : m).length
+}
+
+// ── F1(2026-09-09 审计)重试硬化:按错误类别分流 ──
+// 5xx/网络类瞬时故障 → 3 次尝试+指数退避(代理常在同 1-2s 内仍不健康,零延迟重试白烧);
+// 4xx → 保持单次立即重试(sub2api/litellm 瞬时 400 在案);取消/换绑 → 绝不重试。
+test('chat 5xx 连续失败两次、第三次成功(retryDelays 注入零延迟)→ 3 次尝试', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    if (calls <= 2) { const e = new Error('LLM HTTP 502: Upstream service temporarily unavailable'); e.status = 502; throw e }
+    return final('第三次的终答')
+  }
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0] }).run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, '第三次的终答')
+  assert.equal(calls, 3, '5xx 类共 3 次尝试')
+})
+
+test('chat 5xx 三连败 → 抛第三次错误(退避耗尽)', async () => {
+  let calls = 0
+  const chat = async () => { calls++; const e = new Error(`bad gateway #${calls}`); e.status = 502; throw e }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0] }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /bad gateway #3/,
+  )
+  assert.equal(calls, 3)
+})
+
+test('chat 用户取消(CancelledError)→ 绝不重试', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    const e = new Error('用户取消,中止工具执行'); e.name = 'CancelledError'; throw e
+  }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0] }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /用户取消/,
+  )
+  assert.equal(calls, 1, '取消类不重试')
+})
+
+test('chat 流式空闲超时(IdleTimeoutError)→ 保持单次立即重试(不进退避)', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    const e = new Error('LLM 流式空闲超时(180s 无数据)'); e.name = 'IdleTimeoutError'; throw e
+  }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [5000, 5000] }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /空闲超时/,
+  )
+  assert.equal(calls, 2, '超时类单次重试(退避 5s 未等待,测试瞬回)')
+})
+
+test('chat 4xx(status=400)→ 恰好重试一次', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    const e = new Error('LLM HTTP 400: messages 参数非法'); e.status = 400; throw e
+  }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0] }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /messages 参数非法/,
+  )
+  assert.equal(calls, 2, '4xx 保持单次立即重试')
 })

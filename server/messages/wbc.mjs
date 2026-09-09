@@ -13,6 +13,7 @@ export const TABLE = {
   'wbc.createFailed': { zh: '创建对话失败', en: 'Failed to create conversation' },
   'wbc.busyNoResume': { zh: '对话运行中/待审批,不能续接', en: 'Conversation is running or awaiting approval; cannot continue' },
   'wbc.messageRequired': { zh: '消息内容不能为空', en: 'Message content is required' },
+  'wbc.messageTooLarge': { zh: '单条消息过长(上限约 {limitKB}KB)。大段日志/配置请用 @-引用资源 附带,或分段发送。', en: 'Message too large (limit ~{limitKB}KB). Attach large logs/configs via @-resource references, or send in parts.' },
   'wbc.resumeFailed': { zh: '续接失败', en: 'Failed to continue conversation' },
   'wbc.busyNoRegen': { zh: '对话运行中,不能重新生成', en: 'Conversation is running; cannot regenerate' },
   'wbc.noRegenTarget': { zh: '没有可重新生成的回复', en: 'No reply to regenerate' },

@@ -1258,7 +1258,8 @@ test('病根A回归:后续轮首 delta 前失败 + 此前轮有产出 → trace 
   assert.equal(msgs.length, 2, 'user + 抢救 assistant 行(修复前只有 user 行)')
   const saved = msgs.at(-1)
   assert.equal(saved.role, 'assistant')
-  assert.equal(saved.content, '', '当前轮零产出 → content 空(trace 兜底)')
+  // 2026-09-09 WB-SALVAGE-2:content 从最终 trace 的 assistant 块派生——空行对 LLM 侧=整轮失忆
+  assert.equal(saved.content, '我先看一下 Pod 列表。', 'content=trace 派生(重发/摘要拿到非空语义)')
   const trace = JSON.parse(saved.trace || '[]')
   assert.ok(trace.some(e => e?.type === 'assistant' && e.content === '我先看一下 Pod 列表。'), '轮1 文本经 trace 可见')
   assert.ok(trace.some(e => e?.type === 'tool' && e.name === 'wb_list'), '轮1 工具事件经 trace 可见')
@@ -1357,4 +1358,44 @@ test('approvalMode 装配:读 owner 的 prefs,逐次现读(切档即时生效)',
   // owner 失联 → ask(授权主体恒取 owner:换 owner 行为跟随,不取触发者)
   db.prepare("DELETE FROM platform_users WHERE id='u1'").run()
   assert.equal(args.approvalMode(), 'ask')
+})
+
+// ── D(2026-09-09 多维审计):salvage 链修复 ──
+// WB-SALVAGE-1:真实循环每轮 chat 完成必发 onStep(assistant)→resetRound 清零,终态读取点
+// (done/paused 落库)拿到的 reasoning 恒空——R1「thinking 刷新可回看」在成功路径整体失效。
+test('D1: done 落库 reasoning 非空(resetRound 清零前快照 lastRound 兜底)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onReasoning?.('深度思考过程')
+    // 复刻真实循环必发事件(agent.mjs 每轮 return 前):assistant step → makeOnStep → resetRound
+    opts.onStep?.({ type: 'assistant', message: { role: 'assistant', content: '答案' }, ts: Date.now() })
+    return { status: 'done', content: '答案', steps: 1, messages: [], queue: [], denied: [] }
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'done')
+  assert.equal(row.reasoning, '深度思考过程', 'conv.reasoning 不再被轮间清零抹掉')
+  const msg = db.prepare("SELECT reasoning FROM workbench_messages WHERE conversationId=? AND role='assistant'").get(conv.id)
+  assert.equal(msg.reasoning, '深度思考过程', '消息行 reasoning 同样兜底')
+})
+
+// WB-SALVAGE-2:失败打在「工具后的新一轮首调」→ partial='' 但 trace 有前轮文本;
+// 旧落库 content='' 对 LLM 侧=整轮失忆(「继续」重发时 sanitizeMessages 把空行剔除)。
+test('D2: 失败轮 salvage content 从最终 trace 的 assistant 块派生(不再空失忆)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner } = setup()
+  const { createAgentRunner } = makeRunner(async (opts) => {
+    opts.onStep?.({ type: 'assistant', message: { role: 'assistant', content: '收到,我来查。' }, ts: 1 })
+    opts.onStep?.({ type: 'tool', name: 'wb_list_resources', args: {}, result: 'pods...', ts: 2 })
+    opts.onStep?.({ type: 'assistant', message: { role: 'assistant', content: null, tool_calls: [] }, ts: 3 }) // 新轮(触发清零)
+    throw new Error('LLM HTTP 400: messages 参数非法')
+  })
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  const row = getConversation(db, conv.id)
+  assert.equal(row.status, 'failed')
+  const msg = db.prepare("SELECT content, trace FROM workbench_messages WHERE conversationId=? AND role='assistant'").get(conv.id)
+  assert.equal(msg.content, '收到,我来查。', 'content=trace assistant 块派生(LLM/摘要/复制拿到非空语义)')
+  const trace = JSON.parse(msg.trace)
+  assert.ok(trace.some(e => e.type === 'tool' && e.name === 'wb_list_resources'), 'trace 保工具事件(交错渲染)')
 })

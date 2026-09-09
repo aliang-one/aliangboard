@@ -885,6 +885,10 @@ function startStreaming(id) {
       if (evt.status === 'failed') errorBanner.value = sanitizeChatError(evt.error) || t('workbench.chat.agentFailed')
       netLost.value = false; pollFailStreak = 0
       stopStreaming(); stopWatchdog(); sending.value = false; followBottom()
+      // METER-2(2026-09-09 审计):终态补一次 pollOnce——assistant 行恰在终态落库,停轮询前的
+      // 最后快照永不含刚完成的终答体积,量表系统性缺末轮(stopStreaming 已置 es=null,pollOnce
+      // 走 DB 对齐路径,与降级路径同码,幂等)。failed/cancelled 同族对称补齐。
+      pollOnce(id)
     }
     // end 事件:若已到终态则关流,否则也关(连接终结)
     if (evt.type === 'end') {
@@ -1163,6 +1167,7 @@ async function send() {
       // contracts-09(2026-09-07 审计批次三):响应回带 user 消息行 id——乐观 turn 改持之,
       // 发送后本会话内即可编辑(旧实现恒 null,要等刷新重建才有 id;pollOnce 见 turns 非空不重建)。
       if (resp?.messageId) updateTurn(userId, { messageId: resp.messageId })
+      if (resp?.context) ctxInfo.value = resp.context // METER-2:跑前基线即时入表(语义含刚落的 user 行)
       if (Array.isArray(resp?.references) && resp.references.length) {
         const ut = turns.value.find(x => x._id === userId)
         if (ut?.refs) pairRefResources(ut.refs, resp.references) // 按下标配对(审计#11:同名不同 kind 不再错绑)
@@ -1181,6 +1186,7 @@ async function send() {
       netLost.value = false; pollFailStreak = 0   // 同上:POST 成功即网络已活
       // contracts-09:同 append 分支,create 响应亦回带首条 user 行 id。
       if (resp?.messageId) updateTurn(userId, { messageId: resp.messageId })
+      if (resp?.context) ctxInfo.value = resp.context // METER-2:同 append 分支
       // 后端取回的完整资源对象挂到 user turn 的 refs(按 name+namespace 匹配)→ ChatTurn 渲染 ResourceCard
       if (Array.isArray(resp?.references) && resp.references.length) {
         const ut = turns.value.find(x => x._id === userId)
@@ -1440,7 +1446,7 @@ function useHint(h) { input.value = h }
             :style="{ width: ctxPct + '%' }"></div>
         </div>
         <span data-testid="context-meter-label" class="text-body-xs font-mono shrink-0">≈{{ Math.round(ctxInfo.estTokens / 1000) }}k / {{ Math.round(ctxInfo.windowTokens / 1000) }}k ({{ ctxPct }}%)</span>
-        <button v-if="ctxPct >= 70" data-testid="context-compact-btn" @click="showCompact = true"
+        <button v-if="ctxPct >= 70 || ctxInfo.willTrim" data-testid="context-compact-btn" @click="showCompact = true"
           :disabled="compactDisabled" :title="compactDisabled ? t('workbench.chat.context.compactBusy') : t('workbench.chat.context.compactTitle')"
           class="shrink-0 px-sm py-0.5 border border-outline-variant rounded-lg text-body-xs hover:bg-surface-container disabled:opacity-40 flex items-center gap-xs">
           <span class="material-symbols-outlined text-sm">compress</span>{{ t('workbench.chat.context.compact') }}

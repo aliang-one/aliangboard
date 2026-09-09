@@ -3220,7 +3220,7 @@
       "projectMemoryDesc": "New chats carry a summary of past project decisions",
       "maxStepsLabel": "Max agent steps",
       "maxStepsUnlimited": "Unlimited steps",
-      "maxStepsHint": "How many model→tool round-trips one answer may take (a real ImagePullBackOff investigation took 26 steps — the default 16 falls short). Check \"Unlimited\" to remove the cap; the context budget still backs things off. Takes effect on the next conversation, no restart needed.",
+      "maxStepsHint": "How many model→tool round-trips one answer may take (a real ImagePullBackOff investigation took 26 steps — the default 16 falls short). Check \"Unlimited\" for no manual cap — a hard ceiling of 200 rounds still applies and wraps up with a final answer. Takes effect on the next conversation, no restart needed.",
       "convLimitTitle": "Conversation limits",
       "convMaxRunningLabel": "Concurrent conversations",
       "convMaxPerProjectLabel": "Per-project conversations",

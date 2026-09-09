@@ -302,10 +302,17 @@ test('SSE done:step.assistant 终答块回填 content,复制按钮复制终答�
 // contracts-01:SSE status:cancelled 不更新 convStatus——跨实例取消后状态栏恒「运行中」。
 // 契约:cancelled 与 done/failed 同款透传,状态栏对齐「已取消」(排队消息出队见下一测)。
 test('SSE status:cancelled → convStatus 透传,状态栏显示已取消(跨实例取消)', async () => {
-  api.conversations.get.mockResolvedValue({
-    id: 'conv-1', status: 'running', content: '', trace: '[]', steps: 1, recap: '',
-    messages: [{ id: 'm1', role: 'user', content: '第一问', createdAt: 1 }],
-  })
+  // 2026-09-09 METER-2:终态分支补 pollOnce(终答体积即时入表)——get 桩须与终态一致,
+  // 否则 DB 对齐会把 SSE 已到的 cancelled 覆写回 running(生产中 GET 返回的就是终态)。
+  api.conversations.get
+    .mockResolvedValueOnce({ // 初载:运行中(取消前)
+      id: 'conv-1', status: 'running', content: '', trace: '[]', steps: 1, recap: '',
+      messages: [{ id: 'm1', role: 'user', content: '第一问', createdAt: 1 }],
+    })
+    .mockResolvedValue({ // 终态对齐(METER-2 补的 pollOnce):生产中 GET 返回的就是终态
+      id: 'conv-1', status: 'cancelled', content: '', trace: '[]', steps: 1, recap: '',
+      messages: [{ id: 'm1', role: 'user', content: '第一问', createdAt: 1 }],
+    })
   const w = await mountChat({ conversationId: 'conv-1', activeConversationId: 'conv-1' })
   await flushPromises()
   const es = FakeEventSource.instances.at(-1)

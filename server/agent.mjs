@@ -73,10 +73,15 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
   const startIdx = messages[0]?.role === 'system' ? 1 : 0
   const kept = messages.slice()
   const droppedToolIds = new Set()
+  // 最新一条 user 与 system 同属不可裁集(2026-09-09 审计 bug①):phase1 只丢 user/tool,长对话
+  // 把 user 裁光 → 发往 provider 的 messages 只剩 system+assistant → GLM error 1214「messages
+  // 参数非法」→ 整轮 400 死循环。保「最新」而非「全部」:旧 user 保持可丢,预算强制不失效。
+  let lastUserIdx = -1
+  for (let i = 0; i < kept.length; i++) if (kept[i]?.role === 'user') lastUserIdx = i
   let cur = total
   for (let i = startIdx; i < kept.length - 1 && cur > budget; i++) {
     const m = kept[i]
-    if (m.role === 'system' || m.role === 'assistant') continue  // 不丢 system/assistant
+    if (m.role === 'system' || m.role === 'assistant' || i === lastUserIdx) continue  // 不丢 system/assistant/最新 user
     cur -= budgetSize(m)
     if (m.role === 'tool' && m.tool_call_id) droppedToolIds.add(m.tool_call_id)
     kept[i] = null
@@ -105,10 +110,38 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
       out.splice(idx, end - idx)
     }
   }
+  // phase3(2026-09-09 审计 T3):裁剪下限(system+末组)自身超预算 → 尾部内容二次钳制。
+  // 只截 content、绝不 drop(丢末条 user 重造 1214 形态;丢 tool 产孤儿 tool_call);顺序:
+  // 先从尾部倒序钳 tool(标记与 clampToolContent 同款,模型可感知残缺),仍超才钳末条 user。
+  // system 恒不钳(prompt/refs 注入是系统资产,钳了改变行为语义)。记账精确:cur 减 content
+  // 旧长、加 keep+标记实长;keep 预留 32 字符标记上界,保证钳后 cur ≤ budget。
+  if (cur > budget) {
+    // 容量闸:钳制只在该轮「可钳内容(tool+user)足以吸收全部超发」时进行——system 独大
+    // (refs/记忆注入)时钳谁都是徒劳的语义损毁,保持旧语义原样超发返回(路由层输入上限与
+    // provider 报错兜底);超大贴片/巨型工具结果才值得且能够钳回预算内。
+    const clampable = out.reduce((n, m) => n + (m.role === 'tool' || m.role === 'user' ? String(m.content ?? '').length : 0), 0)
+    if (cur - budget <= clampable) {
+      const MARKER_PAD = 40 // 标记串 JSON 转义上界(评审 Minor:32 边界可余 ~32 字)
+      const clampContent = (m) => {
+        const s = String(m.content ?? '')
+        const rest = cur - s.length // 本条 content 之外的其余总量
+        let keep = Math.min(s.length, Math.max(0, budget - rest - MARKER_PAD))
+        const marker = `\n…[truncated ${s.length - keep} chars]`
+        m.content = s.slice(0, keep) + marker
+        cur = rest + m.content.length
+      }
+      for (let i = out.length - 1; i >= 0 && cur > budget; i--) {
+        if (out[i].role === 'tool') clampContent(out[i])
+      }
+      if (cur > budget) {
+        for (let i = out.length - 1; i >= 0; i--) if (out[i].role === 'user') { clampContent(out[i]); break }
+      }
+    }
+  }
   return { messages: out, truncated: true }
 }
 
-export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, shouldAbort, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS }) {
+export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, shouldAbort, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS, retryDelays }) {
   // chat: async (messages, toolDefs) => assistantMessage {role, content, tool_calls?}
   // toolDefs: LLM 工具定义(OpenAI tools 格式)
   // execTool: async (name, args) => 结果(string 或对象,转字符串喂回 LLM)
@@ -133,10 +166,29 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   // 拿 {} 照跑工具,而是把「参数非合法 JSON + 原文截断」作为工具回执喂回 LLM(可自纠)。
   function parseArgs(tc) { try { return JSON.parse(tc.function?.arguments || '{}') } catch { return undefined } }
 
-  // chat 容错(2026-09-06「对话尾巴不展示」排查):首 token 前(未吐任何 delta/reasoning)失败
-  // 自动重试一次——sub2api/litellm 类代理的瞬时 400/502 多发生在建连/首 token,一次重试成本低、
-  // 常能救活整轮(final 轮一死,跑完全部工具的成果对用户就「不展示」)。已吐 delta 后失败不重试:
-  // 流式重试从头再吐,前端已拼接的内容会重复。chat 是纯生成调用(无副作用),重试安全。
+  // chat 容错(2026-09-06「对话尾巴不展示」排查;2026-09-09 审计 F1 按类别分流):首 token 前
+  // (未吐任何 delta/reasoning)失败自动重试——sub2api/litellm 类代理的瞬时 400/502 多发生在
+  // 建连/首 token。已吐 delta 后失败不重试:流式重试从头再吐,前端已拼接的内容会重复。chat 是
+  // 纯生成调用(无副作用),重试安全。分流(F1):
+  //   5xx/网络类(llm throw 附 status≥500,或无 status 的网络层错误)→ 共 3 次尝试 + 指数退避
+  //     (代理常在同 1-2s 内仍不健康,零延迟重试白烧;退避乘 jitter 防齐步);
+  //   4xx → 保持单次立即重试(便宜;sub2api/litellm 瞬时 400 在案,勿按状态码武断放弃);
+  //   取消/换绑(CancelledError/InvalidatedError)→ 绝不重试;超时类(Idle/StreamDeadline)
+  //     → 单次立即重试(多重退避会把单轮挂到数十分钟)。
+  // retryDelays 为测试缝(注入 [0,0] 跳过真实 sleep),生产缺省 [300, 1500]。
+  const RETRY_DELAYS = retryDelays || [300, 1500]
+  const errKind = (e) => {
+    if (e?.name === 'CancelledError' || e?.name === 'InvalidatedError') return 'cancel'
+    // AbortSignal.timeout(非流式 chat 总限)也产 TimeoutError——归超时类(单次),否则 3×120s
+    if (e?.name === 'IdleTimeoutError' || e?.name === 'StreamDeadlineError' || e?.name === 'TimeoutError') return 'timeout'
+    const s = Number(e?.status)
+    if (s >= 500) return 'transient'
+    // 429 亦落此类(单次立即重试、不退避不认 Retry-After)——sub2api/litellm 瞬时 4xx 在案,
+    // 按状态码武断分类的回归风险大于收益;真限流场景由上游代理侧治理(litellm timeout 配置)
+    if (s >= 400) return 'client'
+    return 'network'
+  }
+  const sleep = ms => new Promise(r => setTimeout(r, ms))
   async function chatWithRetry(messages, tools, opts = {}) {
     let sawDelta = false
     const wrapped = {}
@@ -146,9 +198,29 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       return await chat(messages, tools, wrapped)
     } catch (e) {
       if (sawDelta) throw e
+      if (errKind(e) === 'cancel') throw e
+      if (errKind(e) === 'transient' || errKind(e) === 'network') {
+        let last = e
+        for (const d of RETRY_DELAYS) {
+          await sleep(d * (0.5 + Math.random()))
+          try { return await chat(messages, tools, wrapped) } catch (e2) {
+            if (sawDelta) throw e2
+            if (errKind(e2) === 'cancel') throw e2
+            last = e2
+          }
+        }
+        throw last
+      }
       return await chat(messages, tools, wrapped)
     }
   }
+
+  // maxSteps=0(不限制)的独立硬兜底(2026-09-09 审计 T1):上下文预算不是终止条件——trim 的
+  // 裁剪不动点([system,assistant(tc),tool] 滑动窗)使上下文恒低于预算,循环无任何内部出口
+  // (每轮=1 次真实计费 LLM 调用+1 次工具执行)。硬顶=200(与 UI 步数上限同值,语义「0≈上限
+  // 档」),复用收尾轮机制到点强制终答;steps 跨 resume 累计,审批乒乓无法重置硬顶。
+  const HARD_CAP = 200
+  const stepCap = maxSteps > 0 ? maxSteps : HARD_CAP
 
   async function run({ system, history = [], onStep, onDelta, onReasoning, refreshSystem, resume } = {}) {
     // 初始化:resume 从回传状态续跑;否则从 system + history 起
@@ -218,12 +290,12 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
         onStep?.({ type: 'tool', name, args, result, ts: Date.now() })
       }
 
-      // 2) 队列空 → 下一轮 chat(受 maxSteps 约束;0/负数 = 不设限,仅上下文预算兜底)
+      // 2) 队列空 → 下一轮 chat(受 stepCap 约束;maxSteps=0 → HARD_CAP=200 硬顶兜底,见 stepCap 注)
       // 取消检查点②(2026-09-06 审计#3;对抗审查后置于 maxSteps 分支之前):取消后不再发起
       // 任何后续 chat——含收尾轮(纯生成无工具,虽无副作用但结果注定被丢弃,省一次调用)。
       // 在途 LLM 流本身不可中断属已知边界,此处拦的是「下一轮」。
       if (shouldAbort && await shouldAbort()) throw new Error('对话已取消,中止工具执行')
-      if (maxSteps > 0 && steps >= maxSteps) {
+      if (steps >= stepCap) {
         // 收尾轮(2026-09-03):到上限不再硬断——注入系统收尾指令、不带工具,强制基于已有信息终答。
         // truncated 仍 true:前端据此亮「已达步数上限」标;每 run 至多一次(极端二次到顶走旧兜底文案)。
         if (!wrappedUp) {
@@ -231,7 +303,7 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
           // 到上限时刻消息最长,必须先按预算裁剪再收尾 chat,否则可能超预算被 provider 400 整轮 failed
           const t = trimMessages(messages, budgetChars)
           messages = t.messages
-          messages.push({ role: 'user', content: `(系统提示:已达到最大执行步数 ${maxSteps},请立即基于以上已获得的信息给出最终回答,不要再调用任何工具。)` })
+          messages.push({ role: 'user', content: `(系统提示:已达到最大执行步数 ${stepCap},请立即基于以上已获得的信息给出最终回答,不要再调用任何工具。)` })
           steps++
           const assistant = await chatWithRetry(messages, [], (onDelta || onReasoning) ? { onDelta, onReasoning } : {})
           messages.push(assistant)

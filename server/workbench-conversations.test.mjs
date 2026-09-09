@@ -317,7 +317,8 @@ test('GET /:id 返回 context:estTokens/windowTokens/budgetTokens/recapUpTo/will
   assert.equal(typeof r.context.estTokens, 'number')
   assert.ok(r.context.estTokens > 0, '含 system+history 估算')
   assert.equal(r.context.recapUpTo, conv.summarizedUpTo ?? 0)
-  assert.equal(r.context.willTrim, r.context.estTokens > r.context.budgetTokens)
+  // 2026-09-09 METER-1:willTrim 切字符域(estChars vs charBudget,与 trimMessages 执法线同单位)
+  assert.equal(r.context.willTrim, r.context.estChars > r.context.charBudget)
 })
 
 // ── 编辑重发 T2:POST /:id/edit 契约(spec §3.1)──
@@ -379,8 +380,9 @@ test('POST edit:截断+新消息+running+refs 沿用+水位钳制', async () => 
   assert.ok('resource' in reused[0], '沿用锚 refs 补拉 enrich(resource 在场)')
   const after = getConversation(h.db, conv.id)
   assert.equal(after.status, 'running')
-  // 水位钳制(spec §3.1 修正版):min(现值, fromSeq-1)——前缀 1..2 连续,盖住锚(3)钳到 2
-  assert.equal(after.summarizedUpTo, 2, '水位盖住锚:钳到 fromSeq-1')
+  // 水位钳制 + H3 深锚回卷(2026-09-09):锚(3)≤水位(3)=深锚 → 归 0 + recap 回卷
+  assert.equal(after.summarizedUpTo, 0, '深锚:水位归 0(前缀全文回放)')
+  assert.equal(after.recap, null, '深锚:recap 回卷')
   assert.ok(JSON.parse(after.references).some(r => r.kind === 'pods' && r.name === 'p1'), '对话级 references 含原 ref')
 })
 
@@ -610,5 +612,94 @@ test('A1:estTokens 单调递增,差值=中文 pm×1 与 refs×2048/4(±100 JSON 
   assert.ok(e1 > e0, '项目记忆进余量口径(estTokens 递增)')
   assert.ok(Math.abs((e1 - e0) - 4000) <= 100, `中文 pm 差值≈4000 tokens(cjk 1 token/字;实际 ${e1 - e0})`)
   assert.ok(e2 > e1, 'refs 进余量口径(estTokens 递增)')
-  assert.ok(Math.abs((e2 - e1) - (3 * 2048) / 4) <= 100, `refs 差值≈1536 tokens(实际 ${e2 - e1})`)
+  // 2026-09-09 METER-3:refs 估算改保守上限口径 min(N×16KB, 48KB)/4——旧 2048/ref 低估 8×
+  assert.ok(Math.abs((e2 - e1) - Math.min(3 * 16 * 1024, 48 * 1024) / 4) <= 100, `refs 差值≈12288 tokens(最坏口径;实际 ${e2 - e1})`)
+})
+
+// ── C(2026-09-09 多维审计):计量链修复 ──
+// METER-1:willTrim 与 trimMessages 同域同单位(字符域,trimBudgetChars 单源)——ASCII/JSON
+// 主体(token=chars/4)下旧显示线比执法线乐观 4×,裁剪已发生时量表仍报安全。
+test('C1: willTrim 切字符域——150k ASCII 载荷 token 口径安全(estTokens≈37k<140k)但 estChars 超线须亮', async () => {
+  const h = makeHttpHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 'S'.repeat(150000), userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  await h.call('GET', `/api/workbench/conversations/${conv.id}`)
+  const ctx = h.sent[h.sent.length - 1].json.context
+  assert.equal(typeof ctx.estChars, 'number', 'estChars 字段存在(字符域,与执法同口径)')
+  assert.ok(ctx.estChars > 140000, `estChars 计入全量字符(实际 ${ctx.estChars})`)
+  assert.ok(ctx.estTokens < 140000, `token 口径仍安全(实际 ${ctx.estTokens},窗口占比展示用)`)
+  assert.equal(ctx.willTrim, true, '字符域超线 → willTrim 亮(旧 token 口径恒 false)')
+})
+
+// METER-4:paused 恢复载荷即 conv.messages(approve 后原样续发),量表按它计(替换而非叠加)
+test('C2: paused 态 est 基于 conv.messages 真实恢复载荷(50KB 工具结果不再隐形)', async () => {
+  const h = makeHttpHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 'sys', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='paused', messages=? WHERE id=?").run(
+    JSON.stringify([
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'q1' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'wb_describe_resource', arguments: '{"kind":"pods"}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: 'X'.repeat(50000) },
+    ]), conv.id)
+  await h.call('GET', `/api/workbench/conversations/${conv.id}`)
+  const ctx = h.sent[h.sent.length - 1].json.context
+  assert.ok(ctx.estChars > 50000, `paused 计入 conv.messages 恢复载荷(实际 ${ctx.estChars})`)
+  assert.ok(ctx.estTokens > 12000, `token 同步(实际 ${ctx.estTokens})`)
+})
+
+// bug②:running 态按「当前轮」trace 切片(ts>lastMsgTs,turnSnapshot 同款)计入工具结果累积
+test('C3: running 态 est 计入当前轮 trace(20KB 工具结果按 8192 钳制口径)', async () => {
+  const h = makeHttpHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: 'sys', userMessage: 'q1' })
+  appendMessage(h.db, { conversationId: conv.id, role: 'user', content: 'q1' })
+  const lastTs = h.db.prepare('SELECT max(createdAt) AS t FROM workbench_messages WHERE conversationId=?').get(conv.id).t
+  h.db.prepare("UPDATE workbench_conversations SET status='running', trace=? WHERE id=?").run(JSON.stringify([
+    { type: 'tool', name: 'wb_describe_resource', args: {}, result: 'X'.repeat(20000), ts: lastTs + 1000 },
+    { type: 'assistant', content: '查到了一些东西', ts: lastTs + 2000 },
+  ]), conv.id)
+  await h.call('GET', `/api/workbench/conversations/${conv.id}`)
+  const ctx = h.sent[h.sent.length - 1].json.context
+  assert.ok(ctx.estChars > 8000, `running 计入当前轮工具结果(实际 ${ctx.estChars})`)
+  assert.ok(ctx.estChars < 20000 + 1000, `按喂 LLM 的 8192 钳制口径而非 trace 32KB 存储口径(实际 ${ctx.estChars})`)
+})
+
+// ── H3(2026-09-09 审计):edit 深锚回卷 recap ──
+test('POST edit:深锚(fromSeq≤水位)→ 水位归 0 + recap 回卷,被删轮次旧决策不再每轮注入', async () => {
+  const h = makeEditHarness()
+  const { conv, anchorId } = seedEditConv(h.db, h.pid)
+  updateConversation(h.db, conv.id, { recap: '已决定用 X 方案的旧摘要', summarizedUpTo: 3 })
+  h.body.v = { messageId: anchorId, content: '改向:其实我想用 Y' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`), '路由命中')
+  assert.equal(h.sent[h.sent.length - 1].status, 200)
+  const after = getConversation(h.db, conv.id)
+  assert.equal(after.summarizedUpTo, 0, '深锚:水位归 0(前缀全文回放)')
+  assert.equal(after.recap, null, '深锚:recap 回卷(滚动累积无法拆段,旧决策不残留)')
+})
+
+test('POST edit:浅锚(fromSeq>水位)→ 维持 min() 钳制且 recap 保留', async () => {
+  const h = makeEditHarness()
+  const { conv, anchorId } = seedEditConv(h.db, h.pid)
+  updateConversation(h.db, conv.id, { recap: '只盖住更早轮次的摘要', summarizedUpTo: 1 })
+  h.body.v = { messageId: anchorId, content: '浅锚编辑' }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/edit`), '路由命中')
+  assert.equal(h.sent[h.sent.length - 1].status, 200)
+  const after = getConversation(h.db, conv.id)
+  assert.equal(after.summarizedUpTo, 1, '浅锚:维持现行 min()(该分支本就是 no-op)')
+  assert.equal(after.recap, '只盖住更早轮次的摘要', '浅锚:recap 保留(其覆盖的前缀未被删)')
+})
+
+// T3 互补(2026-09-09):单条消息上限——超大贴片变可行动 422(建议 @-ref),不再进 trim/确定性 400 链
+test('POST messages: 超大贴片(>200KB)→ 422 零副作用(不建行不触发 run)', async () => {
+  const h = makeEditHarness() // 可变 body.v 的 harness(readBody 直通)
+  const { conv } = seedEditConv(h.db, h.pid)
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  h.body.v = { message: 'L'.repeat(200_001) }
+  assert.ok(await h.call('POST', `/api/workbench/conversations/${conv.id}/messages`), '路由命中')
+  assert.equal(h.sent[h.sent.length - 1].status, 422)
+  const n = h.db.prepare('SELECT COUNT(*) AS n FROM workbench_messages WHERE conversationId=?').get(conv.id).n
+  assert.equal(n, 3, "零副作用:不落行(仅种子 3 行)")
+  assert.equal(getConversation(h.db, conv.id).status, 'done', '不触发 run')
 })
