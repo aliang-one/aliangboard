@@ -1,4 +1,3 @@
-import { dump as yamlDump } from 'js-yaml'
 import { createHttp, parseBody } from './http.js'
 import { i18n } from '@/i18n'
 
@@ -135,6 +134,12 @@ export async function exportYaml(k8sPath, filename = 'resource.yaml') {
   const obj = await k8sHttp.request(`/api/k8s${k8sPath}`)
   const clone = JSON.parse(JSON.stringify(obj || {}))
   if (clone?.metadata) delete clone.metadata.managedFields   // 去掉冗长的 managedFields
+  // 动态 import(2026-09-09):js-yaml 只有本函数用,导出下载属低频功能,静态 import 会让
+  // client chunk 持有 js-yaml 静态边。注意:入口关键路径当前仍含 js-yaml —— 另有
+  // stores/cluster(.js/yaml.js)与 useYaml.js 三个急加载引入者(generateYAML 同步调用面
+  // 广,异步化是独立后续项);本处改动保 hygiene + 防再添静态边。守卫:
+  // scripts/client-critical-path.test.mjs。
+  const { dump: yamlDump } = await import('js-yaml')
   const text = yamlDump(clone)
   const blob = new Blob([text], { type: 'text/yaml;charset=utf-8' })
   const url = URL.createObjectURL(blob)
