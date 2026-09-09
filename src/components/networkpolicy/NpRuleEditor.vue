@@ -57,10 +57,10 @@ function removePort(i) {
       {{ direction === 'ingress' ? t('ns.netpolCreate.sourceFrom') : t('ns.netpolCreate.targetTo') }}
     </div>
     <div v-for="(p, i) in peers" :key="'p'+i" class="flex items-start gap-sm">
-      <div class="flex-1">
+      <div class="flex-1 min-w-0">
         <NpPeerEditor :model-value="p" @update:model-value="setPeer(i, $event)" />
       </div>
-      <button class="delete-peer p-xs text-on-surface-variant hover:text-error" @click="removePeer(i)">
+      <button class="delete-peer p-xs text-on-surface-variant hover:text-error shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('common.delete')" @click="removePeer(i)">
         <span class="material-symbols-outlined text-sm">delete</span>
       </button>
     </div>
@@ -69,9 +69,11 @@ function removePort(i) {
     </button>
 
     <div class="text-label-caps text-on-surface-variant mt-xs">{{ t('ns.netpolCreate.ports') }}</div>
-    <div v-for="(p, i) in ports" :key="'port'+i" class="flex items-center gap-sm">
-      <NpPortEditor :model-value="p" @update:model-value="setPort(i, $event)" />
-      <button class="delete-port p-xs text-on-surface-variant hover:text-error" @click="removePort(i)">
+    <!-- 手机纵排(审计 NpRuleEditor:72):端口三元组+endPort 行 min-content ≈376px > 可用 ≈292px,
+         端口组占满整行、删除钮对齐行尾 -->
+    <div v-for="(p, i) in ports" :key="'port'+i" class="flex items-center gap-sm max-sm:flex-col max-sm:items-stretch">
+      <NpPortEditor class="min-w-0" :model-value="p" @update:model-value="setPort(i, $event)" />
+      <button class="delete-port p-xs text-on-surface-variant hover:text-error shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] max-sm:self-end" :title="t('common.delete')" @click="removePort(i)">
         <span class="material-symbols-outlined text-sm">delete</span>
       </button>
     </div>

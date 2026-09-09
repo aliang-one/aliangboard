@@ -44,14 +44,14 @@ const activeTab = ref('overview')
       { label: crb.name }
     ]" />
 
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-tertiary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-xl">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-tertiary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-tertiary-container text-3xl">share</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ crb.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface max-sm:truncate" :title="crb.name">{{ crb.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded-full font-medium">CLUSTER-WIDE</span>
             <span class="text-body-sm text-on-surface-variant">{{ crb.subjects?.length || 0 }} subjects</span>
             <span class="text-body-sm text-on-surface-variant">Age: {{ crb.age }}</span>
@@ -73,11 +73,11 @@ const activeTab = ref('overview')
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-lg">Subjects</h3>
           <div v-if="crb.subjects?.length" class="flex flex-col gap-sm">
-            <div v-for="(s, i) in crb.subjects" :key="i" class="flex items-center gap-md p-md bg-surface-container-low rounded-lg">
-              <span class="material-symbols-outlined text-tertiary-container">{{ s.kind === 'ServiceAccount' ? 'person' : (s.kind === 'Group' ? 'group' : 'person') }}</span>
-              <span class="px-2 py-0.5 bg-surface-container text-on-surface-variant text-label-caps rounded border border-outline-variant">{{ s.kind }}</span>
-              <span class="font-mono text-code-sm text-on-surface font-semibold">{{ s.name }}</span>
-              <span v-if="s.namespace" class="text-body-sm text-on-surface-variant ml-auto">{{ s.namespace }}</span>
+            <div v-for="(s, i) in crb.subjects" :key="i" class="flex flex-wrap items-center gap-x-md gap-y-xs p-md bg-surface-container-low rounded-lg">
+              <span class="material-symbols-outlined text-tertiary-container shrink-0">{{ s.kind === 'ServiceAccount' ? 'person' : (s.kind === 'Group' ? 'group' : 'person') }}</span>
+              <span class="px-2 py-0.5 bg-surface-container text-on-surface-variant text-label-caps rounded border border-outline-variant shrink-0">{{ s.kind }}</span>
+              <span class="font-mono text-code-sm text-on-surface font-semibold break-all min-w-0" :title="s.name">{{ s.name }}</span>
+              <span v-if="s.namespace" class="text-body-sm text-on-surface-variant ml-auto shrink-0">{{ s.namespace }}</span>
             </div>
           </div>
           <p v-else class="text-body-sm text-on-surface-variant py-md text-center">No subjects</p>
@@ -91,10 +91,10 @@ const activeTab = ref('overview')
               <span class="text-body-sm text-on-surface-variant">Kind</span>
               <span class="text-body-md text-on-surface">{{ crb.roleKind }}</span>
             </div>
-            <div class="flex justify-between items-center py-sm">
-              <span class="text-body-sm text-on-surface-variant">Role</span>
-              <button v-if="role" class="text-body-md text-primary font-semibold hover:underline" @click="router.push({ name: 'ClusterRoleDetail', params: { name: crb.roleName } })">{{ crb.roleName }}</button>
-              <span v-else class="font-mono text-code-sm text-on-surface">{{ crb.roleName }}</span>
+            <div class="flex justify-between items-center gap-sm py-sm">
+              <span class="text-body-sm text-on-surface-variant shrink-0">Role</span>
+              <button v-if="role" class="text-body-md text-primary font-semibold hover:underline min-w-0 break-all text-right" @click="router.push({ name: 'ClusterRoleDetail', params: { name: crb.roleName } })">{{ crb.roleName }}</button>
+              <span v-else class="font-mono text-code-sm text-on-surface min-w-0 break-all text-right">{{ crb.roleName }}</span>
             </div>
           </div>
         </div>

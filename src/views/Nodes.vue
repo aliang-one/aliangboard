@@ -140,13 +140,13 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button v-if="!row.unschedulable" @click.stop="store.cordonNode(row.name)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="$t('nodes.cordonTitle')">
+          <button v-if="!row.unschedulable" @click.stop="store.cordonNode(row.name)" class="relative p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('nodes.cordonTitle')">
             <span class="material-symbols-outlined text-lg">lock</span>
           </button>
-          <button v-else @click.stop="store.uncordonNode(row.name)" class="p-sm text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="$t('nodes.uncordonTitle')">
+          <button v-else @click.stop="store.uncordonNode(row.name)" class="relative p-sm text-primary hover:bg-primary-container/10 rounded-lg transition-all max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('nodes.uncordonTitle')">
             <span class="material-symbols-outlined text-lg">lock_open</span>
           </button>
-          <button @click.stop="router.push(`/nodes/${row.name}`)" class="p-sm text-on-surface-variant hover:text-tertiary-container hover:bg-tertiary-container/10 rounded-lg transition-all" :title="$t('nodes.drainTitle')">
+          <button @click.stop="router.push(`/nodes/${row.name}`)" class="relative p-sm text-on-surface-variant hover:text-tertiary-container hover:bg-tertiary-container/10 rounded-lg transition-all max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('nodes.drainTitle')">
             <span class="material-symbols-outlined text-lg">output</span>
           </button>
         </div>

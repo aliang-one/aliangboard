@@ -842,22 +842,22 @@ async function handleDeploy() {
       </div>
       <h3 class="text-headline-md text-on-surface mb-xs">{{ $t('deploy.deploySuccess') }}</h3>
       <p class="text-body-sm text-on-surface-variant mb-md">{{ $t('deploy.appDeployed', { name: form.name, namespace: form.namespace }) }}</p>
-      <div class="flex justify-center gap-sm">
-        <button @click="router.push({ name: 'NsWorkloads', params: { namespace: form.namespace } })" class="px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold hover:opacity-90">
+      <div class="flex justify-center flex-wrap gap-sm">
+        <button @click="router.push({ name: 'NsWorkloads', params: { namespace: form.namespace } })" class="px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold hover:opacity-90 max-sm:min-h-[44px]">
           {{ $t('deploy.viewWorkloads') }}
         </button>
-        <button @click="router.push({ name: 'NsPods', params: { namespace: form.namespace } })" class="px-3 py-1.5 border border-outline-variant text-body-sm rounded-lg hover:bg-surface-container-high">
+        <button @click="router.push({ name: 'NsPods', params: { namespace: form.namespace } })" class="px-3 py-1.5 border border-outline-variant text-body-sm rounded-lg hover:bg-surface-container-high max-sm:min-h-[44px]">
           {{ $t('deploy.viewPods') }}
         </button>
-        <button @click="showDeploySuccess = false; currentStep = 0; resetForm()" class="px-3 py-1.5 border border-outline-variant text-body-sm rounded-lg hover:bg-surface-container-high">
+        <button @click="showDeploySuccess = false; currentStep = 0; resetForm()" class="px-3 py-1.5 border border-outline-variant text-body-sm rounded-lg hover:bg-surface-container-high max-sm:min-h-[44px]">
           {{ $t('deploy.deployAnother') }}
         </button>
       </div>
     </div>
 
     <!-- Step Indicator -->
-    <div v-if="!showDeploySuccess" class="flex items-center mb-md">
-      <div v-for="(step, idx) in steps" :key="idx" class="flex items-center">
+    <div v-if="!showDeploySuccess" class="flex items-center mb-md max-sm:overflow-x-auto">
+      <div v-for="(step, idx) in steps" :key="idx" class="flex items-center max-sm:shrink-0">
         <div
           class="flex items-center gap-sm cursor-pointer"
           :class="idx <= currentStep ? 'text-primary' : 'text-on-surface-variant'"
@@ -987,12 +987,12 @@ async function handleDeploy() {
         <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.labels') }}</h4>
         <p class="text-xs text-on-surface-variant/70 mb-xs">{{ $t('deploy.labelsAppHint') }}</p>
         <div class="flex flex-col gap-sm">
-          <div v-for="(lbl, idx) in form.labels" :key="idx" class="flex gap-sm items-center">
-            <input v-model="lbl.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
-            <input v-model="lbl.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="value" />
-            <button v-if="form.labels.length > 1" @click="removeLabel(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+          <div v-for="(lbl, idx) in form.labels" :key="idx" class="flex gap-sm items-center flex-wrap">
+            <input v-model="lbl.key" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="key" />
+            <input v-model="lbl.value" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="value" />
+            <button v-if="form.labels.length > 1" @click="removeLabel(idx)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addLabel" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+          <button @click="addLabel" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addLabel') }}
           </button>
         </div>
@@ -1109,12 +1109,12 @@ async function handleDeploy() {
                 </button>
               </div>
               <!-- 端口行:搬运旧 v-for 行,原样 -->
-              <div v-for="(port, idx) in form.ports" :key="idx" class="flex gap-sm items-center mb-sm">
-                <input v-model="port.containerPort" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="Port (e.g. 8080)" />
-                <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+              <div v-for="(port, idx) in form.ports" :key="idx" class="flex gap-sm items-center mb-sm flex-wrap">
+                <input v-model="port.containerPort" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="Port (e.g. 8080)" />
+                <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm max-sm:min-h-[40px]">
                   <option>TCP</option><option>UDP</option>
                 </select>
-                <button @click="removePort(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+                <button @click="removePort(idx)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
               </div>
             </div>
 
@@ -1169,7 +1169,7 @@ async function handleDeploy() {
                 </div>
                 <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
               </div>
-              <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+              <button @click="addInitContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]">
                 <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addInitContainer') }}
               </button>
             </div>
@@ -1213,7 +1213,7 @@ async function handleDeploy() {
                 </div>
                 <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
               </div>
-              <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+              <button @click="addExtraContainer" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]">
                 <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addSidecarContainer') }}
               </button>
             </div>
@@ -1345,7 +1345,7 @@ async function handleDeploy() {
         <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.volumeMounts') }}</h4>
         <div class="flex flex-col gap-sm mb-md">
           <VolumeMountCard v-for="(vol, idx) in form.volumeMounts" :key="idx" v-model="form.volumeMounts[idx]" :containers="containerTargets" :pvcs="availablePVCs" :available-config-maps="availableConfigMaps" :available-secrets="availableSecrets" :namespace="form.namespace" :issues="mountAudit.byEntry[idx] || []" @remove="removeVolume(idx)" />
-          <button @click="addVolume" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+          <button @click="addVolume" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addVolume') }}
           </button>
         </div>
@@ -1374,12 +1374,12 @@ async function handleDeploy() {
         <!-- 节点调度 -->
         <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.nodeSelector') }}</h4>
         <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(ns, idx) in form.nodeSelectors" :key="idx" class="flex gap-sm items-center">
-            <input v-model="ns.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="label key (e.g. disktype)" />
-            <input v-model="ns.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="value (e.g. ssd)" />
-            <button @click="removeNodeSelector(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+          <div v-for="(ns, idx) in form.nodeSelectors" :key="idx" class="flex gap-sm items-center flex-wrap">
+            <input v-model="ns.key" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="label key (e.g. disktype)" />
+            <input v-model="ns.value" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="value (e.g. ssd)" />
+            <button @click="removeNodeSelector(idx)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addNodeSelector" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+          <button @click="addNodeSelector" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addNodeSelector') }}
           </button>
         </div>
@@ -1396,9 +1396,9 @@ async function handleDeploy() {
             <select v-model="t.effect" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
               <option>NoSchedule</option><option>PreferNoSchedule</option><option>NoExecute</option>
             </select>
-            <button @click="removeToleration(idx)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+            <button @click="removeToleration(idx)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addToleration" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+          <button @click="addToleration" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addToleration') }}
           </button>
         </div>
@@ -1442,22 +1442,22 @@ async function handleDeploy() {
         <div class="flex flex-col gap-sm mb-md">
           <div><label class="text-xs text-on-surface-variant block mb-xs">dnsPolicy</label><select v-model="form.dnsPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">{{ $t('deploy.default') }}</option><option>ClusterFirst</option><option>ClusterFirstWithHostNet</option><option>Default</option><option>None</option></select></div>
           <!-- nameservers -->
-          <div><label class="text-xs text-on-surface-variant block mb-xs">Nameservers</label><div v-for="(ns, i) in form.dnsConfig.nameservers" :key="'ns'+i" class="flex gap-sm items-center mb-xs"><input v-model="form.dnsConfig.nameservers[i]" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8.8.8.8" /><button @click="removeDnsNameserver(i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsNameserver" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addNameserver') }}</button></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">Nameservers</label><div v-for="(ns, i) in form.dnsConfig.nameservers" :key="'ns'+i" class="flex gap-sm items-center mb-xs flex-wrap"><input v-model="form.dnsConfig.nameservers[i]" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8.8.8.8" /><button @click="removeDnsNameserver(i)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsNameserver" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addNameserver') }}</button></div>
           <!-- searches -->
-          <div><label class="text-xs text-on-surface-variant block mb-xs">Searches</label><div v-for="(s, i) in form.dnsConfig.searches" :key="'sr'+i" class="flex gap-sm items-center mb-xs"><input v-model="form.dnsConfig.searches[i]" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="svc.cluster.local" /><button @click="removeDnsSearch(i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsSearch" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addSearch') }}</button></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">Searches</label><div v-for="(s, i) in form.dnsConfig.searches" :key="'sr'+i" class="flex gap-sm items-center mb-xs flex-wrap"><input v-model="form.dnsConfig.searches[i]" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="svc.cluster.local" /><button @click="removeDnsSearch(i)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsSearch" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addSearch') }}</button></div>
           <!-- options -->
-          <div><label class="text-xs text-on-surface-variant block mb-xs">Options</label><div v-for="(o, i) in form.dnsConfig.options" :key="'op'+i" class="flex gap-sm items-center mb-xs"><input v-model="o.name" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ndots" /><input v-model="o.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="5" /><button @click="removeDnsOption(i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsOption" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addOption') }}</button></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">Options</label><div v-for="(o, i) in form.dnsConfig.options" :key="'op'+i" class="flex gap-sm items-center mb-xs flex-wrap"><input v-model="o.name" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="ndots" /><input v-model="o.value" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="5" /><button @click="removeDnsOption(i)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button></div><button @click="addDnsOption" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addOption') }}</button></div>
         </div>
 
         <!-- 主机别名 -->
         <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.hostAliases') }}</h4>
         <div class="flex flex-col gap-sm mb-md">
-          <div v-for="(h, i) in form.hostAliases" :key="'ha'+i" class="flex gap-sm items-center">
+          <div v-for="(h, i) in form.hostAliases" :key="'ha'+i" class="flex gap-sm items-center flex-wrap">
             <input v-model="h.ip" class="w-32 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="IP" />
-            <input v-model="h.hostnames" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('deploy.hostnamesPlaceholder')" />
-            <button @click="removeHostAlias(i)" class="p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
+            <input v-model="h.hostnames" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('deploy.hostnamesPlaceholder')" />
+            <button @click="removeHostAlias(i)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
-          <button @click="addHostAlias" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addHostAlias') }}</button>
+          <button @click="addHostAlias" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]"><span class="material-symbols-outlined text-sm">add</span> {{ $t('deploy.addHostAlias') }}</button>
         </div>
 
         <!-- 主机网络 -->
@@ -1522,9 +1522,9 @@ async function handleDeploy() {
                   <option>TCP</option><option>UDP</option>
                 </select>
                 <input v-if="form.serviceType === 'NodePort'" v-model="sp.nodePort" class="w-24 bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-xs font-mono" placeholder="nodePort" />
-                <button v-if="form.servicePorts.length > 1" @click="removeServicePort(idx)" class="p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
+                <button v-if="form.servicePorts.length > 1" @click="removeServicePort(idx)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
               </div>
-              <button @click="addServicePort" class="self-start flex items-center gap-xs px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg">
+              <button @click="addServicePort" class="self-start flex items-center gap-xs px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]">
                 <span class="material-symbols-outlined text-xs">add</span> {{ $t('deploy.addPort') }}
               </button>
             </div>
@@ -1588,13 +1588,13 @@ async function handleDeploy() {
                     <h4 class="text-xs font-semibold text-on-surface">{{ $t('deploy.customAnnotations') }}</h4>
                     <button type="button" @click="addIngressCustom" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded text-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>{{ $t('deploy.addAnnotation') }}</button>
                   </div>
-                  <div v-for="(a, i) in form.ingressCustomAnnotations" :key="i" class="flex items-center gap-xs mb-xs">
-                    <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" />
-                    <div class="flex-1 flex flex-col gap-xs">
+                  <div v-for="(a, i) in form.ingressCustomAnnotations" :key="i" class="flex items-center gap-xs mb-xs flex-wrap">
+                    <AnnotationKeySelect v-model="a.key" class="flex-1 min-w-[100px]" field-class="bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+                    <div class="flex-1 min-w-[100px] flex flex-col gap-xs">
                       <input v-model="a.value" class="w-full bg-surface-container-lowest border border-outline-variant rounded px-sm py-xs text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(a.key) || $t('ns.ingress.valuePlaceholder')" />
                       <p v-if="hintKeyOfKey(a.key)" class="text-xs text-on-surface-variant">{{ $t(hintKeyOfKey(a.key)) }}</p>
                     </div>
-                    <button type="button" @click="removeIngressCustom(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
+                    <button type="button" @click="removeIngressCustom(i)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
                   </div>
                   <p v-if="!form.ingressCustomAnnotations.length" class="text-xs text-on-surface-variant">{{ $t('deploy.noCustomAnnotations') }}</p>
                 </div>
@@ -1638,19 +1638,19 @@ async function handleDeploy() {
       </div>
 
       <!-- Actions -->
-      <div class="flex justify-between mt-md pt-md border-t border-outline-variant">
-        <button v-if="currentStep > 0" @click="prevStep" class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">
+      <div class="flex justify-between gap-y-xs mt-md pt-md border-t border-outline-variant max-sm:flex-wrap">
+        <button v-if="currentStep > 0" @click="prevStep" class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high max-sm:min-h-[44px]">
           <span class="material-symbols-outlined text-sm">arrow_back</span> {{ $t('deploy.back') }}
         </button>
         <div v-else></div>
-        <div class="flex gap-sm">
-          <button @click="router.push(`/ns/${form.namespace}`)" class="px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high">{{ $t('deploy.cancel') }}</button>
+        <div class="flex gap-sm max-sm:ml-auto">
+          <button @click="router.push(`/ns/${form.namespace}`)" class="px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high max-sm:min-h-[44px]">{{ $t('deploy.cancel') }}</button>
           <button v-if="currentStep < steps.length - 1" @click="nextStep" :disabled="!canProceed"
-            class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
+            class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed max-sm:min-h-[44px]">
             {{ $t('deploy.next') }} <span class="material-symbols-outlined text-sm">arrow_forward</span>
           </button>
           <button v-else @click="handleDeploy" :disabled="deployLoading"
-            class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-50">
+            class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 max-sm:min-h-[44px]">
             <span class="material-symbols-outlined text-sm" :class="deployLoading ? 'animate-spin' : ''">{{ deployLoading ? 'progress_activity' : 'rocket_launch' }}</span>
             {{ deployLoading ? $t('deploy.deploying') : $t('deploy.deploy') }}
           </button>

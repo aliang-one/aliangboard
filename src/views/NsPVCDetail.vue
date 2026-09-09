@@ -113,33 +113,33 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
       { label: route.params.name }
     ]" />
 
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-start justify-between gap-x-sm gap-y-sm mt-sm mb-xl">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-primary text-3xl">storage</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ pvc.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface min-w-0 max-sm:truncate" :title="pvc.name">{{ pvc.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <StatusChip :status="pvc.status" />
             <span class="text-body-sm text-on-surface-variant">Capacity: <span class="font-mono text-primary font-semibold">{{ pvc.capacity }}</span></span>
             <span class="text-body-sm text-on-surface-variant">Age: {{ pvc.age }}</span>
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
-        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
+      <div class="flex flex-wrap gap-sm">
+        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">edit</span> {{ t('ns.pvcDetail.edit') }}
         </button>
-        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
+        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">delete</span> {{ t('ns.pvcDetail.delete') }}
         </button>
       </div>
     </div>
 
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex overflow-x-auto border-b border-outline-variant mb-lg">
       <button v-for="tab in ['overview', 'files', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
+        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab === 'overview' ? t('common.status') : tab === 'files' ? t('ns.pvcDetail.files') : 'YAML' }}
       </button>
@@ -149,7 +149,7 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-lg">{{ t('ns.pvcDetail.title') }}</h3>
-          <div class="grid grid-cols-2 gap-md">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.pvcDetail.status') }}</p>
               <StatusChip :status="pvc.status" />
@@ -232,12 +232,12 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
     <div v-if="activeTab === 'files'">
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="flex items-center gap-sm px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <button @click="fup" :disabled="fpath === '/'" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg disabled:opacity-30" :title="t('ns.pvcDetail.parentDir')">
+          <button @click="fup" :disabled="fpath === '/'" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg disabled:opacity-30 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('ns.pvcDetail.parentDir')">
             <span class="material-symbols-outlined text-lg">arrow_upward</span>
           </button>
-          <span class="material-symbols-outlined text-on-surface-variant">folder_open</span>
+          <span class="material-symbols-outlined text-on-surface-variant shrink-0">folder_open</span>
           <span class="font-mono text-code-sm text-on-surface flex-1 truncate">{{ fpath }}</span>
-          <button @click="browsePvc(fpath)" :disabled="floading" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg" :title="t('ns.pvcDetail.refresh')">
+          <button @click="browsePvc(fpath)" :disabled="floading" class="p-xs text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('ns.pvcDetail.refresh')">
             <span class="material-symbols-outlined text-lg" :class="floading ? 'animate-spin' : ''">refresh</span>
           </button>
         </div>
@@ -247,14 +247,17 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
           <template v-else-if="!ffile">
             <p v-if="!fentries.length" class="text-body-sm text-on-surface-variant text-center py-md">{{ t('ns.pvcDetail.emptyDir') }}</p>
             <div v-for="e in fentries" :key="e.name" @click="openFEntry(e)" class="flex items-center gap-sm px-sm py-xs rounded-lg hover:bg-surface-container-low cursor-pointer">
-              <span class="material-symbols-outlined text-lg" :class="e.type === 'dir' ? 'text-primary' : 'text-on-surface-variant'">{{ e.type === 'dir' ? 'folder' : 'description' }}</span>
-              <span class="font-mono text-code-sm text-on-surface">{{ e.name }}</span>
+              <span class="material-symbols-outlined text-lg shrink-0" :class="e.type === 'dir' ? 'text-primary' : 'text-on-surface-variant'">{{ e.type === 'dir' ? 'folder' : 'description' }}</span>
+              <span class="font-mono text-code-sm text-on-surface truncate min-w-0" :title="e.name">{{ e.name }}</span>
             </div>
           </template>
           <div v-else>
-            <div class="flex items-center justify-between mb-sm">
-              <span class="font-mono text-code-sm text-on-surface flex items-center gap-xs"><span class="material-symbols-outlined text-base text-on-surface-variant">description</span>{{ ffile.name }}</span>
-              <button @click="ffile = null" class="text-xs text-primary hover:underline">← {{ t('ns.pvcDetail.backToList') }}</button>
+            <div class="flex items-center justify-between mb-sm gap-sm">
+              <span class="font-mono text-code-sm text-on-surface flex items-center gap-xs min-w-0">
+                <span class="material-symbols-outlined text-base text-on-surface-variant shrink-0">description</span>
+                <span class="truncate min-w-0" :title="ffile.name">{{ ffile.name }}</span>
+              </span>
+              <button @click="ffile = null" class="text-xs text-primary hover:underline shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">← {{ t('ns.pvcDetail.backToList') }}</button>
             </div>
             <p v-if="ffile.binary" class="text-body-sm text-on-surface-variant">{{ t('ns.pvcDetail.binaryFile') }}</p>
             <pre v-else class="bg-code-surface text-on-code-surface p-md rounded-lg font-mono text-code-sm overflow-auto max-h-[480px] whitespace-pre-wrap">{{ ffile.content }}<span v-if="ffile.truncated" class="text-on-code-surface/60">

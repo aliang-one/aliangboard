@@ -65,14 +65,14 @@ function handleDelete() {
 <template>
   <section class="animate-fade-in">
     <Breadcrumbs :items="[{ label: 'RuntimeClasses' }]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-lg">
+      <div class="min-w-0">
         <h2 class="text-display-lg text-on-surface">{{ $t('admin.runtimeClasses.title') }}</h2>
         <p class="text-on-surface-variant text-body-md mt-1">{{ $t('admin.runtimeClasses.subtitle', { count: runtimeClasses.length }) }}</p>
       </div>
       <button
         @click="showCreateModal = true"
-        class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
+        class="flex items-center gap-sm px-md py-sm max-sm:min-h-[40px] bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
       >
         <span class="material-symbols-outlined">add</span> {{ $t('admin.runtimeClasses.createBtn') }}
       </button>
@@ -80,15 +80,15 @@ function handleDelete() {
 
     <DataTable :headers="headers" :rows="runtimeClasses" column-key="runtimeClasses" expandable row-key="name" @row-click="openDetail">
       <template #name="{ row }">
-        <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-tertiary-container text-lg">memory</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-sm min-w-0">
+          <span class="material-symbols-outlined text-tertiary-container text-lg shrink-0">memory</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #handler="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.handler }}</span></template>
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
-        <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.runtimeClasses.deleteTip')">
+        <button @click.stop="confirmDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.runtimeClasses.deleteTip')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>

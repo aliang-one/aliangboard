@@ -30,13 +30,13 @@ function toggle(field, t) {
     <div class="flex flex-wrap gap-1">
       <span class="text-body-xs text-on-surface-variant w-full">{{ t('component.toolOverride.tierDefault', { tier }) }}</span>
       <button v-for="t in defaults" :key="t" type="button" @click="toggle('deny', t)"
-        class="px-1.5 py-0.5 rounded text-body-xs font-mono"
+        class="px-1.5 py-0.5 rounded text-body-xs font-mono max-sm:min-h-[40px]"
         :class="inDeny(t) ? 'bg-error/15 text-error line-through' : 'bg-primary/10 text-primary'">{{ t }}</button>
     </div>
     <div class="flex flex-wrap gap-1">
       <span class="text-body-xs text-on-surface-variant w-full">{{ t('component.toolOverride.beyondTier') }}</span>
       <button v-for="t in beyond" :key="t" type="button" @click="toggle('allow', t)"
-        class="px-1.5 py-0.5 rounded text-body-xs font-mono"
+        class="px-1.5 py-0.5 rounded text-body-xs font-mono max-sm:min-h-[40px]"
         :class="inAllow(t) ? 'bg-status-running/20 text-status-running font-semibold' : 'bg-surface-container-high text-on-surface-variant'">{{ t }}</button>
     </div>
     <p class="text-body-xs text-on-surface-variant">{{ t('component.toolOverride.rbacHint') }}</p>

@@ -9,6 +9,7 @@ import { useI18n } from 'vue-i18n'
 import { notify } from '@/composables/useToast'
 import { usePodFiles } from '@/composables/usePodFiles'
 import { useTransferStore, fmtBytes } from '@/stores/transfers'
+import { useIsPhone } from '@/composables/useBreakpoint'
 import SplitPane from './SplitPane.vue'
 import FileTree from './FileTree.vue'
 import FolderPreview from './FolderPreview.vue'
@@ -17,6 +18,9 @@ import PromptDialog from './PromptDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 
 const { t } = useI18n()
+// 手机档 SplitPane 默认竖切(Wave5 B5,审计 #175):326px 下横切左树只分得 ~104px,
+// 文件名几乎只剩图标;只改默认值——用户手动切换的方向仍走 localStorage 持久。
+const { isPhone } = useIsPhone()
 const props = defineProps({
   namespace: { type: String, default: '' },
   pod: { type: String, default: '' },
@@ -172,7 +176,7 @@ watch(() => transferStore.tasks, (ts) => {
 
     <!-- 主体：左树 | 右上下文 -->
     <div class="flex-1 min-h-0 mt-sm">
-      <SplitPane storage-key="pod-file-explorer-split" :default-split="0.32">
+      <SplitPane storage-key="pod-file-explorer-split" :default-split="0.32" :default-direction="isPhone ? 'vertical' : 'horizontal'">
         <template #first>
           <FileTree />
         </template>

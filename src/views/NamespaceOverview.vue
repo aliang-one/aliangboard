@@ -235,13 +235,13 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
 <template>
   <div class="animate-fade-in">
     <Breadcrumbs :items="[{ label: 'Cluster', route: '/cluster' }, { label: route.params.namespace }]" />
-    <div class="flex items-center justify-between mt-sm mb-md">
-      <div class="flex items-center gap-md">
-        <div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="flex items-center gap-md min-w-0">
+        <div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-primary text-2xl">folder_open</span>
         </div>
-        <div>
-          <h1 class="text-headline-lg font-bold text-on-surface">{{ route.params.namespace }} <span class="text-on-surface-variant font-normal">· {{ t('ns.namespaceOverview.topology') }}</span></h1>
+        <div class="min-w-0">
+          <h1 class="text-headline-lg font-bold text-on-surface min-w-0 max-sm:truncate" :title="String(route.params.namespace)">{{ route.params.namespace }} <span class="text-on-surface-variant font-normal">· {{ t('ns.namespaceOverview.topology') }}</span></h1>
           <p class="text-body-sm text-on-surface-variant mt-xs">
             <span class="text-primary font-semibold">{{ workloads.length }}</span> {{ t('ns.namespaceOverview.deployCount', { n: workloads.length, layers: layerSections.filter(s => s.items.length).length }) }}
             <span v-if="fastMode" class="ml-sm inline-flex items-center gap-xs px-sm py-0.5 rounded-full bg-primary-container/15 text-primary text-xs font-medium align-middle">
@@ -250,8 +250,8 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
           </p>
         </div>
       </div>
-      <div class="flex items-center gap-xs">
-        <button @click="router.push({ name: 'NsLayers', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors" :title="t('ns.namespaceOverview.adjustGroupTitle')">
+      <div class="flex flex-wrap items-center gap-xs">
+        <button @click="router.push({ name: 'NsLayers', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors" :title="t('ns.namespaceOverview.adjustGroupTitle')">
           <span class="material-symbols-outlined text-sm">layers</span><span class="hidden sm:inline">{{ t('ns.namespaceOverview.adjustGroup') }}</span>
         </button>
         <CreateWithYamlButton
@@ -335,8 +335,8 @@ function goIng(rule) { router.push({ name: 'NsIngressDetail', params: { namespac
                     </div>
                   </div>
                   <div v-if="it.assoc.services.length || it.assoc.ingressRules.length" class="shrink-0 w-[116px] border-l border-outline-variant/40 bg-surface-container-low/40 p-sm flex flex-col gap-xs justify-center">
-                    <button v-if="it.assoc.services.length" @click.stop="goSvc(it.assoc.services[0])" @mouseenter="onEnterAssoc($event, 'svc', it.assoc)" @mouseleave="onLeaveAssoc()" class="flex items-center justify-center gap-1 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-xs text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"><span class="material-symbols-outlined" style="font-size:14px">hub</span> {{ t('ns.namespaceOverview.relatedService') }}<span v-if="it.assoc.services.length > 1" class="font-semibold text-primary">{{ it.assoc.services.length }}</span></button>
-                    <button v-if="it.assoc.ingressRules.length" @click.stop="goIng(it.assoc.ingressRules[0])" @mouseenter="onEnterAssoc($event, 'ing', it.assoc)" @mouseleave="onLeaveAssoc()" class="flex items-center justify-center gap-1 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-xs text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"><span class="material-symbols-outlined" style="font-size:14px">alt_route</span> {{ t('ns.namespaceOverview.relatedIngress') }}<span v-if="it.assoc.ingressRules.length > 1" class="font-semibold text-primary">{{ it.assoc.ingressRules.length }}</span></button>
+                    <button v-if="it.assoc.services.length" @click.stop="goSvc(it.assoc.services[0])" @mouseenter="onEnterAssoc($event, 'svc', it.assoc)" @mouseleave="onLeaveAssoc()" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] flex items-center justify-center gap-1 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-xs text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"><span class="material-symbols-outlined" style="font-size:14px">hub</span> {{ t('ns.namespaceOverview.relatedService') }}<span v-if="it.assoc.services.length > 1" class="font-semibold text-primary">{{ it.assoc.services.length }}</span></button>
+                    <button v-if="it.assoc.ingressRules.length" @click.stop="goIng(it.assoc.ingressRules[0])" @mouseenter="onEnterAssoc($event, 'ing', it.assoc)" @mouseleave="onLeaveAssoc()" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] flex items-center justify-center gap-1 px-sm py-1 rounded-md border border-outline-variant bg-surface-container-lowest text-xs text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"><span class="material-symbols-outlined" style="font-size:14px">alt_route</span> {{ t('ns.namespaceOverview.relatedIngress') }}<span v-if="it.assoc.ingressRules.length > 1" class="font-semibold text-primary">{{ it.assoc.ingressRules.length }}</span></button>
                   </div>
                 </div>
               </div>

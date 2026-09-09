@@ -188,8 +188,8 @@ async function handleDelete() {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: t('ns.ingress.title') }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.ingress.title') }}</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.ingress.subtitle', { count: nsIngress.length, ns: route.params.namespace }) }}</p>
       </div>
@@ -197,7 +197,7 @@ async function handleDelete() {
     </div>
 
     <!-- 搜索框 -->
-    <div class="flex items-center gap-md mb-md">
+    <div class="flex flex-wrap items-center gap-md mb-md">
       <div class="relative flex-1 max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
         <input v-model="searchQuery" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" :placeholder="t('ns.ingress.searchPlaceholder')" />
@@ -209,8 +209,8 @@ async function handleDelete() {
     <DataTable :headers="headers" :rows="paginated" column-key="nsIngress" @row-click="goDetail">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-primary text-lg">language</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          <span class="material-symbols-outlined text-primary text-lg shrink-0">language</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #className="{ row }">
@@ -238,10 +238,10 @@ async function handleDelete() {
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant whitespace-nowrap">{{ row.age }}</span></template>
       <template #actions="{ row }">
         <div class="flex gap-1 justify-end">
-          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('ns.ingress.viewDetail')">
+          <button @click.stop="goDetail(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('ns.ingress.viewDetail')">
             <span class="material-symbols-outlined text-lg">open_in_new</span>
           </button>
-          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')">
+          <button @click.stop="confirmDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')">
             <span class="material-symbols-outlined text-lg">delete</span>
           </button>
         </div>
@@ -323,13 +323,13 @@ async function handleDelete() {
           <h4 class="text-body-sm font-semibold text-on-surface">{{ t('ns.ingress.customAnnoTitle') }}</h4>
           <button @click="addCustomAnnotation" class="flex items-center gap-xs px-sm py-xs border border-outline-variant rounded-lg text-xs hover:bg-surface-container-low"><span class="material-symbols-outlined text-sm">add</span>{{ t('ns.ingress.addAnno') }}</button>
         </div>
-        <div v-for="(a, i) in customAnnotations" :key="i" class="flex items-center gap-sm mb-xs">
-          <AnnotationKeySelect v-model="a.key" class="flex-1" field-class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
-          <div class="flex-1 flex flex-col gap-xs">
+        <div v-for="(a, i) in customAnnotations" :key="i" class="flex items-center gap-sm mb-xs max-sm:flex-col max-sm:items-stretch">
+          <AnnotationKeySelect v-model="a.key" class="flex-1 min-w-0 max-sm:w-full" field-class="bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+          <div class="flex-1 flex flex-col gap-xs min-w-0">
             <input v-model="a.value" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="placeholderOfKey(a.key) || t('ns.ingress.valuePlaceholder')" />
             <p v-if="hintKeyOfKey(a.key)" class="text-xs text-on-surface-variant">{{ t(hintKeyOfKey(a.key)) }}</p>
           </div>
-          <button @click="removeCustomAnnotation(i)" class="p-xs text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-base">delete</span></button>
+          <button @click="removeCustomAnnotation(i)" class="p-xs self-center text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">delete</span></button>
         </div>
         <p v-if="!customAnnotations.length" class="text-xs text-on-surface-variant">{{ t('ns.ingress.noCustomAnno') }}</p>
       </div>

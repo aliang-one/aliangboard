@@ -85,7 +85,7 @@ async function stopForward(id) {
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('component.portForward.localPort') }}</label>
         <input v-model="localPort" type="number" class="w-32 bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" :placeholder="t('component.portForward.localPortPlaceholder')" />
       </div>
-      <button @click="doForward" :disabled="!name || forwarding" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40">
+      <button @click="doForward" :disabled="!name || forwarding" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 disabled:opacity-40 max-sm:min-h-[40px]">
         <span class="material-symbols-outlined text-sm">{{ forwarding ? 'progress_activity' : 'bolt' }}</span> {{ t('component.portForward.forward') }}
       </button>
     </div>
@@ -97,7 +97,7 @@ async function stopForward(id) {
         <div v-for="pf in store.portForwards" :key="pf.id" class="flex items-center gap-md px-md py-sm">
           <span class="material-symbols-outlined text-primary text-lg">forward_media</span>
           <div class="flex-1 min-w-0">
-            <p class="font-mono text-code-sm text-on-surface">
+            <p class="font-mono text-code-sm text-on-surface truncate">
               <span class="text-on-surface-variant">{{ pf.kind }}/</span>{{ pf.name }}<span v-if="pf.namespace" class="text-on-surface-variant"> · {{ pf.namespace }}</span>
             </p>
             <p class="font-mono text-code-sm">
@@ -107,10 +107,10 @@ async function stopForward(id) {
             </p>
           </div>
           <span class="px-2 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full">{{ pf.status }}</span>
-          <button @click="openInBrowser(pf)" :title="t('component.portForward.openInBrowser')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
+          <button @click="openInBrowser(pf)" :title="t('component.portForward.openInBrowser')" class="relative p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
             <span class="material-symbols-outlined text-lg">open_in_new</span>
           </button>
-          <button @click="stopForward(pf.id)" :title="t('component.portForward.stopForward')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
+          <button @click="stopForward(pf.id)" :title="t('component.portForward.stopForward')" class="relative p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
             <span class="material-symbols-outlined text-lg">stop_circle</span>
           </button>
         </div>

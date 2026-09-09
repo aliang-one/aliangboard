@@ -106,13 +106,13 @@ async function switchOnly() {
 
     <!-- 操作区 -->
     <div class="flex items-center justify-end gap-sm mt-auto pt-xs" @click.stop>
-      <button v-if="!active" @click="switchOnly" class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 active:scale-95 transition-all">
+      <button v-if="!active" @click="switchOnly" class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
         <span class="material-symbols-outlined text-sm">swap_horiz</span> {{ t('component.clusterCard.switchTo') }}
       </button>
       <span v-else class="inline-flex items-center gap-xs px-3 py-1.5 text-primary font-semibold text-body-sm">
         <span class="material-symbols-outlined text-sm">check_circle</span> {{ t('component.clusterCard.activeCluster') }}
       </span>
-      <button v-if="showRemove && !active" @click="emit('remove')" :title="t('component.clusterCard.removeCluster')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-colors">
+      <button v-if="showRemove && !active" @click="emit('remove')" :title="t('component.clusterCard.removeCluster')" class="relative p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-colors max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
         <span class="material-symbols-outlined text-base">delete</span>
       </button>
     </div>

@@ -4323,6 +4323,7 @@
   },
   "pv": {
     "editModalTitle": "编辑 PersistentVolume（仅可变字段）",
+    "deleteModalTitle": "删除 PersistentVolume",
     "deleteConfirm": "确定删除 PV <span class=\"text-on-surface font-semibold\">{name}</span>？此操作不可撤销。"
   },
   "clusterHealth": {
@@ -4659,6 +4660,7 @@
     "updated": "ns allowlist 已更新(新 ns 的集群 RBAC 已同步创建)",
     "updatedByo": "ns allowlist 已更新;该 key 为自带 SA,新 ns 的 RoleBinding 需自行创建",
     "updateFailed": "更新失败",
+    "removeNs": "移除 {ns}",
     "advanced": "高级:namespace 允许集(在绑定 ns 之外追加)"
   },
   "cols": {

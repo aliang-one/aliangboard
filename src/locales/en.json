@@ -4323,6 +4323,7 @@
   },
   "pv": {
     "editModalTitle": "Edit PersistentVolume (mutable fields only)",
+    "deleteModalTitle": "Delete PersistentVolume",
     "deleteConfirm": "Confirm delete PV <span class=\"text-on-surface font-semibold\">{name}</span>? This operation cannot be undone."
   },
   "clusterHealth": {
@@ -4659,6 +4660,7 @@
     "updated": "ns allowlist updated (cluster RBAC for new namespaces provisioned)",
     "updatedByo": "ns allowlist updated; this key uses a self-managed SA — create RoleBindings in the new namespaces yourself",
     "updateFailed": "Failed to update",
+    "removeNs": "Remove {ns}",
     "advanced": "Advanced: namespace allowlist (add beyond bound ns)"
   },
   "cols": {

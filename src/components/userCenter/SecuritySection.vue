@@ -279,14 +279,14 @@ async function onStepUpDone() {
         <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('userCenter.mfa.desc') }}</p>
       </div>
       <button v-if="!mfaEnrolled" data-testid="mfa-enable-btn"
-        class="shrink-0 px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm"
+        class="shrink-0 px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm max-sm:min-h-[40px]"
         @click="startEnroll">{{ $t('userCenter.mfa.enable') }}</button>
       <div v-else class="shrink-0 flex items-center gap-sm">
         <button data-testid="mfa-regen-btn"
-          class="px-md py-sm border border-outline-variant rounded-lg font-semibold text-body-sm text-on-surface-variant hover:bg-surface-container-high"
+          class="px-md py-sm border border-outline-variant rounded-lg font-semibold text-body-sm text-on-surface-variant hover:bg-surface-container-high max-sm:min-h-[40px]"
           @click="regenRecoveryCodes">{{ $t('userCenter.mfa.regen') }}</button>
         <button data-testid="mfa-disable-btn"
-          class="px-md py-sm border border-error/40 text-error rounded-lg font-semibold text-body-sm hover:bg-error/10"
+          class="px-md py-sm border border-error/40 text-error rounded-lg font-semibold text-body-sm hover:bg-error/10 max-sm:min-h-[40px]"
           @click="openDisable">{{ $t('userCenter.mfa.disable') }}</button>
       </div>
     </div>
@@ -294,10 +294,10 @@ async function onStepUpDone() {
     <div class="flex items-center justify-between mt-lg mb-sm">
       <h4 class="text-body-md font-semibold">{{ $t('userCenter.sessionsTitle') }}</h4>
       <div class="flex items-center gap-sm">
-        <button data-testid="sessions-refresh" class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-primary/10" :title="$t('common.refresh')" @click="loadSessions">
+        <button data-testid="sessions-refresh" class="relative p-1 rounded text-on-surface-variant hover:text-primary hover:bg-primary/10 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('common.refresh')" @click="loadSessions">
           <span class="material-symbols-outlined text-base">refresh</span>
         </button>
-        <button data-testid="sessions-revoke-others" class="text-body-sm text-error hover:underline" @click="askRevokeOthers">{{ $t('userCenter.revokeOthers') }}</button>
+        <button data-testid="sessions-revoke-others" class="text-body-sm text-error hover:underline max-sm:min-h-[40px]" @click="askRevokeOthers">{{ $t('userCenter.revokeOthers') }}</button>
       </div>
     </div>
     <div v-if="sessionsLoading" class="py-md text-center text-on-surface-variant"><span class="material-symbols-outlined animate-spin inline-block">progress_activity</span></div>
@@ -310,7 +310,7 @@ async function onStepUpDone() {
           <p class="text-body-xs text-on-surface-variant truncate">{{ s.ip || '—' }} · {{ $t('userCenter.sessionLoginAt', { time: fmtTime(s.createdAt) }) }} · {{ $t('userCenter.lastActive', { time: fmtTime(s.lastSeenAt) }) }}</p>
         </div>
         <button v-if="!s.current" :data-testid="`session-revoke-${s.fingerprint}`"
-          class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10" :title="$t('userCenter.revoke')"
+          class="relative p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('userCenter.revoke')"
           @click="askRevoke(s)"><span class="material-symbols-outlined text-base">logout</span></button>
       </div>
     </div>

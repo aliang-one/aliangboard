@@ -164,9 +164,9 @@ async function doSaveGrants() {
       <div class="rounded-xl border border-outline-variant bg-surface-container-low p-md">
         <div class="flex items-center justify-between mb-sm">
           <h3 class="text-title-md font-semibold text-on-surface">{{ $t('admin.authz.groups') }}</h3>
-          <div class="flex items-center gap-xs">
-            <input v-model="newGroupName" data-testid="new-group-input" :placeholder="$t('admin.authz.newGroupPlaceholder')" class="w-40 bg-surface-container border border-outline-variant rounded-lg px-sm py-xs text-body-sm" />
-            <button data-testid="new-group-btn" @click="doCreateGroup" class="flex items-center gap-xs px-sm py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
+          <div class="flex items-center gap-xs max-sm:flex-wrap">
+            <input v-model="newGroupName" data-testid="new-group-input" :placeholder="$t('admin.authz.newGroupPlaceholder')" class="w-40 max-sm:w-full bg-surface-container border border-outline-variant rounded-lg px-sm py-xs text-body-sm max-sm:min-h-[40px]" />
+            <button data-testid="new-group-btn" @click="doCreateGroup" class="flex items-center gap-xs px-sm py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 max-sm:min-h-[40px]">
               <span class="material-symbols-outlined text-sm">add</span>{{ $t('admin.authz.newGroup') }}
             </button>
           </div>
@@ -176,15 +176,15 @@ async function doSaveGrants() {
           <div :data-testid="`group-row-${g.id}`" class="flex items-center gap-sm px-md py-sm cursor-pointer hover:bg-surface-container-high" @click="toggleExpand(g)">
             <span class="material-symbols-outlined text-base text-on-surface-variant">{{ expandedId === g.id ? 'expand_less' : 'expand_more' }}</span>
             <span class="font-mono text-body-sm font-medium text-on-surface flex-1 min-w-0 truncate">{{ g.name }}</span>
-            <span class="text-body-xs text-on-surface-variant">{{ $t('admin.authz.memberCount', { n: g.memberCount }) }}</span>
-            <span class="text-body-xs text-on-surface-variant">{{ $t('admin.authz.grantCount', { n: g.grants }) }}</span>
+            <span class="text-body-xs text-on-surface-variant max-sm:hidden">{{ $t('admin.authz.memberCount', { n: g.memberCount }) }}</span>
+            <span class="text-body-xs text-on-surface-variant max-sm:hidden">{{ $t('admin.authz.grantCount', { n: g.grants }) }}</span>
             <button :data-testid="`grant-group-${g.id}`" @click.stop="pickGroup(g)" :title="$t('admin.authz.grants')" :class="['p-1 rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[\'\']', selSubject?.id === g.id ? 'bg-primary/10 text-primary' : 'hover:bg-primary/10 text-on-surface-variant hover:text-primary']"><span class="material-symbols-outlined text-base">verified_user</span></button>
             <button @click.stop="doDeleteGroup(g)" :title="$t('common.delete')" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
           <div v-if="expandedId === g.id" class="px-md pb-sm">
             <div class="flex items-center gap-xs mb-xs">
               <input v-model="memberInput" data-testid="member-add-input" :placeholder="$t('admin.authz.addMember')" class="flex-1 min-w-0 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-xs text-body-sm" @keyup.enter="doAddMember" />
-              <button data-testid="member-add-btn" @click="doAddMember" class="px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high"><span class="material-symbols-outlined text-base align-middle">person_add</span></button>
+              <button data-testid="member-add-btn" @click="doAddMember" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high"><span class="material-symbols-outlined text-base align-middle">person_add</span></button>
             </div>
             <div v-for="m in members" :key="m.userId" class="flex items-center gap-sm py-xs">
               <span class="font-mono text-body-sm flex-1 min-w-0 truncate">{{ m.username }}</span>
@@ -202,7 +202,7 @@ async function doSaveGrants() {
           <div class="flex items-center gap-sm mb-sm flex-wrap">
             <span class="font-mono text-body-sm font-medium px-sm py-xs rounded bg-primary/10 text-primary">{{ selSubject.name }}</span>
             <span class="text-body-sm text-on-surface-variant">→</span>
-            <select v-model="selClusterId" data-testid="cluster-select" class="bg-surface-container border border-outline-variant rounded-lg px-sm py-xs text-body-sm" @change="pickCluster(selClusterId)">
+            <select v-model="selClusterId" data-testid="cluster-select" class="bg-surface-container border border-outline-variant rounded-lg px-sm py-xs text-body-sm max-sm:min-h-[40px]" @change="pickCluster(selClusterId)">
               <option value="" disabled>{{ $t('admin.authz.selectCluster') }}</option>
               <option v-for="c in allClusters" :key="c.id" :value="c.id" :data-testid="`grant-cluster-${c.id}`">{{ c.name }}{{ c.nsAuthMode === 'open' ? ' (open)' : '' }}</option>
             </select>
@@ -211,18 +211,18 @@ async function doSaveGrants() {
           <!-- nsAuthMode 双钮切换(残余收尾 fix 1):当前模式高亮;点另一模式 → ConfirmDialog 警示后 PUT -->
           <div v-if="selCluster" data-testid="ns-mode-toggle" class="flex items-center gap-xs mb-sm flex-wrap">
             <span class="text-body-xs text-on-surface-variant">{{ $t('admin.authz.nsModeLabel') }}</span>
-            <button data-testid="ns-mode-open" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border', selNsMode === 'open' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high']" @click="askNsMode('open')">{{ $t('admin.authz.nsModeOpen') }}</button>
-            <button data-testid="ns-mode-allowlist" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border', selNsMode === 'allowlist' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high']" @click="askNsMode('allowlist')">{{ $t('admin.authz.nsModeAllowlist') }}</button>
+            <button data-testid="ns-mode-open" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border max-sm:min-h-[40px]', selNsMode === 'open' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high']" @click="askNsMode('open')">{{ $t('admin.authz.nsModeOpen') }}</button>
+            <button data-testid="ns-mode-allowlist" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border max-sm:min-h-[40px]', selNsMode === 'allowlist' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high']" @click="askNsMode('allowlist')">{{ $t('admin.authz.nsModeAllowlist') }}</button>
           </div>
           <template v-if="selClusterId">
             <div class="flex items-center gap-xs mb-sm">
               <input v-model="nsInput" data-testid="ns-add-input" :placeholder="$t('admin.authz.nsAdd')" class="flex-1 min-w-0 bg-surface-container border rounded-lg px-sm py-xs text-body-sm font-mono" :class="nsInput && nsError(nsInput) ? 'border-error' : 'border-outline-variant'" @keyup.enter="doAddNs" />
-              <button data-testid="ns-add-btn" @click="doAddNs" class="px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high"><span class="material-symbols-outlined text-base align-middle">add</span></button>
+              <button data-testid="ns-add-btn" @click="doAddNs" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high"><span class="material-symbols-outlined text-base align-middle">add</span></button>
             </div>
             <div v-for="r in grantRows" :key="r.namespace" :data-testid="`ns-row-${r.namespace}`" class="flex items-center gap-sm py-xs border-b border-outline-variant/50 last:border-0">
               <span class="font-mono text-body-sm flex-1 min-w-0 truncate">{{ r.namespace }}</span>
-              <button @click="r.level = 'view'" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border', r.level === 'view' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant']">{{ $t('admin.authz.levelView') }}</button>
-              <button @click="r.level = 'operate'" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border', r.level === 'operate' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant']">{{ $t('admin.authz.levelOperate') }}</button>
+              <button @click="r.level = 'view'" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border max-sm:min-h-[40px]', r.level === 'view' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant']">{{ $t('admin.authz.levelView') }}</button>
+              <button @click="r.level = 'operate'" :class="['px-sm py-xs rounded-lg text-body-xs font-medium border max-sm:min-h-[40px]', r.level === 'operate' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant']">{{ $t('admin.authz.levelOperate') }}</button>
               <button @click="doRemoveNs(r.namespace)" :title="$t('common.delete')" class="p-1 rounded hover:bg-error/10 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
             </div>
             <button data-testid="grant-save-btn" :disabled="saving" @click="doSaveGrants" class="mt-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold text-body-sm hover:opacity-90 disabled:opacity-50">{{ $t('admin.authz.save') }}</button>

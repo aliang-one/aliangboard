@@ -83,8 +83,8 @@ const { currentPage, pageSize, paginated, total } = usePagination(filteredCrds, 
     <DataTable :headers="headers" :rows="paginated" column-key="crds">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-primary text-base">extension</span>
-          <router-link :to="{ name: 'CrdDetail', params: { name: row.name } }" class="font-mono text-code-sm text-on-surface font-semibold hover:text-primary transition-colors">{{ row.name }}</router-link>
+          <span class="material-symbols-outlined text-primary text-base shrink-0">extension</span>
+          <router-link :to="{ name: 'CrdDetail', params: { name: row.name } }" class="font-mono text-code-sm text-on-surface font-semibold hover:text-primary transition-colors truncate min-w-0" :title="row.name">{{ row.name }}</router-link>
         </div>
       </template>
       <template #groupVersion="{ row }">

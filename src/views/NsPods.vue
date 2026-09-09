@@ -134,25 +134,25 @@ async function handleCreate() {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'Pods' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.pods.title') }}</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.pods.subtitle', { count: nsPods.length, ns: route.params.namespace }) }}</p>
       </div>
-      <div class="flex items-center gap-sm">
+      <div class="flex flex-wrap items-center gap-sm">
         <WatchStateChip :state="podsState" />
         <button v-if="!batchMode" @click="enterBatch"
-          class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container transition-colors"
+          class="flex items-center gap-sm px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-medium rounded-lg border bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container transition-colors"
           :title="t('ns.pods.batchEnter')">
           <span class="material-symbols-outlined">delete_sweep</span> {{ t('ns.pods.batchEnter') }}
         </button>
         <button v-else @click="exitBatch"
-          class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border bg-primary-container/20 text-primary border-primary transition-colors"
+          class="flex items-center gap-sm px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-medium rounded-lg border bg-primary-container/20 text-primary border-primary transition-colors"
           :title="t('ns.pods.batchExit')">
           <span class="material-symbols-outlined">close</span> {{ t('ns.pods.batchExit') }}
         </button>
         <button @click="toggleLive"
-          class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-medium rounded-lg border transition-colors"
+          class="flex items-center gap-sm px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-medium rounded-lg border transition-colors"
           :class="store.podWatchLive ? 'bg-primary-container/20 text-primary border-primary' : 'bg-surface-container-highest text-on-surface border-outline-variant hover:bg-surface-container'"
           :title="store.podWatchLive ? t('ns.pods.liveOn') : t('ns.pods.liveOff')">
           <span class="material-symbols-outlined">{{ store.podWatchLive ? 'pause' : 'play_arrow' }}</span>
@@ -160,7 +160,7 @@ async function handleCreate() {
             <span v-if="store.podWatchLive" class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-status"></span>
           </span>
         </button>
-        <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
+        <button @click="showCreateModal = true" class="flex items-center gap-sm px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
           <span class="material-symbols-outlined">add</span> {{ t('ns.pods.createShort') }}
         </button>
       </div>
@@ -184,10 +184,10 @@ async function handleCreate() {
       <span class="text-body-sm text-on-surface-variant">{{ t('ns.pods.results', { n: filtered.length }) }}</span>
       <template v-if="batchMode">
         <span class="text-body-sm font-semibold text-primary">{{ t('ns.pods.batchSelected', { n: batchTargets.length }) }}</span>
-        <button @click="selectAllCandidates" class="px-sm py-xs text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchSelectAll') }}</button>
-        <button @click="clearSelection" class="px-sm py-xs text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchClear') }}</button>
+        <button @click="selectAllCandidates" class="px-sm py-xs max-sm:min-h-[40px] text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchSelectAll') }}</button>
+        <button @click="clearSelection" class="px-sm py-xs max-sm:min-h-[40px] text-body-sm border border-outline-variant rounded-lg hover:bg-surface-container-low">{{ t('ns.pods.batchClear') }}</button>
         <button @click="showBatchModal = true" :disabled="!batchTargets.length"
-          class="flex items-center gap-xs px-sm py-xs text-body-sm font-semibold bg-error text-on-error rounded-lg hover:opacity-90 disabled:opacity-40">
+          class="flex items-center gap-xs px-sm py-xs max-sm:min-h-[40px] text-body-sm font-semibold bg-error text-on-error rounded-lg hover:opacity-90 disabled:opacity-40">
           <span class="material-symbols-outlined text-base">delete</span>{{ t('ns.pods.batchDeleteAction') }}
         </button>
       </template>

@@ -122,19 +122,19 @@ function setFieldValue(fKey, val) {
     </div>
   </div>
 
-  <!-- 自由模式：左键列表 + 右内容 -->
-  <div v-else class="grid grid-cols-[220px_1fr] gap-md">
+  <!-- 自由模式：左键列表 + 右内容（手机上下堆叠：键列表限高可滚，桌面双栏不变）-->
+  <div v-else class="grid grid-cols-1 sm:grid-cols-[220px_1fr] gap-md">
     <!-- 左栏：键列表 -->
     <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden flex flex-col">
       <div class="px-md py-sm border-b border-outline-variant bg-surface-container-low flex items-center gap-sm">
         <span class="material-symbols-outlined text-secondary text-base">folder</span>
         <span class="text-label-caps text-on-surface-variant truncate flex-1">{{ t('component.dataKeysEditor.keysCount', { n: entries.length }) }}</span>
         <button v-if="secret" data-testid="dk-mask" type="button" @click="toggleReveal('')"
-          class="p-0.5 text-on-surface-variant hover:text-primary rounded" :title="t('component.dataKeysEditor.toggleMask')">
+          class="p-0.5 text-on-surface-variant hover:text-primary rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('component.dataKeysEditor.toggleMask')">
           <span class="material-symbols-outlined text-base">{{ revealed.has('') ? 'visibility_off' : 'visibility' }}</span>
         </button>
       </div>
-      <div class="flex-1 overflow-y-auto max-h-[60vh]">
+      <div class="flex-1 overflow-y-auto max-h-[60vh] max-sm:max-h-[30vh]">
         <div v-for="(e, i) in entries" :key="i" @click="selectedIdx = i; editing = false"
           class="w-full flex items-center gap-sm px-md py-sm text-left transition-colors group cursor-pointer"
           :class="selectedIdx === i ? 'bg-primary-container/15 text-primary' : 'text-on-surface hover:bg-surface-container-low'">
@@ -150,7 +150,7 @@ function setFieldValue(fKey, val) {
           </div>
           <span class="text-[10px] text-on-surface-variant shrink-0">{{ lineCount(e.value) }}</span>
           <button :data-testid="`dk-del-${i}`" type="button" @click.stop="removeKey(i)"
-            class="opacity-0 group-hover:opacity-100 max-sm:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded transition-opacity shrink-0" :title="t('common.delete')">
+            class="opacity-0 group-hover:opacity-100 max-sm:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded transition-opacity shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('common.delete')">
             <span class="material-symbols-outlined text-sm">close</span>
           </button>
         </div>
@@ -176,7 +176,7 @@ function setFieldValue(fKey, val) {
           </div>
           <div class="flex gap-xs shrink-0">
             <button v-if="!editing" data-testid="dk-edit" type="button" @click="startEdit"
-              class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')">
+              class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('common.edit')">
               <span class="material-symbols-outlined text-lg">edit</span>
             </button>
           </div>
@@ -186,8 +186,8 @@ function setFieldValue(fKey, val) {
           <textarea ref="editArea" v-model="draft"
             class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono min-h-[300px] resize-y focus:ring-2 focus:ring-primary focus:border-primary"></textarea>
           <div class="flex justify-end gap-sm mt-sm">
-            <button data-testid="dk-cancel" type="button" @click="cancelEdit" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ t('common.cancel') }}</button>
-            <button data-testid="dk-save" type="button" @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold">{{ t('common.save') }}</button>
+            <button data-testid="dk-cancel" type="button" @click="cancelEdit" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm max-sm:min-h-[40px]">{{ t('common.cancel') }}</button>
+            <button data-testid="dk-save" type="button" @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold max-sm:min-h-[40px]">{{ t('common.save') }}</button>
           </div>
         </div>
         <!-- 查看模式 -->

@@ -120,14 +120,14 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('config.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('config.subtitle') }}</p>
       </div>
-      <button @click="createNew" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary text-body-sm font-semibold rounded-lg hover:opacity-90 transition-opacity">
+      <button @click="createNew" class="flex items-center gap-sm px-3 py-1.5 max-sm:min-h-[40px] bg-primary text-on-primary text-body-sm font-semibold rounded-lg hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> {{ t('config.createNew') }}
       </button>
     </div>
 
-    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
+    <div class="flex items-center gap-xs overflow-x-auto border-b border-outline-variant mb-md">
       <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
-        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative shrink-0 whitespace-nowrap"
         :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
       >{{ tab.label }}<span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span></button>
     </div>
@@ -135,9 +135,9 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <!-- ConfigMaps -->
     <DataTable v-if="activeTab === 'configmaps'" :headers="cmHeaders" :rows="paginated" column-key="configCM" @row-click="editItem">
       <template #name="{ row }">
-        <div class="flex items-center gap-md">
-          <span class="material-symbols-outlined text-secondary">description</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md min-w-0">
+          <span class="material-symbols-outlined text-secondary shrink-0">description</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #keys="{ row }">
@@ -145,10 +145,10 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editItem(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')">
+          <button @click.stop="editItem(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')">
             <span class="material-symbols-outlined text-lg">edit</span>
           </button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')">
+          <button @click.stop="askDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')">
             <span class="material-symbols-outlined text-lg">delete</span>
           </button>
         </div>
@@ -161,9 +161,9 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <!-- Secrets -->
     <DataTable v-if="activeTab === 'secrets'" :headers="secretHeaders" :rows="paginated" column-key="configSecret" @row-click="editItem">
       <template #name="{ row }">
-        <div class="flex items-center gap-md">
-          <span class="material-symbols-outlined text-tertiary-container">key</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md min-w-0">
+          <span class="material-symbols-outlined text-tertiary-container shrink-0">key</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #type="{ row }">
@@ -171,8 +171,8 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editItem(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editItem(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template #pagination>
@@ -183,16 +183,16 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <!-- ResourceQuotas -->
     <DataTable v-if="activeTab === 'resourcequotas' && allResourceQuotas.length" :headers="rqHeaders" :rows="paginated" column-key="configRQ" @row-click="editItem">
       <template #name="{ row }">
-        <div class="flex items-center gap-md">
-          <span class="material-symbols-outlined text-secondary">pie_chart</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md min-w-0">
+          <span class="material-symbols-outlined text-secondary shrink-0">pie_chart</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #limits="{ row }"><span class="font-mono text-code-sm">{{ rqLimitsCount(row) }}</span></template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editItem(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editItem(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template #pagination>
@@ -202,23 +202,23 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <div v-else-if="activeTab === 'resourcequotas'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">pie_chart</span>
       <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('config.noResourceQuotas') }}</p>
-      <button @click="createNew" class="mt-md px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold">{{ t('config.createResourceQuota') }}</button>
+      <button @click="createNew" class="mt-md px-3 py-1.5 max-sm:min-h-[40px] bg-primary text-on-primary text-body-sm rounded-lg font-semibold">{{ t('config.createResourceQuota') }}</button>
     </div>
 
     <!-- LimitRanges -->
     <DataTable v-if="activeTab === 'limitranges' && allLimitRanges.length" :headers="lrHeaders" :rows="paginated" column-key="configLR" @row-click="editItem">
       <template #name="{ row }">
-        <div class="flex items-center gap-md">
-          <span class="material-symbols-outlined text-secondary">tune</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md min-w-0">
+          <span class="material-symbols-outlined text-secondary shrink-0">tune</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #defaultCPU="{ row }"><span class="font-mono text-code-sm">{{ row.defaultCPU || '—' }}</span></template>
       <template #defaultMemory="{ row }"><span class="font-mono text-code-sm">{{ row.defaultMemory || '—' }}</span></template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editItem(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editItem(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template #pagination>
@@ -228,15 +228,15 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <div v-else-if="activeTab === 'limitranges'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">tune</span>
       <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('config.noLimitRanges') }}</p>
-      <button @click="createNew" class="mt-md px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold">{{ t('config.createLimitRange') }}</button>
+      <button @click="createNew" class="mt-md px-3 py-1.5 max-sm:min-h-[40px] bg-primary text-on-primary text-body-sm rounded-lg font-semibold">{{ t('config.createLimitRange') }}</button>
     </div>
 
     <!-- HPA -->
     <DataTable v-if="activeTab === 'hpas' && allHPAs.length" :headers="hpaHeaders" :rows="paginated" column-key="configHPA" @row-click="editItem">
       <template #name="{ row }">
-        <div class="flex items-center gap-md">
-          <span class="material-symbols-outlined text-secondary">timeline</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md min-w-0">
+          <span class="material-symbols-outlined text-secondary shrink-0">timeline</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #targetName="{ row }">
@@ -245,8 +245,8 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       <template #cpuTarget="{ row }"><span class="font-mono text-code-sm">{{ row.cpuTarget != null ? row.cpuTarget + '%' : '—' }}</span></template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editItem(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editItem(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('common.edit')"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('common.delete')"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template #pagination>
@@ -256,7 +256,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <div v-else-if="activeTab === 'hpas'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant py-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">timeline</span>
       <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('config.noHPAs') }}</p>
-      <button @click="createNew" class="mt-md px-3 py-1.5 bg-primary text-on-primary text-body-sm rounded-lg font-semibold">{{ t('config.createHPA') }}</button>
+      <button @click="createNew" class="mt-md px-3 py-1.5 max-sm:min-h-[40px] bg-primary text-on-primary text-body-sm rounded-lg font-semibold">{{ t('config.createHPA') }}</button>
     </div>
 
     <!-- Delete Confirm Modal -->

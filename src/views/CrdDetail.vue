@@ -8,6 +8,7 @@ import { dump as yamlDump } from 'js-yaml'
 import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
 import { notify } from '@/composables/useToast'
@@ -111,6 +112,17 @@ function toggleInst(inst) {
   if (s.has(k)) s.delete(k); else { s.add(k); ensureInstYaml(inst) }
   expandedInst.value = s
 }
+// —— Instances 裸表迁 DataTable(Wave5 B5,审计 #313,P0):手机卡片模式(首列=标题)——
+// 展开行(实时 YAML 编辑)走 DataTable expandable + #expanded;本集合只跟踪「哪些行展开」
+// 供 ensureInstYaml 懒拉取与 applyInstYaml 定向刷新。行键 = name(+ns,namespaced CRD 同名跨 ns 唯一)。
+const instHeaders = computed(() => [
+  { key: 'name', label: t('admin.crdDetail.name') },
+  { key: 'namespace', label: t('admin.crdDetail.namespace') },
+  { key: 'status', label: t('admin.crdDetail.status') },
+  { key: 'age', label: 'AGE' },
+  { key: 'actions', label: t('admin.crdDetail.actions'), align: 'right' },
+])
+const instRows = computed(() => instances.value.map(inst => ({ ...inst, _key: instKey(inst) })))
 // 实时 YAML 优先；未加载完或失败时回退静态模板
 const instYamlModel = (inst) => instYaml.value[instKey(inst)] ?? store.generateCRYaml(crd.value, inst)
 
@@ -173,18 +185,18 @@ async function handleCreateInst(yaml) {
     ]" />
 
     <!-- Header -->
-    <div class="flex items-start justify-between mt-sm mb-md">
-      <div class="flex items-center gap-md">
+    <div class="flex flex-wrap items-start justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="flex items-center gap-md min-w-0">
         <div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-primary text-2xl">extension</span>
         </div>
-        <div>
+        <div class="min-w-0">
           <div class="flex items-baseline gap-sm flex-wrap">
-            <h1 class="text-headline-md text-on-surface font-mono font-bold">{{ crd.name }}</h1>
-            <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-xs font-semibold rounded">{{ crd.kind }}</span>
+            <h1 class="text-headline-md text-on-surface font-mono font-bold min-w-0 break-all" :title="crd.name">{{ crd.name }}</h1>
+            <span class="px-2 py-0.5 bg-primary-container/20 text-primary text-xs font-semibold rounded shrink-0">{{ crd.kind }}</span>
           </div>
           <div class="flex items-center gap-sm mt-xs flex-wrap">
-            <span class="font-mono text-xs text-on-surface-variant">{{ crd.group }}/{{ crd.version }}</span>
+            <span class="font-mono text-xs text-on-surface-variant break-all">{{ crd.group }}/{{ crd.version }}</span>
             <span class="text-on-surface-variant/40">·</span>
             <span
               class="text-xs font-semibold inline-flex items-center gap-1"
@@ -198,10 +210,10 @@ async function handleCreateInst(yaml) {
           </div>
         </div>
       </div>
-      <div class="flex gap-xs shrink-0">
+      <div class="flex gap-xs">
         <button
           @click="router.push('/crds')"
-          class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
+          class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors max-sm:min-h-[40px]"
         >
           <span class="material-symbols-outlined text-sm">arrow_back</span> {{ t('admin.crdDetail.backToList') }}
         </button>
@@ -209,12 +221,12 @@ async function handleCreateInst(yaml) {
     </div>
 
     <!-- Tabs -->
-    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
+    <div class="flex items-center gap-xs overflow-x-auto border-b border-outline-variant mb-md">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         @click="activeTab = tab.key"
-        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative shrink-0 whitespace-nowrap"
         :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
       >{{ tab.label }}<span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span></button>
     </div>
@@ -230,15 +242,15 @@ async function handleCreateInst(yaml) {
           <div class="p-md grid grid-cols-2 gap-sm">
             <div class="p-sm rounded-lg bg-surface-container-low">
               <p class="text-xs text-on-surface-variant mb-xs">GROUP</p>
-              <p class="font-mono text-code-sm text-primary font-semibold">{{ crd.group }}</p>
+              <p class="font-mono text-code-sm text-primary font-semibold break-all">{{ crd.group }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
               <p class="text-xs text-on-surface-variant mb-xs">VERSION</p>
-              <p class="font-mono text-code-sm text-primary font-semibold">{{ crd.version }}</p>
+              <p class="font-mono text-code-sm text-primary font-semibold break-all">{{ crd.version }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
               <p class="text-xs text-on-surface-variant mb-xs">KIND</p>
-              <p class="text-body-sm text-on-surface font-semibold">{{ crd.kind }}</p>
+              <p class="text-body-sm text-on-surface font-semibold break-all">{{ crd.kind }}</p>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
               <p class="text-xs text-on-surface-variant mb-xs">SCOPE</p>
@@ -292,76 +304,50 @@ async function handleCreateInst(yaml) {
       </div>
     </div>
 
-    <!-- Instances Tab -->
-    <div v-if="activeTab === 'instances'">
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <div class="flex items-center justify-between px-md py-2.5 border-b border-outline-variant/50">
-          <div class="flex items-center gap-sm">
-            <span class="material-symbols-outlined text-primary text-lg">list_alt</span>
-            <span class="text-body-sm font-semibold">{{ t('admin.crdDetail.instancesTitle', { kind: crd.kind }) }}</span>
-          </div>
-          <div class="flex items-center gap-sm">
-            <span class="text-xs text-on-surface-variant">{{ instances.length }} {{ t('admin.crdDetail.instancesCount', { n: instances.length }) }}</span>
-            <button
-              @click="openCreateInst"
-              class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all"
-            >
-              <span class="material-symbols-outlined text-sm">add</span> {{ t('admin.crdDetail.createInstance') }}
-            </button>
-          </div>
+    <!-- Instances Tab(DataTable:手机卡片模式 + 内建展开行,Wave5 B5) -->
+    <div v-if="activeTab === 'instances'" class="flex flex-col gap-md">
+      <div class="flex items-center justify-between flex-wrap gap-x-sm gap-y-xs">
+        <div class="flex items-center gap-sm min-w-0">
+          <span class="material-symbols-outlined text-primary text-lg">list_alt</span>
+          <span class="text-body-sm font-semibold">{{ t('admin.crdDetail.instancesTitle', { kind: crd.kind }) }}</span>
+          <span class="text-xs text-on-surface-variant">{{ instances.length }} {{ t('admin.crdDetail.instancesCount', { n: instances.length }) }}</span>
         </div>
-        <table v-if="instances.length" class="w-full">
-          <thead>
-            <tr class="border-b border-outline-variant bg-surface-container-low/50">
-              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.crdDetail.name') }}</th>
-              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.crdDetail.namespace') }}</th>
-              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('admin.crdDetail.status') }}</th>
-              <th class="text-left px-md py-2 text-xs font-medium text-on-surface-variant">AGE</th>
-              <th class="text-right px-md py-2 text-xs font-medium text-on-surface-variant w-24">{{ t('admin.crdDetail.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="inst in instances" :key="inst.name + (inst.namespace || '')">
-              <tr class="border-b border-outline-variant/15 last:border-0 hover:bg-surface-container-low/40 transition-colors">
-                <td class="px-md py-2">
-                  <div class="flex items-center gap-sm">
-                    <span class="material-symbols-outlined text-on-surface-variant text-base">deployed_code</span>
-                    <span class="font-mono text-code-sm text-on-surface font-semibold">{{ inst.name }}</span>
-                  </div>
-                </td>
-                <td class="px-md py-2">
-                  <span v-if="inst.namespace" class="px-2 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ inst.namespace }}</span>
-                  <span v-else class="text-on-surface-variant text-xs">-</span>
-                </td>
-                <td class="px-md py-2">
-                  <StatusChip :status="inst.status || 'Unknown'" size="sm" />
-                </td>
-                <td class="px-md py-2">
-                  <span class="text-xs text-on-surface-variant font-mono text-code-sm">{{ inst.age }}</span>
-                </td>
-                <td class="px-md py-2 text-right">
-                  <div class="flex gap-1 justify-end">
-                    <button @click="toggleInst(inst)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="expandedInst.has(instKey(inst)) ? t('admin.crdDetail.collapse') : t('admin.crdDetail.viewEditYaml')">
-                      <span class="material-symbols-outlined text-base transition-transform" :class="expandedInst.has(instKey(inst)) ? 'rotate-180' : ''">expand_more</span>
-                    </button>
-                    <button @click="confirmDeleteInst(inst)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('admin.crdDetail.deleteInstance')">
-                      <span class="material-symbols-outlined text-base">delete</span>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="expandedInst.has(instKey(inst))">
-                <td colspan="5" class="px-md py-2 bg-surface-container-low/40">
-                  <YamlEditor :model-value="instYamlModel(inst)" :readonly="false" height="360px" @save="applyInstYaml" />
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-        <div v-else class="px-md py-md text-center">
-          <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
-          <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('admin.crdDetail.noInstances') }}</p>
-        </div>
+        <button
+          @click="openCreateInst"
+          class="flex items-center gap-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]"
+        >
+          <span class="material-symbols-outlined text-sm">add</span> {{ t('admin.crdDetail.createInstance') }}
+        </button>
+      </div>
+      <DataTable v-if="instances.length" :headers="instHeaders" :rows="instRows" row-key="_key" expandable @expand="toggleInst">
+        <template #name="{ row }">
+          <div class="flex items-center gap-sm min-w-0">
+            <span class="material-symbols-outlined text-on-surface-variant text-base shrink-0">deployed_code</span>
+            <span class="font-mono text-code-sm text-on-surface font-semibold truncate" :title="row.name">{{ row.name }}</span>
+          </div>
+        </template>
+        <template #namespace="{ row }">
+          <span v-if="row.namespace" class="px-2 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.namespace }}</span>
+          <span v-else class="text-on-surface-variant text-xs">-</span>
+        </template>
+        <template #status="{ row }">
+          <StatusChip :status="row.status || 'Unknown'" size="sm" />
+        </template>
+        <template #age="{ row }">
+          <span class="text-xs text-on-surface-variant font-mono text-code-sm">{{ row.age }}</span>
+        </template>
+        <template #actions="{ row }">
+          <button @click="confirmDeleteInst(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('admin.crdDetail.deleteInstance')">
+            <span class="material-symbols-outlined text-base">delete</span>
+          </button>
+        </template>
+        <template #expanded="{ row }">
+          <YamlEditor :model-value="instYamlModel(row)" :readonly="false" height="360px" @save="applyInstYaml" />
+        </template>
+      </DataTable>
+      <div v-else class="rounded-xl bg-surface-container-lowest border border-outline-variant px-md py-md text-center">
+        <span class="material-symbols-outlined text-2xl text-surface-container-high">inbox</span>
+        <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('admin.crdDetail.noInstances') }}</p>
       </div>
     </div>
 

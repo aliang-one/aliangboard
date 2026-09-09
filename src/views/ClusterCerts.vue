@@ -92,12 +92,12 @@ function onRowClick(row) {
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex justify-between items-end mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md text-on-surface font-bold">{{ $t('certs.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('certs.subtitle') }}</p>
       </div>
-      <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+      <button @click="sync" :disabled="syncing" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
         <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ $t('common.sync') }}
       </button>
     </div>
@@ -166,11 +166,11 @@ function onRowClick(row) {
       </div>
 
       <!-- B 段:TLS 证书 Secret -->
-      <div class="flex items-center justify-between mb-sm">
+      <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mb-sm">
         <h3 class="text-body-md font-bold text-on-surface">{{ $t('certs.sectionSecrets') }}</h3>
-        <div class="flex gap-xs">
+        <div class="flex flex-wrap gap-xs">
           <button v-for="mode in ['all', 'expiring', 'expired']" :key="mode" :data-testid="`certs-filter-${mode}`"
-            class="px-sm py-0.5 rounded-full text-xs font-medium border transition-colors"
+            class="px-sm py-0.5 max-sm:min-h-[40px] rounded-full text-xs font-medium border transition-colors"
             :class="filterMode === mode ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container'"
             @click="filterMode = mode">{{ $t(mode === 'all' ? 'certs.filterAll' : mode === 'expiring' ? 'certs.filterExpiring' : 'certs.filterExpired') }}</button>
         </div>

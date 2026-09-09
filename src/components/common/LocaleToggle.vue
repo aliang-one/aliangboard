@@ -20,7 +20,7 @@ const activeLang = computed(() => prefs.language || 'zh')
   <div data-testid="locale-toggle"
     class="flex items-center gap-xs rounded-full border border-outline-variant bg-surface-container-lowest p-xs">
     <button v-for="o in options" :key="o.v" :data-testid="`locale-toggle-${o.v}`"
-      class="px-sm py-xs rounded-full text-body-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
+      class="relative px-sm py-xs rounded-full text-body-xs font-medium whitespace-nowrap transition-colors cursor-pointer max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
       :class="activeLang === o.v ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container'"
       @click="prefs.setLanguage(o.v)">{{ t(o.key) }}</button>
   </div>

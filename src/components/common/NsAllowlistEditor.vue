@@ -54,19 +54,19 @@ function remove(ns) { commit(extra.value.filter(x => x !== ns)) }
       <span v-if="boundNs" class="px-1.5 py-0.5 rounded text-body-xs font-mono bg-primary/15 text-primary">{{ boundNs }}</span>
       <span v-if="boundNs" class="text-body-xs text-on-surface-variant">{{ t('nsAllowlist.boundAlways') }}</span>
       <span v-for="ns in extra" :key="ns" class="px-1.5 py-0.5 rounded text-body-xs font-mono bg-status-running/15 text-status-running flex items-center gap-0.5">
-        {{ ns }}<button type="button" @click="remove(ns)" class="hover:text-error">×</button>
+        {{ ns }}<button type="button" @click="remove(ns)" :aria-label="t('nsAllowlist.removeNs', { ns })" class="hover:text-error relative max-sm:px-1.5 max-sm:py-0.5 max-sm:min-h-[28px] max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">×</button>
       </span>
     </div>
     <div class="flex items-center gap-xs">
       <select v-if="mode === 'select'" data-testid="ns-select" :disabled="loading"
-        class="flex-1 bg-surface border-b border-outline-variant text-body-xs font-mono px-1 py-0.5 outline-none focus:border-primary"
+        class="flex-1 bg-surface border-b border-outline-variant text-body-xs font-mono px-1 py-0.5 outline-none focus:border-primary max-sm:min-h-[40px]"
         @change="pick">
         <option value="" disabled selected>{{ loading ? t('nsAllowlist.loading') : t('nsAllowlist.selectPlaceholder') }}</option>
         <option v-for="ns in candidates" :key="ns" :value="ns">{{ ns }}</option>
       </select>
       <input v-else v-model="input" data-testid="ns-manual-input" @keydown.enter.prevent="add" :placeholder="t('nsAllowlist.addPlaceholder')"
-        class="flex-1 bg-transparent border-b border-outline-variant text-body-xs font-mono px-1 py-0.5 outline-none focus:border-primary min-w-[12rem]" />
-      <button type="button" data-testid="ns-mode-toggle" class="text-body-xs text-primary underline underline-offset-2 shrink-0"
+        class="flex-1 bg-transparent border-b border-outline-variant text-body-xs font-mono px-1 py-0.5 outline-none focus:border-primary min-w-[12rem] max-sm:min-w-0 max-sm:min-h-[40px]" />
+      <button type="button" data-testid="ns-mode-toggle" class="text-body-xs text-primary underline underline-offset-2 shrink-0 max-sm:min-h-[40px]"
         @click="mode = mode === 'select' ? 'manual' : 'select'">
         {{ mode === 'select' ? t('nsAllowlist.switchToManual') : t('nsAllowlist.switchToSelect') }}
       </button>

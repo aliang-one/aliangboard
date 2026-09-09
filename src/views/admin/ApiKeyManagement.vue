@@ -175,9 +175,9 @@ async function doRevoke(k) {
 
 <template>
   <section class="animate-fade-in p-md">
-    <div class="flex items-center justify-between mb-md">
-      <div><h2 class="text-headline-lg font-bold text-on-surface">{{ $t('admin.apiKeys.title') }}</h2><p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('admin.apiKeys.subtitle') }}</p></div>
-      <button @click="mintOverrides = { allow: [], deny: [] }; mintExtraNs = []; mintErrors = {}; showMintModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90">
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mb-md">
+      <div class="min-w-0"><h2 class="text-headline-lg font-bold text-on-surface min-w-0 max-sm:truncate" :title="$t('admin.apiKeys.title')">{{ $t('admin.apiKeys.title') }}</h2><p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('admin.apiKeys.subtitle') }}</p></div>
+      <button @click="mintOverrides = { allow: [], deny: [] }; mintExtraNs = []; mintErrors = {}; showMintModal = true" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 max-sm:min-h-[40px]">
         <span class="material-symbols-outlined text-sm">add</span> {{ $t('admin.apiKeys.mintKey') }}
       </button>
     </div>
@@ -196,12 +196,12 @@ async function doRevoke(k) {
         <span v-else class="text-body-xs text-on-surface-variant/50">—</span>
       </template>
       <template #boundSA="{ row }">
-        <div class="flex items-center gap-xs">
+        <div class="flex flex-wrap items-center gap-xs">
           <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="{ background: dotColor(saHealth[row.id]) }" :title="dotTitle(saHealth[row.id])"></span>
-          <span class="font-mono text-body-xs text-on-surface-variant">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span>
+          <span class="font-mono text-body-xs text-on-surface-variant min-w-0 break-all">{{ row.boundSA_namespace }}/{{ row.boundSA_name }}</span>
           <span v-if="row.saManaged" class="px-xs rounded-full text-[10px] leading-4 border border-outline-variant text-on-surface-variant">{{ $t('admin.apiKeys.managedBadge') }}</span>
           <button v-if="needsRepair(row)" data-testid="sa-repair" class="text-body-xs text-primary underline underline-offset-2" @click="repairSa(row)">{{ row.saManaged ? $t('admin.apiKeys.repair') : $t('admin.apiKeys.repairTakeover') }}</button>
-          <span class="flex items-center gap-xs" data-testid="ssh-access-cell">
+          <span class="flex items-center gap-xs max-sm:w-full max-sm:justify-end" data-testid="ssh-access-cell">
             <span class="text-[10px] leading-4 text-on-surface-variant/70">SSH</span>
             <ToggleSwitch :checked="!!row.sshAccess" data-testid="ssh-access-switch"
               :title="row.sshAccess ? $t('admin.apiKeys.sshAccessOn') : $t('admin.apiKeys.sshAccessOff')"
@@ -225,7 +225,7 @@ async function doRevoke(k) {
     <!-- 签发 Modal -->
     <Modal v-model="showMintModal" :title="$t('admin.apiKeys.mintKey')" width="max-w-xl">
       <div class="flex flex-col gap-md">
-        <div class="grid grid-cols-2 gap-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-sm">
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.owner') }}</label><input v-model="mintForm.owner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="alice" /></div>
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.labelOptional') }}</label><input v-model="mintForm.label" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="debug-laptop" /></div>
           <div class="flex items-center gap-sm pt-xs" data-testid="mint-ssh-access">
@@ -235,8 +235,8 @@ async function doRevoke(k) {
           </div>
         </div>
         <div class="flex gap-xs mb-sm">
-          <button type="button" data-testid="mint-mode-managed" :class="['px-md py-xs rounded-full text-body-xs border transition-colors', mintForm.mode==='managed' ? 'bg-primary-container text-on-primary-container border-primary' : 'border-outline-variant text-on-surface-variant']" @click="mintForm.mode='managed'">{{ $t('admin.apiKeys.modeManaged') }}</button>
-          <button type="button" data-testid="mint-mode-byo" :class="['px-md py-xs rounded-full text-body-xs border transition-colors', mintForm.mode==='byo' ? 'bg-primary-container text-on-primary-container border-primary' : 'border-outline-variant text-on-surface-variant']" @click="mintForm.mode='byo'">{{ $t('admin.apiKeys.modeByo') }}</button>
+          <button type="button" data-testid="mint-mode-managed" :class="['px-md py-xs rounded-full text-body-xs border transition-colors max-sm:min-h-[40px]', mintForm.mode==='managed' ? 'bg-primary-container text-on-primary-container border-primary' : 'border-outline-variant text-on-surface-variant']" @click="mintForm.mode='managed'">{{ $t('admin.apiKeys.modeManaged') }}</button>
+          <button type="button" data-testid="mint-mode-byo" :class="['px-md py-xs rounded-full text-body-xs border transition-colors max-sm:min-h-[40px]', mintForm.mode==='byo' ? 'bg-primary-container text-on-primary-container border-primary' : 'border-outline-variant text-on-surface-variant']" @click="mintForm.mode='byo'">{{ $t('admin.apiKeys.modeByo') }}</button>
         </div>
         <p class="text-body-xs text-on-surface-variant mb-sm">{{ mintForm.mode==='managed' ? $t('admin.apiKeys.modeManagedHint') : $t('admin.apiKeys.modeByoHint') }}</p>
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.apiKeys.bindCluster') }} <span class="text-error">*</span></label>
@@ -250,7 +250,7 @@ async function doRevoke(k) {
             <span class="material-symbols-outlined text-sm">info</span>{{ $t('admin.apiKeys.noClustersHint') }}
           </p>
         </div>
-        <div class="grid grid-cols-2 gap-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-sm">
           <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t(mintForm.mode==='managed' ? 'admin.apiKeys.bindSaNamespaceManaged' : 'admin.apiKeys.bindSaNamespace') }} <span class="text-error">*</span></label><input v-model="mintForm.boundSA_namespace" :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono', mintErrors.boundSA_namespace ? 'border-error' : 'border-outline-variant']" placeholder="default" @input="clearMintError('boundSA_namespace')" />
             <p v-if="mintErrors.boundSA_namespace" data-testid="mint-error-boundSA_namespace" class="text-body-xs text-error mt-xs">{{ $t('admin.apiKeys.requiredHint') }}</p>
           </div>
@@ -293,7 +293,7 @@ async function doRevoke(k) {
             <button @click="copyPlaintext" class="px-md py-sm bg-primary text-on-primary rounded-lg shrink-0 flex items-center gap-xs"><span class="material-symbols-outlined text-base">content_copy</span>{{ $t('admin.apiKeys.copy') }}</button>
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-sm text-body-xs text-on-surface-variant">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-sm text-body-xs text-on-surface-variant">
           <div>prefix: <span class="font-mono">{{ newKey.prefix }}</span></div>
           <div>tier: {{ newKey.tier }}</div>
           <div>owner: {{ newKey.owner }}</div>

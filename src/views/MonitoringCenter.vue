@@ -158,8 +158,8 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
       <div class="flex items-center justify-between mb-sm">
         <h3 class="text-body-sm font-semibold flex items-center gap-xs"><span class="material-symbols-outlined text-primary text-base">trending_up</span> {{ t('monitoring.topPods') }}</h3>
         <div class="flex gap-xs">
-          <button @click="topMetric = 'cpu'" class="px-2 py-0.5 text-xs rounded" :class="topMetric === 'cpu' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container-low'">{{ t('monitoring.cpuTab') }}</button>
-          <button @click="topMetric = 'mem'" class="px-2 py-0.5 text-xs rounded" :class="topMetric === 'mem' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container-low'">{{ t('monitoring.memoryTab') }}</button>
+          <button @click="topMetric = 'cpu'" class="relative px-2 py-0.5 text-xs rounded max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :class="topMetric === 'cpu' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container-low'">{{ t('monitoring.cpuTab') }}</button>
+          <button @click="topMetric = 'mem'" class="relative px-2 py-0.5 text-xs rounded max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :class="topMetric === 'mem' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container-low'">{{ t('monitoring.memoryTab') }}</button>
         </div>
       </div>
       <div v-if="topPods.length" class="divide-y divide-outline-variant/20">

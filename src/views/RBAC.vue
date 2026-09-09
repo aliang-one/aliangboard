@@ -105,24 +105,24 @@ async function doDelete() {
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex justify-between items-end mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('rbac.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('rbac.subtitle') }}</p>
       </div>
-      <div class="flex gap-sm">
-        <button @click="router.push({ name: 'RbacCanI' })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
+      <div class="flex flex-wrap gap-sm">
+        <button @click="router.push({ name: 'RbacCanI' })" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined text-base">verified_user</span> {{ t('rbac.permissionSimulation') }}
         </button>
-        <button @click="createRole" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+        <button @click="createRole" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
           <span class="material-symbols-outlined text-base">add</span> {{ t('rbac.createRole') }}
         </button>
       </div>
     </div>
 
-    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
+    <div class="flex items-center gap-xs overflow-x-auto border-b border-outline-variant mb-md">
       <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
-        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative shrink-0 whitespace-nowrap"
         :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
       >{{ tab.label }}
         <span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
@@ -131,9 +131,9 @@ async function doDelete() {
 
     <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated" column-key="rbacRoles" @row-click="openRole">
       <template #name="{ row }">
-        <div class="flex items-center gap-md">
-          <span class="material-symbols-outlined text-secondary">admin_panel_settings</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md min-w-0">
+          <span class="material-symbols-outlined text-secondary shrink-0">admin_panel_settings</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #namespace="{ row }">
@@ -148,8 +148,8 @@ async function doDelete() {
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editRole(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('rbac.titleEdit')"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('rbac.titleDelete')"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editRole(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('rbac.titleEdit')"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('rbac.titleDelete')"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template #pagination>
@@ -159,9 +159,9 @@ async function doDelete() {
 
     <DataTable v-if="activeTab === 'clusterrolebindings'" :headers="crbHeaders" :rows="paginated" column-key="rbacCRBs" @row-click="openCRB">
       <template #name="{ row }">
-        <div class="flex items-center gap-md">
-          <span class="material-symbols-outlined text-tertiary-container">share</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md min-w-0">
+          <span class="material-symbols-outlined text-tertiary-container shrink-0">share</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #roleName="{ row }">
@@ -177,9 +177,9 @@ async function doDelete() {
 
     <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="paginated" column-key="rbacSAs" @row-click="openSA">
       <template #name="{ row }">
-        <div class="flex items-center gap-md">
-          <span class="material-symbols-outlined text-tertiary-container">person</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md min-w-0">
+          <span class="material-symbols-outlined text-tertiary-container shrink-0">person</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #namespace="{ row }">
@@ -187,8 +187,8 @@ async function doDelete() {
       </template>
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
-          <button @click.stop="editSA(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('rbac.titleEdit')"><span class="material-symbols-outlined text-lg">edit</span></button>
-          <button @click.stop="askDelete(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('rbac.titleDelete')"><span class="material-symbols-outlined text-lg">delete</span></button>
+          <button @click.stop="editSA(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="t('rbac.titleEdit')"><span class="material-symbols-outlined text-lg">edit</span></button>
+          <button @click.stop="askDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('rbac.titleDelete')"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template #pagination>

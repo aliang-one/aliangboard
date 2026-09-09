@@ -47,14 +47,15 @@ function removeExpr(i) { expressions.value.splice(i, 1); emitUp() }
 
 <template>
   <div class="flex flex-col gap-sm">
-    <!-- matchLabels -->
-    <div v-for="(l, i) in labels" :key="'l' + i" class="flex items-center gap-sm">
+    <!-- matchLabels(手机纵排:审计 NpSelectorEditor:51,行 min-content ≈463px > Modal 内宽 342px) -->
+    <div v-for="(l, i) in labels" :key="'l' + i" class="flex items-center gap-sm max-sm:flex-col max-sm:items-stretch">
       <input v-model="l.key" data-test="lbl-key" placeholder="key" @input="emitUp"
-        class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
-      <span class="text-on-surface-variant">=</span>
+        class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
+      <span class="text-on-surface-variant max-sm:hidden">=</span>
       <input v-model="l.value" data-test="lbl-val" placeholder="value" @input="emitUp"
-        class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
-      <button :data-test="'remove-label-' + i" @click="removeLabel(i)" class="p-xs text-on-surface-variant hover:text-error">
+        class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
+      <button :data-test="'remove-label-' + i" @click="removeLabel(i)"
+        class="p-xs text-on-surface-variant hover:text-error shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] max-sm:self-end" :title="t('common.delete')">
         <span class="material-symbols-outlined text-sm">remove</span>
       </button>
     </div>
@@ -63,19 +64,20 @@ function removeExpr(i) { expressions.value.splice(i, 1); emitUp() }
       {{ t('ns.netpolCreate.addLabel') }}
     </button>
 
-    <!-- matchExpressions -->
+    <!-- matchExpressions(手机纵排:同 label 行,含 DoesNotExist 下拉行 min-content ≈574px) -->
     <div class="text-label-caps text-on-surface-variant mt-xs">{{ t('ns.netpolCreate.matchExpressions') }}</div>
-    <div v-for="(e, i) in expressions" :key="'e' + i" class="flex items-center gap-sm">
+    <div v-for="(e, i) in expressions" :key="'e' + i" class="flex items-center gap-sm max-sm:flex-col max-sm:items-stretch">
       <input v-model="e.key" data-test="expr-key" placeholder="key" @input="emitUp"
-        class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
+        class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
       <select v-model="e.operator" data-test="expr-op" @change="emitUp"
-        class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm">
+        class="max-sm:w-full max-sm:min-h-[40px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm">
         <option v-for="op in ['In', 'NotIn', 'Exists', 'DoesNotExist']" :key="op">{{ op }}</option>
       </select>
       <input v-model="e.values" data-test="expr-values"
         :placeholder="t('ns.netpolCreate.exprValuesPlaceholder')" @input="emitUp"
-        class="flex-[2] bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
-      <button :data-test="'remove-expr-' + i" @click="removeExpr(i)" class="p-xs text-on-surface-variant hover:text-error">
+        class="flex-[2] min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
+      <button :data-test="'remove-expr-' + i" @click="removeExpr(i)"
+        class="p-xs text-on-surface-variant hover:text-error shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] max-sm:self-end" :title="t('common.delete')">
         <span class="material-symbols-outlined text-sm">remove</span>
       </button>
     </div>

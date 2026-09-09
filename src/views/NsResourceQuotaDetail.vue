@@ -143,33 +143,33 @@ function getPercent(used, hard) {
       { label: route.params.name }
     ]" />
 
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-tertiary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-start justify-between gap-x-sm gap-y-sm mt-sm mb-xl">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-tertiary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-tertiary text-3xl">speed</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ rq.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface min-w-0 max-sm:truncate" :title="rq.name">{{ rq.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-tertiary-container/10 text-tertiary text-label-caps rounded-full font-medium">ResourceQuota</span>
             <span class="text-body-sm text-on-surface-variant">{{ t('ns.resourceQuotaDetail.resourcesTracked', { count: quotaEntries.length }) }}</span>
             <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ rq.age }}</span>
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
-        <button @click="openEditModal" class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-low transition-colors">
+      <div class="flex flex-wrap gap-sm">
+        <button @click="openEditModal" class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-low transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
-        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
+        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
 
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex overflow-x-auto border-b border-outline-variant mb-lg">
       <button v-for="tab in ['overview', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
+        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
       </button>
@@ -183,15 +183,15 @@ function getPercent(used, hard) {
         </div>
         <div class="divide-y divide-outline-variant/30">
           <div v-for="entry in quotaEntries" :key="entry.key" class="px-lg py-md">
-            <div class="flex items-center justify-between mb-xs">
-              <div class="flex items-center gap-sm">
-                <span class="material-symbols-outlined text-on-surface-variant text-lg">
+            <div class="flex items-center justify-between mb-xs gap-sm">
+              <div class="flex items-center gap-sm min-w-0">
+                <span class="material-symbols-outlined text-on-surface-variant text-lg shrink-0">
                   {{ entry.key.includes('cpu') ? 'memory' : entry.key.includes('memory') ? 'memory_alt' : entry.key === 'pods' ? 'dataset' : entry.key === 'services' ? 'hub' : 'pie_chart' }}
                 </span>
-                <span class="font-medium text-on-surface text-body-md">{{ friendlyName(entry.key) }}</span>
-                <span class="font-mono text-label-caps text-on-surface-variant">({{ entry.key }})</span>
+                <span class="font-medium text-on-surface text-body-md truncate min-w-0" :title="friendlyName(entry.key)">{{ friendlyName(entry.key) }}</span>
+                <span class="font-mono text-label-caps text-on-surface-variant truncate min-w-0" :title="entry.key">({{ entry.key }})</span>
               </div>
-              <span class="font-semibold text-body-md" :class="entry.percent > 80 ? 'text-error' : entry.percent > 60 ? 'text-tertiary-container' : 'text-primary'">
+              <span class="font-semibold text-body-md shrink-0" :class="entry.percent > 80 ? 'text-error' : entry.percent > 60 ? 'text-tertiary-container' : 'text-primary'">
                 {{ entry.percent }}%
               </span>
             </div>

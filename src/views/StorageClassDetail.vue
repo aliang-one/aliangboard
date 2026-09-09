@@ -80,31 +80,31 @@ async function handleDelete() {
       { label: sc.name }
     ]" />
 
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-secondary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-xl max-sm:flex-col max-sm:items-start">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-secondary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-secondary text-3xl">database</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ sc.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface max-sm:truncate" :title="sc.name">{{ sc.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <span v-if="sc.default" class="px-2.5 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded-full font-medium">DEFAULT</span>
-            <span class="text-body-sm text-on-surface-variant font-mono">{{ sc.provisioner }}</span>
+            <span class="text-body-sm text-on-surface-variant font-mono break-all">{{ sc.provisioner }}</span>
             <span class="text-body-sm text-on-surface-variant">Age: {{ sc.age }}</span>
           </div>
         </div>
       </div>
-      <div class="flex items-center gap-xs">
-        <button data-testid="promote-default-btn" v-if="!sc.default" @click="promoteDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold border border-primary/40 text-primary rounded-lg hover:bg-primary-container/10 transition-colors">
+      <div class="flex items-center gap-xs max-sm:flex-wrap">
+        <button data-testid="promote-default-btn" v-if="!sc.default" @click="promoteDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold border border-primary/40 text-primary rounded-lg hover:bg-primary-container/10 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">star</span> {{ t('common.setAsDefault') }}
         </button>
-        <button data-testid="demote-default-btn" v-else @click="demoteDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container transition-colors">
+        <button data-testid="demote-default-btn" v-else @click="demoteDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">star</span> {{ t('common.unsetDefault') }}
         </button>
-        <button @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
+        <button @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">edit</span> {{ t('common.edit') }}
         </button>
-        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">{{ t('common.delete') }}</button>
+        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors max-sm:min-h-[40px]">{{ t('common.delete') }}</button>
       </div>
     </div>
 
@@ -121,7 +121,7 @@ async function handleDelete() {
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-lg">StorageClass Details</h3>
           <div class="grid grid-cols-2 gap-md">
-            <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">PROVISIONER</p><p class="font-mono text-code-sm text-on-surface">{{ sc.provisioner }}</p></div>
+            <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">PROVISIONER</p><p class="font-mono text-code-sm text-on-surface break-all">{{ sc.provisioner }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">RECLAIM POLICY</p><p class="text-body-md text-on-surface">{{ sc.reclaimPolicy }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">DEFAULT</p><p class="text-body-md text-on-surface">{{ sc.default ? 'Yes' : 'No' }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">AGE</p><p class="text-body-md text-on-surface">{{ sc.age }}</p></div>
@@ -168,7 +168,7 @@ async function handleDelete() {
           <div v-for="(row, i) in editForm.labels" :key="'l'+i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
-            <button @click="removeLabelRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="removeLabelRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
           <p v-if="!editForm.labels.length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
         </div>
@@ -180,7 +180,7 @@ async function handleDelete() {
           <div v-for="(row, i) in editForm.annotations" :key="'a'+i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
-            <button @click="removeAnnRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="removeAnnRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
           <p v-if="!editForm.annotations.length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
           <p class="text-[10px] text-on-surface-variant/60 mt-xs" v-html="t('storageclass.annotationHint')"></p>

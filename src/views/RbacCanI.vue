@@ -167,7 +167,7 @@ async function runServerCheck() {
               <span class="material-symbols-outlined text-2xl">{{ result.allowed ? 'check_circle' : 'cancel' }}</span>
               <div>
                 <p class="text-body-sm font-bold">{{ result.allowed ? $t('rbac.canI.allowed') : $t('rbac.canI.denied') }}</p>
-                <p class="text-xs font-mono">{{ subjectKind }} <span class="text-on-surface">{{ subjectName || '*' }}</span> {{ t('rbac.canI.for') }} <span class="text-on-surface font-mono">{{ resource }}</span> {{ t('rbac.canI.execute') }} <span class="text-on-surface font-mono">{{ verb }}</span></p>
+                <p class="text-xs font-mono break-all">{{ subjectKind }} <span class="text-on-surface">{{ subjectName || '*' }}</span> {{ t('rbac.canI.for') }} <span class="text-on-surface font-mono">{{ resource }}</span> {{ t('rbac.canI.execute') }} <span class="text-on-surface font-mono">{{ verb }}</span></p>
               </div>
             </div>
             <div v-if="result.matchedBy" class="text-body-sm">

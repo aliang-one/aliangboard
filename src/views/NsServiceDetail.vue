@@ -464,7 +464,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       </div>
       <div class="flex items-center gap-xs shrink-0">
         <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? t('ns.svcDetail.noUpdatePermission') : ''"
-          class="flex items-center gap-xs px-2.5 py-1 bg-primary text-on-primary font-semibold rounded-lg text-xs hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
+          class="flex items-center gap-xs px-2.5 py-1 max-sm:min-h-[40px] bg-primary text-on-primary font-semibold rounded-lg text-xs hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
           <span class="material-symbols-outlined text-sm">edit</span> {{ $t('common.edit') }}
         </button>
         <DropdownMenu :items="actionItems()" />
@@ -529,35 +529,39 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
             </div>
             <div class="flex items-center gap-xs shrink-0">
               <span class="text-xs text-on-surface-variant">{{ $t('ns.svcDetail.portsCountSuffix', { n: portRows.length }) }}</span>
-              <button v-if="canMutate" @click="openAddPort" class="flex items-center gap-0.5 px-1.5 py-0.5 text-xs font-semibold text-primary border border-primary/30 rounded hover:bg-primary/5 transition-colors" :title="$t('ns.svcDetail.quickAddPortHint')">
+              <button v-if="canMutate" @click="openAddPort" class="flex items-center gap-0.5 px-1.5 py-0.5 max-sm:min-h-[40px] text-xs font-semibold text-primary border border-primary/30 rounded hover:bg-primary/5 transition-colors" :title="$t('ns.svcDetail.quickAddPortHint')">
                 <span class="material-symbols-outlined text-sm">add</span>{{ $t('ns.svcDetail.addPort') }}
               </button>
             </div>
           </div>
-          <table class="w-full text-left border-collapse">
-            <thead>
-              <tr class="bg-surface-container-low border-b border-outline-variant">
-                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('common.name') }}</th>
-                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.port') }}</th>
-                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.target') }}</th>
-                <th v-if="hasNodePort" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.nodePortLabel') }}</th>
-                <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.protocol') }}</th>
-                <th v-if="canMutate && portRows.length" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant w-8">{{ $t('ns.svcDetail.operations') }}</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-outline-variant/15">
-              <tr v-for="(p, i) in portRows" :key="i" class="hover:bg-surface-container-low/40 transition-colors group">
-                <td class="px-sm py-1.5 text-xs text-on-surface-variant font-mono">{{ p.name || '—' }}</td>
-                <td class="px-sm py-1.5 font-mono text-xs text-primary font-semibold">{{ p.port }}</td>
-                <td class="px-sm py-1.5 font-mono text-xs text-on-surface">{{ p.targetPort }}</td>
-                <td v-if="hasNodePort" class="px-sm py-1.5 font-mono text-xs" :class="p.nodePort ? 'text-tertiary-container font-semibold' : 'text-on-surface-variant'">{{ p.nodePort || '—' }}</td>
-                <td class="px-sm py-1.5"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs font-mono text-on-surface-variant">{{ p.protocol }}</span></td>
-                <td v-if="canMutate && portRows.length" class="px-sm py-1.5 text-center">
-                  <button @click.stop="askDeletePort(i)" class="p-0.5 rounded text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.svcDetail.deletePortHint')"><span class="material-symbols-outlined text-base">delete</span></button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <!-- 保底横滚(审计 NsServiceDetail:537):5-6 列 min-content(命名端口 mono 长串)常超手机内容宽,
+               与本页紧凑卡片语言同构,不迁 DataTable;name 列 truncate+title -->
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[600px] text-left border-collapse">
+              <thead>
+                <tr class="bg-surface-container-low border-b border-outline-variant">
+                  <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('common.name') }}</th>
+                  <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.port') }}</th>
+                  <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.target') }}</th>
+                  <th v-if="hasNodePort" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.nodePortLabel') }}</th>
+                  <th class="px-sm py-1.5 text-xs font-medium text-on-surface-variant">{{ $t('ns.svcDetail.protocol') }}</th>
+                  <th v-if="canMutate && portRows.length" class="px-sm py-1.5 text-xs font-medium text-on-surface-variant w-8">{{ $t('ns.svcDetail.operations') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-variant/15">
+                <tr v-for="(p, i) in portRows" :key="i" class="hover:bg-surface-container-low/40 transition-colors group">
+                  <td class="px-sm py-1.5 text-xs text-on-surface-variant font-mono"><span class="block max-w-[160px] truncate" :title="p.name || undefined">{{ p.name || '—' }}</span></td>
+                  <td class="px-sm py-1.5 font-mono text-xs text-primary font-semibold">{{ p.port }}</td>
+                  <td class="px-sm py-1.5 font-mono text-xs text-on-surface">{{ p.targetPort }}</td>
+                  <td v-if="hasNodePort" class="px-sm py-1.5 font-mono text-xs" :class="p.nodePort ? 'text-tertiary-container font-semibold' : 'text-on-surface-variant'">{{ p.nodePort || '—' }}</td>
+                  <td class="px-sm py-1.5"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs font-mono text-on-surface-variant">{{ p.protocol }}</span></td>
+                  <td v-if="canMutate && portRows.length" class="px-sm py-1.5 text-center">
+                    <button @click.stop="askDeletePort(i)" class="p-0.5 rounded text-on-surface-variant/50 hover:text-error hover:bg-error/10 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.svcDetail.deletePortHint')"><span class="material-symbols-outlined text-base">delete</span></button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Endpoints -->
@@ -612,7 +616,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
           <div class="px-sm py-1.5 border-b border-outline-variant/50 flex items-center gap-xs">
             <span class="material-symbols-outlined text-primary text-base">filter_alt</span>
             <span class="text-body-sm font-semibold">{{ $t('ns.svcDetail.selector') }}</span>
-            <button v-if="canMutate && !isExternalName" @click="openAddBackend" class="ml-auto flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-primary/40 text-primary text-xs hover:bg-primary/5 transition-colors" :title="$t('ns.svcDetail.addBackendHint')">
+            <button v-if="canMutate && !isExternalName" @click="openAddBackend" class="ml-auto flex items-center gap-0.5 px-1.5 py-0.5 max-sm:min-h-[40px] rounded border border-dashed border-primary/40 text-primary text-xs hover:bg-primary/5 transition-colors" :title="$t('ns.svcDetail.addBackendHint')">
               <span class="material-symbols-outlined text-sm">add</span>{{ $t('ns.svcDetail.addBackend') }}
             </button>
           </div>
@@ -630,7 +634,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
               <span class="material-symbols-outlined text-xs">link</span>{{ $t('ns.svcDetail.matchedWorkloads', { n: boundWorkloads.length }) }}
             </p>
             <div class="flex flex-wrap gap-xs">
-              <button v-for="w in boundWorkloads" :key="w.name" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: (w.type || 'Deployment').toLowerCase(), name: w.name } })" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-xs border border-secondary/25 hover:bg-secondary/20 transition-colors" :title="$t('ns.svcDetail.viewWorkloadDetail', { name: w.name })">
+              <button v-for="w in boundWorkloads" :key="w.name" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: (w.type || 'Deployment').toLowerCase(), name: w.name } })" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-xs border border-secondary/25 hover:bg-secondary/20 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.svcDetail.viewWorkloadDetail', { name: w.name })">
                 <span class="material-symbols-outlined text-sm">work</span>{{ w.name }}<span class="opacity-60">{{ w.type?.replace(/Set$/,'') || 'Deployment' }}</span>
               </button>
             </div>
@@ -759,7 +763,7 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <div v-else>
         <div class="flex items-center justify-between mb-xs">
           <label class="text-label-caps text-on-surface-variant">{{ $t('ns.svcDetail.portsLabel') }}</label>
-          <button @click="addPortRow" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline">
+          <button @click="addPortRow" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-sm">add</span> {{ $t('ns.svcDetail.addPort') }}
           </button>
         </div>
@@ -772,7 +776,8 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
               <option>TCP</option><option>UDP</option><option>SCTP</option>
             </select>
             <input v-if="editForm.type === 'NodePort' || editForm.type === 'LoadBalancer'" v-model="p.nodePort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="nodePort" />
-            <button @click="removePortRow(idx)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded-lg">
+            <button @click="removePortRow(idx)" type="button" :title="$t('common.delete')"
+              class="p-xs text-on-surface-variant hover:text-error rounded-lg shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
               <span class="material-symbols-outlined text-lg">remove</span>
             </button>
           </div>
@@ -784,16 +789,19 @@ const typeIcon = { ClusterIP: 'lan', NodePort: 'cell_tower', LoadBalancer: 'clou
       <div>
         <div class="flex items-center justify-between mb-xs">
           <label class="text-label-caps text-on-surface-variant">{{ $t('ns.svcDetail.selector') }}</label>
-          <button @click="addSelectorRow" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline">
+          <button @click="addSelectorRow" type="button" class="flex items-center gap-xs text-body-sm text-primary font-semibold hover:underline max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-sm">add</span> {{ $t('common.add') }}
           </button>
         </div>
         <div class="flex flex-col gap-xs">
-          <div v-for="(row, idx) in editForm.selector" :key="idx" class="flex gap-xs items-center">
-            <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="app" />
-            <span class="text-on-surface-variant text-body-sm">=</span>
-            <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
-            <button @click="removeSelectorRow(idx)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded-lg">
+          <!-- 手机纵排(审计 NsServiceDetail:792):行 min-content ≈369px > 手机 Modal 内宽 342px,
+               删除钮原先被切出可视区;每字段占满一行、删除钮对齐行尾 -->
+          <div v-for="(row, idx) in editForm.selector" :key="idx" class="flex gap-xs items-center max-sm:flex-col max-sm:items-stretch">
+            <input v-model="row.key" class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="app" />
+            <span class="text-on-surface-variant text-body-sm max-sm:hidden">=</span>
+            <input v-model="row.value" class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
+            <button @click="removeSelectorRow(idx)" type="button" :title="$t('common.delete')"
+              class="p-xs text-on-surface-variant hover:text-error rounded-lg shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] max-sm:self-end">
               <span class="material-symbols-outlined text-lg">remove</span>
             </button>
           </div>

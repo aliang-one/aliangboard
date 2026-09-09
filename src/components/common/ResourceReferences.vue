@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
+import DataTable from '@/components/common/DataTable.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 
 const { t } = useI18n()
@@ -54,61 +55,67 @@ function goToWorkload(wl) {
     params: { namespace: route.params.namespace, type: wl.type, name: wl.name },
   })
 }
+
+// —— 引用表迁 DataTable(Wave5 B5,审计 #70):五列 detail 列 mono 不可断 min-content ≈600px,
+// 外层卡 overflow-hidden 硬裁;DataTable 手机卡片模式(首列=标题)根治,桌面五列等价。
+// 行集无唯一键 → 注入 _idx 作 row-key;detail 列保留 truncate+title(桌面信息等价)。
+const refHeaders = computed(() => [
+  { key: 'workload', label: 'Workload' },
+  { key: 'type', label: 'Type' },
+  { key: 'refType', label: t('component.resourceRef.thRefType') },
+  { key: 'detail', label: t('component.resourceRef.thDetail') },
+  { key: 'status', label: t('common.status') },
+])
+const refRows = computed(() => references.value.map((r, i) => ({ ...r, _idx: i })))
+// detail 列完整文本(供 title 兜底):volume=mountPath,env=ENV ← kind.key,其余文案列无长串
+function detailTitle(row) {
+  const ref = row.reference
+  if (ref.type === 'volume') return ref.mountPath
+  if (ref.type === 'env') return `${ref.envName} ← ${props.kind}.${ref.key}`
+  return ''
+}
 </script>
 
 <template>
   <div>
     <!-- 影响摘要 -->
     <div v-if="references.length" class="grid grid-cols-1 lg:grid-cols-12 gap-lg mb-lg">
-      <!-- 左侧：受影响的 Workload 列表 -->
-      <div class="lg:col-span-8">
-        <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-          <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-            <h3 class="text-headline-sm">{{ t('component.resourceRef.refsTitle', { kind, count: references.length }) }}</h3>
-            <span class="text-body-sm text-on-surface-variant">{{ t('component.resourceRef.refsHint', { kind }) }}</span>
-          </div>
-          <table class="w-full text-left border-collapse">
-            <thead>
-              <tr class="bg-surface-container-low border-b border-outline-variant">
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">Workload</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">Type</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('component.resourceRef.thRefType') }}</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('component.resourceRef.thDetail') }}</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.status') }}</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-outline-variant/30">
-              <tr v-for="(ref, idx) in references" :key="idx" class="hover:bg-surface-container-low/50 cursor-pointer transition-colors" @click="goToWorkload(ref.workload)">
-                <td class="px-lg py-md">
-                  <div class="flex items-center gap-sm">
-                    <span class="material-symbols-outlined text-secondary text-lg">apps</span>
-                    <span class="font-mono text-code-sm font-semibold text-on-surface">{{ ref.workload.name }}</span>
-                  </div>
-                </td>
-                <td class="px-lg py-md">
-                  <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant">{{ ref.workload.type }}</span>
-                </td>
-                <td class="px-lg py-md">
-                  <div class="flex items-center gap-sm">
-                    <span class="material-symbols-outlined text-base" :class="typeMeta(ref.reference.type).color.split(' ')[1]">{{ typeMeta(ref.reference.type).icon }}</span>
-                    <span class="text-body-sm font-medium text-on-surface">{{ typeMeta(ref.reference.type).label }}</span>
-                  </div>
-                </td>
-                <td class="px-lg py-md text-body-sm text-on-surface-variant">
-                  <span v-if="ref.reference.type === 'volume'" class="font-mono text-code-sm text-primary">{{ ref.reference.mountPath }}</span>
-                  <span v-else-if="ref.reference.type === 'env'" class="font-mono text-code-sm">
-                    <span class="text-primary">{{ ref.reference.envName }}</span>
-                    <span class="text-on-surface-variant"> ← {{ kind }}.{{ ref.reference.key }}</span>
-                  </span>
-                  <span v-else-if="ref.reference.type === 'envFrom'">{{ t('component.resourceRef.envFromDetail') }}</span>
-                  <span v-else-if="ref.reference.type === 'imagePullSecrets'">{{ t('component.resourceRef.imagePullDetail') }}</span>
-                  <span v-else>-</span>
-                </td>
-                <td class="px-lg py-md"><StatusChip :status="ref.workload.status" size="sm" /></td>
-              </tr>
-            </tbody>
-          </table>
+      <!-- 左侧：受影响的 Workload 列表(DataTable:手机卡片模式,Wave5 B5) -->
+      <div class="lg:col-span-8 flex flex-col gap-sm min-w-0">
+        <div class="flex items-center justify-between flex-wrap gap-x-sm gap-y-xs">
+          <h3 class="text-headline-sm">{{ t('component.resourceRef.refsTitle', { kind, count: references.length }) }}</h3>
+          <span class="text-body-sm text-on-surface-variant">{{ t('component.resourceRef.refsHint', { kind }) }}</span>
         </div>
+        <DataTable :headers="refHeaders" :rows="refRows" row-key="_idx" @row-click="row => goToWorkload(row.workload)">
+          <template #workload="{ row }">
+            <div class="flex items-center gap-sm min-w-0">
+              <span class="material-symbols-outlined text-secondary text-lg shrink-0">apps</span>
+              <span class="font-mono text-code-sm font-semibold text-on-surface truncate" :title="row.workload.name">{{ row.workload.name }}</span>
+            </div>
+          </template>
+          <template #type="{ row }">
+            <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant">{{ row.workload.type }}</span>
+          </template>
+          <template #refType="{ row }">
+            <div class="flex items-center gap-sm">
+              <span class="material-symbols-outlined text-base" :class="typeMeta(row.reference.type).color.split(' ')[1]">{{ typeMeta(row.reference.type).icon }}</span>
+              <span class="text-body-sm font-medium text-on-surface">{{ typeMeta(row.reference.type).label }}</span>
+            </div>
+          </template>
+          <template #detail="{ row }">
+            <span v-if="row.reference.type === 'volume'" class="font-mono text-code-sm text-primary block truncate max-w-[280px]" :title="detailTitle(row)">{{ row.reference.mountPath }}</span>
+            <span v-else-if="row.reference.type === 'env'" class="font-mono text-code-sm block truncate max-w-[280px]" :title="detailTitle(row)">
+              <span class="text-primary">{{ row.reference.envName }}</span>
+              <span class="text-on-surface-variant"> ← {{ kind }}.{{ row.reference.key }}</span>
+            </span>
+            <span v-else-if="row.reference.type === 'envFrom'">{{ t('component.resourceRef.envFromDetail') }}</span>
+            <span v-else-if="row.reference.type === 'imagePullSecrets'">{{ t('component.resourceRef.imagePullDetail') }}</span>
+            <span v-else>-</span>
+          </template>
+          <template #status="{ row }">
+            <StatusChip :status="row.workload.status" size="sm" />
+          </template>
+        </DataTable>
       </div>
 
       <!-- 右侧：引用方式统计 -->

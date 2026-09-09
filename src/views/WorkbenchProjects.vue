@@ -190,7 +190,7 @@ function cardActions(p) {
         </div>
         <!-- 换绑下拉(无集群项目也可事后绑定;整卡 click 进详情,须 stop) -->
         <select data-test="bind-cluster" :value="p.clusterId || ''" @click.stop @change="bindCluster(p, $event.target.value)"
-          class="mb-sm bg-surface-container-low border border-outline-variant rounded px-xs py-0.5 text-body-xs text-on-surface-variant">
+          class="mb-sm bg-surface-container-low border border-outline-variant rounded px-xs py-0.5 text-body-xs text-on-surface-variant max-sm:min-h-[40px]">
           <option value="">{{ t('workbench.unboundBadge') }}</option>
           <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>

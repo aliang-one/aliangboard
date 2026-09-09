@@ -53,9 +53,11 @@ const tabs = computed(() => [
           </button>
         </div>
       </template>
-      <div class="animate-wb-rise motion-reduce:animate-none [animation-delay:40ms] flex gap-xs px-md py-sm border-b border-outline-variant/40">
+      <!-- tab 条 R3 横滚(2026-09-09 Wave5 B7):手机四 tab 超宽时横向滚动可达,不再靠
+           CJK 逐字换行硬挤;whitespace-nowrap 保 tab 名整词不断 -->
+      <div class="animate-wb-rise motion-reduce:animate-none [animation-delay:40ms] flex gap-xs px-md py-sm border-b border-outline-variant/40 overflow-x-auto">
         <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
-          class="flex items-center gap-xs px-md py-sm rounded-lg text-body-sm transition-all"
+          class="flex items-center gap-xs px-md py-sm rounded-lg text-body-sm transition-all shrink-0 whitespace-nowrap"
           :class="activeTab === tab.key ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container'">
           <span class="material-symbols-outlined text-sm">{{ tab.icon }}</span>
           {{ tab.label }}

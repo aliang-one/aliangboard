@@ -33,11 +33,13 @@ function setExcept(v) { const p = clone(); p.ipBlock = { ...p.ipBlock, except: v
     </div>
     <NpSelectorEditor v-if="hasPod" :model-value="modelValue.podSelector" @update:model-value="setPod" />
     <NpSelectorEditor v-if="hasNs" :model-value="modelValue.namespaceSelector" @update:model-value="setNs" />
-    <div v-if="hasIp" class="flex items-center gap-sm">
+    <!-- 手机纵排(审计 NpPeerEditor:36):两输入 flex-[size=20] 内在宽 ≈202px×2 无 min-w-0,
+         嵌在 NpRuleEditor 行内可用宽不足 → 堆叠后各占满行 -->
+    <div v-if="hasIp" class="flex items-center gap-sm max-sm:flex-col max-sm:items-stretch">
       <input :value="modelValue.ipBlock.cidr" data-test="cidr" @input="setCidr" :placeholder="t('ns.netpolCreate.cidrPlaceholder')"
-        class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
+        class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
       <input :value="(modelValue.ipBlock.except || []).join(', ')" data-test="except" @input="setExcept" :placeholder="t('ns.netpolCreate.exceptPlaceholder')"
-        class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
+        class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs text-body-sm font-mono" />
     </div>
   </div>
 </template>
