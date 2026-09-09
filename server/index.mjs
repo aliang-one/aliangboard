@@ -29,6 +29,7 @@ import { pctOf } from './k8s-quantity.mjs'
 import { fetchRegistryTags } from './registry-tags.mjs'
 import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneSession, tombstoneExpiredSessions, purgeRotatedSessions, sessionTokenOwner } from './window-records.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
+import { maybeGzip } from './http-compress.mjs'
 import { extractPlatformToken } from './platform-auth.mjs'
 import { createLlmClient, probeReasoningSupport } from './llm.mjs'
 import { streamDownload, streamUpload, limitMbFromValue, PODFILE_LIMIT_DEFAULT_MB, UPLOAD_PROBE_SCRIPT, evaluateUploadProbe } from './podfile-stream.mjs'
@@ -569,15 +570,32 @@ function sendJson(res, status, payload) {
   // 旧实现直接抛 ERR_HTTP_HEADERS_SENT,经 handle().catch 变 unhandledRejection 把整个网关
   // 进程带走(全站 502/终极断流)。已发头只尽力 end,静默跳过。
   if (res.headersSent) { try { res.end() } catch { /* 已断 */ } return }
-  const body = JSON.stringify(payload)
-  res.writeHead(status, {
+  const body = Buffer.from(JSON.stringify(payload))
+  const common = {
     'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(body),
     'access-control-allow-origin': corsOrigin(),
     'access-control-allow-headers': 'content-type, authorization',
     'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    // 响应随 Accept-Encoding 变体:共享缓存(如反代)必须按此键区分,恒带。
+    'vary': 'accept-encoding',
+  }
+  // gzip(2026-09-09 首屏慢根因修复):平台 JSON 与缓冲式 K8s 透传(pods?limit=1000 实测
+  // 1MB)全经此收口,大 JSON 压缩 8-10×。res.req = Node http 恒挂的原始请求引用,读
+  // Accept-Encoding;压缩等待期连接断开/头已发的竞态由下方复检兜住。流式(watch/follow/
+  // WS)分支不经 sendJson 写 body,天然不受影响。
+  maybeGzip(body, res.req).then((gz) => {
+    if (res.headersSent || res.destroyed) return
+    if (gz) {
+      res.writeHead(status, { ...common, 'content-encoding': 'gzip', 'content-length': gz.length })
+      res.end(gz)
+    } else {
+      res.writeHead(status, { ...common, 'content-length': body.length })
+      res.end(body)
+    }
+  }).catch(() => {
+    // 理论不可达(maybeGzip 永不 reject),防御写头竞态:不吞进程。
+    try { if (!res.headersSent) { res.writeHead(500, common); res.end() } } catch { /* 已断 */ }
   })
-  res.end(body)
 }
 
 // 文本响应(W3 Task 6:kubeconfig YAML 下发;sendJson 只包 JSON,此为同 header 语义的
