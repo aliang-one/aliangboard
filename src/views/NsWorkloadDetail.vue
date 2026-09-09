@@ -27,6 +27,7 @@ import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS, EDIT
 import { dump as yamlDump } from 'js-yaml'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import PodCard from '@/components/common/PodCard.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
@@ -315,6 +316,14 @@ const revisionsQuery = useResourceDetail({
   options: { enabled: () => isRolloutType.value },
 })
 const revisions = computed(() => revisionsQuery.data.value || [])
+// Revisions tab 表头(DataTable 双分支共用:桌面=表列,手机=首列卡片标题+其余键值行)
+const revHeaders = [
+  { key: 'rev', label: 'Rev' },
+  { key: 'image', label: 'Image' },
+  { key: 'replicas', label: 'Replicas' },
+  { key: 'age', label: 'Age' },
+  { key: 'actions', label: t('workload.revisionsTab.actions') },
+]
 
 // 副本/滚动状态：从 Deployment/StatefulSet/DaemonSet 的 status 推导健康等级 + 新旧版本进度
 // level: healthy(绿) / updating(蓝) / warning(黄) / failed(红)，对应 status-* 设计令牌
@@ -739,6 +748,15 @@ const workloadEvents = computed(() => {
     .filter(e => e.relatedName === wlName || rsNames.has(e.relatedName) || podNames.has(e.relatedName))
     .sort((a, b) => (b._ts || 0) - (a._ts || 0))
 })
+// Events tab 表头(DataTable 双分支共用)+ 行集:slice 后无唯一键 → 注入 _idx 作 rowKey
+const eventHeaders = [
+  { key: 'object', label: t('workload.eventsTab.object') },
+  { key: 'reason', label: 'Reason' },
+  { key: 'type', label: 'Type' },
+  { key: 'message', label: 'Message' },
+  { key: 'age', label: 'Age' },
+]
+const eventRows = computed(() => workloadEvents.value.slice(0, 100).map((e, i) => ({ ...e, _idx: i })))
 // 事件配色（mapEvent 给的 color：error/tertiary/primary/surface → 状态色）
 const EVENT_BG = { error: 'bg-error', tertiary: 'bg-status-pending', primary: 'bg-status-running', surface: 'bg-on-surface-variant' }
 const EVENT_TEXT = { error: 'text-error', tertiary: 'text-status-pending', primary: 'text-status-running', surface: 'text-on-surface-variant' }
@@ -1742,26 +1760,19 @@ function podStatusBorder(s) {
 
     <!-- ====== Revisions Tab ====== -->
     <div v-if="activeTab === 'revisions'">
-      <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
-        <table class="w-full text-left">
-          <thead><tr class="border-b border-outline-variant bg-surface-container-low/50">
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Rev</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Image</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Replicas</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-            <th class="px-md py-2 text-xs font-medium text-on-surface-variant w-20">{{ $t('workload.revisionsTab.actions') }}</th>
-          </tr></thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="rev in revisions" :key="rev.rev" class="hover:bg-surface-container-low/40">
-              <td class="px-md py-2"><span class="text-body-sm font-bold" :class="rev.current ? 'text-primary' : ''">Rev {{ rev.rev }}</span><span v-if="rev.current" class="ml-xs text-xs text-primary">●</span></td>
-              <td class="px-md py-2 font-mono text-xs truncate max-w-[200px]">{{ rev.image }}</td>
-              <td class="px-md py-2 text-xs">{{ rev.readyReplicas }}/{{ rev.desiredReplicas }}</td>
-              <td class="px-md py-2 text-xs text-on-surface-variant">{{ rev.age }}</td>
-              <td class="px-md py-2"><button v-if="!rev.current" @click="confirmRollback(rev)" class="text-xs text-primary hover:underline">{{ $t('workload.revisionsTab.rollback') }}</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <DataTable :headers="revHeaders" :rows="revisions" row-key="rev">
+        <template #rev="{ row }">
+          <span class="text-body-sm font-bold" :class="row.current ? 'text-primary' : ''">Rev {{ row.rev }}</span><span v-if="row.current" class="ml-xs text-xs text-primary">●</span>
+        </template>
+        <template #image="{ row }"><span class="font-mono text-xs block truncate max-w-[200px]" :title="row.image">{{ row.image }}</span></template>
+        <template #replicas="{ row }"><span class="text-xs">{{ row.readyReplicas }}/{{ row.desiredReplicas }}</span></template>
+        <template #age="{ row }"><span class="text-xs text-on-surface-variant">{{ row.age }}</span></template>
+        <template #actions="{ row }">
+          <button v-if="!row.current" @click="confirmRollback(row)"
+            class="relative text-xs text-primary hover:underline max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            {{ $t('workload.revisionsTab.rollback') }}</button>
+        </template>
+      </DataTable>
     </div>
 
     <!-- ====== YAML Tab（直接由列表已返回的 workload.raw 生成，无额外请求）====== -->
@@ -1770,26 +1781,20 @@ function podStatusBorder(s) {
     </div>
 
     <!-- ====== Events Tab ====== -->
-    <div v-if="activeTab === 'events'" class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
-      <table class="w-full text-left">
-        <thead><tr class="border-b border-outline-variant bg-surface-container-low/50">
-          <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ $t('workload.eventsTab.object') }}</th>
-          <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Reason</th>
-          <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Type</th>
-          <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Message</th>
-          <th class="px-md py-2 text-xs font-medium text-on-surface-variant">Age</th>
-        </tr></thead>
-        <tbody class="divide-y divide-outline-variant/15">
-          <tr v-for="(e, i) in workloadEvents.slice(0, 100)" :key="i" class="hover:bg-surface-container-low/30">
-            <td class="px-md py-2 text-xs"><span class="text-on-surface-variant/60">{{ e.relatedKind }}</span> <span class="font-mono text-on-surface">{{ e.relatedName }}</span></td>
-            <td class="px-md py-2 text-xs font-medium" :class="e.type === 'warning' ? 'text-error' : 'text-on-surface'">{{ e.reason }}</td>
-            <td class="px-md py-2"><span class="text-xs px-1.5 py-0.5 rounded" :class="e.type === 'warning' ? 'bg-error/10 text-error' : 'bg-primary/10 text-primary'">{{ e.type }}</span></td>
-            <td class="px-md py-2 text-xs text-on-surface-variant truncate max-w-[400px]" :title="e.message">{{ e.message }}</td>
-            <td class="px-md py-2 text-xs text-on-surface-variant">{{ e.age }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="!workloadEvents.length" class="py-md text-center text-body-sm text-on-surface-variant">{{ $t('workload.eventsTab.noEvents') }}</p>
+    <div v-if="activeTab === 'events'">
+      <DataTable :headers="eventHeaders" :rows="eventRows" row-key="_idx">
+        <template #object="{ row }">
+          <span class="text-on-surface-variant/60">{{ row.relatedKind }}</span> <span class="font-mono break-all">{{ row.relatedName }}</span>
+        </template>
+        <template #reason="{ row }">
+          <span class="text-xs font-medium" :class="row.type === 'warning' ? 'text-error' : 'text-on-surface'">{{ row.reason }}</span>
+        </template>
+        <template #type="{ row }">
+          <span class="text-xs px-1.5 py-0.5 rounded" :class="row.type === 'warning' ? 'bg-error/10 text-error' : 'bg-primary/10 text-primary'">{{ row.type }}</span>
+        </template>
+        <template #message="{ row }"><span class="text-xs text-on-surface-variant block truncate" :title="row.message">{{ row.message }}</span></template>
+        <template #age="{ row }"><span class="text-xs text-on-surface-variant">{{ row.age }}</span></template>
+      </DataTable>
     </div>
   </div>
 
