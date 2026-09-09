@@ -194,14 +194,14 @@ async function save() {
         <div v-for="group in [{ key: 'readGroup', items: readTools }, { key: 'writeGroup', items: writeTools }]" :key="group.key">
           <p class="text-body-xs font-semibold text-on-surface-variant mb-xs">{{ $t(`admin.aiBehavior.${group.key}`) }}</p>
           <div class="flex flex-col gap-xs">
-            <div v-for="tool in group.items" :key="tool.name" class="flex items-center gap-sm bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs">
+            <div v-for="tool in group.items" :key="tool.name" class="flex flex-wrap items-center gap-sm bg-surface-container-low border border-outline-variant rounded-lg px-md py-xs">
               <button @click="toggle(tool.name)" role="switch" :aria-checked="!disabled.includes(tool.name)"
                 class="w-9 h-5 rounded-full relative transition-colors shrink-0"
                 :class="disabled.includes(tool.name) ? 'bg-surface-container-highest' : 'bg-primary'">
                 <span class="absolute top-0.5 w-4 h-4 rounded-full bg-on-primary transition-all"
                   :class="disabled.includes(tool.name) ? 'left-0.5' : 'left-4.5 bg-on-primary'"></span>
               </button>
-              <span class="font-mono text-body-sm">{{ tool.name }}</span>
+              <span class="font-mono text-body-sm truncate min-w-0" :title="tool.name">{{ tool.name }}</span>
               <span v-if="tool.requiresApproval" class="px-1.5 py-0.5 rounded text-body-xs font-semibold bg-status-warning/10 text-status-warning shrink-0">{{ $t('admin.aiBehavior.approvalBadge') }}</span>
               <span class="text-body-xs text-on-surface-variant truncate">{{ tool.description }}</span>
             </div>

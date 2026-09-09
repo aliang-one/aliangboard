@@ -64,17 +64,17 @@ onMounted(() => { refresh() })
 
 <template>
   <section class="animate-fade-in p-md">
-    <div class="flex items-center justify-between mb-md">
-      <div>
-        <h2 class="text-headline-lg font-bold text-on-surface">{{ t('auditTrail.title') }}</h2>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mb-md">
+      <div class="min-w-0">
+        <h2 class="text-headline-lg font-bold text-on-surface min-w-0 max-sm:truncate" :title="t('auditTrail.title')">{{ t('auditTrail.title') }}</h2>
         <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('auditTrail.subtitle') }}</p>
       </div>
-      <div class="flex items-center gap-sm">
-        <button @click="doVerify" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm">{{ t('auditTrail.verifyBtn') }}</button>
+      <div class="flex flex-wrap items-center gap-sm">
+        <button @click="doVerify" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm max-sm:min-h-[40px]">{{ t('auditTrail.verifyBtn') }}</button>
         <span v-if="verify" class="text-body-xs" :class="verify.valid ? 'text-status-running' : 'text-error'">
           {{ verify.valid ? t('auditTrail.verifyOk') : t('auditTrail.verifyBad', { seq: verify.brokenAt }) }}
         </span>
-        <button @click="refresh" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm">{{ t('auditTrail.refresh') }}</button>
+        <button @click="refresh" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm max-sm:min-h-[40px]">{{ t('auditTrail.refresh') }}</button>
       </div>
     </div>
 

@@ -107,7 +107,7 @@ async function testConn() {
       <!-- 当前有效配置状态 -->
       <div class="bg-surface-container-low border border-outline-variant rounded-lg p-md">
         <p class="text-label-caps text-on-surface-variant mb-sm">{{ $t('admin.llm.effectiveConfig') }}</p>
-        <div class="grid grid-cols-3 gap-md text-body-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-md text-body-sm">
           <div><p class="text-on-surface-variant text-body-xs mb-xs">baseURL</p>
             <p class="font-mono break-all">{{ status?.baseURL || '—' }}</p>
             <span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="SOURCE_STYLE[status?.baseURLSource]">{{ $t(SOURCE_LABEL_KEY[status?.baseURLSource]) }}</span>
@@ -145,14 +145,14 @@ async function testConn() {
           <input v-model="form.apiKey" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('admin.llm.apiKeyPlaceholder')" />
           <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('admin.llm.apiKeyHint') }}</p>
         </div>
-        <div class="flex items-center gap-sm">
-          <button @click="save" :disabled="saving" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">
+        <div class="flex flex-wrap items-center gap-sm">
+          <button @click="save" :disabled="saving" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40 max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-base">save</span> {{ saving ? $t('admin.llm.saving') : $t('common.save') }}
           </button>
-          <button @click="testConn" :disabled="testing" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40">
+          <button @click="testConn" :disabled="testing" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40 max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-base">{{ testing ? 'progress_activity' : 'cable' }}</span> {{ testing ? $t('admin.llm.testing') : $t('admin.llm.testConn') }}
           </button>
-          <button @click="probeReasoning" :disabled="probing" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40">
+          <button @click="probeReasoning" :disabled="probing" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40 max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-base">{{ probing ? 'progress_activity' : 'psychology' }}</span> {{ probing ? $t('admin.llm.probing') : $t('admin.llm.probeReasoning') }}
           </button>
         </div>

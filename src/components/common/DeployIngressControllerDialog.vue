@@ -136,7 +136,7 @@ const alreadyInstalled = computed(() => {
 
 <template>
   <Modal :model-value="modelValue" @update:model-value="close" :title="t('ingressController.dialogTitle')" width="max-w-3xl">
-    <div v-if="!pickedId" class="grid grid-cols-2 gap-md">
+    <div v-if="!pickedId" class="grid grid-cols-1 sm:grid-cols-2 gap-md">
       <button v-for="tpl in templates" :key="tpl.id" data-testid="controller-card"
         class="text-left border border-outline-variant rounded-lg p-md hover:border-primary"
         @click="pick(tpl)">
@@ -148,7 +148,7 @@ const alreadyInstalled = computed(() => {
     </div>
     <div v-else>
       <!-- I1: 返回选择(重置编辑器步骤全部状态) -->
-      <button data-testid="back-to-select" class="text-body-sm text-primary mb-sm" @click="backToSelect">
+      <button data-testid="back-to-select" class="text-body-sm text-primary mb-sm max-sm:min-h-[40px] max-sm:px-md" @click="backToSelect">
         {{ t('ingressController.backToSelect') }}
       </button>
       <YamlEditor v-model="yaml" />
