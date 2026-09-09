@@ -218,17 +218,17 @@ const { isPhone } = useIsPhone()
 <template>
   <div class="animate-fade-in" v-if="pod">
     <!-- Header -->
-    <div class="mb-lg flex items-center justify-between">
-      <div class="flex flex-col">
+    <div class="mb-lg flex items-center justify-between gap-sm">
+      <div class="flex flex-col min-w-0">
         <Breadcrumbs :items="[
           { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
           { label: 'Pods', route: `/ns/${route.params.namespace}/pods` },
           { label: pod.name }
         ]" />
-        <div class="flex items-center gap-3 mt-2">
-          <div class="w-3 h-3 rounded-full bg-primary-container animate-pulse-status"></div>
-          <h2 class="text-display-lg">{{ $t('podDetail.pod', { name: pod.name }) }}</h2>
-          <StatusChip :status="pod.status" />
+        <div class="flex items-center gap-3 mt-2 min-w-0">
+          <div class="w-3 h-3 rounded-full bg-primary-container animate-pulse-status shrink-0"></div>
+          <h2 class="text-display-lg min-w-0 truncate" :title="$t('podDetail.pod', { name: pod.name })">{{ $t('podDetail.pod', { name: pod.name }) }}</h2>
+          <StatusChip :status="pod.status" class="shrink-0" />
         </div>
       </div>
       <div class="flex gap-2 max-sm:flex-wrap max-sm:gap-sm">
@@ -256,12 +256,12 @@ const { isPhone } = useIsPhone()
       <!-- Main Console Area -->
       <div class="col-span-12 lg:col-span-9 flex flex-col bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card overflow-hidden">
         <!-- Tabs -->
-        <div class="flex border-b border-outline-variant bg-surface-container-low">
+        <div class="flex border-b border-outline-variant bg-surface-container-low overflow-x-auto">
           <button
             v-for="tab in tabs"
             :key="tab.key"
             @click="activeTab = tab.key"
-            class="px-xl py-4 flex items-center gap-2 border-b-2 font-medium transition-colors"
+            class="px-xl py-4 flex items-center gap-2 border-b-2 font-medium transition-colors shrink-0 whitespace-nowrap"
             :class="activeTab === tab.key
               ? 'border-primary text-primary font-bold'
               : 'border-transparent text-on-surface-variant hover:bg-surface-container'"
@@ -284,14 +284,14 @@ const { isPhone } = useIsPhone()
 
         <!-- Terminal View（内嵌，auto-connect） -->
         <div v-if="activeTab === 'terminal'" class="flex-1 flex flex-col min-h-0">
-          <div class="bg-surface-container-highest/50 px-md py-2 flex items-center gap-md border-b border-outline-variant shrink-0">
-            <div class="flex items-center gap-xs">
-              <span class="text-body-sm text-on-surface-variant font-medium">{{ $t('podDetail.container') }}</span>
-              <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary">
+          <div class="bg-surface-container-highest/50 px-md py-2 flex flex-wrap items-center gap-x-md gap-y-xs border-b border-outline-variant shrink-0">
+            <div class="flex items-center gap-xs min-w-0">
+              <span class="text-body-sm text-on-surface-variant font-medium shrink-0">{{ $t('podDetail.container') }}</span>
+              <select v-model="selectedContainer" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-0.5 text-body-sm font-mono focus:ring-2 focus:ring-primary max-sm:min-h-[40px]">
                 <option v-for="c in containers" :key="c" :value="c">{{ c }}</option>
               </select>
             </div>
-            <span class="text-xs text-on-surface-variant">{{ termMode === 'attach' ? $t('podDetail.attachModeDesc') : $t('podDetail.execModeDesc') }}</span>
+            <span class="text-xs text-on-surface-variant max-sm:hidden">{{ termMode === 'attach' ? $t('podDetail.attachModeDesc') : $t('podDetail.execModeDesc') }}</span>
             <div class="flex items-center gap-xs">
               <button @click="termMode = 'exec'" :class="termMode === 'exec' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-xs font-medium border transition-colors">Exec</button>
               <button @click="termMode = 'attach'" :class="termMode === 'attach' ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-low text-on-surface-variant border-outline-variant'" class="px-sm py-xs rounded-lg text-xs font-medium border transition-colors" :title="$t('podDetail.attachModeTitle')">Attach</button>

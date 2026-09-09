@@ -4323,6 +4323,7 @@
   },
   "pv": {
     "editModalTitle": "编辑 PersistentVolume（仅可变字段）",
+    "deleteModalTitle": "删除 PersistentVolume",
     "deleteConfirm": "确定删除 PV <span class=\"text-on-surface font-semibold\">{name}</span>？此操作不可撤销。"
   },
   "clusterHealth": {

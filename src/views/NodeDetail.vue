@@ -81,14 +81,14 @@ async function handleDrain() {
         { label: 'Nodes', route: '/nodes' },
         { label: node.name }
       ]" />
-      <div class="flex items-center justify-between mt-sm mb-md">
-        <div class="flex items-center gap-md">
-          <div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center">
+      <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md max-sm:flex-col max-sm:items-start">
+        <div class="flex items-center gap-md min-w-0">
+          <div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center shrink-0">
             <span class="material-symbols-outlined text-primary text-2xl">dns</span>
           </div>
-          <div>
-            <h1 class="text-headline-md text-on-surface font-bold">{{ node.name }}</h1>
-            <div class="flex items-center gap-sm mt-xs">
+          <div class="min-w-0">
+            <h1 class="text-headline-md text-on-surface font-bold max-sm:truncate" :title="node.name">{{ node.name }}</h1>
+            <div class="flex items-center gap-x-sm gap-y-xs mt-xs flex-wrap">
               <StatusChip :status="node.status === 'Ready' ? 'Ready' : 'NotReady'" />
               <span class="text-xs text-on-surface-variant">{{ node.ip }}</span>
               <span class="text-xs text-on-surface-variant">{{ node.os }} · {{ node.kernel }}</span>
@@ -99,14 +99,14 @@ async function handleDrain() {
             </div>
           </div>
         </div>
-        <div class="flex gap-xs">
-          <button v-if="isCordoned" @click="handleUncordon" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-colors">
+        <div class="flex gap-xs max-sm:flex-wrap">
+          <button v-if="isCordoned" @click="handleUncordon" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-colors max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-base">lock_open</span> {{ t('nodeDetail.uncordon') }}
           </button>
-          <button v-else @click="showCordonModal = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
+          <button v-else @click="showCordonModal = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-base">lock</span> {{ t('nodeDetail.cordon') }}
           </button>
-          <button @click="showDrainModal = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">
+          <button @click="showDrainModal = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-base">output</span> {{ t('nodeDetail.drain') }}
           </button>
         </div>
@@ -131,7 +131,7 @@ async function handleDrain() {
             <span class="material-symbols-outlined text-primary text-lg">monitoring</span>
             <span class="text-body-sm font-semibold">{{ t('nodeDetail.resourceUsage') }}</span>
           </div>
-          <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-3 gap-md p-md">
+          <div v-if="node.cpu != null || node.memory != null" class="grid grid-cols-1 sm:grid-cols-3 gap-md p-md">
             <div>
               <ProgressBar :value="node.cpu || 0" size="lg" show-label label="CPU" />
               <p class="font-mono text-xs text-on-surface-variant mt-1">{{ node.cpu != null ? t('nodeDetail.percentAllocated', { p: node.cpu }) : '—' }}</p>
@@ -167,27 +167,31 @@ async function handleDrain() {
             <span class="material-symbols-outlined text-primary text-lg">checklist</span>
             <span class="text-body-sm font-semibold">{{ t('nodeDetail.conditions') }}</span>
           </div>
-          <table class="w-full text-left">
-            <thead>
-              <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.type') }}</th>
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.status') }}</th>
-                <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('nodeDetail.lastTransition') }}</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-outline-variant/15">
-              <tr v-for="(val, key) in node.conditions" :key="key" class="hover:bg-surface-container-low/40">
-                <td class="px-md py-2 text-body-sm font-medium">{{ key }}</td>
-                <td class="px-md py-2">
-                  <span class="flex items-center gap-xs">
-                    <span class="w-1.5 h-1.5 rounded-full" :class="val ? 'bg-primary-container' : 'bg-error'"></span>
-                    <span class="text-xs" :class="val ? 'text-primary' : 'text-error'">{{ val ? 'True' : 'False' }}</span>
-                  </span>
-                </td>
-                <td class="px-md py-2 text-xs text-on-surface-variant">{{ t('nodeDetail.ago', { age: node.age }) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <!-- 保底横滚(Wave5 B5,M1 清账):3 列短内容手机基本放得下,无需 DataTable 卡片化;
+               overflow-x-auto + min-w 兜极端长 condition 名,桌面渲染零变化 -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left min-w-[420px]">
+              <thead>
+                <tr class="bg-surface-container-low/50 border-b border-outline-variant">
+                  <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.type') }}</th>
+                  <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('common.status') }}</th>
+                  <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('nodeDetail.lastTransition') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-variant/15">
+                <tr v-for="(val, key) in node.conditions" :key="key" class="hover:bg-surface-container-low/40">
+                  <td class="px-md py-2 text-body-sm font-medium"><span class="block truncate" :title="key">{{ key }}</span></td>
+                  <td class="px-md py-2">
+                    <span class="flex items-center gap-xs">
+                      <span class="w-1.5 h-1.5 rounded-full" :class="val ? 'bg-primary-container' : 'bg-error'"></span>
+                      <span class="text-xs" :class="val ? 'text-primary' : 'text-error'">{{ val ? 'True' : 'False' }}</span>
+                    </span>
+                  </td>
+                  <td class="px-md py-2 text-xs text-on-surface-variant">{{ t('nodeDetail.ago', { age: node.age }) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

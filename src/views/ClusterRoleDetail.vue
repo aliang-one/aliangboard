@@ -40,14 +40,14 @@ const bindings = computed(() => (clusterRoleBindingsQuery.data.value || []).filt
       { label: role.name }
     ]" />
 
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-secondary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-xl">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-secondary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-secondary text-3xl">admin_panel_settings</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ role.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface max-sm:truncate" :title="role.name">{{ role.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded-full font-medium">CLUSTER-WIDE</span>
             <span class="text-body-sm text-on-surface-variant">{{ role.rules?.length || 0 }} rules · {{ bindings.length }} bindings</span>
           </div>
@@ -88,9 +88,9 @@ const bindings = computed(() => (clusterRoleBindingsQuery.data.value || []).filt
           <h3 class="text-headline-sm mb-md">Bindings ({{ bindings.length }})</h3>
           <div v-if="bindings.length" class="flex flex-col gap-sm">
             <button v-for="b in bindings" :key="b.name" @click="router.push({ name: 'ClusterRoleBindingDetail', params: { name: b.name } })"
-              class="flex items-center justify-between px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors">
-              <span class="font-mono text-code-sm text-primary">{{ b.name }}</span>
-              <span class="text-body-sm text-on-surface-variant">{{ b.subjects?.length || 0 }} subjects</span>
+              class="flex items-center justify-between gap-sm px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors min-w-0 max-sm:min-h-[40px]">
+              <span class="font-mono text-code-sm text-primary min-w-0 truncate" :title="b.name">{{ b.name }}</span>
+              <span class="text-body-sm text-on-surface-variant shrink-0">{{ b.subjects?.length || 0 }} subjects</span>
             </button>
           </div>
           <p v-else class="text-body-sm text-on-surface-variant py-md text-center">No bindings</p>

@@ -149,37 +149,37 @@ async function saveEdit() {
       { label: ic.name }
     ]" />
 
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-secondary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-xl max-sm:flex-col max-sm:items-start">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-secondary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-secondary text-3xl">language</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ ic.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
-            <span class="text-body-sm text-on-surface-variant font-mono">{{ ic.controller }}</span>
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface max-sm:truncate" :title="ic.name">{{ ic.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
+            <span class="text-body-sm text-on-surface-variant font-mono break-all">{{ ic.controller }}</span>
             <span v-if="ic.isDefault" class="px-2.5 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded-full font-medium">DEFAULT</span>
             <span class="text-body-sm text-on-surface-variant">Age: {{ ic.age }}</span>
           </div>
         </div>
       </div>
-      <div class="flex items-center gap-xs">
-        <button data-testid="detail-edit-btn" @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
+      <div class="flex items-center gap-xs max-sm:flex-wrap">
+        <button data-testid="detail-edit-btn" @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">edit</span> {{ t('common.edit') }}
         </button>
-        <button data-testid="promote-default-btn" v-if="!ic.isDefault" @click="toggleDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold border border-primary/40 text-primary rounded-lg hover:bg-primary-container/10 transition-colors">
+        <button data-testid="promote-default-btn" v-if="!ic.isDefault" @click="toggleDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold border border-primary/40 text-primary rounded-lg hover:bg-primary-container/10 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">star</span> {{ t('common.setAsDefault') }}
         </button>
-        <button data-testid="demote-default-btn" v-else @click="toggleDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container transition-colors">
+        <button data-testid="demote-default-btn" v-else @click="toggleDefault" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">star</span> {{ t('common.unsetDefault') }}
         </button>
-        <button data-testid="detail-delete-btn" @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">{{ t('common.delete') }}</button>
+        <button data-testid="detail-delete-btn" @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors max-sm:min-h-[40px]">{{ t('common.delete') }}</button>
       </div>
     </div>
 
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex border-b border-outline-variant mb-lg overflow-x-auto">
       <button v-for="tab in ['overview', 'ingresses', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
+        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab === 'ingresses' ? `ingresses (${related.length})` : tab }}
       </button>
@@ -253,12 +253,12 @@ async function saveEdit() {
         </div>
         <div v-if="filteredRelated.length" class="flex flex-col gap-xs">
           <button v-for="ing in visibleRelated" :key="ing.namespace + '/' + ing.name" data-testid="related-row" @click="router.push({ name: 'NsIngressDetail', params: { namespace: ing.namespace, name: ing.name } })"
-            class="flex items-center gap-lg px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors text-left min-w-0">
-            <span class="font-mono text-code-sm text-primary shrink-0">{{ ing.namespace }}/{{ ing.name }}</span>
+            class="flex flex-wrap items-center gap-x-lg gap-y-xs px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors text-left min-w-0">
+            <span class="font-mono text-code-sm text-primary min-w-0 truncate" :title="`${ing.namespace}/${ing.name}`">{{ ing.namespace }}/{{ ing.name }}</span>
             <span v-if="hostListOf(ing).length" class="flex flex-wrap gap-xs text-code-sm font-mono min-w-0">
               <span v-for="h in hostListOf(ing)" :key="h" :class="tlsSet.has(h) ? 'text-secondary' : 'text-on-surface-variant'">{{ h }}{{ tlsSet.has(h) ? ':443' : ':80' }}</span>
             </span>
-            <span v-if="backendsOf(ing).length" class="flex flex-wrap gap-xs text-label-caps font-mono text-on-surface-variant ml-auto shrink-0">
+            <span v-if="backendsOf(ing).length" class="flex flex-wrap gap-xs text-label-caps font-mono text-on-surface-variant ml-auto">
               <span v-for="b in backendsOf(ing)" :key="b" class="px-1.5 py-0.5 rounded bg-surface-container">{{ b }}</span>
             </span>
           </button>
@@ -296,7 +296,7 @@ async function saveEdit() {
             <input data-testid="edit-params-enable" v-model="editForm.paramsEnabled" type="checkbox" class="h-4 w-4 accent-primary" />
             <span class="text-body-md text-on-surface">{{ t('admin.ingressClasses.paramsEnable') }}</span>
           </label>
-          <div v-if="editForm.paramsEnabled" class="grid grid-cols-3 gap-sm mt-sm">
+          <div v-if="editForm.paramsEnabled" class="grid grid-cols-1 sm:grid-cols-3 gap-sm mt-sm">
             <input data-testid="edit-params-apigroup" v-model="editForm.params.apiGroup" :placeholder="t('admin.ingressClasses.paramsApiGroup')" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" />
             <input data-testid="edit-params-kind" v-model="editForm.params.kind" :placeholder="t('admin.ingressClasses.paramsKind')" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" />
             <input data-testid="edit-params-name" v-model="editForm.params.name" :placeholder="t('admin.ingressClasses.paramsName')" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono" />
@@ -316,7 +316,7 @@ async function saveEdit() {
           <div v-for="(row, i) in editForm[s.key]" :key="s.key + i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
-            <button @click="removeRow(s.key, i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="removeRow(s.key, i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
           <p v-if="!(editForm[s.key] || []).length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
         </div>

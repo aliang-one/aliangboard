@@ -80,25 +80,25 @@ async function handleDelete() {
       { label: pv.name }
     ]" />
 
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-xl max-sm:flex-col max-sm:items-start">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-primary text-3xl">database</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ pv.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface max-sm:truncate" :title="pv.name">{{ pv.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <StatusChip :status="pv.status" />
             <span class="text-body-sm text-on-surface-variant">Capacity: <span class="font-mono text-primary font-semibold">{{ pv.capacity }}</span></span>
             <span class="text-body-sm text-on-surface-variant">Age: {{ pv.age }}</span>
           </div>
         </div>
       </div>
-      <div class="flex items-center gap-xs">
-        <button @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all">
-          <span class="material-symbols-outlined text-sm">edit</span> t('common.edit')
+      <div class="flex items-center gap-xs max-sm:flex-wrap">
+        <button @click="openEdit" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
+          <span class="material-symbols-outlined text-sm">edit</span> {{ t('common.edit') }}
         </button>
-        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors">t('common.delete')</button>
+        <button @click="showDeleteModal = true" class="px-3 py-1.5 text-body-sm font-medium border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors max-sm:min-h-[40px]">{{ t('common.delete') }}</button>
       </div>
     </div>
 
@@ -174,7 +174,7 @@ async function handleDelete() {
           <div v-for="(row, i) in editForm.labels" :key="'l'+i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
-            <button @click="removeLabelRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="removeLabelRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
           <p v-if="!editForm.labels.length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
         </div>
@@ -186,23 +186,23 @@ async function handleDelete() {
           <div v-for="(row, i) in editForm.annotations" :key="'a'+i" class="flex gap-xs mb-xs">
             <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="key" />
             <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-body-sm font-mono" placeholder="value" />
-            <button @click="removeAnnRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded"><span class="material-symbols-outlined text-base">close</span></button>
+            <button @click="removeAnnRow(i)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
           <p v-if="!editForm.annotations.length" class="text-xs text-on-surface-variant/60">{{ t('common.none') }}</p>
         </div>
       </div>
       <template #actions>
-        <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">t('common.cancel')</button>
-        <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">t('common.save')</button>
+        <button @click="showEditModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+        <button @click="saveEdit" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.save') }}</button>
       </template>
     </Modal>
 
     <!-- Delete Modal -->
-    <Modal v-model="showDeleteModal" title="t('common.delete') PersistentVolume" width="max-w-md">
+    <Modal v-model="showDeleteModal" :title="t('pv.deleteModalTitle')" width="max-w-md">
       <p class="text-body-md text-on-surface-variant" v-html="t('pv.deleteConfirm', { name: pv.name })"></p>
       <template #actions>
-        <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">t('common.cancel')</button>
-        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">t('common.delete')</button>
+        <button @click="showDeleteModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
+        <button @click="handleDelete" class="px-md py-sm bg-error text-on-error rounded-lg text-body-md font-semibold hover:opacity-90">{{ t('common.delete') }}</button>
       </template>
     </Modal>
   </section>

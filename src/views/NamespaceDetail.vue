@@ -7,6 +7,7 @@ import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 
 const route = useRoute()
@@ -59,6 +60,19 @@ async function sync() {
   }
   catch (e) { notify('error', t('ns.nsDetail.syncFailed', { error: e.message || '' })) }
 }
+
+// —— Workloads 裸表迁 DataTable(Wave5 B5,审计 #161):40 字符 workload 名不可断,5 列 min-content ≈700px
+// 被卡片 overflow-hidden 硬裁;DataTable 手机卡片模式(首列=标题)根治,桌面同 5 列 + 行点击等价。
+const wlHeaders = computed(() => [
+  { key: 'name', label: t('ns.nsDetail.name') },
+  { key: 'type', label: t('ns.nsDetail.type') },
+  { key: 'status', label: t('ns.nsDetail.status') },
+  { key: 'replicas', label: t('ns.nsDetail.replicas') },
+  { key: 'age', label: t('ns.nsDetail.age') },
+])
+function goWorkload(w) {
+  router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.name, type: w.type.toLowerCase(), name: w.name } })
+}
 </script>
 
 <template>
@@ -76,10 +90,10 @@ async function sync() {
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.nsDetail.namespaceLabel') }}: <span class="text-primary">{{ ns.name }}</span></h2>
       </div>
       <div class="flex gap-sm">
-        <button @click="enterNamespace" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity flex items-center gap-xs">
+        <button @click="enterNamespace" class="px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity flex items-center gap-xs max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-base">login</span> {{ t('ns.nsDetail.enterNamespace') }}
         </button>
-        <button @click="sync" :disabled="syncing" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors flex items-center gap-xs disabled:opacity-50">
+        <button @click="sync" :disabled="syncing" class="px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors flex items-center gap-xs disabled:opacity-50 max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-base" :class="syncing ? 'animate-spin' : ''">{{ syncing ? 'progress_activity' : 'refresh' }}</span> {{ syncing ? t('ns.nsDetail.syncing') : t('ns.nsDetail.sync') }}
         </button>
       </div>
@@ -151,33 +165,30 @@ async function sync() {
         </div>
       </section>
 
-      <!-- Workloads Table -->
-      <section class="col-span-12 rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
-        <div class="px-md py-2.5 border-b border-outline-variant/50 flex items-center gap-sm">
+      <!-- Workloads(DataTable:手机卡片模式,Wave5 B5) -->
+      <section class="col-span-12 flex flex-col gap-sm">
+        <div class="flex items-center gap-sm">
           <span class="material-symbols-outlined text-primary text-lg">view_in_ar</span>
           <span class="text-body-sm font-semibold">{{ t('ns.nsDetail.workloads') }}</span>
           <span class="text-xs text-on-surface-variant ml-auto">{{ nsWorkloads.length }}</span>
         </div>
-        <table class="w-full text-left">
-          <thead>
-            <tr class="bg-surface-container-low/50 border-b border-outline-variant">
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.name') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.type') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.status') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.replicas') }}</th>
-              <th class="px-md py-2 text-xs font-medium text-on-surface-variant">{{ t('ns.nsDetail.age') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/15">
-            <tr v-for="w in nsWorkloads" :key="w.name" class="hover:bg-surface-container-low/40 cursor-pointer" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.name, type: w.type.toLowerCase(), name: w.name } })">
-              <td class="px-md py-2 font-semibold text-on-surface text-body-sm">{{ w.name }}</td>
-              <td class="px-md py-2 text-xs text-on-surface-variant">{{ w.type }}</td>
-              <td class="px-md py-2"><StatusChip :status="w.status" size="sm" /></td>
-              <td class="px-md py-2 font-mono text-xs">{{ w.replicas }}</td>
-              <td class="px-md py-2 text-xs text-on-surface-variant">{{ w.age }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <DataTable :headers="wlHeaders" :rows="nsWorkloads" row-key="name" @row-click="goWorkload">
+          <template #name="{ row }">
+            <span class="font-semibold text-on-surface text-body-sm truncate block" :title="row.name">{{ row.name }}</span>
+          </template>
+          <template #type="{ row }">
+            <span class="text-xs text-on-surface-variant">{{ row.type }}</span>
+          </template>
+          <template #status="{ row }">
+            <StatusChip :status="row.status" size="sm" />
+          </template>
+          <template #replicas="{ row }">
+            <span class="font-mono text-xs">{{ row.replicas }}</span>
+          </template>
+          <template #age="{ row }">
+            <span class="text-xs text-on-surface-variant">{{ row.age }}</span>
+          </template>
+        </DataTable>
       </section>
     </div>
   </div>

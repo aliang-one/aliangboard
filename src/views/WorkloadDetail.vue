@@ -58,25 +58,25 @@ async function handleRestart() {
 <template>
   <div class="animate-fade-in" v-if="displayData">
     <!-- Header -->
-    <div class="mb-lg flex items-center justify-between">
-      <div class="flex flex-col">
+    <div class="mb-lg flex items-center justify-between gap-sm">
+      <div class="flex flex-col min-w-0">
         <Breadcrumbs :items="[
           { label: t('workloadDetail.workloads'), route: '/workloads' },
           { label: displayData.type || t('workloadDetail.detail') },
           { label: displayData.name }
         ]" />
-        <div class="flex items-center gap-3 mt-2">
-          <div class="w-3 h-3 rounded-full bg-primary-container animate-pulse-status"></div>
-          <h2 class="text-display-lg">{{ displayData.name }}</h2>
-          <StatusChip :status="displayData.status" />
+        <div class="flex items-center gap-3 mt-2 min-w-0">
+          <div class="w-3 h-3 rounded-full bg-primary-container animate-pulse-status shrink-0"></div>
+          <h2 class="text-display-lg min-w-0 truncate" :title="displayData.name">{{ displayData.name }}</h2>
+          <StatusChip :status="displayData.status" class="shrink-0" />
         </div>
       </div>
-      <div class="flex gap-2">
-        <button @click="handleDelete" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors">
+      <div class="flex gap-2 max-sm:flex-wrap max-sm:gap-sm">
+        <button @click="handleDelete" class="flex items-center gap-2 px-md py-2 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-error">delete</span>
           <span class="font-medium text-body-md">{{ t('workloadDetail.delete') }}</span>
         </button>
-        <button @click="handleRestart" class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all">
+        <button @click="handleRestart" class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">refresh</span>
           <span class="font-medium text-body-md">{{ t('workloadDetail.restart') }}</span>
         </button>
@@ -122,28 +122,32 @@ async function handleRestart() {
           <div class="p-lg pb-md">
             <h3 class="text-headline-sm">{{ t('workloadDetail.managedPods') }}</h3>
           </div>
-          <table class="w-full text-left">
-            <thead>
-              <tr class="bg-surface-container-low border-y border-outline-variant">
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thName') }}</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thStatus') }}</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thRestarts') }}</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thNode') }}</th>
-                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thAge') }}</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-outline-variant/30">
-              <tr v-for="(p, idx) in nsPods.slice(0, 4)" :key="idx" class="hover:bg-surface-container-low/50 cursor-pointer" @click="$router.push({ name: 'NsPodDetail', params: { namespace: p.namespace, name: p.name } })">
-                <td class="px-lg py-md">
-                  <span class="font-mono text-code-sm font-medium text-on-surface">{{ p.name }}</span>
-                </td>
-                <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
-                <td class="px-lg py-md text-body-sm">{{ p.restarts }}</td>
-                <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ p.node || '-' }}</td>
-                <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ p.age }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <!-- 保底横滚(Wave5 B5,审计 #125):legacy 页低投入——5 列 mono 名 min-content ≈360-390px,
+               外层卡 overflow-hidden 硬裁;overflow-x-auto + min-w + truncate 兜底,桌面渲染零变化 -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left min-w-[600px]">
+              <thead>
+                <tr class="bg-surface-container-low border-y border-outline-variant">
+                  <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thName') }}</th>
+                  <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thStatus') }}</th>
+                  <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thRestarts') }}</th>
+                  <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thNode') }}</th>
+                  <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('workloadDetail.thAge') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-variant/30">
+                <tr v-for="(p, idx) in nsPods.slice(0, 4)" :key="idx" class="hover:bg-surface-container-low/50 cursor-pointer" @click="$router.push({ name: 'NsPodDetail', params: { namespace: p.namespace, name: p.name } })">
+                  <td class="px-lg py-md">
+                    <span class="font-mono text-code-sm font-medium text-on-surface block truncate" :title="p.name">{{ p.name }}</span>
+                  </td>
+                  <td class="px-lg py-md"><StatusChip :status="p.status" size="sm" /></td>
+                  <td class="px-lg py-md text-body-sm">{{ p.restarts }}</td>
+                  <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant"><span class="block truncate" :title="p.node || '-'">{{ p.node || '-' }}</span></td>
+                  <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ p.age }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
