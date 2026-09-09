@@ -99,14 +99,16 @@ const verifiedAt = computed(() => {
         <h2 v-if="!chromeless" class="text-headline-lg font-bold text-on-surface flex items-center gap-sm"><span class="material-symbols-outlined">menu_book</span> {{ t('workbench.ledger.title') }}</h2>
         <p class="text-body-sm text-on-surface-variant mt-xs">{{ t('workbench.ledger.subtitle') }}</p>
       </div>
-      <div class="flex items-center gap-sm">
-        <select v-model="clusterId" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm min-w-[180px]">
+      <!-- 控件组手机拆行(2026-09-09 Wave5 B7):select min-w-[180px]+两钮 ≈427px 不可换行整组溢出;
+           max-sm:flex-wrap + select 全宽独占一行,两钮流到下一行(R9:钮/选择器 40px 触控高) -->
+      <div class="flex items-center gap-sm max-sm:flex-wrap">
+        <select v-model="clusterId" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm min-w-[180px] max-sm:w-full max-sm:min-w-0 max-sm:min-h-[40px]">
           <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
-        <button v-if="auth.isAdmin" @click="bootstrap" :disabled="!clusterId || bootstrapping" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40">
+        <button v-if="auth.isAdmin" @click="bootstrap" :disabled="!clusterId || bootstrapping" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40 max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">{{ bootstrapping ? 'progress_activity' : 'auto_awesome' }}</span> {{ bootstrapping ? t('workbench.ledger.bootstrapping') : t('workbench.ledger.bootstrap') }}
         </button>
-        <button v-if="auth.isAdmin" @click="distill" :disabled="!clusterId || distilling" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40" :title="t('workbench.ledger.distillTitle')">
+        <button v-if="auth.isAdmin" @click="distill" :disabled="!clusterId || distilling" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40 max-sm:min-h-[40px]" :title="t('workbench.ledger.distillTitle')">
           <span class="material-symbols-outlined text-sm">{{ distilling ? 'progress_activity' : 'psychology' }}</span> {{ distilling ? t('workbench.ledger.distilling') : t('workbench.ledger.distill') }}
         </button>
       </div>
@@ -128,10 +130,10 @@ const verifiedAt = computed(() => {
 
       <template v-else-if="ledger">
       <div v-if="ledger.pending" class="flex items-center gap-sm bg-status-warning/10 border border-status-warning/30 rounded-lg px-md py-sm text-body-sm">
-        <span class="material-symbols-outlined text-status-warning">schedule</span>
-        <span class="text-status-warning">{{ t('workbench.ledger.pendingReview', { summary: ledger.pending.summary }) }}</span>
-        <button @click="openPending" class="ml-auto px-md py-xs bg-primary text-on-primary rounded text-body-xs font-semibold">{{ t('workbench.ledger.viewDiff') }}</button>
-        <button @click="dismissPending" class="px-md py-xs border border-outline-variant rounded text-body-xs">{{ t('workbench.ledger.dismiss') }}</button>
+        <span class="material-symbols-outlined text-status-warning shrink-0">schedule</span>
+        <span class="text-status-warning min-w-0 flex-1 truncate">{{ t('workbench.ledger.pendingReview', { summary: ledger.pending.summary }) }}</span>
+        <button @click="openPending" class="ml-auto px-md py-xs bg-primary text-on-primary rounded text-body-xs font-semibold shrink-0 max-sm:min-h-[40px]">{{ t('workbench.ledger.viewDiff') }}</button>
+        <button @click="dismissPending" class="px-md py-xs border border-outline-variant rounded text-body-xs shrink-0 max-sm:min-h-[40px]">{{ t('workbench.ledger.dismiss') }}</button>
       </div>
       <div v-if="ledger.exists" class="flex flex-col gap-sm">
         <div class="flex items-center gap-md text-body-xs text-on-surface-variant">
@@ -164,7 +166,7 @@ const verifiedAt = computed(() => {
     <Modal :modelValue="!!distillResult" @update:modelValue="v => { if (!v) distillResult = null }" :title="t('workbench.ledger.distillModalTitle')" width="max-w-4xl">
       <div v-if="distillResult" class="flex flex-col gap-md">
         <p class="text-body-sm text-on-surface-variant">{{ t('workbench.ledger.distillModalDesc', { summary: distillResult.summary }) }}</p>
-        <div class="grid grid-cols-2 gap-md">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-md">
           <div>
             <p class="text-body-xs text-on-surface-variant mb-xs">{{ t('workbench.ledger.currentLearnings') }}</p>
             <pre class="bg-surface-container-lowest border border-outline-variant rounded-lg p-sm font-mono text-body-xs whitespace-pre-wrap break-words max-h-[50vh] overflow-y-auto">{{ distillResult.current || t('workbench.ledger.empty') }}</pre>

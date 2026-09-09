@@ -1442,7 +1442,7 @@ function useHint(h) { input.value = h }
         <span data-testid="context-meter-label" class="text-body-xs font-mono shrink-0">≈{{ Math.round(ctxInfo.estTokens / 1000) }}k / {{ Math.round(ctxInfo.windowTokens / 1000) }}k ({{ ctxPct }}%)</span>
         <button v-if="ctxPct >= 70" data-testid="context-compact-btn" @click="showCompact = true"
           :disabled="compactDisabled" :title="compactDisabled ? t('workbench.chat.context.compactBusy') : t('workbench.chat.context.compactTitle')"
-          class="shrink-0 px-sm py-0.5 border border-outline-variant rounded-lg text-body-xs hover:bg-surface-container disabled:opacity-40 flex items-center gap-xs">
+          class="shrink-0 px-sm py-0.5 border border-outline-variant rounded-lg text-body-xs hover:bg-surface-container disabled:opacity-40 flex items-center gap-xs max-sm:min-h-[40px]">
           <span class="material-symbols-outlined text-sm">compress</span>{{ t('workbench.chat.context.compact') }}
         </button>
         <!-- 详情(hover/点击展开;简化为 title + 常驻明细行) -->
@@ -1482,12 +1482,13 @@ function useHint(h) { input.value = h }
       <div class="relative">
         <div class="flex items-end gap-sm bg-surface-container-low border border-outline-variant rounded-2xl px-md py-sm focus-within:border-primary/40 transition-colors">
           <textarea ref="taEl" v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="!!pendingApproval || convStatus === 'paused'" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
-          <!-- 运行中:发送键变停止键(输错→停止→修改重发);等待审批时不显示 -->
+          <!-- 运行中:发送键变停止键(输错→停止→修改重发);等待审批时不显示。
+               手机 40px 触控高(2026-09-09 Wave5 B7):桌面保持 w-8 h-8,手机档 min 尺寸接管 -->
           <button v-if="sending && conversationId && !pendingApproval" @click="stopRun" :title="t('workbench.chat.stop')"
-            class="shrink-0 w-8 h-8 flex items-center justify-center border border-error/40 text-error rounded-xl hover:bg-error/10 transition-colors">
+            class="shrink-0 w-8 h-8 flex items-center justify-center border border-error/40 text-error rounded-xl hover:bg-error/10 transition-colors max-sm:min-h-[40px] max-sm:min-w-[40px]">
             <span class="material-symbols-outlined text-base">stop</span>
           </button>
-          <button v-else @click="send" :disabled="sending || !input.trim() || !!pendingApproval || convStatus === 'paused'" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity">
+          <button v-else @click="send" :disabled="sending || !input.trim() || !!pendingApproval || convStatus === 'paused'" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity max-sm:min-h-[40px] max-sm:min-w-[40px]">
             <span class="material-symbols-outlined text-base">send</span>
           </button>
         </div>

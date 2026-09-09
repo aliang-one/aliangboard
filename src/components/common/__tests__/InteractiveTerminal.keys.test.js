@@ -2,7 +2,7 @@
 // 字号逻辑迁 useTerminalFont.js,纯映射/纯行为直测 + 双消费方模板静态断言。
 // xterm 挂载重,故模板分支采用源码静态断言(readFileSync 模式,参照 shell-width-guard.test.js):
 // pod(InteractiveTerminal)与 SSH(SshTerminal,Wave5 B6 接入)均须 isPhone 按键条 + 字号钮,
-// 桌面档(≥640)v-if 掉零回归;TerminalTaskbar 4 处关闭 × 触控目标类。
+// 桌面档(≥640)v-if 掉零回归;TerminalTaskbar 手机触控目标类(×/「+」/chip 本体/closeAll/菜单行,B7 扩面)。
 import { test, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -112,9 +112,13 @@ test('TerminalKeyBar 挂载:槽内容居首 + 7 键渲染 + 点击经 send 下�
   expect(sent).toEqual(['\x1b', '\x03'])
 })
 
-test('TerminalTaskbar 4 处 chip 关闭 × 手机触控目标类', () => {
+// 2026-09-09 Wave5 B7 扩面:× 4 处之外,「+」多开钮 2 处(pod/ssh)同五连(inline-flex 三连让
+// 文本符号线在 40×40 里居中);chip 本体 4 处 + closeAll 只补尺寸对(本体已是 flex 按钮,无需
+// inline-flex 三连);会话菜单/溢出面板行 min-h(密集行优先 min-h 变体,无 -inset-2 相邻重叠)。
+test('TerminalTaskbar 手机触控目标类:× 4 + 「+」2 全五连;chip 本体/closeAll 尺寸对;菜单行 min-h', () => {
   const touchCls = 'max-sm:min-h-[40px] max-sm:min-w-[40px] max-sm:inline-flex max-sm:items-center max-sm:justify-center'
-  const occurrences = taskbar.split('opacity-0 group-hover:opacity-100 max-sm:opacity-100').length - 1
-  expect(occurrences).toBe(4)
-  expect(taskbar.split(touchCls).length - 1).toBe(4)
+  expect(taskbar.split('opacity-0 group-hover:opacity-100 max-sm:opacity-100').length - 1).toBe(4)  // 4 处 chip 关闭 ×
+  expect(taskbar.split(touchCls).length - 1).toBe(6)                                              // × 4 + 「+」2
+  expect(taskbar.split('max-sm:min-h-[40px] max-sm:min-w-[40px]').length - 1).toBe(11)            // 上 6 + chip 本体 4 + closeAll 1
+  expect(taskbar.split('w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs').length - 1).toBe(3) // 菜单行+新开行+溢出行
 })

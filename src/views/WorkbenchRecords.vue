@@ -177,8 +177,8 @@ onMounted(load)
       </div>
 
       <div class="text-body-xs text-on-surface-variant/70 font-mono flex flex-col gap-0.5">
-        <span>{{ data.storage.dbPath }}</span>
-        <span>{{ data.storage.workbenchDir }}</span>
+        <span class="break-all">{{ data.storage.dbPath }}</span>
+        <span class="break-all">{{ data.storage.workbenchDir }}</span>
       </div>
       <p class="text-body-xs text-on-surface-variant/80">{{ t('workbench.records.storageHint') }}</p>
     </div>
@@ -192,10 +192,10 @@ onMounted(load)
       <div class="max-h-96 overflow-y-auto divide-y divide-outline-variant/40">
         <button v-for="c in (data?.conversations || [])" :key="c.id" @click="openProject(c)"
           class="w-full text-left px-md py-sm hover:bg-surface-container-low transition-colors flex items-center gap-sm">
-          <span class="px-1.5 py-0.5 rounded text-body-xs font-mono shrink-0" :class="statusStyle[c.status] || statusStyle.done">{{ c.status }}</span>
+          <span class="px-1.5 py-0.5 rounded text-body-xs font-mono truncate min-w-0" :class="statusStyle[c.status] || statusStyle.done">{{ c.status }}</span>
           <span class="text-body-sm text-on-surface truncate flex-1 min-w-0">{{ preview(c) }}</span>
-          <span class="text-body-xs text-on-surface-variant shrink-0">{{ c.projectName }}</span>
-          <span class="text-body-xs text-on-surface-variant/70 shrink-0 font-mono">{{ c.messageCount }}💬 {{ c.steps }}↻</span>
+          <span class="text-body-xs text-on-surface-variant min-w-0 truncate" :title="c.projectName">{{ c.projectName }}</span>
+          <span class="text-body-xs text-on-surface-variant/70 shrink-0 font-mono max-sm:hidden">{{ c.messageCount }}💬 {{ c.steps }}↻</span>
           <span class="text-body-xs text-on-surface-variant/60 shrink-0 w-14 text-right">{{ relTime(c.updatedAt) }}</span>
         </button>
         <p v-if="data && !data.conversations.length" class="text-body-sm text-on-surface-variant px-md py-md text-center">{{ t('workbench.records.noConversations') }}</p>
@@ -210,7 +210,7 @@ onMounted(load)
         <label v-if="auth.isAdmin" class="flex items-center gap-xs ml-auto">
           <span class="text-body-xs text-on-surface-variant">{{ t('workbench.records.auditSourceLabel') }}</span>
           <select data-testid="audit-source" v-model="auditSource" @change="loadAudits"
-            class="bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-xs">
+            class="bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-xs max-sm:min-h-[40px]">
             <option value="workbench">{{ t('workbench.records.auditSourceAi') }}</option>
             <option value="platform">{{ t('workbench.records.auditSourceSsh') }}</option>
             <option value="all">{{ t('workbench.records.auditSourceAll') }}</option>
@@ -222,7 +222,7 @@ onMounted(load)
           <span class="text-on-surface-variant/60 shrink-0 w-24">{{ fmt(a.ts) }}</span>
           <span class="px-1.5 py-0.5 rounded text-body-xs shrink-0" :class="auditSourceStyle[a.source] || auditSourceStyle.platform">
             {{ auditSourceLabel(a.source) }}</span>
-          <span class="text-on-surface shrink-0">{{ a.tool }}</span>
+          <span class="text-on-surface truncate min-w-0" :title="a.tool">{{ a.tool }}</span>
           <span class="text-on-surface-variant truncate flex-1 min-w-0">{{ a.resource || a.requestSummary || '—' }}</span>
           <span class="shrink-0 font-semibold" :class="resultStyle[a.result]">{{ a.result }}</span>
         </div>
