@@ -4,7 +4,8 @@
 // - 首列 = OS 图标(OsIcon,OS 探测落库的 osId 映射发行版图标)+ 名称/描述;
 // - 状态列 = ok(正常)/fail(异常)/unknown(未测)三态 badge,试连即刷新;
 // - 暴露 AI 列 = 状态展示 + 快速编辑 icon(原地切换开关与审批策略,即时 PUT);
-// - 操作列 = 终端/文件 + 更多▾(测试连接/编辑/删除收进菜单,降低行内按钮密度)。
+// - 操作列 = 终端/文件 + 更多▾(测试连接/编辑/删除收进菜单,降低行内按钮密度);
+//   手机档(Wave5 R5)清单迁 DataTable 卡片化,更多▾在卡片 overflow 链里会被裁 → 五钮扁平组。
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -17,6 +18,8 @@ import ServerLedgerPanel from '@/components/ssh/ServerLedgerPanel.vue'
 import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { useAuthStore } from '@/stores/auth'
 import { Z } from '@/styles/zScale'
+import DataTable from '@/components/common/DataTable.vue'
+import { useIsPhone } from '@/composables/useBreakpoint'
 
 const { t } = useI18n()
 const qc = useQueryClient()
@@ -130,6 +133,19 @@ const statusBadge = s => s.status === 'ok'
     ? { cls: 'bg-error-container/40 text-error border-error/30', dot: 'bg-error', label: t('ssh.statusFail') }
     : { cls: 'bg-surface-container text-on-surface-variant border-outline-variant/40', dot: 'bg-on-surface-variant/40', label: t('ssh.statusUnknown') }
 const policyLabel = p => t(`ssh.policy${String(p || 'always')[0].toUpperCase()}${String(p || 'always').slice(1)}`)
+
+// —— 清单迁 DataTable(Wave5 R5):手机自动卡片化(首列=标题),列 slot 双分支同源 ——
+const { isPhone } = useIsPhone()
+const serverHeaders = computed(() => [
+  { key: 'name', label: t('ssh.name') },
+  { key: 'status', label: t('ssh.statusCol') },
+  { key: 'host', label: t('ssh.host') },
+  { key: 'username', label: t('ssh.username') },
+  { key: 'cred', label: t('ssh.credState') },
+  { key: 'expose', label: t('ssh.exposeToAi') },
+  { key: 'actions', label: t('ssh.actions') },
+])
+const serverRows = computed(() => servers.value.map(s => ({ ...s, cred: credState(s) })))
 defineExpose({ servers })
 </script>
 
@@ -146,83 +162,76 @@ defineExpose({ servers })
     </div>
     <template v-if="isAdmin">
       <div v-if="isLoading" class="text-body-sm text-on-surface-variant">{{ t('common.loading') }}</div>
-      <table v-else class="w-full text-body-sm border-collapse">
-        <thead><tr class="text-left text-on-surface-variant border-b border-outline-variant">
-          <th class="py-sm px-sm">{{ t('ssh.name') }}</th><th class="py-sm px-sm">{{ t('ssh.statusCol') }}</th>
-          <th class="py-sm px-sm">{{ t('ssh.host') }}</th>
-          <th class="py-sm px-sm">{{ t('ssh.username') }}</th><th class="py-sm px-sm">{{ t('ssh.credState') }}</th>
-          <th class="py-sm px-sm">{{ t('ssh.exposeToAi') }}</th>
-          <th class="py-sm px-sm">{{ t('ssh.actions') }}</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="s in servers" :key="s.id" data-test="serverRow" class="border-b border-outline-variant/40 hover:bg-surface-container/50">
-            <!-- 首列:OS 图标 + 名称/描述 -->
-            <td class="py-sm px-sm">
-              <div class="flex items-center gap-sm">
-                <OsIcon :os-id="s.osId" :os-name="s.osName || s.name" />
-                <div class="min-w-0">
-                  <div class="font-mono truncate">{{ s.name }}</div>
-                  <div v-if="s.description || s.osName" class="text-on-surface-variant/60 text-body-xs truncate">
-                    {{ s.osName || s.description }}</div>
-                </div>
+      <DataTable v-else :headers="serverHeaders" :rows="serverRows" row-key="id">
+        <template #name="{ row }">
+          <div data-test="serverRow" class="flex items-center gap-sm min-w-0">
+            <OsIcon :os-id="row.osId" :os-name="row.osName || row.name" />
+            <div class="min-w-0">
+              <div class="font-mono truncate">{{ row.name }}</div>
+              <div v-if="row.description || row.osName" class="text-on-surface-variant/60 text-body-xs truncate">{{ row.osName || row.description }}</div>
+            </div>
+          </div>
+        </template>
+        <template #status="{ row }">
+          <span data-test="statusBadge" class="inline-flex items-center gap-xs px-sm py-0.5 rounded-full border text-body-xs" :class="statusBadge(row).cls">
+            <span class="w-1.5 h-1.5 rounded-full" :class="statusBadge(row).dot"></span>{{ statusBadge(row).label }}
+          </span>
+        </template>
+        <template #host="{ row }"><span class="font-mono text-body-xs break-all">{{ row.host }}:{{ row.port }}</span></template>
+        <template #username="{ row }"><span class="font-mono text-body-xs truncate">{{ row.username }}</span></template>
+        <template #cred="{ row }"><span class="text-body-xs">{{ row.cred }}</span></template>
+        <template #expose="{ row }">
+          <div class="flex items-center gap-xs flex-wrap" data-test="exposeCell">
+            <ToggleSwitch :checked="row.exposeToAi" data-test="exposeSwitch" :disabled="exposeBusy"
+              :title="t('ssh.exposeToggleTitle')" @update:checked="v => onExposeToggle(row, v)" />
+            <template v-if="exposeQuick === row.id">
+              <select data-test="quickExposePolicy" v-model="quickPolicy" :disabled="exposeBusy"
+                class="bg-surface-container-lowest border border-outline-variant rounded px-xs py-0.5 text-body-xs"
+                @change="saveQuickExpose(row, row.exposeToAi)">
+                <option value="always">{{ policyLabel('always') }}</option>
+                <option value="readonly">{{ policyLabel('readonly') }}</option>
+                <option value="none">{{ policyLabel('none') }}</option>
+              </select>
+            </template>
+            <span v-else-if="row.exposeToAi" class="text-body-xs text-primary truncate max-w-[120px]" :title="t('ssh.quickExposeTitle')">{{ policyLabel(row.aiApprovalPolicy) }}</span>
+            <button v-if="isAdmin && row.exposeToAi && exposeQuick !== row.id" data-test="btnQuickExpose" @click="startQuickExpose(row)"
+              class="p-xs rounded hover:bg-surface-container text-on-surface-variant/60 hover:text-primary" :title="t('ssh.quickExposeTitle')">
+              <span class="material-symbols-outlined text-sm">tune</span>
+            </button>
+          </div>
+        </template>
+        <template #actions="{ row }">
+          <!-- 手机:下拉在卡片 overflow 链里会被裁 → 扁平按钮组 -->
+          <div v-if="isPhone" class="flex flex-wrap items-center gap-xs">
+            <button data-test="btnTerm" @click="sshTerminals.openOrFocus(row)" class="relative max-sm:min-h-[40px] px-sm rounded-lg bg-primary-container/60 text-body-xs">{{ t('ssh.terminal') }}</button>
+            <button data-test="btnFiles" @click="openFiles(row)" class="relative max-sm:min-h-[40px] px-sm rounded-lg bg-secondary-container/60 text-body-xs">{{ t('ssh.files') }}</button>
+            <button data-test="btnTest" @click="onTest(row)" class="relative max-sm:min-h-[40px] px-sm rounded-lg border border-outline-variant text-body-xs">{{ t('ssh.testConnection') }}</button>
+            <button data-test="btnEdit" @click="openEdit(row)" class="relative max-sm:min-h-[40px] px-sm rounded-lg border border-outline-variant text-body-xs">{{ t('common.edit') }}</button>
+            <button data-test="btnDelete" @click="onDelete(row)" class="relative max-sm:min-h-[40px] px-sm rounded-lg border border-error/30 text-error text-body-xs">{{ t('common.delete') }}</button>
+          </div>
+          <!-- 桌面:终端/文件 + 更多▾ 下拉 -->
+          <div v-else class="flex items-center gap-xs">
+            <button data-test="btnTerm" @click="sshTerminals.openOrFocus(row)" class="relative px-sm py-xs rounded-lg bg-primary-container/60 text-body-xs max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">{{ t('ssh.terminal') }}</button>
+            <button data-test="btnFiles" @click="openFiles(row)" class="relative px-sm py-xs rounded-lg bg-secondary-container/60 text-body-xs max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">{{ t('ssh.files') }}</button>
+            <div class="relative">
+              <button v-if="isAdmin" data-test="btnMore" @click="toggleMore(row)"
+                class="px-xs py-xs rounded-lg bg-surface-container text-body-xs text-on-surface-variant hover:text-primary"
+                :title="t('ssh.moreActions')">
+                <span class="material-symbols-outlined text-base align-middle">more_vert</span>
+              </button>
+              <!-- 更多菜单:任务栏同款遮罩+下拉 -->
+              <div v-if="moreOpenFor === row.id" class="absolute bottom-full mb-xs left-0 min-w-[140px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs whitespace-nowrap" style="z-index: 101">
+                <button data-test="moreTest" @click="moreAction(row, 'test')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
+                  <span class="material-symbols-outlined text-sm">network_check</span>{{ t('ssh.testConnection') }}</button>
+                <button data-test="moreEdit" @click="moreAction(row, 'edit')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
+                  <span class="material-symbols-outlined text-sm">edit</span>{{ t('common.edit') }}</button>
+                <button data-test="moreDelete" @click="moreAction(row, 'delete')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs text-error hover:bg-error/10 text-left">
+                  <span class="material-symbols-outlined text-sm">delete</span>{{ t('common.delete') }}</button>
               </div>
-            </td>
-            <!-- 状态:三态 badge -->
-            <td class="py-sm px-sm">
-              <span data-test="statusBadge" class="inline-flex items-center gap-xs px-sm py-0.5 rounded-full border text-body-xs" :class="statusBadge(s).cls">
-                <span class="w-1.5 h-1.5 rounded-full" :class="statusBadge(s).dot"></span>{{ statusBadge(s).label }}
-              </span>
-            </td>
-            <td class="py-sm px-sm font-mono">{{ s.host }}:{{ s.port }}</td>
-            <td class="py-sm px-sm font-mono">{{ s.username }}</td>
-            <td class="py-sm px-sm">{{ credState(s) }}</td>
-            <!-- 暴露 AI:状态 + 快速编辑 -->
-            <td class="py-sm px-sm">
-              <div class="flex items-center gap-xs" data-test="exposeCell">
-                <ToggleSwitch :checked="s.exposeToAi" data-test="exposeSwitch" :disabled="exposeBusy"
-                  :title="t('ssh.exposeToggleTitle')" @update:checked="v => onExposeToggle(s, v)" />
-                <template v-if="exposeQuick === s.id">
-                  <select data-test="quickExposePolicy" v-model="quickPolicy" :disabled="exposeBusy"
-                    class="bg-surface-container-lowest border border-outline-variant rounded px-xs py-0.5 text-body-xs"
-                    @change="saveQuickExpose(s, s.exposeToAi)">
-                    <option value="always">{{ policyLabel('always') }}</option>
-                    <option value="readonly">{{ policyLabel('readonly') }}</option>
-                    <option value="none">{{ policyLabel('none') }}</option>
-                  </select>
-                </template>
-                <span v-else-if="s.exposeToAi" class="text-body-xs text-primary truncate max-w-[120px]" :title="t('ssh.quickExposeTitle')">{{ policyLabel(s.aiApprovalPolicy) }}</span>
-                <button v-if="isAdmin && s.exposeToAi && exposeQuick !== s.id" data-test="btnQuickExpose" @click="startQuickExpose(s)"
-                  class="p-xs rounded hover:bg-surface-container text-on-surface-variant/60 hover:text-primary" :title="t('ssh.quickExposeTitle')">
-                  <span class="material-symbols-outlined text-sm">tune</span>
-                </button>
-              </div>
-            </td>
-            <!-- 操作:终端/文件 + 更多▾ -->
-            <td class="py-sm px-sm">
-              <div class="flex items-center gap-xs">
-                <button data-test="btnTerm" @click="sshTerminals.openOrFocus(s)" class="px-sm py-xs rounded-lg bg-primary-container/60 text-body-xs">{{ t('ssh.terminal') }}</button>
-                <button data-test="btnFiles" @click="openFiles(s)" class="px-sm py-xs rounded-lg bg-secondary-container/60 text-body-xs">{{ t('ssh.files') }}</button>
-                <div class="relative">
-                  <button v-if="isAdmin" data-test="btnMore" @click="toggleMore(s)"
-                    class="px-xs py-xs rounded-lg bg-surface-container text-body-xs text-on-surface-variant hover:text-primary"
-                    :title="t('ssh.moreActions')">
-                    <span class="material-symbols-outlined text-base align-middle">more_vert</span>
-                  </button>
-                  <!-- 更多菜单:任务栏同款遮罩+下拉 -->
-                  <div v-if="moreOpenFor === s.id" class="absolute bottom-full mb-xs left-0 min-w-[140px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs whitespace-nowrap" style="z-index: 101">
-                    <button data-test="moreTest" @click="moreAction(s, 'test')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
-                      <span class="material-symbols-outlined text-sm">network_check</span>{{ t('ssh.testConnection') }}</button>
-                    <button data-test="moreEdit" @click="moreAction(s, 'edit')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
-                      <span class="material-symbols-outlined text-sm">edit</span>{{ t('common.edit') }}</button>
-                    <button data-test="moreDelete" @click="moreAction(s, 'delete')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs text-error hover:bg-error/10 text-left">
-                      <span class="material-symbols-outlined text-sm">delete</span>{{ t('common.delete') }}</button>
-                  </div>
-                </div>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </div>
+          </div>
+        </template>
+      </DataTable>
       <p v-if="testResult" data-test="testResult" class="text-body-sm" :class="testResult.ok ? 'text-primary' : 'text-error'">
         [{{ testResult.name }}] {{ testResult.message }}</p>
 
@@ -231,7 +240,7 @@ defineExpose({ servers })
            入场动画进行中的 0.28s 窗口内 transform 仍在——传送型浮层一律挂 body 走 Z 阶梯(issue#4 配方) -->
       <teleport to="body">
         <div v-if="showForm" class="fixed inset-0 flex items-center justify-center bg-on-surface/40" :style="{ zIndex: Z.modal }" @click.self="showForm = false">
-          <div class="bg-surface-container-low rounded-xl p-lg w-[720px] max-h-[90vh] overflow-y-auto">
+          <div class="bg-surface-container-low rounded-xl p-lg w-[min(720px,calc(100vw-2rem))] max-h-[90vh] overflow-y-auto">
             <h4 class="text-title-md font-bold mb-md">{{ editing ? t('ssh.editServer') : t('ssh.addServer') }}</h4>
             <SshServerForm :server="editing" :busy="busy" @submit="onSubmit" @cancel="showForm = false" />
           </div>
@@ -242,7 +251,7 @@ defineExpose({ servers })
     <!-- 台账弹窗:内容为 ServerLedgerPanel(结构层只读+自由层编辑,与知识 tab 服务器区同源);Teleport body 同上 -->
     <teleport to="body">
       <div v-if="showLedger" data-test="ledgerModal" class="fixed inset-0 flex items-center justify-center bg-on-surface/40" :style="{ zIndex: Z.modal }" @click.self="showLedger = false">
-        <div class="bg-surface-container-low rounded-xl p-lg w-[860px] max-h-[90vh] overflow-y-auto flex flex-col gap-md">
+        <div class="bg-surface-container-low rounded-xl p-lg w-[min(860px,calc(100vw-2rem))] max-h-[90vh] overflow-y-auto flex flex-col gap-md">
           <h4 class="text-title-md font-bold">{{ t('ssh.ledger') }}</h4>
           <ServerLedgerPanel />
           <div class="flex justify-end">
