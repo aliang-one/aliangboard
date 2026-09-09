@@ -81,13 +81,13 @@ test('M1/M2 规则语义自检(阈值/逃生口/排除项)', () => {
 // ── M1:裸表存量违规 allowlist(种子 2026-09-09,12 条;修复批次清账后删除条目)──
 // B2 已清账(2026-09-09):NsRoleDetail/NsRoleBindingDetail/NsServiceAccountDetail 四表迁 DataTable,条目删除。
 // B3 已清账(2026-09-09):NsNetworkPolicyDetail rules/peers 表×2 + NsServiceDetail ports 表走保底(overflow-x-auto + min-w-[600px] + truncate),条目删除。
+// B4 已清账(2026-09-09):NsHPADetail metrics 裸表 6 列迁 DataTable(row-key=_idx),条目删除。
 const M1_ALLOWLIST = [
   'components/common/CopyWorkloadDialog.vue', // 选择工作负载弹窗裸表;外层是 overflow-auto(max-h 卡)非 overflow-x-auto 字面量 → 按字面规则计违规,后续对齐配方(overflow-x-auto)或带裁决豁免
   'components/common/ResourceReferences.vue', // B5(审计 #70,P1):五列引用表(detail 列 mono 不可断)无横滚,迁 DataTable 或保底横滚
   'views/CrdDetail.vue', // B5(审计 #313,P0):instances 表五列迁 DataTable(手机卡片模式正解)
   'views/NamespaceDetail.vue', // B5(审计 #161,P1):ReplicaSets 表 5 列 min-content ≈700px 无横滚兜底
   'views/NodeDetail.vue', // B5 同族清账(审计未单列):conditions 裸表(w-full text-left)无 overflow-x-auto
-  'views/NsHPADetail.vue', // B4(审计 #251,P1):metrics 裸表 6 列,迁 DataTable 或 overflow-x-auto 包裹
   'views/WorkloadDetail.vue', // B5(审计 #125,P2):legacy 管理的 Pod 表,保底横滚(legacy 页低投入)
 ]
 

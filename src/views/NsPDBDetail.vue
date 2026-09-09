@@ -85,14 +85,14 @@ async function handleDelete() {
       { label: route.params.name }
     ]" />
 
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-start justify-between gap-x-sm gap-y-sm mt-sm mb-xl">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-primary text-3xl">shield</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ pdb.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface min-w-0 max-sm:truncate" :title="pdb.name">{{ pdb.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium border bg-primary-container/10 text-primary border-primary/20">
               <span class="material-symbols-outlined text-xs align-middle mr-1">shield</span>PodDisruptionBudget
             </span>
@@ -100,19 +100,19 @@ async function handleDelete() {
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
-        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-low transition-colors">
+      <div class="flex flex-wrap gap-sm">
+        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-low transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
-        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
+        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
 
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex overflow-x-auto border-b border-outline-variant mb-lg">
       <button v-for="tab in ['overview', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
+        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
       </button>
