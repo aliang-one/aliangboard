@@ -161,7 +161,7 @@ export function getPresenceConfig(db) {
 export function listActiveConversations(db, { now = Date.now(), windowMs = 30 * 60 * 1000, cap = 5, ownerId = null } = {}) {
   const ownerClause = ownerId ? 'AND p.ownerId = ?' : ''
   const params = ownerId ? [now - windowMs, ownerId, cap] : [now - windowMs, cap]
-  return db.prepare(`SELECT c.id, c.projectId, p.name AS projectName, c.title, c.status, c.updatedAt
+  return db.prepare(`SELECT c.id, c.projectId, p.name AS projectName, p.ownerId AS projectOwnerId, c.title, c.status, c.updatedAt
     FROM workbench_conversations c JOIN workbench_projects p ON p.id = c.projectId
     WHERE (c.status IN ('running','paused')
        OR (c.status IN ('done','failed','cancelled') AND c.updatedAt > ?))

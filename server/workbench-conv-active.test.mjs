@@ -149,3 +149,16 @@ test('conv-lifecycle-11: 他人 10 条 running 挤不出非 admin 自己的 runn
     assert.equal(proj.ownerId, 'u2', '只见自己项目的行')
   }
 })
+
+// 审批三档模式(2026-09-09 评审 Important#1):active 对话行带 projectOwnerId
+// (ChatPresence → ChatModal → WorkbenchChat 据此判断 viewer 是否 owner,非 owner 隐藏模式切换器)。
+test('active: 对话行带 projectOwnerId', async () => {
+  const h = makeHarness({})
+  const run = createConversation(h.db, { projectId: h.p1, system: '', userMessage: 'q' })
+  h.set(run.id, 'running', Date.now())
+  await h.call('GET', '/api/workbench/conversations/active')
+  assert.equal(h.sent[0].status, 200)
+  const rows = h.sent[0].json.conversations
+  assert.ok(rows.length >= 1, '种子对话应在窗内')
+  for (const c of rows) assert.equal(c.projectOwnerId, 'u1', `行 ${c.id} 应带 projectOwnerId`)
+})

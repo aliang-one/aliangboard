@@ -1372,3 +1372,29 @@ test('A4: 初拉全败→loadRevive 复活成功 → running 接线(sending+轮�
     expect(api.conversations.get.mock.calls.length).toBeGreaterThan(callsAtRevive, '轮询活着(修复前复活后零拉取)')
   } finally { vi.useRealTimers() }
 })
+
+// 审批三档模式(2026-09-09 评审 Important#1):门执行 project.ownerId 的档位,切换器显示
+// 观看者自己的档位——admin 看他人项目时 UI 会谎报安全姿态(owner 在 auto,UI 说每项确认)。
+// 契约:ownerId 已知且 ≠ 当前用户 → 隐藏切换器;ownerId 匹配或未传(向后兼容)→ 显示。
+test('审批模式切换器:非 owner 视图隐藏;owner/未传 ownerId 显示', async () => {
+  const { useAuthStore } = await import('@/stores/auth')
+  const mountWithViewer = async (ownerId) => {
+    const pinia = createPinia()
+    const auth = useAuthStore(pinia)
+    auth.user = { id: 'u1', username: 'alice', role: 'user' }
+    const w = mount(WorkbenchChat, {
+      props: { projectId: 'p1', projectName: 'demo', ...(ownerId !== undefined ? { ownerId } : {}) },
+      global: { plugins: [i18n, pinia] },
+    })
+    return w
+  }
+  const other = await mountWithViewer('u2')
+  expect(other.find('[data-testid="approval-mode-trigger"]').exists()).toBe(false)
+  other.unmount()
+  const mine = await mountWithViewer('u1')
+  expect(mine.find('[data-testid="approval-mode-trigger"]').exists()).toBe(true)
+  mine.unmount()
+  const unknown = await mountWithViewer(undefined)
+  expect(unknown.find('[data-testid="approval-mode-trigger"]').exists()).toBe(true)
+  unknown.unmount()
+})

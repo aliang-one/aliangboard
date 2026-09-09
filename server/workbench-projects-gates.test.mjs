@@ -283,3 +283,17 @@ test('search K8s 分支:owner 失去集群分配 → 403 clusterForbidden(entitl
   assert.equal(h.sent[0].status, 403)
   assert.equal(h.sent[0].json.message, FORBIDDEN_MSG)
 })
+
+// ===== 审批三档模式(2026-09-09 评审 Important#1):对话载荷带 projectOwnerId =====
+// 门执行的是 project.ownerId 的档位;前端据此在非 owner 视图(admin 看他人对话)隐藏
+// 模式切换器,防「看自己的档、跑 owner 的档」安全姿态失真。
+test('records: 对话行带 projectOwnerId(admin 全量与 owner 过滤两分支)', async () => {
+  const ha = makeOwnedHarness({ userId: 'admin', role: 'admin' })
+  await ha.call('GET', '/api/workbench/records')
+  const byId = Object.fromEntries(ha.sent[0].json.conversations.map(c => [c.id, c]))
+  assert.equal(byId.cA.projectOwnerId, 'u1')
+  assert.equal(byId.cB.projectOwnerId, 'u2')
+  const h = makeOwnedHarness({ userId: 'u1' })
+  await h.call('GET', '/api/workbench/records')
+  assert.equal(h.sent[0].json.conversations[0].projectOwnerId, 'u1')
+})

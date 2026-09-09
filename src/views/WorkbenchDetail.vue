@@ -433,6 +433,7 @@ const treeRows = computed(() => {
             :key="activeConversationId || 'new'"
             :project-id="id"
             :project-name="project?.name"
+            :owner-id="project?.ownerId"
             :conversation-id="activeConversationId"
             :active-conversation-id="activeConversationId"
             @conversation-created="(convId) => { activeConversationId = convId; loadConversations() }"
