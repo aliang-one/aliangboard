@@ -27,7 +27,7 @@ const sizeOptions = [10, 20, 50, 100]
 </script>
 
 <template>
-  <div v-if="total > 0" class="flex items-center gap-md">
+  <div v-if="total > 0" class="flex items-center gap-md max-sm:flex-wrap max-sm:gap-xs">
     <select
       v-if="showSizeSelector"
       :value="pageSize"
@@ -36,14 +36,14 @@ const sizeOptions = [10, 20, 50, 100]
     >
       <option v-for="s in sizeOptions" :key="s" :value="s">{{ t('component.pagination.perPage', { n: s }) }}</option>
     </select>
-    <span class="text-body-sm text-on-surface-variant whitespace-nowrap">
+    <span class="text-body-sm text-on-surface-variant whitespace-nowrap max-sm:hidden">
       {{ t('component.pagination.rangeSummary', { start, end, total: props.total }) }}
     </span>
     <div class="flex items-center gap-1">
       <button
         @click="go(currentPage - 1)"
         :disabled="currentPage <= 1"
-        class="p-xs text-on-surface-variant hover:bg-surface-container-highest rounded-md disabled:opacity-30 transition-colors"
+        class="relative p-xs text-on-surface-variant hover:bg-surface-container-highest rounded-md disabled:opacity-30 transition-colors max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
         :title="t('component.pagination.prevPage')"
       >
         <span class="material-symbols-outlined">chevron_left</span>
@@ -52,7 +52,7 @@ const sizeOptions = [10, 20, 50, 100]
       <button
         @click="go(currentPage + 1)"
         :disabled="currentPage >= totalPages"
-        class="p-xs text-on-surface-variant hover:bg-surface-container-highest rounded-md disabled:opacity-30 transition-colors"
+        class="relative p-xs text-on-surface-variant hover:bg-surface-container-highest rounded-md disabled:opacity-30 transition-colors max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
         :title="t('component.pagination.nextPage')"
       >
         <span class="material-symbols-outlined">chevron_right</span>
