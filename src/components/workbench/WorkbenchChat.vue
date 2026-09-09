@@ -12,6 +12,7 @@ import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import AiConfigPanel from './AiConfigPanel.vue'
+import ApprovalModeSwitcher from './ApprovalModeSwitcher.vue'
 import { applyStreamEvent, ensureFinalAnswerBlock, missingFinalTail } from './conv-stream'
 import { pairRefResources } from '@/logic/refResources'
 import { applyLegacyTs } from '@/utils/toolResultFormat'
@@ -1483,8 +1484,9 @@ function useHint(h) { input.value = h }
           </button>
         </div>
 
-        <!-- AI 配置透明面板入口(2026-08-25):恒可见——有对话时面板显示该对话烘焙的 system -->
-        <div class="flex justify-end mt-xs">
+        <!-- composer 工具栏:审批模式切换器(左,2026-09-09)+ AI 配置透明面板入口(右,2026-08-25 恒可见——有对话时面板显示该对话烘焙的 system) -->
+        <div class="flex items-center justify-between gap-sm mt-xs">
+          <ApprovalModeSwitcher />
           <button @click="showAiConfig = true" :title="t('workbench.chat.aiConfig.open')" class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary transition-colors">
             <span class="material-symbols-outlined text-sm">tune</span>{{ t('workbench.chat.aiConfig.open') }}
           </button>

@@ -1336,3 +1336,25 @@ test('A6: paused 状态字段损坏 → 不翻 failed,回滚 paused(审批态保
   assert.ok(!events.some(e => e.type === 'status' && e.status === 'failed'), '不发 failed')
   assert.ok(events.some(e => e.type === 'end'), 'end 收尾(前端不卡)')
 })
+
+// ── 审批三档模式(2026-09-09):approvalMode 装配契约 ──
+// run/resume 两处装配点都注入 owner(= project.ownerId,W2 授权主体恒取 owner 语义)的
+// prefs 读子;同步现读 → mid-run 切档下一个判定即生效。无 platform_users 表/无行/垃圾
+// prefs 由 readUserApprovalMode 兜底 'ask'(fail-closed,本文件其余测试即无表形态)。
+test('approvalMode 装配:读 owner 的 prefs,逐次现读(切档即时生效)', async () => {
+  const { db, conv, busEmit, busDispose, makeRunner, capturedRunnerArgs } = setup()
+  db.exec('CREATE TABLE platform_users ( id TEXT PRIMARY KEY, username TEXT, prefs TEXT )')
+  db.prepare("INSERT INTO platform_users (id, username, prefs) VALUES ('u1','alice',?)").run(JSON.stringify({ workbenchApprovalMode: 'writes' }))
+  const { createAgentRunner } = makeRunner(async () => ({ status: 'done', content: 'ok', steps: 0, messages: [], queue: [], denied: [] }))
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  await agent.runConversation(conv.id, { chat: async () => ({}) })
+  const args = capturedRunnerArgs()
+  assert.equal(typeof args.approvalMode, 'function', '装配点传入 approvalMode 读子')
+  assert.equal(args.approvalMode(), 'writes', '读 owner(u1)的 prefs')
+  // 现读语义:改库后下一次判定即变(disabledTools 同款「权限语义即时生效」)
+  db.prepare("UPDATE platform_users SET prefs=? WHERE id='u1'").run(JSON.stringify({ workbenchApprovalMode: 'auto' }))
+  assert.equal(args.approvalMode(), 'auto')
+  // owner 失联 → ask(授权主体恒取 owner:换 owner 行为跟随,不取触发者)
+  db.prepare("DELETE FROM platform_users WHERE id='u1'").run()
+  assert.equal(args.approvalMode(), 'ask')
+})

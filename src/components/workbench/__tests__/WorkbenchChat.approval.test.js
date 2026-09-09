@@ -5,6 +5,7 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia } from 'pinia'
 import zh from '@/locales/zh.json'
 import en from '@/locales/en.json'
 
@@ -75,7 +76,7 @@ async function mountPausedApproval(pa) {
   })
   const w = mount(WorkbenchChat, {
     props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-ap', activeConversationId: 'conv-ap' },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n, createPinia()] },
   })
   activeWrapper = w
   await flushPromises()

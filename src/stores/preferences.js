@@ -25,6 +25,9 @@ export const usePreferencesStore = defineStore('preferences', () => {
   const defaultClusterId = ref(null)
   const defaultNamespace = ref(null)
   const rowsPerPage = ref(null)
+  // 审批三档模式(2026-09-09):工作台 AI 对话工具审批档位,'ask' 默认(服务端同款兜底);
+  // null = 未设置(读侧恒归一 'ask')。门在服务端逐调用现读 owner prefs,切换即时生效。
+  const workbenchApprovalMode = ref(null)        // 'ask' | 'writes' | 'auto' | null
 
   // 服务端为准覆盖(auth.login / authStore.fetchMe 拿到 prefs 后调用)
   function hydrateFromServer(prefs) {
@@ -38,6 +41,8 @@ export const usePreferencesStore = defineStore('preferences', () => {
     if (prefs.defaultClusterId) defaultClusterId.value = prefs.defaultClusterId
     if (prefs.defaultNamespace) defaultNamespace.value = prefs.defaultNamespace
     if (prefs.rowsPerPage) { rowsPerPage.value = prefs.rowsPerPage; setRowsPerPageDefault(prefs.rowsPerPage) }
+    // 白名单外垃圾值不覆盖(保持 null → 读侧归一 ask,与服务端 fail-closed 同款)
+    if (prefs.workbenchApprovalMode === 'ask' || prefs.workbenchApprovalMode === 'writes' || prefs.workbenchApprovalMode === 'auto') workbenchApprovalMode.value = prefs.workbenchApprovalMode
   }
 
   function setLanguage(lang) {
@@ -68,13 +73,18 @@ export const usePreferencesStore = defineStore('preferences', () => {
     setRowsPerPageDefault(n)
     persist()
   }
+  // 审批三档模式 setter:赋值 → persist(null 保持未设置;服务端 400 时静默=本地已生效,刷新回真值)
+  function setWorkbenchApprovalMode(v) {
+    workbenchApprovalMode.value = v
+    persist()
+  }
   function persist() {
     try {
       localStorage.setItem(LOCALE_KEY, language.value || '')
       localStorage.setItem(THEME_KEY, theme.value || '')
     } catch { /* 无 storage 环境 */ }
     // localStorage 双写仅保留 language/theme 两键——新键是账号级偏好,登录前无意义
-    authApi.savePreferences({ language: language.value, theme: theme.value, landingView: landingView.value, defaultClusterId: defaultClusterId.value, defaultNamespace: defaultNamespace.value, rowsPerPage: rowsPerPage.value }).catch(() => { /* 离线兜底:本地已生效 */ })
+    authApi.savePreferences({ language: language.value, theme: theme.value, landingView: landingView.value, defaultClusterId: defaultClusterId.value, defaultNamespace: defaultNamespace.value, rowsPerPage: rowsPerPage.value, workbenchApprovalMode: workbenchApprovalMode.value }).catch(() => { /* 离线兜底:本地已生效 */ })
   }
-  return { language, theme, landingView, defaultClusterId, defaultNamespace, rowsPerPage, hydrateFromServer, setLanguage, setTheme, setLandingView, setDefaultClusterId, setDefaultNamespace, setRowsPerPage }
+  return { language, theme, landingView, defaultClusterId, defaultNamespace, rowsPerPage, workbenchApprovalMode, hydrateFromServer, setLanguage, setTheme, setLandingView, setDefaultClusterId, setDefaultNamespace, setRowsPerPage, setWorkbenchApprovalMode }
 })

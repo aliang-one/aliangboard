@@ -8,6 +8,7 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia } from 'pinia'
 
 const api = vi.hoisted(() => ({
   conversations: {
@@ -46,7 +47,7 @@ FakeEventSource.instances = []
 async function mountChat(props = {}) {
   return mount(WorkbenchChat, {
     props: { projectId: 'p1', projectName: 'demo', ...props },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n, createPinia()] },
   })
 }
 
