@@ -186,14 +186,14 @@ const ageOf = ts => {
 <template>
   <section v-if="cfg" class="animate-fade-in">
     <Breadcrumbs :items="[{ label: cfg.title }]" />
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <div>
-        <h2 class="text-headline-md text-on-surface font-bold">{{ cfg.title }}</h2>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="min-w-0">
+        <h2 class="text-headline-md max-sm:text-headline-sm max-sm:truncate text-on-surface font-bold" :title="cfg.title">{{ cfg.title }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('admin.resourceList.itemCount', { n: items.length, scope: namespaced ? t('admin.resourceList.namespaceScope') : t('admin.resourceList.clusterScope') }) }}</p>
       </div>
       <button
         @click="load"
-        class="flex items-center gap-sm px-3 py-1.5 border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
+        class="flex items-center gap-sm px-3 py-1.5 max-sm:min-h-[40px] border border-outline-variant text-on-surface text-body-sm font-semibold rounded-lg hover:bg-surface-container-high transition-colors"
       >
         <span class="material-symbols-outlined text-sm">refresh</span> {{ t('admin.resourceList.refresh') }}
       </button>
@@ -208,9 +208,9 @@ const ageOf = ts => {
       @expand="(row) => ensureYaml(row._raw)"
     >
       <template #name="{ row }">
-        <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-secondary text-base">{{ cfg.icon }}</span>
-          <span class="font-semibold text-on-surface font-mono text-code-sm">{{ row.name }}</span>
+        <div class="flex items-center gap-sm min-w-0">
+          <span class="material-symbols-outlined text-secondary text-base shrink-0">{{ cfg.icon }}</span>
+          <span class="font-semibold text-on-surface font-mono text-code-sm truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #namespace="{ row }">
@@ -222,7 +222,7 @@ const ageOf = ts => {
       <template #age="{ row }"><span class="text-xs text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
         <div class="flex gap-1 justify-end" @click.stop>
-          <button @click="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('admin.resourceList.titleDelete')">
+          <button @click="confirmDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('admin.resourceList.titleDelete')">
             <span class="material-symbols-outlined text-base">delete</span>
           </button>
         </div>

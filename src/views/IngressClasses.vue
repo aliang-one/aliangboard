@@ -82,20 +82,20 @@ async function toggleDefault(row) {
 <template>
   <section class="animate-fade-in">
     <Breadcrumbs :items="[{ label: 'IngressClasses' }]" />
-    <div class="flex justify-between items-end mt-sm mb-lg">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-lg">
+      <div class="min-w-0">
         <h2 class="text-display-lg text-on-surface">{{ $t('admin.ingressClasses.title') }}</h2>
         <p class="text-on-surface-variant text-body-md mt-1">{{ $t('admin.ingressClasses.subtitle', { count: ingressClasses.length }) }}</p>
       </div>
-      <div class="flex items-center gap-sm">
+      <div class="flex flex-wrap items-center gap-sm">
         <button data-testid="deploy-controller-btn" @click="showDeployCtrl = true"
-          class="flex items-center gap-sm px-md py-sm border border-primary text-primary rounded-lg hover:bg-primary-container transition-all">
+          class="flex items-center gap-sm px-md py-sm max-sm:min-h-[40px] border border-primary text-primary rounded-lg hover:bg-primary-container transition-all">
           <span class="material-symbols-outlined">rocket_launch</span> {{ $t('ingressController.deployBtn') }}
         </button>
         <button
           data-testid="ic-create-open"
           @click="showCreateModal = true"
-          class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
+          class="flex items-center gap-sm px-md py-sm max-sm:min-h-[40px] bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
         >
           <span class="material-symbols-outlined">add</span> {{ $t('admin.ingressClasses.createBtn') }}
         </button>
@@ -104,9 +104,9 @@ async function toggleDefault(row) {
 
     <DataTable :headers="headers" :rows="ingressClasses" column-key="ingressClasses" expandable row-key="name" @row-click="openDetail">
       <template #name="{ row }">
-        <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-secondary text-lg">language</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-sm min-w-0">
+          <span class="material-symbols-outlined text-secondary text-lg shrink-0">language</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #controller="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.controller }}</span></template>
@@ -117,15 +117,15 @@ async function toggleDefault(row) {
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
         <button data-testid="ic-toggle-default" @click.stop="toggleDefault(row)"
-          class="p-xs rounded-lg transition-colors"
+          class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs rounded-lg transition-colors"
           :class="row.isDefault ? 'text-primary hover:bg-primary-container/10' : 'text-on-surface-variant hover:text-primary hover:bg-primary-container/10'"
           :title="row.isDefault ? $t('admin.ingressClasses.unsetDefaultTip') : $t('admin.ingressClasses.setDefaultTip')">
           <span class="material-symbols-outlined text-lg">{{ row.isDefault ? 'star' : 'star_outline' }}</span>
         </button>
-        <button data-testid="ic-edit" @click.stop="openDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="$t('common.edit')">
+        <button data-testid="ic-edit" @click.stop="openDetail(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg" :title="$t('common.edit')">
           <span class="material-symbols-outlined text-lg">edit</span>
         </button>
-        <button data-testid="ic-delete" @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.ingressClasses.deleteTip')">
+        <button data-testid="ic-delete" @click.stop="confirmDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('admin.ingressClasses.deleteTip')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>

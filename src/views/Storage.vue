@@ -169,24 +169,24 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('storage.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('storage.subtitle') }}</p>
       </div>
-      <button v-if="activeTab === 'pvc'" @click="showCreatePVC = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+      <button v-if="activeTab === 'pvc'" @click="showCreatePVC = true" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-base">add</span> {{ t('storage.newPVC') }}
       </button>
-      <button v-else-if="activeTab === 'pv'" @click="showCreatePV = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+      <button v-else-if="activeTab === 'pv'" @click="showCreatePV = true" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-base">add</span> {{ t('storage.newPV') }}
       </button>
-      <button v-else-if="activeTab === 'sc'" @click="showCreateSC = true" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+      <button v-else-if="activeTab === 'sc'" @click="showCreateSC = true" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-base">add</span> {{ t('storage.newSC') }}
       </button>
     </div>
 
     <!-- Tabs -->
-    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
+    <div class="flex items-center gap-xs overflow-x-auto border-b border-outline-variant mb-md">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         @click="activeTab = tab.key"
-        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative shrink-0 whitespace-nowrap"
         :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
       >{{ tab.label }}
         <span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
@@ -196,7 +196,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <!-- PVC Tab -->
     <DataTable v-if="activeTab === 'pvc'" :headers="pvcHeaders" :rows="paginated" column-key="storagePVC" @row-click="openPVC">
       <template #name="{ row }">
-        <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <span class="font-semibold text-on-surface text-body-md truncate block" :title="row.name">{{ row.name }}</span>
       </template>
       <template #status="{ row }">
         <StatusChip :status="row.status" />
@@ -212,7 +212,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <!-- PV Tab -->
     <DataTable v-if="activeTab === 'pv'" :headers="pvHeaders" :rows="paginated" column-key="storagePV" @row-click="openPV">
       <template #name="{ row }">
-        <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <span class="font-semibold text-on-surface text-body-md truncate block" :title="row.name">{{ row.name }}</span>
       </template>
       <template #status="{ row }">
         <StatusChip :status="row.status" />
@@ -221,7 +221,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <span class="font-mono text-code-sm text-primary">{{ row.claim || '-' }}</span>
       </template>
       <template #actions="{ row }">
-        <button @click.stop="store.deletePV(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
+        <button @click.stop="store.deletePV(row.name)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>
@@ -234,15 +234,15 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <DataTable v-if="activeTab === 'sc'" :headers="scHeaders" :rows="paginated" column-key="storageSC" @row-click="openSC">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-          <span v-if="row.default" class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-xs rounded font-medium">DEFAULT</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
+          <span v-if="row.default" class="px-1.5 py-0.5 bg-primary-container/20 text-primary text-xs rounded font-medium shrink-0">DEFAULT</span>
         </div>
       </template>
       <template #default="{ row }">
         <span class="material-symbols-outlined" :class="row.default ? 'text-primary' : 'text-outline-variant'">{{ row.default ? 'check_circle' : 'radio_button_unchecked' }}</span>
       </template>
       <template #actions="{ row }">
-        <button @click.stop="store.deleteStorageClass(row.name)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
+        <button @click.stop="store.deleteStorageClass(row.name)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
           <span class="material-symbols-outlined text-lg">delete</span>
         </button>
       </template>
@@ -370,10 +370,10 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
         <!-- parameters KV 行 -->
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('storage.parametersLabel') }}</label>
-          <div v-for="(row, i) in createSCForm.parameters" :key="i" class="flex items-center gap-xs mb-xs">
-            <input v-model="row.key" :placeholder="t('storage.key')" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono text-code-sm focus:ring-2 focus:ring-primary" />
-            <input v-model="row.value" :placeholder="t('storage.value')" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono text-code-sm focus:ring-2 focus:ring-primary" />
-            <button @click="removeScParamRow(i)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
+          <div v-for="(row, i) in createSCForm.parameters" :key="i" class="flex flex-wrap items-center gap-xs mb-xs">
+            <input v-model="row.key" :placeholder="t('storage.key')" class="flex-1 min-w-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono text-code-sm focus:ring-2 focus:ring-primary" />
+            <input v-model="row.value" :placeholder="t('storage.value')" class="flex-1 min-w-0 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono text-code-sm focus:ring-2 focus:ring-primary" />
+            <button @click="removeScParamRow(i)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="t('storage.delete')">
               <span class="material-symbols-outlined text-lg">delete</span>
             </button>
           </div>

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useI18n } from 'vue-i18n'
 import { useResourceList } from '@/composables/useK8sQuery'
@@ -12,6 +13,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import { usePagination } from '@/composables/usePagination'
 
 const { t } = useI18n()
+const router = useRouter()
 const store = useClusterStore()
 const { tableColumns } = useTableColumns()
 const headers = computed(() => tableColumns('priorityClasses'))
@@ -44,6 +46,11 @@ const filtered = computed(() => {
 })
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery] })
+
+// 行点击 → 集群级详情页(手机卡片模式点卡即达,与 IngressClasses/RuntimeClasses 同配方)
+function openDetail(row) {
+  router.push({ name: 'PriorityClassDetail', params: { name: row.name } })
+}
 
 function yamlFor(pc) {
   return store.generateExtraYAML('priorityclass', pc)
@@ -98,8 +105,8 @@ function handleDelete() {
       { label: 'PriorityClasses' }
     ]" />
 
-    <div class="flex justify-between items-end mt-sm mb-lg">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-lg">
+      <div class="min-w-0">
         <h2 class="text-display-lg text-on-surface">{{ $t('admin.priorityClasses.title') }}</h2>
         <p class="text-on-surface-variant text-body-md mt-1">
           {{ $t('admin.priorityClasses.subtitle', { count: priorityClasses.length }) }}
@@ -107,7 +114,7 @@ function handleDelete() {
       </div>
       <button
         @click="showCreateModal = true"
-        class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
+        class="flex items-center gap-sm px-md py-sm max-sm:min-h-[40px] bg-primary text-on-primary font-semibold rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all"
       >
         <span class="material-symbols-outlined">add</span> {{ $t('admin.priorityClasses.createBtn') }}
       </button>
@@ -126,12 +133,12 @@ function handleDelete() {
     </div>
 
     <!-- 列表表格 -->
-    <DataTable v-if="filtered.length" :headers="headers" :rows="paginated" column-key="priorityClasses" expandable row-key="name">
+    <DataTable v-if="filtered.length" :headers="headers" :rows="paginated" column-key="priorityClasses" expandable row-key="name" @row-click="openDetail">
       <template #name="{ row }">
-        <div class="flex items-center gap-sm flex-wrap">
-          <span class="material-symbols-outlined text-lg" :class="isSystem(row.name) ? 'text-error' : 'text-secondary'">flag</span>
-          <span class="font-semibold text-on-surface text-body-md font-mono">{{ row.name }}</span>
-          <span v-if="isSystem(row.name)" class="px-2 py-0.5 bg-error-container/30 text-error text-label-caps rounded-full border border-error/30">{{ $t('admin.priorityClasses.systemBadge') }}</span>
+        <div class="flex items-center gap-sm flex-wrap min-w-0">
+          <span class="material-symbols-outlined text-lg shrink-0" :class="isSystem(row.name) ? 'text-error' : 'text-secondary'">flag</span>
+          <span class="font-semibold text-on-surface text-body-md font-mono truncate min-w-0" :title="row.name">{{ row.name }}</span>
+          <span v-if="isSystem(row.name)" class="px-2 py-0.5 bg-error-container/30 text-error text-label-caps rounded-full border border-error/30 shrink-0">{{ $t('admin.priorityClasses.systemBadge') }}</span>
         </div>
       </template>
       <template #value="{ row }">
@@ -154,16 +161,16 @@ function handleDelete() {
       <template #actions="{ row }">
         <div class="flex justify-end gap-1">
           <button
-            @click="$router.push({ name: 'PriorityClassDetail', params: { name: row.name } })"
-            class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
+            @click.stop="openDetail(row)"
+            class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"
             :title="$t('admin.priorityClasses.titleDetail')"
           >
             <span class="material-symbols-outlined text-lg">open_in_new</span>
           </button>
           <button
-            @click="confirmDelete(row)"
+            @click.stop="confirmDelete(row)"
             :disabled="isSystem(row.name)"
-            class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+            class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
             :title="isSystem(row.name) ? $t('admin.priorityClasses.systemDeleteTip') : $t('admin.priorityClasses.deleteTip')"
           >
             <span class="material-symbols-outlined text-lg">delete</span>
@@ -223,7 +230,7 @@ function handleDelete() {
       <p class="text-on-surface-variant mt-md">
         {{ searchQuery ? $t('admin.priorityClasses.noMatchSearch') : $t('admin.priorityClasses.noPriorityClasses') }}
       </p>
-      <button v-if="!searchQuery" @click="showCreateModal = true" class="mt-md px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
+      <button v-if="!searchQuery" @click="showCreateModal = true" class="mt-md px-md py-sm max-sm:min-h-[40px] bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
         {{ $t('admin.priorityClasses.createBtnEmpty') }}
       </button>
     </div>

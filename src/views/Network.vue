@@ -61,24 +61,24 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
 
 <template>
   <section class="animate-fade-in">
-    <div class="flex justify-between items-end mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md text-on-surface font-bold">{{ $t('network.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('network.subtitle') }}</p>
       </div>
-      <div class="flex gap-sm">
-        <button @click="newServiceOrIngress" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
+      <div class="flex flex-wrap gap-sm">
+        <button @click="newServiceOrIngress" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors">
           <span class="material-symbols-outlined text-base">add</span> {{ $t('network.newService') }}
         </button>
-        <button @click="newServiceOrIngress" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
+        <button @click="newServiceOrIngress" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity">
           <span class="material-symbols-outlined text-base">add</span> {{ $t('network.newIngress') }}
         </button>
       </div>
     </div>
 
-    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
+    <div class="flex items-center gap-xs overflow-x-auto border-b border-outline-variant mb-md">
       <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
-        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative shrink-0 whitespace-nowrap"
         :class="activeTab === tab.key ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'"
       >{{ tab.label }}
         <span v-if="activeTab === tab.key" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
@@ -88,7 +88,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <EmptyState v-if="activeTab === 'services' && !serviceList.length" icon="share" :title="$t('network.noServices')" />
     <DataTable v-if="activeTab === 'services' && serviceList.length" :headers="svcHeaders" :rows="paginated" column-key="services">
       <template #name="{ row }">
-        <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <span class="font-semibold text-on-surface text-body-md truncate block" :title="row.name">{{ row.name }}</span>
       </template>
       <template #type="{ row }">
         <span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.type }}</span>
@@ -110,7 +110,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <EmptyState v-if="activeTab === 'ingress' && !ingressList.length" icon="router" :title="$t('network.noIngressRules')" />
     <DataTable v-if="activeTab === 'ingress' && ingressList.length" :headers="ingressHeaders" :rows="paginated" column-key="ingress">
       <template #name="{ row }">
-        <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <span class="font-semibold text-on-surface text-body-md truncate block" :title="row.name">{{ row.name }}</span>
       </template>
       <template #hosts="{ row }">
         <span class="font-mono text-code-sm text-primary">{{ row.hosts }}</span>
@@ -134,7 +134,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <div v-if="activeTab === 'networkpolicies'" class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">security</span>
       <p class="text-body-sm text-on-surface-variant mt-xs">{{ $t('network.noNetworkPolicies') }}</p>
-      <button @click="newNetworkPolicy" class="mt-md px-3 py-1.5 bg-primary text-on-primary rounded-lg font-semibold text-body-sm">{{ $t('network.createNetworkPolicy') }}</button>
+      <button @click="newNetworkPolicy" class="mt-md px-3 py-1.5 max-sm:min-h-[40px] bg-primary text-on-primary rounded-lg font-semibold text-body-sm">{{ $t('network.createNetworkPolicy') }}</button>
     </div>
   </section>
 </template>

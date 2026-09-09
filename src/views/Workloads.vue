@@ -125,13 +125,13 @@ const nodeHealthPct = computed(() => {
   <section class="animate-fade-in">
     <!-- Header -->
     <div class="flex flex-col gap-md mb-lg">
-      <div class="flex justify-between items-end">
-        <div>
+      <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm">
+        <div class="min-w-0">
           <h2 class="text-display-lg text-on-surface">{{ t('ns.workloads.title') }}</h2>
           <p class="text-on-surface-variant text-body-md mt-1">{{ t('workloads.subtitle') }}</p>
         </div>
-        <div class="flex gap-sm">
-          <button @click="exportWorkloads" class="flex items-center gap-sm px-md py-sm bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
+        <div class="flex flex-wrap gap-sm">
+          <button @click="exportWorkloads" class="flex items-center gap-sm px-md py-sm max-sm:min-h-[40px] bg-surface-container-highest text-on-surface font-semibold rounded-lg border border-outline-variant hover:bg-surface-container transition-colors">
             <span class="material-symbols-outlined">file_download</span> {{ t('common.export') }}
           </button>
           <CreateWithYamlButton
@@ -153,10 +153,10 @@ const nodeHealthPct = computed(() => {
     <EmptyState v-if="!filteredWorkloads.length" icon="workspaces" :title="t('workloads.emptyTitle')" :description="t('workloads.emptyDescription')" />
     <DataTable v-else :headers="headers" :rows="pagedWorkloads" column-key="workloads" @row-click="goDetail">
       <template #name="{ row }">
-        <div class="flex flex-col">
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-          <span v-if="readMeta(row).title" class="text-xs text-primary">{{ readMeta(row).title }}</span>
-          <span class="font-mono text-code-sm text-on-surface-variant">{{ row.sha }}</span>
+        <div class="flex flex-col min-w-0">
+          <span class="font-semibold text-on-surface text-body-md truncate" :title="row.name">{{ row.name }}</span>
+          <span v-if="readMeta(row).title" class="text-xs text-primary truncate">{{ readMeta(row).title }}</span>
+          <span class="font-mono text-code-sm text-on-surface-variant truncate">{{ row.sha }}</span>
         </div>
       </template>
       <template #status="{ row }">
