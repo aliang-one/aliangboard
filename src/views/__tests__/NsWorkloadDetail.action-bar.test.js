@@ -51,12 +51,12 @@ test('手机档:头部动作钮 40px 触控目标+容器换行;底部止血条(�
   const spy = mockViewport(true)
   try {
     const w = await mountDetail()
-    // 头部动作钮容器换行
-    const wrap = w.findAll('div').find(d => d.classes().join(' ').includes('max-sm:flex-wrap'))
-    expect(wrap).toBeTruthy()
-    // 头部动作钮(伸缩/重启所在容器)在手机档获得 min-h-40px 触控目标
+    // 头部动作钮容器换行(Wave5 Task6 迁移:按钮组 shrink-0+max-sm:flex-wrap → 裸 flex-wrap,
+    // 直接断言伸缩钮父容器即按钮组本身,语义不变且不再靠全文档字符串碰运气)
     const scaleBtn = w.findAll('button').find(b => b.text() === i18n.global.t('workload.scale'))
     expect(scaleBtn).toBeTruthy()
+    expect(scaleBtn.element.parentElement.classList.contains('flex-wrap')).toBe(true)
+    // 头部动作钮(伸缩/重启所在容器)在手机档获得 min-h-40px 触控目标
     expect(scaleBtn.classes().join(' ')).toContain('max-sm:min-h-[40px]')
     // 止血条在场:伸缩/重启两钮(Deployment 可伸缩);sticky 非 fixed(挂 main 滚动流内,同 PodDetail 先例)
     const bar = w.find('[data-testid="workload-action-bar"]')

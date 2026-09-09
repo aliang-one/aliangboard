@@ -83,7 +83,8 @@ async function clickModalBtn(text) {
   els.at(-1).click(); await flushPromises()
 }
 async function gotoTopology(w) {
-  await w.findAll('button').find(b => b.text() === 'topology').trigger('click')
+  // Wave5 Task6 迁移:tab 名改走 i18n(workload.tabs.*),不再渲染裸 key
+  await w.findAll('button').find(b => b.text() === i18n.global.t('workload.tabs.topology')).trigger('click')
   await flushPromises()
 }
 

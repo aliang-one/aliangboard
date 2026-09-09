@@ -266,6 +266,17 @@ function refRoute(ref) {
 }
 
 const activeTab = ref('overview')
+// Wave5 Task6:tab 名 i18n 键表(单源全字面量)。不用 $t('workload.tabs.' + tab) 拼接——
+// i18n-check.mjs 的 missingKeys 静态抽取会把 'workload.tabs.'(带尾点)判成缺键,键表过门禁。
+const TAB_LABEL_KEYS = {
+  overview: 'workload.tabs.overview',
+  topology: 'workload.tabs.topology',
+  network: 'workload.tabs.network',
+  pods: 'workload.tabs.pods',
+  revisions: 'workload.tabs.revisions',
+  yaml: 'workload.tabs.yaml',
+  events: 'workload.tabs.events',
+}
 // === YAML：直接用列表已返回的完整对象（workload.raw）dump，无需再发请求；
 //     mock 工作负载无 raw，回退 generateYAML 合成。raw 变化（Apply 后刷新列表）自动重算。===
 const workloadYaml = computed(() => {
@@ -1217,28 +1228,28 @@ function podStatusBorder(s) {
     ]" />
 
     <!-- ====== Header ====== -->
-    <div class="flex items-start justify-between mt-sm mb-md">
-      <div class="flex items-start gap-md">
+    <div class="flex flex-wrap items-start justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="flex items-start gap-md min-w-0">
         <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center shrink-0 ring-1 ring-primary/10">
           <span class="material-symbols-outlined text-primary text-2xl">apps</span>
         </div>
-        <div>
+        <div class="min-w-0">
           <div class="flex items-baseline gap-sm flex-wrap">
-            <h1 class="text-headline-md text-on-surface font-bold">{{ meta.title || workload.name }}</h1>
-            <span v-if="meta.title" class="font-mono text-xs text-on-surface-variant">{{ workload.name }}</span>
+            <h1 class="text-headline-md text-on-surface font-bold min-w-0 max-sm:truncate" :title="meta.title || workload.name">{{ meta.title || workload.name }}</h1>
+            <span v-if="meta.title" class="font-mono text-xs text-on-surface-variant truncate">{{ workload.name }}</span>
           </div>
           <p v-if="meta.description" class="text-body-sm text-on-surface-variant mt-xs">{{ meta.description }}</p>
           <div class="flex items-center gap-xs mt-xs flex-wrap">
-            <span class="px-2 py-0.5 bg-primary/8 text-primary text-xs rounded-md font-medium">{{ workload.type }}</span>
+            <span class="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-md font-medium">{{ workload.type }}</span>
             <StatusChip :status="workload.status" size="sm" />
             <span class="text-xs text-on-surface-variant">{{ workload.namespace }}</span>
             <span v-if="meta.owner" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant"><span class="material-symbols-outlined text-xs">group</span>{{ meta.owner }}</span>
-            <span v-if="meta.version" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-primary/8 rounded text-xs text-primary"><span class="material-symbols-outlined text-xs">sell</span>{{ meta.version }}</span>
-            <span v-if="meta.managedBy === 'aliangboard'" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-primary/8 text-primary rounded text-xs font-medium"><span class="material-symbols-outlined text-xs">verified</span>AliangBoard</span>
+            <span v-if="meta.version" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-primary/10 rounded text-xs text-primary"><span class="material-symbols-outlined text-xs">sell</span>{{ meta.version }}</span>
+            <span v-if="meta.managedBy === 'aliangboard'" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-primary/10 text-primary rounded text-xs font-medium"><span class="material-symbols-outlined text-xs">verified</span>AliangBoard</span>
           </div>
         </div>
       </div>
-      <div class="flex gap-xs shrink-0 max-sm:flex-wrap">
+      <div class="flex flex-wrap gap-xs">
         <button @click="refresh" :disabled="refreshing" :title="refreshing ? $t('workload.refreshing') : $t('workload.refreshTitle')" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40">
           <span class="material-symbols-outlined text-base" :class="refreshing ? 'animate-spin' : ''">refresh</span><span class="hidden lg:inline">{{ $t('workload.refresh') }}</span>
         </button>
@@ -1252,11 +1263,11 @@ function podStatusBorder(s) {
     </div>
 
     <!-- ====== Tabs ====== -->
-    <div class="flex items-center gap-xs border-b border-outline-variant mb-md">
+    <div class="flex items-center gap-xs overflow-x-auto border-b border-outline-variant mb-md">
       <button v-for="tab in (isRolloutType ? ['overview', 'topology', 'network', 'pods', 'revisions', 'yaml', 'events'] : ['overview', 'topology', 'network', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
-        class="px-lg py-2 text-body-sm font-medium transition-colors relative"
+        class="px-lg py-2 text-body-sm font-medium transition-colors relative shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'">
-        {{ tab }}
+        {{ $t(TAB_LABEL_KEYS[tab]) }}
         <span v-if="activeTab === tab" class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full"></span>
       </button>
     </div>

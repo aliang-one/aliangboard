@@ -2292,13 +2292,13 @@
     "noUpdatePerm": "无 update 权限",
     "noDeletePerm": "无 delete 权限",
     "tabs": {
-      "overview": "overview",
-      "topology": "topology",
-      "network": "network",
-      "pods": "pods",
-      "revisions": "revisions",
-      "yaml": "yaml",
-      "events": "events"
+      "overview": "概览",
+      "topology": "拓扑",
+      "network": "网络",
+      "pods": "Pod",
+      "revisions": "版本",
+      "yaml": "YAML",
+      "events": "事件"
     },
     "rollout": {
       "healthy": "正常运行",
