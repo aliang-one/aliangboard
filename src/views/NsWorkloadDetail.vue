@@ -1316,10 +1316,10 @@ function podStatusBorder(s) {
                  scaling 时两端都转圈（旧实现仅 + 转圈，点 − 像没反应）；desired 数值由
                  store.scaleWorkload 的乐观 setQueryData 立即跳变，无需等轮询。 -->
             <div v-if="isScalable" class="flex items-center gap-0.5">
-              <button @click="quickScale(-1)" :disabled="!canMutate || scaling || rollout.desired <= 0" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center transition-all" title="−1">
+              <button @click="quickScale(-1)" :disabled="!canMutate || scaling || rollout.desired <= 0" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center transition-all relative max-sm:w-8 max-sm:h-8 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" title="−1">
                 <span class="material-symbols-outlined" :class="scaling ? 'animate-spin' : ''" style="font-size:16px">{{ scaling ? 'progress_activity' : 'remove' }}</span>
               </button>
-              <button @click="quickScale(1)" :disabled="!canMutate || scaling" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center transition-all" title="+1">
+              <button @click="quickScale(1)" :disabled="!canMutate || scaling" class="w-6 h-6 rounded-md border border-outline-variant text-on-surface hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center transition-all relative max-sm:w-8 max-sm:h-8 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" title="+1">
                 <span class="material-symbols-outlined" :class="scaling ? 'animate-spin' : ''" style="font-size:16px">{{ scaling ? 'progress_activity' : 'add' }}</span>
               </button>
             </div>
@@ -1477,9 +1477,9 @@ function podStatusBorder(s) {
                   <span class="text-[9px] leading-none shrink-0">{{ $t('workload.revision.ready') }}<b class="ml-0.5 font-mono text-[10px] font-bold leading-none" :class="revReadyClass(selectedRev)">{{ selectedRev.readyReplicas ?? 0 }}</b></span>
                 </div>
                 <div class="flex items-center gap-0.5 ml-auto shrink-0">
-                  <button @click="viewRevYaml(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-sm">code</span>YAML</button>
-                  <button @click="confirmRollback(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors"><span class="material-symbols-outlined text-sm">undo</span>{{ $t('workload.revision.rollback') }}</button>
-                  <button @click="confirmDeleteRev(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors"><span class="material-symbols-outlined text-sm">delete</span>{{ $t('workload.revision.delete') }}</button>
+                  <button @click="viewRevYaml(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">code</span>YAML</button>
+                  <button @click="confirmRollback(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">undo</span>{{ $t('workload.revision.rollback') }}</button>
+                  <button @click="confirmDeleteRev(selectedRev)" class="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">delete</span>{{ $t('workload.revision.delete') }}</button>
                 </div>
               </div>
               <!-- 元信息 -->
@@ -1540,10 +1540,10 @@ function podStatusBorder(s) {
                   <span class="text-xs text-on-surface-variant/60">{{ $t('workload.podDetail.metricsWindow', { window: metricsWindow }) }}</span>
                 </div>
                 <div class="flex items-center gap-0.5 bg-surface-container-low rounded-lg p-0.5">
-                  <button v-for="w in METRIC_WINDOWS" :key="w.key" @click="metricsWindow = w.key" class="px-2 py-0.5 text-xs rounded-md transition-colors" :class="metricsWindow === w.key ? 'bg-primary text-on-primary font-semibold' : 'text-on-surface-variant hover:text-on-surface'">{{ w.label }}</button>
+                  <button v-for="w in METRIC_WINDOWS" :key="w.key" @click="metricsWindow = w.key" class="px-2 py-0.5 text-xs rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :class="metricsWindow === w.key ? 'bg-primary text-on-primary font-semibold' : 'text-on-surface-variant hover:text-on-surface'">{{ w.label }}</button>
                 </div>
               </div>
-              <div v-if="podMetricsAvailable" class="grid grid-cols-2 divide-x divide-outline-variant/30">
+              <div v-if="podMetricsAvailable" class="grid grid-cols-1 md:grid-cols-2 md:divide-x divide-outline-variant/30">
                 <div class="p-md">
                   <div class="flex items-baseline justify-between mb-xs">
                     <span class="flex items-center gap-1 text-xs text-on-surface-variant"><span class="material-symbols-outlined text-primary text-sm">speed</span>CPU</span>
@@ -1590,11 +1590,11 @@ function podStatusBorder(s) {
                 </div>
                 <p v-else class="text-xs text-on-surface-variant/50 py-sm">{{ $t('workload.podDetail.noContainers') }}</p>
                 <!-- 操作 -->
-                <div class="flex items-center gap-0.5 mt-sm">
-                  <button @click="viewLogs(selectedPod)" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" :title="$t('workload.podDetail.logs')"><span class="material-symbols-outlined text-base">terminal</span><span class="text-[11px]">{{ $t('workload.podDetail.logs') }}</span></button>
-                  <button @click="openExec(selectedPod)" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" :title="$t('workload.podDetail.terminal')"><span class="material-symbols-outlined text-base">code</span><span class="text-[11px]">{{ $t('workload.podDetail.terminal') }}</span></button>
-                  <button @click="viewFiles()" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors" :title="$t('workload.podDetail.files')"><span class="material-symbols-outlined text-base">folder_open</span><span class="text-[11px]">{{ $t('workload.podDetail.files') }}</span></button>
-                  <button @click="openPortForward" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors ml-auto" :title="$t('component.portForward.title')"><span class="material-symbols-outlined text-base">forward_media</span><span class="text-[11px]">{{ $t('workload.podDetail.forward') }}</span></button>
+                <div class="flex items-center gap-0.5 mt-sm flex-wrap">
+                  <button @click="viewLogs(selectedPod)" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('workload.podDetail.logs')"><span class="material-symbols-outlined text-base">terminal</span><span class="text-[11px]">{{ $t('workload.podDetail.logs') }}</span></button>
+                  <button @click="openExec(selectedPod)" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('workload.podDetail.terminal')"><span class="material-symbols-outlined text-base">code</span><span class="text-[11px]">{{ $t('workload.podDetail.terminal') }}</span></button>
+                  <button @click="viewFiles()" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('workload.podDetail.files')"><span class="material-symbols-outlined text-base">folder_open</span><span class="text-[11px]">{{ $t('workload.podDetail.files') }}</span></button>
+                  <button @click="openPortForward" class="flex items-center gap-0.5 px-sm py-1 rounded-md hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors ml-auto relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('component.portForward.title')"><span class="material-symbols-outlined text-base">forward_media</span><span class="text-[11px]">{{ $t('workload.podDetail.forward') }}</span></button>
                 </div>
                 <!-- 生命周期（Pod 就绪状态） -->
                 <div v-if="podConditions(selectedPod)" class="grid grid-cols-2 gap-1 mt-sm">
@@ -1640,14 +1640,14 @@ function podStatusBorder(s) {
         <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
           <div class="px-md py-2 border-b border-outline-variant/40 flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-base">label</span><span class="text-body-sm font-semibold">{{ $t('workload.bottomBar.labels') }}</span><span class="text-xs text-on-surface-variant ml-auto">{{ Object.keys(workload.labels || {}).length }}</span></div>
           <div class="px-md py-sm flex flex-wrap gap-1">
-            <span v-for="(val, key) in (workload.labels || {})" :key="key" class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant"><span class="font-semibold">{{ key }}</span>={{ val }}</span>
+            <span v-for="(val, key) in (workload.labels || {})" :key="key" class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant break-all"><span class="font-semibold">{{ key }}</span>={{ val }}</span>
             <span v-if="!Object.keys(workload.labels || {}).length" class="text-xs text-on-surface-variant/50">{{ $t('workload.bottomBar.none') }}</span>
           </div>
         </div>
         <div class="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
           <div class="px-md py-2 border-b border-outline-variant/40 flex items-center gap-sm"><span class="material-symbols-outlined text-primary text-base">link</span><span class="text-body-sm font-semibold">{{ $t('workload.bottomBar.configRefs') }}</span><span class="text-xs text-on-surface-variant ml-auto">{{ configRefs.length }}</span></div>
           <div class="px-md py-sm flex flex-wrap gap-xs">
-            <span v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })" class="inline-flex items-center gap-xs px-sm py-xs bg-surface-container-low rounded cursor-pointer hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-sm" :class="ref.kind === 'ConfigMap' ? 'text-secondary' : 'text-tertiary'">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span><span class="font-mono text-xs font-medium">{{ ref.name }}</span></span>
+            <span v-for="(ref, idx) in configRefs" :key="idx" @click="router.push({ name: refRoute(ref).name, params: { namespace: route.params.namespace, name: ref.name } })" class="inline-flex items-center gap-xs px-sm py-xs bg-surface-container-low rounded cursor-pointer hover:bg-surface-container transition-colors break-all"><span class="material-symbols-outlined text-sm" :class="ref.kind === 'ConfigMap' ? 'text-secondary' : 'text-tertiary'">{{ ref.kind === 'ConfigMap' ? 'description' : 'key' }}</span><span class="font-mono text-xs font-medium">{{ ref.name }}</span></span>
             <span v-if="!configRefs.length" class="text-xs text-on-surface-variant/50">{{ $t('workload.bottomBar.none') }}</span>
           </div>
         </div>
@@ -1664,7 +1664,7 @@ function podStatusBorder(s) {
       <div class="rounded-xl bg-surface-container-lowest border border-outline-variant p-md">
         <h3 class="text-body-sm font-semibold mb-sm">{{ $t('workload.network.containerPorts') }}</h3>
         <div v-if="containerPorts.length" class="flex flex-wrap gap-xs">
-          <span v-for="(p, i) in containerPorts" :key="i" class="font-mono text-xs px-sm py-xs bg-surface-container-low rounded border border-outline-variant">{{ p.container }}: <b class="text-primary">{{ p.port }}</b>/{{ p.protocol }}</span>
+          <span v-for="(p, i) in containerPorts" :key="i" class="font-mono text-xs px-sm py-xs bg-surface-container-low rounded border border-outline-variant break-all">{{ p.container }}: <b class="text-primary">{{ p.port }}</b>/{{ p.protocol }}</span>
         </div>
         <p v-else class="text-body-sm text-on-surface-variant">{{ $t('workload.network.portsUndefined') }}</p>
       </div>
@@ -1777,7 +1777,7 @@ function podStatusBorder(s) {
 
     <!-- ====== YAML Tab（直接由列表已返回的 workload.raw 生成，无额外请求）====== -->
     <div v-if="activeTab === 'yaml'">
-      <YamlEditor :model-value="workloadYaml" :readonly="false" height="560px" @save="onYamlSave" />
+      <YamlEditor :model-value="workloadYaml" :readonly="false" :height="isPhone ? '60vh' : '560px'" @save="onYamlSave" />
     </div>
 
     <!-- ====== Events Tab ====== -->
@@ -1896,13 +1896,13 @@ function podStatusBorder(s) {
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
           <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">view_in_ar</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.containers') }}</h4></div>
           <div class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.mainContainer') }}</div>
-          <div class="grid grid-cols-3 gap-xs">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-xs">
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.pullPolicy') }}</label><select v-model="editForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>IfNotPresent</option><option>Always</option><option>Never</option></select></div>
             <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.command') }}</label><input v-model="editForm.command" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" /></div>
             <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.args') }}<span class="ml-xs font-normal text-on-surface-variant/70">{{ $t('workload.edit.argsHint') }}</span></label><textarea v-model="editForm.args" rows="2" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Working Dir</label><input v-model="editForm.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app" /></div>
           </div>
-          <div class="grid grid-cols-4 gap-xs">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-xs">
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">CPU Req</label><ResourceInput v-model="editForm.cpuReq" kind="cpu" placeholder="250" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">CPU Lim</label><ResourceInput v-model="editForm.cpuLim" kind="cpu" placeholder="500" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Req</label><ResourceInput v-model="editForm.memReq" kind="memory" placeholder="256" /></div>
@@ -2001,7 +2001,7 @@ function podStatusBorder(s) {
               <label class="flex items-center gap-xs text-body-sm font-medium"><input type="checkbox" v-model="editForm[probe.k].enabled" class="h-4 w-4 accent-primary" /> {{ probe.label }}</label>
               <select v-if="editForm[probe.k].enabled" v-model="editForm[probe.k].type" class="ml-auto bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option value="http">HTTP</option><option value="tcp">TCP</option><option value="exec">Exec</option></select>
             </div>
-            <div v-if="editForm[probe.k].enabled" class="grid grid-cols-3 gap-xs">
+            <div v-if="editForm[probe.k].enabled" class="grid grid-cols-1 sm:grid-cols-3 gap-xs">
               <div v-if="editForm[probe.k].type === 'http'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">HTTP Path</label><input v-model="editForm[probe.k].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/health" /></div>
               <div v-if="editForm[probe.k].type !== 'exec'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Port</label><input v-model.number="editForm[probe.k].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="8080" /></div>
               <div v-if="editForm[probe.k].type === 'exec'" class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Exec Command</label><input v-model="editForm[probe.k].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c healthy" /></div>
@@ -2030,7 +2030,7 @@ function podStatusBorder(s) {
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
           <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">shield</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.securityLifecycle') }}</h4></div>
           <label class="flex items-center gap-xs text-body-sm"><input type="checkbox" v-model="editForm.securityContext.enabled" class="h-4 w-4 accent-primary" /> {{ $t('workload.edit.enableSc') }}</label>
-          <div v-if="editForm.securityContext.enabled" class="grid grid-cols-3 gap-xs">
+          <div v-if="editForm.securityContext.enabled" class="grid grid-cols-1 sm:grid-cols-3 gap-xs">
             <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.privileged" class="h-4 w-4 accent-primary" /> privileged</label>
             <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.runAsNonRoot" class="h-4 w-4 accent-primary" /> runAsNonRoot</label>
             <label class="flex items-center gap-xs text-xs text-on-surface-variant"><input type="checkbox" v-model="editForm.securityContext.readOnlyRootFilesystem" class="h-4 w-4 accent-primary" /> {{ $t('workload.edit.readOnlyFs') }}</label>
@@ -2048,7 +2048,7 @@ function podStatusBorder(s) {
         <!-- 调度 -->
         <section class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
           <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">device_hub</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.scheduling') }}</h4></div>
-          <div class="grid grid-cols-3 gap-xs">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-xs">
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">ServiceAccount</label><input v-model="editForm.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="default" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.priorityClass') }}</label><input v-model="editForm.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.priorityClassPlaceholder')" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">ImagePullSecret</label><input v-model="editForm.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="regcred" /></div>
@@ -2060,7 +2060,7 @@ function podStatusBorder(s) {
             <button @click="editForm.nodeSelectors.splice(i, 1)" class="p-0.5 flex-shrink-0 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-md transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-base">close</span></button>
           </div>
           <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.tolerations') }}</span><button @click="editForm.tolerations.push({ key: '', operator: 'Equal', value: '', effect: 'NoSchedule' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.add') }}</button></div>
-          <div v-for="(t, i) in editForm.tolerations" :key="'tol'+i" class="grid grid-cols-4 gap-xs">
+          <div v-for="(t, i) in editForm.tolerations" :key="'tol'+i" class="grid grid-cols-2 sm:grid-cols-4 gap-xs">
             <input v-model="t.key" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="key" />
             <select v-model="t.operator" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>Equal</option><option>Exists</option></select>
             <input v-model="t.value" :disabled="t.operator === 'Exists'" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="value" />
@@ -2073,7 +2073,7 @@ function podStatusBorder(s) {
       <!-- 更新策略（Deployment 级） -->
       <section v-if="workload?.type === 'Deployment'" class="rounded-xl border border-outline-variant p-md bg-surface-container-lowest flex flex-col gap-sm">
         <div class="flex items-center gap-xs mb-sm"><span class="material-symbols-outlined text-primary text-lg">autorenew</span><h4 class="text-body-sm font-semibold text-on-surface">{{ $t('workload.edit.updateStrategy') }}</h4></div>
-        <div class="grid grid-cols-4 gap-xs">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-xs">
           <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.type') }}</label><select v-model="editForm.strategy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>RollingUpdate</option><option>Recreate</option></select></div>
           <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">maxSurge</label><input v-model="editForm.maxSurge" :disabled="editForm.strategy !== 'RollingUpdate'" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="25%" /></div>
           <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">maxUnavailable</label><input v-model="editForm.maxUnavailable" :disabled="editForm.strategy !== 'RollingUpdate'" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono disabled:opacity-40 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="25%" /></div>
@@ -2270,7 +2270,7 @@ function podStatusBorder(s) {
         <span class="text-error font-mono">-{{ diffStat.del }}</span>
         <span class="text-on-surface-variant">{{ $t('workload.modals.diffLineHint') }}</span>
       </div>
-      <div class="rounded-lg overflow-hidden border border-outline-variant max-h-[55vh] overflow-y-auto bg-code-surface font-mono text-code-sm">
+      <div class="rounded-lg overflow-x-auto border border-outline-variant max-h-[55vh] overflow-y-auto bg-code-surface font-mono text-code-sm">
         <div v-for="(l, i) in diffLines" :key="i" class="flex items-start" :class="l.t === 'add' ? 'bg-status-running/15' : l.t === 'del' ? 'bg-error/15' : ''">
           <span class="w-6 text-center select-none shrink-0" :class="l.t === 'add' ? 'text-status-running' : l.t === 'del' ? 'text-error' : 'text-on-surface-variant/30'">{{ l.t === 'add' ? '+' : l.t === 'del' ? '-' : ' ' }}</span>
           <span class="px-sm whitespace-pre" :class="l.t === 'add' ? 'text-status-running' : l.t === 'del' ? 'text-error' : 'text-on-code-surface/70'">{{ l.v || ' ' }}</span>
