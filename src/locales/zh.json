@@ -3220,7 +3220,7 @@
       "projectMemoryDesc": "新对话自动携带项目历史决策摘要",
       "maxStepsLabel": "最大执行步数",
       "maxStepsUnlimited": "不限制步数",
-      "maxStepsHint": "单次回答最多执行多少轮「模型→工具」往返(实测:排查一个 ImagePullBackOff 走了 26 步,默认 16 不够用)。勾选不限制即不设上限,仅由上下文预算兜底。保存后下一次对话生效,无需重启。",
+      "maxStepsHint": "单次回答最多执行多少轮「模型→工具」往返(实测:排查一个 ImagePullBackOff 走了 26 步,默认 16 不够用)。勾选不限制后仍有 200 轮硬顶兜底,到顶自动收尾给出终答。保存后下一次对话生效,无需重启。",
       "convLimitTitle": "对话限额",
       "convMaxRunningLabel": "并发对话上限",
       "convMaxPerProjectLabel": "每项目对话上限",

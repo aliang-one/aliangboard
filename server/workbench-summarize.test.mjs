@@ -672,3 +672,103 @@ test('gap2-04 静态守卫:两装配文件的摘要 fire-and-forget 全带错误
     assert.equal(fires, logged, `${f}:全部摘要 fire 均带错误参数 catch(${fires}/${logged})`)
   }
 })
+
+// ── E(2026-09-09 多维审计):摘要链修复 ──
+function eConv(db, msgs) {
+  const pid = p1Id(db)
+  const conv = createConversation(db, { projectId: pid, system: '', userMessage: 'q0' })
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q0' })
+  for (const [role, content, trace] of msgs) appendMessage(db, { conversationId: conv.id, role, content, ...(trace ? { trace } : {}) })
+  return conv
+}
+
+// H1:LLM await 窗口内水位被并发推进 → CAS 丢弃,不整段覆写并发结果(双摘要互踩丢段)
+test('E1: 摘要落库 CAS——窗口内并发推进水位 → changes=0 丢弃不覆写', async () => {
+  const db = freshDb()
+  const conv = eConv(db, Array.from({ length: 16 }, (_, i) => [i % 2 ? 'assistant' : 'user', `msg${i}`]))
+  const llm = {
+    chat: async () => {
+      db.prepare("UPDATE workbench_conversations SET recap='并发摘要的结果', summarizedUpTo=13 WHERE id=?").run(conv.id)
+      return { role: 'assistant', content: '本路摘要' }
+    },
+  }
+  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 })
+  assert.equal(fired, false, 'CAS 未命中丢弃')
+  const row = db.prepare('SELECT recap, summarizedUpTo FROM workbench_conversations WHERE id=?').get(conv.id)
+  assert.equal(row.recap, '并发摘要的结果', '不覆写并发已落库结果')
+  assert.equal(row.summarizedUpTo, 13)
+})
+
+// H1:窗口内编辑截断(maxSeq 回落)→ 丢弃(水位不越过现存消息)
+test('E2: 窗口内消息被截断(maxSeq 回落)→ 丢弃不落', async () => {
+  const db = freshDb()
+  const conv = eConv(db, Array.from({ length: 16 }, (_, i) => [i % 2 ? 'assistant' : 'user', `msg${i}`]))
+  const llm = {
+    chat: async () => {
+      db.prepare('DELETE FROM workbench_messages WHERE conversationId=? AND seq>10').run(conv.id) // 编辑截断
+      return { role: 'assistant', content: '迟到的摘要' }
+    },
+  }
+  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 })
+  assert.equal(fired, false, 'maxSeq 回落 → 丢弃')
+  const row = db.prepare('SELECT recap FROM workbench_conversations WHERE id=?').get(conv.id)
+  assert.equal(row.recap, null, '迟到摘要不落库')
+})
+
+// H2:空 assistant 行(salvage 形态,文本在 trace)→ transcript 回填文本;纯工具空轮剔除
+test('E3: 空 assistant 行经 trace 回填进 transcript,「继续」+空行不再产「助手零产出」毒输入', async () => {
+  const db = freshDb()
+  const emptyTrace = JSON.stringify([
+    { type: 'assistant', content: '收到,我来查。', ts: 1 },
+    { type: 'tool', name: 'wb_list', args: {}, result: '...', ts: 2 },
+  ])
+  const conv = eConv(db, [
+    ['user', '查一下'], ['assistant', '', emptyTrace],          // salvage 形态:content 空,trace 有文本
+    ['user', '继续'], ['assistant', '', JSON.stringify([{ type: 'tool', name: 'x', args: {}, result: 'y', ts: 3 }])], // 纯工具空轮
+    ...Array.from({ length: 12 }, (_, i) => [i % 2 ? 'assistant' : 'user', `filler${i}`]),
+  ])
+  let captured = null
+  const llm = { chat: async (m) => { captured = m; return { role: 'assistant', content: '摘要' } } }
+  await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 2 })
+  assert.ok(captured, 'LLM 被调用')
+  const transcript = captured.messages[1].content
+  assert.ok(transcript.includes('收到,我来查。'), '空行文本经 trace 回填进 transcript')
+  assert.ok(!/^assistant: $/m.test(transcript), '不残留空 assistant 行')
+  assert.ok(!transcript.includes('assistant: \n'), '纯工具空轮被剔除')
+})
+
+// H2③:折叠窗内全为空轮 → 跳过 LLM 直接推进水位(体积触发使折叠窗落在 8 个空 assistant 行上)
+test('E4: 窗口全空轮 → 跳过 LLM,水位直接推进', async () => {
+  const db = freshDb()
+  // 自建(不经 eConv 的 q0 前置——折叠窗须全空才能命中「跳过 LLM」分支)
+  const conv = createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'q' })
+  for (const [role, content, trace] of [
+    ...Array.from({ length: 8 }, () => ['assistant', '', '[]']),      // 折叠窗:8 个空轮
+    ['user', 'U'.repeat(30000)], ['assistant', 'A'.repeat(30000)],    // 体积触发(120KB>70k)
+    ['user', 'U'.repeat(30000)], ['assistant', 'A'.repeat(30000)],
+  ]) appendMessage(db, { conversationId: conv.id, role, content, trace })
+  let called = false
+  const llm = { chat: async () => { called = true; return { role: 'assistant', content: 'x' } } }
+  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 })
+  assert.equal(called, false, '零有效内容不烧 LLM')
+  assert.equal(fired, true, '水位推进(返回 true)')
+  const row = db.prepare('SELECT summarizedUpTo FROM workbench_conversations WHERE id=?').get(conv.id)
+  assert.equal(row.summarizedUpTo, 8, '水位推过全部空轮')
+})
+
+// METER-5:体积触发线——行数未达 12 但体积超半预算 → 触发;末条 user 永不摘
+test('E5: 体积触发——4 轮×30KB 巨轮(行数<12)也触发摘要,水位保末条 user 之前', async () => {
+  const db = freshDb()
+  const conv = eConv(db, [
+    ['user', 'U'.repeat(30000)], ['assistant', 'A'.repeat(30000)],
+    ['user', 'U'.repeat(30000)], ['assistant', 'A'.repeat(30000)],
+  ])
+  let called = false
+  const llm = { chat: async () => { called = true; return { role: 'assistant', content: '体积触发的摘要' } } }
+  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 })
+  assert.equal(called, true, '体积线触发 LLM')
+  assert.equal(fired, true)
+  const row = db.prepare('SELECT summarizedUpTo FROM workbench_conversations WHERE id=?').get(conv.id)
+  const lastUser = db.prepare("SELECT seq FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq DESC LIMIT 1").get(conv.id)
+  assert.ok(row.summarizedUpTo < lastUser.seq, `末条 user(seq=${lastUser.seq})保持全文(水位 ${row.summarizedUpTo})`)
+})

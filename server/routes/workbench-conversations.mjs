@@ -24,7 +24,9 @@ import {
   truncateAfterLastUser, regenWatermark, listActiveConversations, getPresenceConfig,
   buildHistory, truncateFromMessage,
 } from '../workbench-projects.mjs'
-import { contextWindowFor, estTokensFromCounts, countCjkChars } from '../model-context.mjs'
+import { contextWindowFor, estTokensFromCounts, countCjkChars, trimBudgetChars } from '../model-context.mjs'
+import { sanitizeMessages } from '../llm.mjs'
+import { MAX_REF_BLOCK, MAX_REF_TOTAL } from '../ref-context.mjs'
 import { maybeSummarize, maybeSummarizeProject, compactConversation } from '../workbench-summarize.mjs'
 import { stripRefsContext, REFS_CTX_HEADER, REFS_GUARD_NOTE } from '../refs-context.mjs'
 import { maskSecretResource } from '../secret-mask.mjs'
@@ -41,6 +43,10 @@ import { canAccessCluster } from '../authz.mjs' // Phase D Task 7:集群分配 e
 // refs-injection-02 + gap3-01(2026-09-07 审计批次二 Task 6):三入口统一归一(条数/形状/字节
 // → 400)+ 落库盖 clusterId 戳 + 换绑停用。见 refs-normalize.mjs 文件头注。
 import { normalizeReferences, stampRefs, clampResource, REFS_MAX_ITEMS, REFS_MAX_BYTES } from '../refs-normalize.mjs'
+
+// 单条用户消息字符上限(T3,2026-09-09):约 200KB——超出走 @-ref 通道(受控);此门把
+// 「贴长日志→trim 下限超发→provider 确定性 400→对话不可推进」变成一句可行动的报错。
+const MESSAGE_MAX_CHARS = 200_000
 
 export function createWorkbenchConvRoutes(deps) {
   const {
@@ -208,26 +214,54 @@ export function createWorkbenchConvRoutes(deps) {
   // 上下文余量(spec §4.3,服务端单一计算源):estTokens ≈ buildHistory 装配 + conv.system
   // + 项目记忆段(pm 精确)+ @refs 注入(估算)。
   // context-assembly-05(2026-09-07 审计批次三)CJK 感知:逐块按 CJK/非 CJK 字数累计再
-  // estTokensFromCounts 汇总(cjk≈1 token/字、其余≈1 token/4字符)——旧 chars/2 在纯中文上
-  // 低估 ~2 倍,willTrim 漏报。
-  // 近似说明:refs 为估算——动态拉取体积不落库,按每资源 2KB 常数近似(REF_EST_CHARS,按
-  // 非 CJK 计:K8s JSON 主体);pm 为精确值(≤2000 字恒注入段,A1 口径补全 2026-08-29)。
-  const REF_EST_CHARS = 2048 // 每个 @-ref 资源 JSON 注入的估算字符数(非 CJK 口径)
+  // estTokensFromCounts 汇总(cjk≈1 token/字、其余≈1 token/4字符)。
+  // 2026-09-09 多维审计三修:
+  // ①METER-1 单位对齐:willTrim 切字符域(estChars > trimBudgetChars 单源)——旧 token 域
+  //   显示线在 ASCII/JSON 主体(K8s 工具载荷,≈4 chars/token)下比执法线(trimMessages 按
+  //   JSON 字符)乐观 4×,裁剪已发生时量表仍报安全。estTokens 保留仅作 ≈Xk/窗口占比展示。
+  // ②METER-4 paused:恢复载荷就是 conv.messages(approve 后原样续发),按它「替换」计量
+  //   (叠加会把 system/pm/refs 双计——messages[0] 已是 refreshSystem 组装成品);投影与
+  //   sanitizeMessages 同款(剔空 content 无 tool_calls 的 assistant),口径与实发一致。
+  // ③bug② running:运行中工具结果累积是真实载荷主体(生产实测 91-120KB 而量表恒 ≈5k),
+  //   按「当前轮」trace 切片(turnSnapshot 同款 ts>lastMsgTs)估算:tool result 按喂 LLM 的
+  //   8192 钳制口径、assistant 只计 content+tool_calls(reasoning 不发 provider)。
+  // refs 估算改保守上限口径:min(N×MAX_REF_BLOCK, MAX_REF_TOTAL)(METER-3:旧 2048/ref 对
+  // 实注入 16KB/ref 低估 8×;余量条语义=最坏口径,宁保守勿漏报)。
   function contextInfo(conv) {
-    const history = buildHistory(db, conv)
-    const pmRecap = getProject(db, conv.projectId)?.projectRecap || '' // 项目记忆恒注入段(精确)
-    let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
-    let cjk = 0
-    let other = Array.isArray(refs) ? refs.length * REF_EST_CHARS : 0 // @refs 估算(非 CJK 计)
-    for (const piece of [conv.system, pmRecap, ...history.map(m => JSON.stringify(m))]) {
-      const c = countCjkChars(piece)
-      cjk += c.cjk
-      other += c.other
-    }
     const windowTokens = contextWindowFor(getLlmConfig().model)
-    const est = estTokensFromCounts(cjk, other)
     const budgetTokens = Math.floor(windowTokens * 0.7)
-    return { estTokens: est, windowTokens, budgetTokens, recapUpTo: conv.summarizedUpTo ?? 0, willTrim: est > budgetTokens }
+    const charBudget = trimBudgetChars(windowTokens) // 单源:与 agent 执法线同函数同单位
+    const acc = { cjk: 0, other: 0 }
+    const count = s => { const c = countCjkChars(s); acc.cjk += c.cjk; acc.other += c.other }
+    if (conv.status === 'paused' && conv.messages) {
+      let arr = []; try { arr = JSON.parse(conv.messages) } catch { arr = [] }
+      for (const m of sanitizeMessages(arr)) count(JSON.stringify(m))
+    } else {
+      const history = buildHistory(db, conv)
+      const pmRecap = getProject(db, conv.projectId)?.projectRecap || '' // 项目记忆恒注入段(精确)
+      let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
+      acc.other += Array.isArray(refs) ? Math.min(refs.length * MAX_REF_BLOCK, MAX_REF_TOTAL) : 0
+      for (const piece of [conv.system, pmRecap, ...history.map(m => JSON.stringify(m))]) count(piece)
+      if (conv.status === 'running') {
+        const msgs = listMessages(db, conv.id)
+        const lastTs = msgs.length ? Math.max(...msgs.map(m => m.createdAt || 0)) : 0
+        let trace = []; try { trace = JSON.parse(conv.trace || '[]') } catch { trace = [] }
+        for (const e of trace) {
+          if (!e || typeof e !== 'object' || (e.ts || 0) <= lastTs || e.type === 'tool_start') continue
+          if (e.type === 'tool') {
+            let s = ''; if (typeof e.result === 'string') s = e.result; else if (e.result != null) { try { s = JSON.stringify(e.result) } catch { s = String(e.result) } }
+            count(s.slice(0, 8192 + 64)) // 喂 LLM 的 clampToolContent 口径(8192+标记)
+          } else if (e.type === 'assistant') {
+            const content = e.content ?? e.message?.content ?? ''
+            if (typeof content === 'string') count(content)
+            if (Array.isArray(e.message?.tool_calls)) count(JSON.stringify(e.message.tool_calls))
+          }
+        }
+      }
+    }
+    const estTokens = estTokensFromCounts(acc.cjk, acc.other)
+    const estChars = acc.cjk + acc.other
+    return { estTokens, estChars, windowTokens, budgetTokens, charBudget, recapUpTo: conv.summarizedUpTo ?? 0, willTrim: estChars > charBudget }
   }
 
   // refs-injection-02:三入口统一归一门。失败 sendJson 400(i18n,文案带上限值)并返
@@ -347,6 +381,11 @@ export function createWorkbenchConvRoutes(deps) {
         if (typeof input.message !== 'string' || !input.message.trim()) {
           sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true
         }
+        // T3 互补(2026-09-09 审计):单条消息上限——超大贴片(trim 对末条 user 无损路径+确定性
+        // 溢出 400)变成可行动报错;大内容走 @-ref 通道(64KB 归一+48KB/轮预算)。
+        if (input.message.length > MESSAGE_MAX_CHARS) {
+          sendJson(res, 422, { message: msg(req, 'wbc.messageTooLarge', { limitKB: Math.round(MESSAGE_MAX_CHARS / 1024) }) }); return true
+        }
         // refs-injection-02:入口归一门(条数/形状/字节,refs-normalize 单源)——先于任何
         // 建行/拉取/run,400 零副作用。null = 键缺省(合法可选载荷,非畸形)。
         const inputRefs = normalizeInputRefs(req, res, input.references)
@@ -423,6 +462,11 @@ export function createWorkbenchConvRoutes(deps) {
         // 消息校验(2026-09-06 审计#10):空/非字符串消息不落库不启动(空白也拒,防无问题空跑)
         if (typeof input.message !== 'string' || !input.message.trim()) {
           sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true
+        }
+        // T3 互补(2026-09-09 审计):单条消息上限——超大贴片(trim 对末条 user 无损路径+确定性
+        // 溢出 400)变成可行动报错;大内容走 @-ref 通道(64KB 归一+48KB/轮预算)。
+        if (input.message.length > MESSAGE_MAX_CHARS) {
+          sendJson(res, 422, { message: msg(req, 'wbc.messageTooLarge', { limitKB: Math.round(MESSAGE_MAX_CHARS / 1024) }) }); return true
         }
         // refs-injection-02:messages 入口同门(归一单源;authz-entitlement-07 把 ownership
         // 前移后此门不再最先——403 先于 400,拒绝仍零副作用)。
@@ -606,6 +650,9 @@ export function createWorkbenchConvRoutes(deps) {
       try {
         const input = await readBody(req)
         const content = String(input.messageId ? input.content || '' : '')
+        if (content.length > MESSAGE_MAX_CHARS) { // T3:编辑重发同款上限
+          sendJson(res, 422, { message: msg(req, 'wbc.messageTooLarge', { limitKB: Math.round(MESSAGE_MAX_CHARS / 1024) }) }); return true
+        }
         if (!content.trim()) { sendJson(res, 400, { message: msg(req, 'wbc.editContentRequired') }); return true }
         // refs-injection-02:edit 入口同门——客户端载荷(body.references)present 即归一校验
         // ([] 合法=清空全部 @;非数组/元素畸形/超限 → 400)。锚沿用路径的服务端数据不经此门
@@ -686,7 +733,12 @@ export function createWorkbenchConvRoutes(deps) {
           error: '',
           // 水位钳制(spec §3.1 修正):min(现值, fromSeq-1)——前缀连续 1..fromSeq-1,保留其摘要覆盖;
           // 编辑首条(fromSeq-1=0)归 0。原 keptMinSeq-1 因 seq 从 1 起恒为 0,会把摘要覆盖每次归零。
-          summarizedUpTo: Math.min(nowConv.summarizedUpTo ?? 0, t.fromSeq - 1),
+          // H3(2026-09-09 审计):深锚(fromSeq ≤ 旧水位)同步回卷 recap——recap 是滚动累积
+          // 无法拆段,被删轮次的决策摘要若保留会每轮注入并持续否决用户的编辑改向;归 0 走
+          // 「前缀全文回放」(regenerate 386-388 注释同款取舍,信息零丢失)。浅锚维持 min()(no-op)。
+          ...(t.fromSeq <= (nowConv.summarizedUpTo ?? 0)
+            ? { summarizedUpTo: 0, recap: null }
+            : { summarizedUpTo: Math.min(nowConv.summarizedUpTo ?? 0, t.fromSeq - 1) }),
         }
         if (refsParseOk) editRunPatch.references = mergedRefs // B5a:损坏时跳过,原值保留
         updateConversation(db, id, editRunPatch)

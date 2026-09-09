@@ -10,6 +10,8 @@ import {
   unsummarizedProjectHistory,
   clampRecap,
 } from './workbench-projects.mjs'
+import { deriveSalvageContent } from './salvage-content.mjs'
+import { trimBudgetChars, contextWindowFor } from './model-context.mjs'
 // 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
 // msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
 
@@ -23,48 +25,108 @@ export const CAPABILITY_CONSTRAINT =
 export const SUMMARIZE_PROMPT =
   '把以下对话老片段压成紧凑 recap,保留关键决策、涉及资源、结论与未决问题,丢弃寒暄/中间步骤细节。用中文,不超过 300 字。' + CAPABILITY_CONSTRAINT
 
+// transcript 行构造(H2,2026-09-09 审计):空 assistant 行(salvage/preserve 落库的 content=''
+// 形态,真实文本在 trace)与「继续」短行原样进摘要器 →「用户反复要求继续、助手零产出」→
+// 毒 recap。回填:空行从 trace 的 assistant 块取文本(deriveSalvageContent 同源);纯工具
+// 空轮回填为空 → 剔除。过滤只落 transcript 构造,严禁动 listMessages/buildHistory——前端
+// 交错渲染靠空行的 trace 载荷,agent 发送侧已由 sanitizeMessages(llm.mjs)覆盖。
+function transcriptLine(m) {
+  const content = String(m.content || '')
+  if (m.role === 'assistant' && !content.trim()) {
+    let backfill = ''
+    try { backfill = deriveSalvageContent('', JSON.parse(m.trace || '[]')) } catch { backfill = '' }
+    return backfill ? `assistant: ${backfill}` : null
+  }
+  return `${m.role}: ${content}`
+}
+
+// per-conv in-flight 去重(H1,镜像 projectSummarizerInflight):messages 路由与 agent done
+// 两触发点并发到达时双双读 pending → 两路 LLM 白烧 + 互以入口快照覆写丢段。测试注入缝同款。
+const convSummarizerInflight = new Set()
+
 // maybeSummarize(db, convId, llmClient, { thresholdTurns=12, recentKeep=8 }) → Promise<boolean>
 // 返回 true=触发了摘要;false=未达阈值/无可摘/失败(不抛)。
 export async function maybeSummarize(
   db,
   convId,
   llmClient,
-  { thresholdTurns = 12, recentKeep = 8 } = {},
+  { thresholdTurns = 12, recentKeep = 8, inflight = convSummarizerInflight } = {},
 ) {
-  const conv = getConversation(db, convId)
-  if (!conv) return false
-  const maxSeq = getMaxSeq(db, convId)
-  const upToPrev = conv.summarizedUpTo ?? 0
-  const unsummarized = maxSeq - upToPrev
-  if (unsummarized <= thresholdTurns) return false // 未达阈值
-  const upTo = maxSeq - recentKeep // 留 recentKeep 条全文
-  if (upTo <= upToPrev) return false // 没新东西可摘(全在 recent 窗口内)
-  const oldMsgs = listMessages(db, convId).filter((m) => m.seq <= upTo && m.seq > upToPrev)
-  if (oldMsgs.length === 0) return false
-  const transcript = oldMsgs.map((m) => `${m.role}: ${m.content}`).join('\n')
+  if (inflight.has(convId)) return false
+  inflight.add(convId)
   try {
-    const out = await llmClient.chat({
-      messages: [
-        { role: 'system', content: SUMMARIZE_PROMPT },
-        { role: 'user', content: transcript },
-      ],
-    })
-    const seg = out?.content?.trim()
-    if (!seg) return false
-    // 写入前防御钳制(dev29):await LLM 期间消息可能被 regenerate 截掉——appendMessage 的
-    // seq 取"现存最大+1",新回复会复用被删 seq;不钳的话 upTo 会把复用 seq 的新消息也
-    // 吞进"已摘要"(buildHistory 跳过全文)。当前水位已越过现存最大 → 放弃本轮写入。
-    const upToFinal = Math.min(upTo, getMaxSeq(db, convId))
-    if (upToFinal <= upToPrev) return false
-    // context-assembly-03(2026-09-07 审计批次三):追加式写点 64KB 硬钳——`${旧}\n\n${新}` 滚动
-    // 增长,LLM 不服从「不超过 300 字」时无界落库,recap 每轮全量注入即上下文放大器。
-    const newRecap = clampRecap(conv.recap ? `${conv.recap}\n\n${seg}` : seg)
-    updateConversation(db, convId, { recap: newRecap, summarizedUpTo: upToFinal }, { touch: false })
-    return true
-  } catch (e) {
-    // gap2-04(2026-09-07 审计批次三):静默 → 可见(不改语义,仍返 false 不阻塞对话)
-    console.error('[wb-summarize] 轮次摘要失败:', e?.message || e)
-    return false
+    const conv = getConversation(db, convId)
+    if (!conv) return false
+    const allMsgs = listMessages(db, convId)
+    const maxSeq = getMaxSeq(db, convId)
+    const upToPrev = conv.summarizedUpTo ?? 0
+    // H2④:触发计数改非空条数(空 assistant 行不驱动折叠节奏);水位算术保持 seq 制
+    // (upTo/summarizedUpTo/regenWatermark 钳制全 seq 语义,混 count 制会击穿跳过防线)。
+    const nonEmptyCount = allMsgs.filter(
+      (m) => m.seq > upToPrev && m.seq <= maxSeq && !(m.role === 'assistant' && !String(m.content || '').trim()),
+    ).length
+    // METER-5(2026-09-09 审计):体积触发线——行数线(>12)对「轮次少而单轮大」的对话(几轮
+    // 20-30KB 工具结论长答,生产症状形态)永不触发,体积型溢出只剩静默硬 trim。口径=Σcontent
+    // (buildHistory 装配面;严禁按整 DB 行——trace/reasoning 大字段不入上下文)+ conv.recap
+    // 自身(摘要越滚越大自己成为膨胀源);阈值与执法线单源(model-context)取半。
+    const volChars = allMsgs.reduce((n, m) => n + String(m.content || '').length, 0) + (conv.recap?.length || 0)
+    const volumeTrigger = volChars > trimBudgetChars(contextWindowFor(llmClient?.model)) * 0.5
+    if (!(nonEmptyCount > thresholdTurns || volumeTrigger)) return false
+    // 触发线放宽保留窗(METER-5 复核:只提前触发不改保留是白摘——单轮 15KB 的对话摘后 8 行
+    // 全文仍超预算):体积路径逐级 8→4(compact 手动全量语义是 2,自动通道不过激);
+    // 末条 user 永不摘要(与 regenWatermark 的 lastUserSeq 语义对齐)。
+    const keep = volumeTrigger ? Math.min(recentKeep, 4) : recentKeep
+    const lastUser = [...allMsgs].reverse().find((m) => m.role === 'user')
+    let upTo = maxSeq - keep
+    if (lastUser && upTo >= lastUser.seq) upTo = lastUser.seq - 1
+    if (upTo <= upToPrev) return false // 没新东西可摘(全在 recent 窗口内)
+    const oldMsgs = allMsgs.filter((m) => m.seq <= upTo && m.seq > upToPrev)
+    if (oldMsgs.length === 0) return false
+    const lines = oldMsgs.map(transcriptLine).filter(Boolean)
+    if (lines.length === 0) {
+      // H2③:折叠窗内无有效内容(纯空轮)→ 无可摘,跳过 LLM 直接推进水位(否则每条新消息
+      // 重触发判定)。CAS 同款:窗口内水位已被并发推进则放弃。
+      const res = db.prepare(
+        'UPDATE workbench_conversations SET summarizedUpTo=? WHERE id=? AND COALESCE(summarizedUpTo,0)=?',
+      ).run(upTo, convId, upToPrev)
+      return res.changes > 0
+    }
+    const transcript = lines.join('\n')
+    try {
+      const out = await llmClient.chat({
+        messages: [
+          { role: 'system', content: SUMMARIZE_PROMPT },
+          { role: 'user', content: transcript },
+        ],
+      })
+      const seg = out?.content?.trim()
+      if (!seg) return false
+      // H1(2026-09-09 审计)落库三防线:
+      // ① maxSeq 回落守卫:窗口内 edit/regenerate 截断使消息回退 → 丢弃(等价 oldMsgs 复验,
+      //   证明:吞没要求锚 f ≤ upTo=入口max-keep → 截后 max ≤ f+2 < 入口max,必被拦);
+      // ② 水位钳制:upToFinal=min(upTo, 现存 maxSeq)(dev29 语义保留,seq 复用防吞新消息);
+      // ③ CAS 条件写:WHERE COALESCE(summarizedUpTo,0)=入口值——窗口内并发摘要/compact 已
+      //   推进水位则 changes=0 丢弃(双摘要互以入口快照 recap 覆写=静默丢段,生产「快失败
+      //   run+用户重试」即触达)。recap 拼接基于入口快照无需重读:recap 仅两个写点且都
+      //   co-move 水位,CAS 已串行化。
+      const nowMax = getMaxSeq(db, convId)
+      if (nowMax < maxSeq) return false
+      const upToFinal = Math.min(upTo, nowMax)
+      if (upToFinal <= upToPrev) return false
+      // context-assembly-03(2026-09-07 审计批次三):追加式写点 64KB 硬钳——`${旧}\n\n${新}` 滚动
+      // 增长,LLM 不服从「不超过 300 字」时无界落库,recap 每轮全量注入即上下文放大器。
+      const newRecap = clampRecap(conv.recap ? `${conv.recap}\n\n${seg}` : seg)
+      const res = db.prepare(
+        'UPDATE workbench_conversations SET recap=?, summarizedUpTo=? WHERE id=? AND COALESCE(summarizedUpTo,0)=?',
+      ).run(newRecap, upToFinal, convId, upToPrev)
+      return res.changes > 0
+    } catch (e) {
+      // gap2-04(2026-09-07 审计批次三):静默 → 可见(不改语义,仍返 false 不阻塞对话)
+      console.error('[wb-summarize] 轮次摘要失败:', e?.message || e)
+      return false
+    }
+  } finally {
+    inflight.delete(convId)
   }
 }
 
@@ -83,9 +145,11 @@ export async function compactConversation(db, convId, llmClient, instruction = '
   const maxSeq = getMaxSeq(db, convId)
   const entryUpTo = conv.summarizedUpTo ?? 0 // 条件写守卫期望值:await 前定格,落库时校验未被并发推进
   const fold = msgs.filter(m => m.seq <= maxSeq - COMPACT_KEEP_RECENT)
+  // H2(2026-09-09):compact 输入同款过滤空 assistant 行 + trace 回填——compact 是已污染
+  // conv.recap 的唯一清毒通道(无人工清空端点),过滤后的干净输入重写 recap 即完成清毒。
   const transcript = [
     ...(conv.recap ? [`(此前摘要)\n${conv.recap}`] : []),
-    ...fold.map(m => `${m.role}: ${m.content}`),
+    ...fold.map(transcriptLine).filter(Boolean),
   ].join('\n')
   const instruct = String(instruction || '').trim().slice(0, 200)
   try {

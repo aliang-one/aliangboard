@@ -1,7 +1,8 @@
 // CSO 2026-08-30 #14:引用资源进 system 位前必须 (a) 声明「数据非指令」(b) 尺寸封顶。
 // 架构级改造(system 位挪 user 位/纳入裁剪)另行设计;本模块先堵无上限与裸注入。
-const MAX_REF_BLOCK = 16 * 1024
-const MAX_REF_TOTAL = 48 * 1024
+// 导出(2026-09-09 计量审计 METER-3):contextInfo 的 @refs 保守上限估算与注入钳制共用单源
+export const MAX_REF_BLOCK = 16 * 1024
+export const MAX_REF_TOTAL = 48 * 1024
 // refs-injection-08(2026-09-07 审计批次三):导出围栏行——refs-context(stripRefsContext)与
 // secret-scrub(scrubRefsCtxContent)两道防线必须识别现役块格式(此前只认无围栏的存量旧格式,
 // 现役块落进 user content 时 strip 剥不动/scrub 掩不到)。导出即单源:防线跟 formatRefBlock

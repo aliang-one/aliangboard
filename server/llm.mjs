@@ -72,8 +72,8 @@ export function createLlmClient({
     })
     const text = await res.text()
     let json
-    try { json = JSON.parse(text) } catch { throw new Error(`LLM 返回非 JSON(HTTP ${res.status}): ${text.slice(0, 200)}`) }
-    if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${json.error?.message || json.message || text.slice(0, 200)}`)
+    try { json = JSON.parse(text) } catch { const e = new Error(`LLM 返回非 JSON(HTTP ${res.status}): ${text.slice(0, 200)}`); e.status = res.status; throw e }
+    if (!res.ok) { const e = new Error(`LLM HTTP ${res.status}: ${json.error?.message || json.message || text.slice(0, 200)}`); e.status = res.status; throw e }
     const choice = json.choices?.[0]
     const msg = choice?.message
     if (!msg) throw new Error('LLM 响应缺 choices[0].message')
@@ -115,7 +115,9 @@ export function createLlmClient({
       // 镜像 chat 的解析:优先提取 json.error.message,而非 raw body。
       let msg = text.slice(0, 200)
       try { const j = JSON.parse(text); msg = j.error?.message || j.message || msg } catch {}
-      throw new Error(`LLM HTTP ${res.status}: ${msg}`)
+      const err = new Error(`LLM HTTP ${res.status}: ${msg}`)
+      err.status = res.status // agent 侧重试按类别分流(2026-09-09 审计 F1):5xx 退避重试/4xx 单次
+      throw err
     }
     if (!res.body) throw new Error('LLM 响应无 body(不支持流式)')
     const reader = res.body.getReader()

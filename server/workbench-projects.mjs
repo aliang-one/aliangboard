@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { buildRecapInjection } from './workbench-prompt.mjs'
+import { deriveSalvageContent } from './salvage-content.mjs'
 
 // 项目 = 一个目标 = 一个 git repo。创建时绑 clusterId(项目 ⊂ 集群)+ owner(userId)。
 export function createWorkbenchSchema(db) {
@@ -362,7 +363,7 @@ export function salvageInterrupted(db, { now = Date.now() } = {}) {
       } catch { slice = [] }
     }
     if (contentSaved || slice.length) {
-      appendMessage(db, { conversationId: c.id, role: 'assistant', content: c.content || '', reasoning: c.reasoning || null, trace: contentSaved ? (c.trace || null) : JSON.stringify(slice) })
+      appendMessage(db, { conversationId: c.id, role: 'assistant', content: deriveSalvageContent(c.content || '', slice), reasoning: c.reasoning || null, trace: contentSaved ? (c.trace || null) : JSON.stringify(slice) })
       salvaged++
     }
     db.prepare("UPDATE workbench_conversations SET status='failed', error='Server restarted', updatedAt=? WHERE id=?").run(now, c.id)
