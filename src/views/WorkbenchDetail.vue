@@ -11,6 +11,9 @@ import { relTime as relTimeFmt } from '@/logic/relTime'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import WorkbenchChat from '@/components/workbench/WorkbenchChat.vue'
 import WbStage from '@/components/workbench/WbStage.vue'
+import { useIsPhone } from '@/composables/useBreakpoint'
+import { useEscClose } from '@/composables/useEscClose'
+import { Z } from '@/styles/zScale'
 
 const route = useRoute()
 const router = useRouter()
@@ -93,6 +96,18 @@ const convStatusStyle = {
 }
 function selectConversation(convId) { activeConversationId.value = convId }
 function newConversation() { activeConversationId.value = null }
+
+// 手机抽屉(Wave5 R6):Agent 对话列表 / Edit 文件树在 <640px 收进左侧滑入面板。
+// 桌面档 Teleport disabled → 原 DOM 位置渲染,结构零变化。
+const { isPhone } = useIsPhone()
+const listDrawerOpen = ref(false)
+const treeDrawerOpen = ref(false)
+useEscClose(computed(() => isPhone.value && mode.value === 'agent' && listDrawerOpen.value), () => { listDrawerOpen.value = false })
+useEscClose(computed(() => isPhone.value && mode.value === 'edit' && treeDrawerOpen.value), () => { treeDrawerOpen.value = false })
+// 选中即收:切对话/开文件后自动关抽屉(newConversation 置 null 时若原值也是 null
+// watch 不触发,由模板 New 钮显式收)。
+watch(activeConversationId, () => { if (isPhone.value) listDrawerOpen.value = false })
+watch(currentPath, () => { if (isPhone.value) treeDrawerOpen.value = false })
 async function deleteConversation(convId) {
   if (!confirm(t('workbench.detail.confirmDeleteConv'))) return
   try {
@@ -317,6 +332,13 @@ const treeRows = computed(() => {
         <!-- Header -->
         <div class="shrink-0 flex items-center gap-sm flex-wrap px-md py-sm border-b border-outline-variant/40">
       <button @click="router.push('/workbench')" class="p-1 rounded hover:bg-surface-container text-on-surface-variant"><span class="material-symbols-outlined">arrow_back</span></button>
+      <!-- 手机抽屉开关(Wave5 R6):Agent 对话列表 / Edit 文件树 <640px 收抽屉,工具条入口 -->
+      <button v-if="isPhone && mode === 'agent'" data-testid="open-conversations-btn" @click="listDrawerOpen = true"
+        class="p-1 rounded hover:bg-surface-container text-on-surface-variant relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
+        :title="t('workbench.detail.showConversations')"><span class="material-symbols-outlined">forum</span></button>
+      <button v-if="isPhone && mode === 'edit'" data-testid="open-files-btn" @click="treeDrawerOpen = true"
+        class="p-1 rounded hover:bg-surface-container text-on-surface-variant relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
+        :title="t('workbench.detail.showFiles')"><span class="material-symbols-outlined">folder_open</span></button>
       <h2 class="text-body-md font-bold text-on-surface flex items-center gap-xs">
         <span class="material-symbols-outlined text-lg">workspaces</span>{{ project.name }}
       </h2>
@@ -379,10 +401,17 @@ const treeRows = computed(() => {
 
     <!-- ═══════════════ Agent Mode ═══════════════ -->
     <div v-if="mode === 'agent'" class="flex-1 min-h-0 flex">
-      <!-- Conversation list sidebar -->
-      <div class="w-56 shrink-0 flex flex-col border-r border-outline-variant bg-surface-container-lowest">
+      <!-- Conversation list sidebar:手机档 Teleport 到 body,收左侧滑入抽屉(Wave5 R6);桌面原位渲染 -->
+      <Teleport to="body" :disabled="!isPhone">
+      <div v-if="isPhone && listDrawerOpen" data-testid="wb-drawer-overlay" class="fixed inset-0 bg-on-surface/40" :style="{ zIndex: Z.drawer - 1 }" @click="listDrawerOpen = false"></div>
+      <div data-testid="conversation-sidebar"
+        class="flex flex-col bg-surface-container-lowest border-r border-outline-variant"
+        :class="isPhone
+          ? ['fixed inset-y-0 left-0 w-[85%] max-w-[280px] shadow-2xl transition-transform duration-200 motion-reduce:transition-none', listDrawerOpen ? 'translate-x-0' : '-translate-x-full']
+          : 'w-56 shrink-0'"
+        :style="isPhone ? { zIndex: Z.drawer } : undefined">
         <div class="p-sm border-b border-outline-variant">
-          <button @click="newConversation" class="w-full flex items-center justify-center gap-xs px-sm py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 transition-opacity">
+          <button @click="newConversation(); listDrawerOpen = false" class="w-full flex items-center justify-center gap-xs px-sm py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 transition-opacity">
             <span class="material-symbols-outlined text-sm">add</span> New
           </button>
         </div>
@@ -408,10 +437,10 @@ const treeRows = computed(() => {
               <p v-else class="text-body-xs truncate">{{ c.title || c.userMessage || t('workbench.detail.emptyConv') }}</p>
             </div>
             <div class="shrink-0 flex items-center opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
-              <button @click.stop="startRename(c)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary" :title="t('workbench.detail.renameConv')">
+              <button @click.stop="startRename(c)" class="p-0.5 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('workbench.detail.renameConv')">
                 <span class="material-symbols-outlined text-sm">edit</span>
               </button>
-              <button @click.stop="deleteConversation(c.id)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" :title="t('workbench.detail.deleteConv')">
+              <button @click.stop="deleteConversation(c.id)" class="p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="t('workbench.detail.deleteConv')">
                 <span class="material-symbols-outlined text-sm">delete</span>
               </button>
             </div>
@@ -419,6 +448,7 @@ const treeRows = computed(() => {
           <p v-if="!conversations.length" class="text-body-xs text-on-surface-variant/50 px-sm py-md text-center">{{ t('workbench.detail.noConversations') }}</p>
         </div>
       </div>
+      </Teleport>
       <!-- Chat area (full width) -->
       <div class="flex-1 min-w-0 flex flex-col">
         <!-- 审批等人横幅:本项目其他对话 paused → 醒目入口,点击切换过去(挂载即弹审批 Modal) -->
@@ -443,8 +473,15 @@ const treeRows = computed(() => {
 
     <!-- ═══════════════ Edit Mode ═══════════════ -->
     <div v-else class="flex-1 min-h-0 flex gap-md p-md">
-      <!-- File tree -->
-      <div class="w-56 shrink-0 flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden">
+      <!-- File tree:手机档 Teleport 到 body,收左侧滑入抽屉(Wave5 R6);桌面原位渲染 -->
+      <Teleport to="body" :disabled="!isPhone">
+      <div v-if="isPhone && treeDrawerOpen" data-testid="wb-drawer-overlay" class="fixed inset-0 bg-on-surface/40" :style="{ zIndex: Z.drawer - 1 }" @click="treeDrawerOpen = false"></div>
+      <div data-testid="file-tree-sidebar"
+        class="flex flex-col bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden"
+        :class="isPhone
+          ? ['fixed inset-y-0 left-0 w-[85%] max-w-[280px] shadow-2xl transition-transform duration-200 motion-reduce:transition-none', treeDrawerOpen ? 'translate-x-0' : '-translate-x-full']
+          : 'w-56 shrink-0'"
+        :style="isPhone ? { zIndex: Z.drawer } : undefined">
         <div class="px-md py-sm border-b border-outline-variant text-label-caps text-on-surface-variant flex items-center gap-xs">
           <span class="material-symbols-outlined text-base">folder</span>{{ t('workbench.detail.files') }}
         </div>
@@ -470,7 +507,7 @@ const treeRows = computed(() => {
                 <span v-if="row.path === currentPath && dirty" class="w-1.5 h-1.5 rounded-full bg-status-warning shrink-0 ml-auto" :title="t('workbench.detail.unsaved')"></span>
               </button>
               <button @click="deleteProjectFile(row.path)" type="button"
-                class="shrink-0 p-0.5 mx-0.5 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity text-on-surface-variant hover:text-error hover:bg-error/10"
+                class="shrink-0 p-0.5 mx-0.5 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity text-on-surface-variant hover:text-error hover:bg-error/10 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
                 :title="t('workbench.detail.deleteFile')">
                 <span class="material-symbols-outlined text-sm">delete</span>
               </button>
@@ -483,6 +520,7 @@ const treeRows = computed(() => {
           <button @click="addFile" class="p-xs rounded bg-surface-container hover:bg-surface-container-high"><span class="material-symbols-outlined text-sm">add</span></button>
         </div>
       </div>
+      </Teleport>
 
       <!-- Editor + commit + history -->
       <div class="flex-1 min-w-0 flex flex-col gap-sm overflow-y-auto">

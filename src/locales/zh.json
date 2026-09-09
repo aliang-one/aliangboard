@@ -3804,7 +3804,9 @@
       "renameFailed": "重命名失败",
       "backgroundChat": "挂到后台",
       "backgroundChatTitle": "对话将在后台继续运行,回到当前命名空间总览",
-      "pausedConvBanner": "「{title}」等待审批 — 点击处理"
+      "pausedConvBanner": "「{title}」等待审批 — 点击处理",
+      "showConversations": "对话列表",
+      "showFiles": "文件列表"
     },
     "ide": {
       "collapseFiles": "折叠文件树",

@@ -3804,7 +3804,9 @@
       "renameFailed": "Rename failed",
       "backgroundChat": "Background",
       "backgroundChatTitle": "Conversation keeps running in background; back to namespace overview",
-      "pausedConvBanner": "\"{title}\" is awaiting your approval — click to review"
+      "pausedConvBanner": "\"{title}\" is awaiting your approval — click to review",
+      "showConversations": "Conversations",
+      "showFiles": "Files"
     },
     "ide": {
       "collapseFiles": "Collapse file tree",
