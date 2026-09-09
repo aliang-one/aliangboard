@@ -9,6 +9,7 @@ import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import DataTable from '@/components/common/DataTable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -59,6 +60,15 @@ const saRoleBindings = computed(() => {
   )
 })
 
+// —— 裸表迁 DataTable(Wave5 B2,审计 #192):手机自动卡片化(首列=标题),列 slot 双分支同源 ——
+// type 徽章(kubernetes.io/service-account-token 等长串)手机上须 break-all
+const secretHeaders = computed(() => [
+  { key: 'name', label: t('ns.saDetail.secretName') },
+  { key: 'type', label: t('ns.saDetail.secretType') },
+  { key: 'keys', label: t('ns.saDetail.secretKeys') },
+  { key: 'age', label: t('ns.saDetail.secretAge') },
+])
+
 async function handleDelete() {
   await store.deleteServiceAccount(route.params.name, route.params.namespace)
   router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })
@@ -92,34 +102,34 @@ function saveEdit() {
     ]" />
 
     <!-- Header -->
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-tertiary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-start justify-between gap-x-sm gap-y-sm mt-sm mb-xl">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-tertiary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-tertiary text-3xl">person</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ sa.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface min-w-0 max-sm:truncate" :title="sa.name">{{ sa.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-tertiary-container/10 text-tertiary text-label-caps rounded-full font-medium">{{ t('ns.saDetail.serviceAccount') }}</span>
-            <span class="text-body-sm text-on-surface-variant">{{ t('ns.saDetail.namespace') }}: <span class="text-primary font-medium">{{ sa.namespace }}</span></span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('ns.saDetail.namespace') }}: <span class="text-primary font-medium break-all">{{ sa.namespace }}</span></span>
             <span class="text-body-sm text-on-surface-variant">{{ t('ns.saDetail.age') }}: {{ sa.age }}</span>
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
-        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
+      <div class="flex flex-wrap gap-sm">
+        <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
-        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
+        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex overflow-x-auto border-b border-outline-variant mb-lg">
       <button v-for="tab in ['overview', 'secrets', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
+        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab === 'overview' ? t('common.status') : tab === 'secrets' ? t('ns.saDetail.secretsTab') : 'YAML' }}
       </button>
@@ -130,14 +140,14 @@ function saveEdit() {
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-lg">{{ t('ns.saDetail.details') }}</h3>
-          <div class="grid grid-cols-2 gap-md">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.saDetail.name') }}</p>
-              <p class="font-mono text-code-sm text-on-surface font-semibold">{{ sa.name }}</p>
+              <p class="font-mono text-code-sm text-on-surface font-semibold break-all">{{ sa.name }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.saDetail.namespace') }}</p>
-              <p class="font-mono text-code-sm text-primary">{{ sa.namespace }}</p>
+              <p class="font-mono text-code-sm text-primary break-all">{{ sa.namespace }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.saDetail.age') }}</p>
@@ -150,7 +160,7 @@ function saveEdit() {
                 <span class="text-body-md text-on-surface">{{ (sa.automountServiceAccountToken === undefined ? true : sa.automountServiceAccountToken) ? t('ns.saDetail.enabled') : t('ns.saDetail.disabled') }}</span>
               </div>
             </div>
-            <div v-if="sa.imagePullSecrets && sa.imagePullSecrets.length" class="p-md rounded-lg bg-surface-container-low col-span-2">
+            <div v-if="sa.imagePullSecrets && sa.imagePullSecrets.length" class="p-md rounded-lg bg-surface-container-low sm:col-span-2">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.saDetail.imagePullSecrets') }}</p>
               <div class="flex flex-wrap gap-sm">
                 <span v-for="ips in sa.imagePullSecrets" :key="ips.name" class="flex items-center gap-xs px-2.5 py-0.5 bg-tertiary-container/10 text-tertiary text-label-caps rounded-full font-medium">
@@ -184,40 +194,24 @@ function saveEdit() {
     </div>
 
     <!-- Secrets Tab -->
-    <div v-if="activeTab === 'secrets'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <h3 class="text-headline-sm">{{ t('ns.saDetail.secretsTab') }} {{ t('ns.saDetail.secretCount', { n: saSecrets.length }) }}</h3>
-        </div>
-        <table v-if="saSecrets.length" class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.saDetail.secretName') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.saDetail.secretType') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.saDetail.secretKeys') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.saDetail.secretAge') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="secret in saSecrets" :key="secret.name" class="hover:bg-surface-container-low/50 transition-colors">
-              <td class="px-lg py-md">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-tertiary text-lg">key</span>
-                  <span class="font-mono text-code-sm font-semibold text-on-surface">{{ secret.name }}</span>
-                </div>
-              </td>
-              <td class="px-lg py-md">
-                <span class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary text-label-caps rounded border border-tertiary/20">{{ secret.type }}</span>
-              </td>
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ secret.keys }}</td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ secret.age }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="p-xl text-center text-on-surface-variant">
-          <span class="material-symbols-outlined text-3xl">key</span>
-          <p class="mt-sm">{{ t('ns.saDetail.noSecrets') }}</p>
-        </div>
+    <div v-if="activeTab === 'secrets'" class="flex flex-col gap-md">
+      <h3 class="text-headline-sm">{{ t('ns.saDetail.secretsTab') }} {{ t('ns.saDetail.secretCount', { n: saSecrets.length }) }}</h3>
+      <DataTable v-if="saSecrets.length" :headers="secretHeaders" :rows="saSecrets" row-key="name">
+        <template #name="{ row }">
+          <div class="flex items-center gap-sm min-w-0">
+            <span class="material-symbols-outlined text-tertiary text-lg shrink-0">key</span>
+            <span class="font-mono text-code-sm font-semibold text-on-surface truncate" :title="row.name">{{ row.name }}</span>
+          </div>
+        </template>
+        <template #type="{ row }">
+          <span class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary text-label-caps rounded border border-tertiary/20 break-all">{{ row.type }}</span>
+        </template>
+        <template #keys="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.keys }}</span></template>
+        <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      </DataTable>
+      <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center text-on-surface-variant">
+        <span class="material-symbols-outlined text-3xl">key</span>
+        <p class="mt-sm">{{ t('ns.saDetail.noSecrets') }}</p>
       </div>
     </div>
 

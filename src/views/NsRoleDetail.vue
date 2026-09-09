@@ -9,6 +9,7 @@ import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 import Modal from '@/components/common/Modal.vue'
+import DataTable from '@/components/common/DataTable.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -73,6 +74,23 @@ const roleBindings = computed(() => {
   )
 })
 
+// —— 裸表迁 DataTable(Wave5 B2,审计 #233/#291):手机自动卡片化(首列=标题),列 slot 双分支同源 ——
+// rules 无唯一键(同名 rule 可重复)→ 注入 _idx 作 row-key;openEditRule/deleteRule 按 _idx 回写 defaultRules
+const ruleRows = computed(() => defaultRules.value.map((r, idx) => ({ ...r, _idx: idx })))
+const ruleHeaders = computed(() => [
+  { key: 'apiGroups', label: t('ns.roleDetail.apiGroupsLabel') },
+  { key: 'resources', label: t('ns.roleDetail.resourcesLabel') },
+  { key: 'verbs', label: t('ns.roleDetail.verbsLabel') },
+  { key: 'actions', label: t('common.actions') },
+])
+const bindingHeaders = computed(() => [
+  { key: 'name', label: t('common.name') },
+  { key: 'namespace', label: t('common.namespace') },
+  { key: 'roleKind', label: t('ns.roleDetail.roleKind') },
+  { key: 'subjects', label: t('ns.roleDetail.subjects') },
+  { key: 'age', label: t('common.age') },
+])
+
 async function handleDelete() {
   await store.deleteRole(route.params.name, route.params.namespace)
   router.push({ name: 'NsRBAC', params: { namespace: route.params.namespace } })
@@ -134,33 +152,33 @@ const scopeBadge = computed(() => {
     ]" />
 
     <!-- Header -->
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-secondary-container/20 flex items-center justify-center">
+    <div class="flex flex-wrap items-start justify-between gap-x-sm gap-y-sm mt-sm mb-xl">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-secondary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-secondary text-3xl">admin_panel_settings</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ role.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface min-w-0 max-sm:truncate" :title="role.name">{{ role.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium" :class="scopeBadge.color">
               {{ scopeBadge.label }}
             </span>
-            <span v-if="role.namespace" class="text-body-sm text-on-surface-variant">{{ t('common.namespace') }}: <span class="text-primary font-medium">{{ role.namespace }}</span></span>
+            <span v-if="role.namespace" class="text-body-sm text-on-surface-variant">{{ t('common.namespace') }}: <span class="text-primary font-medium break-all">{{ role.namespace }}</span></span>
             <span class="text-body-sm text-on-surface-variant">{{ t('ns.roleDetail.bindings') }}: <span class="font-mono font-bold text-on-surface">{{ role.bindings }}</span></span>
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
-        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors">
+      <div class="flex flex-wrap gap-sm">
+        <button @click="showDeleteModal = true" class="flex items-center gap-sm px-md py-sm border border-error/30 text-error font-semibold rounded-lg hover:bg-error-container/10 transition-colors max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">delete</span> {{ t('common.delete') }}
         </button>
       </div>
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b border-outline-variant mb-lg">
+    <div class="flex overflow-x-auto border-b border-outline-variant mb-lg">
       <button v-for="tab in ['overview', 'rules', 'bindings', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
+        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab }}
       </button>
@@ -171,10 +189,10 @@ const scopeBadge = computed(() => {
       <div class="lg:col-span-8 flex flex-col gap-lg">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
           <h3 class="text-headline-sm mb-lg">{{ t('ns.roleDetail.roleDetails') }}</h3>
-          <div class="grid grid-cols-2 gap-md">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('common.name') }}</p>
-              <p class="font-mono text-code-sm text-on-surface font-semibold">{{ role.name }}</p>
+              <p class="font-mono text-code-sm text-on-surface font-semibold break-all">{{ role.name }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('ns.roleDetail.scope') }}</p>
@@ -185,7 +203,7 @@ const scopeBadge = computed(() => {
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
               <p class="text-label-caps text-on-surface-variant mb-xs">{{ t('common.namespace') }}</p>
-              <p v-if="role.namespace" class="font-mono text-code-sm text-primary">{{ role.namespace }}</p>
+              <p v-if="role.namespace" class="font-mono text-code-sm text-primary break-all">{{ role.namespace }}</p>
               <p v-else class="text-body-sm text-on-surface-variant">{{ t('ns.roleDetail.clusterWide') }}</p>
             </div>
             <div class="p-md rounded-lg bg-surface-container-low">
@@ -222,109 +240,78 @@ const scopeBadge = computed(() => {
     </div>
 
     <!-- Rules Tab -->
-    <div v-if="activeTab === 'rules'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
-          <h3 class="text-headline-sm">{{ t('ns.roleDetail.policyRulesCount', { count: defaultRules.length }) }}</h3>
-          <button @click="openAddRule" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">
-            <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.roleDetail.addRule') }}
-          </button>
-        </div>
-        <table v-if="defaultRules.length" class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.apiGroupsLabel') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.resourcesLabel') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.verbsLabel') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant w-24">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="(rule, idx) in defaultRules" :key="idx" class="hover:bg-surface-container-low/50 transition-colors">
-              <td class="px-lg py-md">
-                <div class="flex flex-wrap gap-xs">
-                  <span v-for="g in rule.apiGroups" :key="g" class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant font-mono">
-                    {{ g || '(core)' }}
-                  </span>
-                </div>
-              </td>
-              <td class="px-lg py-md">
-                <div class="flex flex-wrap gap-xs">
-                  <span v-for="r in rule.resources" :key="r" class="px-2 py-0.5 bg-primary-container/10 text-primary rounded text-label-caps font-mono">
-                    {{ r }}
-                  </span>
-                </div>
-              </td>
-              <td class="px-lg py-md">
-                <div class="flex flex-wrap gap-xs">
-                  <span v-for="v in rule.verbs" :key="v" class="px-2 py-0.5 bg-secondary-container/10 text-secondary rounded text-label-caps">
-                    {{ v }}
-                  </span>
-                </div>
-              </td>
-              <td class="px-lg py-md">
-                <div class="flex gap-xs">
-                  <button @click="openEditRule(idx)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
-                    <span class="material-symbols-outlined text-lg">edit</span>
-                  </button>
-                  <button @click="deleteRule(idx)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
-                    <span class="material-symbols-outlined text-lg">delete</span>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="p-xl text-center text-on-surface-variant">
-          <span class="material-symbols-outlined text-3xl">admin_panel_settings</span>
-          <p class="mt-sm">{{ t('ns.roleDetail.noPolicyRules') }}</p>
-        </div>
+    <div v-if="activeTab === 'rules'" class="flex flex-col gap-md">
+      <div class="flex items-center justify-between">
+        <h3 class="text-headline-sm">{{ t('ns.roleDetail.policyRulesCount', { count: defaultRules.length }) }}</h3>
+        <button @click="openAddRule" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 max-sm:min-h-[40px]">
+          <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.roleDetail.addRule') }}
+        </button>
+      </div>
+      <DataTable v-if="ruleRows.length" :headers="ruleHeaders" :rows="ruleRows" row-key="_idx">
+        <template #apiGroups="{ row }">
+          <div class="flex flex-wrap gap-xs">
+            <span v-for="g in row.apiGroups" :key="g" class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant font-mono">
+              {{ g || '(core)' }}
+            </span>
+          </div>
+        </template>
+        <template #resources="{ row }">
+          <div class="flex flex-wrap gap-xs">
+            <span v-for="r in row.resources" :key="r" class="px-2 py-0.5 bg-primary-container/10 text-primary rounded text-label-caps font-mono">
+              {{ r }}
+            </span>
+          </div>
+        </template>
+        <template #verbs="{ row }">
+          <div class="flex flex-wrap gap-xs">
+            <span v-for="v in row.verbs" :key="v" class="px-2 py-0.5 bg-secondary-container/10 text-secondary rounded text-label-caps">
+              {{ v }}
+            </span>
+          </div>
+        </template>
+        <template #actions="{ row }">
+          <div class="flex gap-xs">
+            <button @click="openEditRule(row._idx)" :title="t('common.edit')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+              <span class="material-symbols-outlined text-lg">edit</span>
+            </button>
+            <button @click="deleteRule(row._idx)" :title="t('common.delete')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+              <span class="material-symbols-outlined text-lg">delete</span>
+            </button>
+          </div>
+        </template>
+      </DataTable>
+      <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center text-on-surface-variant">
+        <span class="material-symbols-outlined text-3xl">admin_panel_settings</span>
+        <p class="mt-sm">{{ t('ns.roleDetail.noPolicyRules') }}</p>
       </div>
     </div>
 
     <!-- Bindings Tab -->
-    <div v-if="activeTab === 'bindings'">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
-        <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low">
-          <h3 class="text-headline-sm">{{ t('ns.roleDetail.roleBindingsCount', { count: roleBindings.length }) }}</h3>
-        </div>
-        <table v-if="roleBindings.length" class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.name') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.namespace') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.roleKind') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.roleDetail.subjects') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('common.age') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="rb in roleBindings" :key="rb.name" class="hover:bg-surface-container-low/50 transition-colors">
-              <td class="px-lg py-md">
-                <div class="flex items-center gap-sm">
-                  <span class="material-symbols-outlined text-secondary text-lg">link</span>
-                  <span class="font-mono text-code-sm font-semibold text-on-surface">{{ rb.name }}</span>
-                </div>
-              </td>
-              <td class="px-lg py-md font-mono text-code-sm text-on-surface-variant">{{ rb.namespace }}</td>
-              <td class="px-lg py-md">
-                <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant">{{ rb.roleKind }}</span>
-              </td>
-              <td class="px-lg py-md">
-                <div class="flex flex-wrap gap-xs">
-                  <span v-for="(subj, si) in rb.subjects" :key="si" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary rounded text-label-caps">
-                    {{ subj.kind }}: {{ subj.name }}
-                  </span>
-                </div>
-              </td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ rb.age }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="p-xl text-center text-on-surface-variant">
-          <span class="material-symbols-outlined text-3xl">link_off</span>
-          <p class="mt-sm">{{ t('ns.roleDetail.noRoleBindings') }}</p>
-        </div>
+    <div v-if="activeTab === 'bindings'" class="flex flex-col gap-md">
+      <h3 class="text-headline-sm">{{ t('ns.roleDetail.roleBindingsCount', { count: roleBindings.length }) }}</h3>
+      <DataTable v-if="roleBindings.length" :headers="bindingHeaders" :rows="roleBindings" row-key="name">
+        <template #name="{ row }">
+          <div class="flex items-center gap-sm min-w-0">
+            <span class="material-symbols-outlined text-secondary text-lg shrink-0">link</span>
+            <span class="font-mono text-code-sm font-semibold text-on-surface truncate" :title="row.name">{{ row.name }}</span>
+          </div>
+        </template>
+        <template #namespace="{ row }"><span class="block font-mono text-code-sm text-on-surface-variant truncate" :title="row.namespace">{{ row.namespace }}</span></template>
+        <template #roleKind="{ row }">
+          <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant">{{ row.roleKind }}</span>
+        </template>
+        <template #subjects="{ row }">
+          <div class="flex flex-wrap gap-xs">
+            <span v-for="(subj, si) in row.subjects" :key="si" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary rounded text-label-caps">
+              {{ subj.kind }}: {{ subj.name }}
+            </span>
+          </div>
+        </template>
+        <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
+      </DataTable>
+      <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card p-xl text-center text-on-surface-variant">
+        <span class="material-symbols-outlined text-3xl">link_off</span>
+        <p class="mt-sm">{{ t('ns.roleDetail.noRoleBindings') }}</p>
       </div>
     </div>
 
