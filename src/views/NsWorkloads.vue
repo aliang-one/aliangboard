@@ -121,8 +121,8 @@ async function handleDelete() {
       { label: 'Workloads' }
     ]" />
 
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="min-w-0">
         <div class="flex items-center gap-sm">
           <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.workloads.title') }}</h2>
           <WatchStateChip :state="wlState" />
@@ -142,26 +142,26 @@ async function handleDelete() {
     </div>
 
     <!-- Type Summary -->
-    <div class="grid grid-cols-4 gap-sm mb-md">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-sm mb-md">
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Deployment' ? 'All' : 'Deployment'">
-        <span class="material-symbols-outlined text-primary text-base">view_carousel</span>
-        <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.deployments') }}</span>
-        <span class="text-body-md font-bold text-on-surface ml-auto">{{ deployCount }}</span>
+        <span class="material-symbols-outlined text-primary text-base shrink-0">view_carousel</span>
+        <span class="text-body-sm text-on-surface-variant truncate min-w-0">{{ t('ns.workloads.deployments') }}</span>
+        <span class="text-body-md font-bold text-on-surface ml-auto shrink-0">{{ deployCount }}</span>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'StatefulSet' ? 'All' : 'StatefulSet'">
-        <span class="material-symbols-outlined text-secondary text-base">database</span>
-        <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.statefulSets') }}</span>
-        <span class="text-body-md font-bold text-on-surface ml-auto">{{ stsCount }}</span>
+        <span class="material-symbols-outlined text-secondary text-base shrink-0">database</span>
+        <span class="text-body-sm text-on-surface-variant truncate min-w-0">{{ t('ns.workloads.statefulSets') }}</span>
+        <span class="text-body-md font-bold text-on-surface ml-auto shrink-0">{{ stsCount }}</span>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'DaemonSet' ? 'All' : 'DaemonSet'">
-        <span class="material-symbols-outlined text-tertiary text-base">settings_slow_motion</span>
-        <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.daemonSets') }}</span>
-        <span class="text-body-md font-bold text-on-surface ml-auto">{{ dsCount }}</span>
+        <span class="material-symbols-outlined text-tertiary text-base shrink-0">settings_slow_motion</span>
+        <span class="text-body-sm text-on-surface-variant truncate min-w-0">{{ t('ns.workloads.daemonSets') }}</span>
+        <span class="text-body-md font-bold text-on-surface ml-auto shrink-0">{{ dsCount }}</span>
       </div>
       <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Job' ? 'All' : 'Job'">
-        <span class="material-symbols-outlined text-on-surface-variant text-base">schedule</span>
-        <span class="text-body-sm text-on-surface-variant">{{ t('ns.workloads.jobs') }}</span>
-        <span class="text-body-md font-bold text-on-surface ml-auto">{{ jobCount }}</span>
+        <span class="material-symbols-outlined text-on-surface-variant text-base shrink-0">schedule</span>
+        <span class="text-body-sm text-on-surface-variant truncate min-w-0">{{ t('ns.workloads.jobs') }}</span>
+        <span class="text-body-md font-bold text-on-surface ml-auto shrink-0">{{ jobCount }}</span>
       </div>
     </div>
 
@@ -183,9 +183,9 @@ async function handleDelete() {
     <!-- Table -->
     <DataTable :headers="headers" :rows="paginated" column-key="nsWorkloads" @row-click="goDetail">
       <template #name="{ row }">
-        <div class="flex flex-col">
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
-          <span v-if="readMeta(row).title" class="text-xs text-primary">{{ readMeta(row).title }}</span>
+        <div class="flex flex-col min-w-0">
+          <span class="font-semibold text-on-surface text-body-md truncate" :title="row.name">{{ row.name }}</span>
+          <span v-if="readMeta(row).title" class="text-xs text-primary truncate" :title="readMeta(row).title">{{ readMeta(row).title }}</span>
           <span class="font-mono text-xs text-on-surface-variant">{{ row.sha }}</span>
         </div>
       </template>
@@ -201,7 +201,7 @@ async function handleDelete() {
           <span class="font-mono text-code-sm font-bold" :class="replicaPercent(row.replicas) === 100 ? 'text-primary' : 'text-tertiary-container'">{{ row.replicas }}</span>
         </div>
       </template>
-      <template #image="{ row }"><span class="font-mono text-code-sm text-on-surface-variant">{{ row.image }}</span></template>
+      <template #image="{ row }"><span class="block truncate font-mono text-code-sm text-on-surface-variant" :title="row.image">{{ row.image }}</span></template>
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }"><DropdownMenu :items="menuItems(row)" /></template>
       <template v-if="filtered.length" #pagination>

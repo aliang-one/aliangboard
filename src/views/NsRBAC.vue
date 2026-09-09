@@ -168,8 +168,8 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: $t('ns.rbac.title') }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.rbac.title') }}</h2>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <h2 class="text-headline-md text-on-surface font-bold min-w-0">{{ $t('ns.rbac.title') }}</h2>
       <CreateWithYamlButton
         :label="$t('common.create')"
         :main-action="rbacMainAction"
@@ -193,9 +193,9 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <!-- Roles Tab -->
     <DataTable v-if="activeTab === 'roles'" :headers="roleHeaders" :rows="paginated" column-key="nsRbacRoles">
       <template #name="{ row }">
-        <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToRole(row.name)">
-          <span class="material-symbols-outlined text-secondary">admin_panel_settings</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors min-w-0" @click="goToRole(row.name)">
+          <span class="material-symbols-outlined text-secondary shrink-0">admin_panel_settings</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #namespace="{ row }">
@@ -213,9 +213,9 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <!-- ServiceAccounts Tab -->
     <DataTable v-if="activeTab === 'serviceaccounts'" :headers="saHeaders" :rows="paginated" column-key="nsRbacSAs">
       <template #name="{ row }">
-        <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToSA(row.name)">
-          <span class="material-symbols-outlined text-tertiary-container">person</span>
-          <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+        <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors min-w-0" @click="goToSA(row.name)">
+          <span class="material-symbols-outlined text-tertiary-container shrink-0">person</span>
+          <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #pagination>
@@ -227,9 +227,9 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
     <div v-if="activeTab === 'rolebindings'" class="flex flex-col gap-md">
       <DataTable :headers="bindingHeaders" :rows="paginated" column-key="nsRbacBindings">
         <template #name="{ row }">
-          <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToBinding(row.name)">
-            <span class="material-symbols-outlined text-secondary">link</span>
-            <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors min-w-0" @click="goToBinding(row.name)">
+            <span class="material-symbols-outlined text-secondary shrink-0">link</span>
+            <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
           </div>
         </template>
         <template #roleName="{ row }">
@@ -261,9 +261,9 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </div>
       <DataTable :headers="roleHeaders" :rows="paginated" column-key="nsRbacRoles">
         <template #name="{ row }">
-          <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors" @click="goToRole(row.name)">
-            <span class="material-symbols-outlined text-primary">shield</span>
-            <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          <div class="flex items-center gap-md cursor-pointer hover:text-primary transition-colors min-w-0" @click="goToRole(row.name)">
+            <span class="material-symbols-outlined text-primary shrink-0">shield</span>
+            <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
           </div>
         </template>
         <template #namespace="{ row }">
@@ -288,9 +288,9 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
       </div>
       <DataTable :headers="bindingHeaders" :rows="paginated" column-key="nsRbacBindings">
         <template #name="{ row }">
-          <div class="flex items-center gap-md">
-            <span class="material-symbols-outlined text-primary">link</span>
-            <span class="font-semibold text-on-surface text-body-md">{{ row.name }}</span>
+          <div class="flex items-center gap-md min-w-0">
+            <span class="material-symbols-outlined text-primary shrink-0">link</span>
+            <span class="font-semibold text-on-surface text-body-md truncate min-w-0" :title="row.name">{{ row.name }}</span>
           </div>
         </template>
         <template #roleName="{ row }">
@@ -307,7 +307,7 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           </div>
         </template>
         <template #actions="{ row }">
-          <button @click.stop="confirmDelete(row, 'clusterrolebinding')" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('ns.rbac.deleteBtn')">
+          <button @click.stop="confirmDelete(row, 'clusterrolebinding')" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg" :title="$t('ns.rbac.deleteBtn')">
             <span class="material-symbols-outlined text-lg">delete</span>
           </button>
         </template>
@@ -365,14 +365,14 @@ const { currentPage, pageSize, paginated, total } = usePagination(currentTabList
           <option v-for="r in clusterRoleOptions" :key="r" :value="r">{{ r }}</option>
         </select>
       </div>
-      <div class="grid grid-cols-3 gap-md">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-md">
         <div>
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.subjectKindLabel') }}</label>
           <select v-model="newCRB.subjectKind" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md">
             <option>User</option><option>Group</option><option>ServiceAccount</option>
           </select>
         </div>
-        <div class="col-span-2">
+        <div class="sm:col-span-2">
           <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.rbac.subjectNameLabel') }}</label>
           <input v-model="newCRB.subjectName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md" placeholder="e.g., admin@kubezen.io" />
         </div>

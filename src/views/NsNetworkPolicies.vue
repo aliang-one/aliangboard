@@ -94,25 +94,25 @@ async function handleDelete() {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'NetworkPolicies' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.networkPolicies.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.networkPolicies.subtitle', { count: nsNetworkPolicies.length, ns: route.params.namespace }) }}</p>
       </div>
-      <button @click="showCreate = true" class="flex items-center gap-sm px-3 py-1.5 bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
+      <button @click="showCreate = true" class="flex items-center gap-sm px-3 py-1.5 max-sm:min-h-[40px] bg-primary text-on-primary font-semibold rounded-lg text-body-sm hover:opacity-90 transition-opacity">
         <span class="material-symbols-outlined text-sm">add</span> {{ t('ns.networkPolicies.create') }}
       </button>
     </div>
 
     <!-- Filter Tabs -->
-    <div v-if="nsNetworkPolicies.length" class="flex border-b border-outline-variant mb-md">
+    <div v-if="nsNetworkPolicies.length" class="flex overflow-x-auto border-b border-outline-variant mb-md">
       <button v-for="tab in [
         { key: 'all', label: t('ns.networkPolicies.filterAll') },
         { key: 'ingress', label: t('ns.networkPolicies.filterIngressOnly') },
         { key: 'egress', label: t('ns.networkPolicies.filterEgressOnly') },
         { key: 'both', label: t('ns.networkPolicies.filterBoth') }
       ]" :key="tab.key" @click="activeFilter = tab.key"
-        class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors"
+        class="px-lg py-2 border-b-2 text-body-sm font-medium transition-colors shrink-0 whitespace-nowrap"
         :class="activeFilter === tab.key ? 'border-primary text-primary font-semibold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab.label }}
         <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" :class="activeFilter === tab.key ? 'bg-primary-container/20 text-primary' : 'bg-surface-container text-on-surface-variant'">
@@ -124,8 +124,8 @@ async function handleDelete() {
     <DataTable :headers="headers" :rows="paginated" column-key="nsNetworkPolicies" @row-click="goDetail">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-tertiary text-sm">shield</span>
-          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
+          <span class="material-symbols-outlined text-tertiary text-sm shrink-0">shield</span>
+          <span class="font-semibold text-on-surface text-body-sm truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #podSelector="{ row }">
@@ -158,10 +158,10 @@ async function handleDelete() {
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
         <div class="flex gap-1 justify-end">
-          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
+          <button @click.stop="goDetail(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg">
             <span class="material-symbols-outlined text-sm">open_in_new</span>
           </button>
-          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
+          <button @click.stop="confirmDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg">
             <span class="material-symbols-outlined text-sm">delete</span>
           </button>
         </div>

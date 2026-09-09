@@ -123,8 +123,8 @@ function goDetail(row) {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: $t('ns.resourceQuotas.title') }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md text-on-surface font-bold">{{ $t('ns.resourceQuotas.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ $t('ns.resourceQuotas.subtitle', { n: nsResourceQuotas.length, ns: route.params.namespace }) }}</p>
       </div>
@@ -134,8 +134,8 @@ function goDetail(row) {
     <DataTable :headers="headers" :rows="paginated" column-key="nsResourceQuotas" @row-click="goDetail">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-tertiary text-sm">speed</span>
-          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
+          <span class="material-symbols-outlined text-tertiary text-sm shrink-0">speed</span>
+          <span class="font-semibold text-on-surface text-body-sm truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #cpu="{ row }">
@@ -174,8 +174,8 @@ function goDetail(row) {
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
         <div class="flex gap-1">
-          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
-          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
+          <button @click.stop="goDetail(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-lg">open_in_new</span></button>
+          <button @click.stop="confirmDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-lg">delete</span></button>
         </div>
       </template>
       <template v-if="nsResourceQuotas.length" #pagination>

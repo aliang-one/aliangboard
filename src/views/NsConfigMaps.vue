@@ -91,8 +91,8 @@ function goDetail(row) {
       { label: route.params.namespace, route: `/ns/${route.params.namespace}` },
       { label: 'ConfigMaps' }
     ]" />
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md text-on-surface font-bold">{{ t('ns.configmaps.title') }}</h2>
         <p class="text-on-surface-variant text-body-sm mt-xs">{{ t('ns.configmaps.subtitle', { count: nsConfigMaps.length, ns: route.params.namespace }) }}</p>
       </div>
@@ -106,7 +106,7 @@ function goDetail(row) {
     </div>
 
     <!-- 搜索框 -->
-    <div class="flex items-center gap-sm mb-md">
+    <div class="flex flex-wrap items-center gap-sm mb-md">
       <div class="relative flex-1 max-w-md">
         <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-lg pointer-events-none">search</span>
         <input v-model="search" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg pl-xl pr-md py-1.5 text-body-sm focus:ring-2 focus:ring-primary focus:border-primary" :placeholder="t('ns.configmaps.searchPlaceholder')" />
@@ -117,7 +117,7 @@ function goDetail(row) {
       <span class="text-xs text-on-surface-variant">{{ filtered.length }} / {{ nsConfigMaps.length }}</span>
       <div v-if="selected.length" class="flex items-center gap-sm ml-auto px-md py-xs bg-primary-container/10 border border-primary/20 rounded-lg">
         <span class="text-xs font-medium text-primary">{{ t('ns.configmaps.selected', { n: selected.length }) }}</span>
-        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">
+        <button @click="confirmBatchDelete" class="flex items-center gap-xs px-sm py-xs max-sm:min-h-[40px] bg-error text-on-error rounded text-xs font-semibold hover:opacity-90">
           <span class="material-symbols-outlined text-sm">delete</span>{{ t('ns.configmaps.batchDelete') }}
         </button>
         <button @click="selected = []" class="text-xs text-on-surface-variant hover:text-on-surface">{{ t('ns.configmaps.cancel') }}</button>
@@ -127,8 +127,8 @@ function goDetail(row) {
     <DataTable v-if="filtered.length" :headers="headers" :rows="paginated" column-key="nsConfigMaps" selectable v-model:selection="selected" row-key="name" @row-click="goDetail">
       <template #name="{ row }">
         <div class="flex items-center gap-sm">
-          <span class="material-symbols-outlined text-secondary text-sm">description</span>
-          <span class="font-semibold text-on-surface text-body-sm">{{ row.name }}</span>
+          <span class="material-symbols-outlined text-secondary text-sm shrink-0">description</span>
+          <span class="font-semibold text-on-surface text-body-sm truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #keys="{ row }"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant border border-outline-variant">{{ row.keys }}</span></template>
@@ -141,8 +141,8 @@ function goDetail(row) {
       <template #age="{ row }"><span class="text-body-sm text-on-surface-variant">{{ row.age }}</span></template>
       <template #actions="{ row }">
         <div class="flex gap-1 justify-end">
-          <button @click.stop="goDetail(row)" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
-          <button @click.stop="confirmDelete(row)" class="p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
+          <button @click.stop="goDetail(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg"><span class="material-symbols-outlined text-sm">open_in_new</span></button>
+          <button @click.stop="confirmDelete(row)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-xs text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg"><span class="material-symbols-outlined text-sm">delete</span></button>
         </div>
       </template>
       <template v-if="total > pageSize" #pagination>
@@ -152,8 +152,8 @@ function goDetail(row) {
     <div v-else class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md text-center">
       <span class="material-symbols-outlined text-2xl text-surface-container-high">{{ search ? 'search_off' : 'description' }}</span>
       <p class="text-on-surface-variant text-body-sm mt-xs">{{ search ? t('ns.configmaps.noMatch', { q: search }) : t('ns.configmaps.empty') }}</p>
-      <button v-if="search" @click="search = ''" class="mt-xs px-3 py-1.5 border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">{{ t('ns.configmaps.clearSearch') }}</button>
-      <button v-else data-testid="open-create" @click="showCreateModal = true" class="mt-xs px-3 py-1.5 bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('ns.configmaps.createShort') }}</button>
+      <button v-if="search" @click="search = ''" class="mt-xs px-3 py-1.5 max-sm:min-h-[40px] border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-container-high">{{ t('ns.configmaps.clearSearch') }}</button>
+      <button v-else data-testid="open-create" @click="showCreateModal = true" class="mt-xs px-3 py-1.5 max-sm:min-h-[40px] bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90">{{ t('ns.configmaps.createShort') }}</button>
     </div>
   </section>
 

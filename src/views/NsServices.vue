@@ -210,13 +210,13 @@ async function handleDelete() {
       { label: 'Services' }
     ]" />
 
-    <div class="flex justify-between items-end mt-sm mb-md">
-      <div>
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-md">
+      <div class="min-w-0">
         <h2 class="text-headline-md font-bold text-on-surface">{{ t('ns.services.title') }}</h2>
         <p class="text-body-sm text-on-surface-variant mt-1">{{ t('ns.services.subtitle', { count: nsServices.length, ns: route.params.namespace }) }}</p>
       </div>
-      <div class="flex items-center gap-sm">
-        <button @click="router.push({ name: 'NsEndpoints', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:border-primary hover:text-primary transition-colors" :title="t('ns.services.endpointsTitle')">
+      <div class="flex flex-wrap items-center gap-sm">
+        <button @click="router.push({ name: 'NsEndpoints', params: { namespace: route.params.namespace } })" class="flex items-center gap-xs px-3 py-1.5 max-sm:min-h-[40px] text-body-sm font-medium border border-outline-variant text-on-surface-variant rounded-lg hover:border-primary hover:text-primary transition-colors" :title="t('ns.services.endpointsTitle')">
           <span class="material-symbols-outlined text-base">cable</span> {{ t('ns.services.endpoints') }}
         </button>
         <CreateWithYamlButton :label="`${t('common.create')} ${t('ns.services.title')}`" :main-action="() => { showCreateModal = true }" yaml-template="Service" :namespace="route.params.namespace" />
@@ -259,7 +259,7 @@ async function handleDelete() {
         <div class="flex items-center gap-xs">
           <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="epState(row).dot" :title="epState(row).title"></span>
           <span class="material-symbols-outlined text-base shrink-0" :class="typeMeta(row.type).iconColor">{{ typeMeta(row.type).icon }}</span>
-          <span class="font-mono text-xs font-semibold text-on-surface">{{ row.name }}</span>
+          <span class="font-mono text-xs font-semibold text-on-surface truncate min-w-0" :title="row.name">{{ row.name }}</span>
         </div>
       </template>
       <template #type="{ row }">
@@ -338,7 +338,7 @@ async function handleDelete() {
               <option>TCP</option><option>UDP</option><option>SCTP</option>
             </select>
             <input v-if="createForm.type === 'NodePort' || createForm.type === 'LoadBalancer'" v-model="p.nodePort" type="number" class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="nodePort" />
-            <button @click="removeCreatePort(idx)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded-lg">
+            <button @click="removeCreatePort(idx)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
               <span class="material-symbols-outlined text-lg">remove</span>
             </button>
           </div>
@@ -353,11 +353,11 @@ async function handleDelete() {
           </button>
         </div>
         <div class="flex flex-col gap-xs">
-          <div v-for="(row, idx) in createForm.selector" :key="idx" class="flex gap-xs items-center">
-            <input v-model="row.key" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="app" />
-            <span class="text-on-surface-variant text-body-sm">=</span>
-            <input v-model="row.value" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
-            <button @click="removeCreateSelector(idx)" type="button" class="p-xs text-on-surface-variant hover:text-error rounded-lg">
+          <div v-for="(row, idx) in createForm.selector" :key="idx" class="flex gap-xs items-center max-sm:flex-col max-sm:items-stretch">
+            <input v-model="row.key" class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="app" />
+            <span class="text-on-surface-variant text-body-sm max-sm:hidden">=</span>
+            <input v-model="row.value" class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="my-app" />
+            <button @click="removeCreateSelector(idx)" type="button" class="p-xs self-center text-on-surface-variant hover:text-error rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
               <span class="material-symbols-outlined text-lg">remove</span>
             </button>
           </div>
