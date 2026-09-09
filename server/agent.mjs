@@ -121,7 +121,7 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
     // provider 报错兜底);超大贴片/巨型工具结果才值得且能够钳回预算内。
     const clampable = out.reduce((n, m) => n + (m.role === 'tool' || m.role === 'user' ? String(m.content ?? '').length : 0), 0)
     if (cur - budget <= clampable) {
-      const MARKER_PAD = 32
+      const MARKER_PAD = 40 // 标记串 JSON 转义上界(评审 Minor:32 边界可余 ~32 字)
       const clampContent = (m) => {
         const s = String(m.content ?? '')
         const rest = cur - s.length // 本条 content 之外的其余总量
@@ -179,9 +179,12 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   const RETRY_DELAYS = retryDelays || [300, 1500]
   const errKind = (e) => {
     if (e?.name === 'CancelledError' || e?.name === 'InvalidatedError') return 'cancel'
-    if (e?.name === 'IdleTimeoutError' || e?.name === 'StreamDeadlineError') return 'timeout'
+    // AbortSignal.timeout(非流式 chat 总限)也产 TimeoutError——归超时类(单次),否则 3×120s
+    if (e?.name === 'IdleTimeoutError' || e?.name === 'StreamDeadlineError' || e?.name === 'TimeoutError') return 'timeout'
     const s = Number(e?.status)
     if (s >= 500) return 'transient'
+    // 429 亦落此类(单次立即重试、不退避不认 Retry-After)——sub2api/litellm 瞬时 4xx 在案,
+    // 按状态码武断分类的回归风险大于收益;真限流场景由上游代理侧治理(litellm timeout 配置)
     if (s >= 400) return 'client'
     return 'network'
   }

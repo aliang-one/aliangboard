@@ -69,7 +69,9 @@ export async function maybeSummarize(
     // 20-30KB 工具结论长答,生产症状形态)永不触发,体积型溢出只剩静默硬 trim。口径=Σcontent
     // (buildHistory 装配面;严禁按整 DB 行——trace/reasoning 大字段不入上下文)+ conv.recap
     // 自身(摘要越滚越大自己成为膨胀源);阈值与执法线单源(model-context)取半。
-    const volChars = allMsgs.reduce((n, m) => n + String(m.content || '').length, 0) + (conv.recap?.length || 0)
+    // 口径=装配面(仅 seq>upToPrev;评审 Important#1:全量计数会让「历史已摘要」的对话
+    // 永久越过体积线 → 每条新消息都白烧一次摘要 LLM)+ conv.recap 自身
+    const volChars = allMsgs.filter(m => m.seq > upToPrev).reduce((n, m) => n + String(m.content || '').length, 0) + (conv.recap?.length || 0)
     const volumeTrigger = volChars > trimBudgetChars(contextWindowFor(llmClient?.model)) * 0.5
     if (!(nonEmptyCount > thresholdTurns || volumeTrigger)) return false
     // 触发线放宽保留窗(METER-5 复核:只提前触发不改保留是白摘——单轮 15KB 的对话摘后 8 行

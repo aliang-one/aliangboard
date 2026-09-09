@@ -772,3 +772,19 @@ test('E5: 体积触发——4 轮×30KB 巨轮(行数<12)也触发摘要,水位�
   const lastUser = db.prepare("SELECT seq FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq DESC LIMIT 1").get(conv.id)
   assert.ok(row.summarizedUpTo < lastUser.seq, `末条 user(seq=${lastUser.seq})保持全文(水位 ${row.summarizedUpTo})`)
 })
+
+// 评审 Important#1:体积线只计装配面(seq>upToPrev)——已摘要历史不永久触发(免每条消息白烧摘要 LLM)
+test('E6: 历史已摘要(装配面低于体积线)→ 不触发,即使全量历史超线', async () => {
+  const db = freshDb()
+  // 8 条 30KB 巨轮全已被摘要(水位=8),其后仅 2 条小消息 → 装配面 ~60B + recap
+  const conv = createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'q' })
+  for (let i = 0; i < 8; i++) appendMessage(db, { conversationId: conv.id, role: i % 2 ? 'assistant' : 'user', content: 'X'.repeat(30000) })
+  updateConversation(db, conv.id, { recap: '已摘要的旧决策', summarizedUpTo: 8 })
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: '小问题' })
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: '小回答' })
+  let called = false
+  const llm = { chat: async () => { called = true; return { role: 'assistant', content: 'x' } } }
+  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 })
+  assert.equal(called, false, '装配面低于体积线 → 不烧 LLM(全量 240KB 不计入)')
+  assert.equal(fired, false)
+})

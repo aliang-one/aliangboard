@@ -223,7 +223,7 @@ const CK_TIME_MS = 500
       resetRound: () => {
         if (stale()) return
         if (dbCancelled(convId)) return
-        lastRound = { partial, reasoning }
+        lastRound = { partial, reasoning } // partial 现无消费方(content 走 trace 派生,比快照更全)——保留作轮终 content 兜底预留
         partial = ''; reasoning = ''; ckAt = 0; rCkAt = 0
         checkpoint()
       },

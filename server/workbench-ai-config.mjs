@@ -54,7 +54,7 @@ export function clampInstructions(input) {
 }
 
 // ===== 最大执行步数(2026-09-03):admin「AI 行为」面板可调,agent 循环上限单源 =====
-// 语义:0 = 不限制(仅上下文预算 budgetChars 兜底);缺键/垃圾 → env WB_MAX_STEPS(部署侧
+// 语义:0 = 不限制(硬顶 200 轮兜底,到顶强制收尾终答);缺键/垃圾 → env WB_MAX_STEPS(部署侧
 // 预置通道,语义与原 workbench-agent.mjs 的 WB_MAX_STEPS 逐字一致)→ 16。
 export const MAX_STEPS_RANGE = { lo: 0, hi: 200 }
 

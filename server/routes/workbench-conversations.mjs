@@ -233,9 +233,14 @@ export function createWorkbenchConvRoutes(deps) {
     const charBudget = trimBudgetChars(windowTokens) // 单源:与 agent 执法线同函数同单位
     const acc = { cjk: 0, other: 0 }
     const count = s => { const c = countCjkChars(s); acc.cjk += c.cjk; acc.other += c.other }
+    // paused:conv.messages 缺失/损坏(存量/legacy 行)→ 回退静止口径(评审 Minor#5:
+    // 恒 0 比数陈旧载荷更糟——willTrim 假安全)
+    let pausedArr = null
     if (conv.status === 'paused' && conv.messages) {
-      let arr = []; try { arr = JSON.parse(conv.messages) } catch { arr = [] }
-      for (const m of sanitizeMessages(arr)) count(JSON.stringify(m))
+      try { const a = JSON.parse(conv.messages); if (Array.isArray(a) && a.length) pausedArr = a } catch { pausedArr = null }
+    }
+    if (pausedArr) {
+      for (const m of sanitizeMessages(pausedArr)) count(JSON.stringify(m))
     } else {
       const history = buildHistory(db, conv)
       const pmRecap = getProject(db, conv.projectId)?.projectRecap || '' // 项目记忆恒注入段(精确)
