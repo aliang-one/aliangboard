@@ -1,10 +1,12 @@
 // 手机适配静态守卫(M1/M2)—— 2026-09-09 Wave5(W3+W4+W5)T0「守卫先行」。
 // 目标机型 390px 视口(内容宽约 326px):两类静态可判定的横向溢出源头。
 //
-// M1 裸表须可滚:文件含 `<table` 且全文件无 `overflow-x-auto` 且未 import DataTable → 违规。
+// M1 裸表须可滚:文件含 `<table` 且全文件无 overflow(-x)-auto 且未 import DataTable → 违规。
 //    裸表列 min-content(长 DNS 名/mono 串)轻易超 326px,外层卡片 overflow-hidden 硬裁=手机不可达。
 //    安全出路:①迁 `@/components/common/DataTable`(手机卡片模式内建);②语义特殊表保底:
 //    外层 `overflow-x-auto` + 表 `min-w-[600px]` + 单元格 truncate(见 NsNetworkPolicyDetail 配方)。
+//    `overflow-auto`(两轴均滚,如 CopyWorkloadDialog 的 max-h 卡内表 + sticky thead)同样保证
+//    手机横滚可达,与 overflow-x-auto 等价放行(2026-09-09 W5 B12a 收紧)。
 //    DataTable.vue 自身内建 `<table`,是唯一豁免文件(不走 allowlist)。
 //
 // M2 固定宽阈值:任意值宽类 `w-[Npx]`/`max-w-[Npx]` 且 N≥640 → 违规;min(...) 响应式上限是
@@ -36,7 +38,9 @@ function walk(dir, out = []) {
 const M1_DT_IMPORT = "@/components/common/DataTable"
 function m1Violations(src) {
   if (!src.includes('<table')) return []
-  if (src.includes('overflow-x-auto')) return []
+  // overflow-auto 与 overflow-x-auto 等价放行:两轴均滚的滚动盒(如 CopyWorkloadDialog
+  // 的 max-h-[360px] overflow-auto 卡内表)手机上同样可横滚到被裁的列
+  if (/overflow-(x-)?auto/.test(src)) return []
   if (src.includes(M1_DT_IMPORT)) return []
   // 命中行摘录(首处,截 60 字符)供报错定位
   const m = src.match(/<table[^\n]*/)
@@ -64,6 +68,7 @@ test('M1/M2 规则语义自检(阈值/逃生口/排除项)', () => {
   assert.deepEqual(m1Violations('<template><table class="w-full"><tr><td>x</td></tr></table></template>'),
     ['<table class="w-full"><tr><td>x</td></tr></table></template>'.slice(0, 60)])
   assert.deepEqual(m1Violations('<div class="overflow-x-auto"><table>x</table></div>'), [])
+  assert.deepEqual(m1Violations('<div class="overflow-auto"><table>x</table></div>'), []) // overflow-auto(两轴滚)同放行
   assert.deepEqual(m1Violations(`import DataTable from '@/components/common/DataTable.vue'\n<table>x</table>`), [])
   assert.deepEqual(m1Violations('<template><div>no table here</div></template>'), [])
   // M2:阈值 640、前缀 max-w、逃生口 min(、排除 min-w-
@@ -71,7 +76,7 @@ test('M1/M2 规则语义自检(阈值/逃生口/排除项)', () => {
   assert.deepEqual(m2Violations('max-w-[720px]'), ['max-w-[720px]'])
   assert.deepEqual(m2Violations('max-w-[400px]'), []) // 400 < 640
   assert.deepEqual(m2Violations('w-[min(860px,calc(100vw-2rem))]'), []) // min( 上限
-  assert.deepEqual(m2Violations('min-w-[600px]'), []) // min-width 不在射程
+  assert.deepEqual(m2Violations('min-w-[700px]'), []) // min-width 不在射程(700≥640:600 会走阈值放行测不出排除,700 只有 lookbehind 能救)
   assert.deepEqual(m2Violations('sm:w-[640px]'), ['w-[640px]']) // 响应式前缀不豁免(按裁决,断点内仍须 min( 形态)
   // ±120 字符窗口:近距 min( 放行、远距不豁免
   assert.deepEqual(m2Violations('class="w-[720px]" style="width: min(720px, 100vw)"'), [])
@@ -84,8 +89,10 @@ test('M1/M2 规则语义自检(阈值/逃生口/排除项)', () => {
 // B4 已清账(2026-09-09):NsHPADetail metrics 裸表 6 列迁 DataTable(row-key=_idx),条目删除。
 // B5 已清账(2026-09-09):CrdDetail instances 表(P0,expandable DataTable)/ResourceReferences 五列表/NamespaceDetail
 // workloads 表迁 DataTable;WorkloadDetail legacy Pod 表/NodeDetail conditions 表走保底(overflow-x-auto + min-w + truncate),条目删除。
+// B12a 已清账(2026-09-09):CopyWorkloadDialog 裸表外层本就是 overflow-auto(max-h 卡,两轴滚+sticky thead),
+// 规则收紧为 overflow(-x)-auto 等价放行后按配方合法 → 名单清零。
 const M1_ALLOWLIST = [
-  'components/common/CopyWorkloadDialog.vue', // 选择工作负载弹窗裸表;外层是 overflow-auto(max-h 卡)非 overflow-x-auto 字面量 → 按字面规则计违规,后续对齐配方(overflow-x-auto)或带裁决豁免
+  // (空——新违规当批修复,勿加豁免;须留裁决豁免时须同步删文末清零自检,让删除成为显式动作)
 ]
 
 test('M1: 裸 <table> 须可滚(overflow-x-auto 或迁 DataTable),存量见 allowlist', () => {
@@ -117,4 +124,12 @@ test('M2: w-[Npx]/max-w-[Npx] ≥640px 固定宽须带 min(...) 响应式上限(
   }
   assert.deepEqual(offenders, [],
     '发现 ≥640px 固定宽类(390px 视口必然横向溢出),改 w-[min(Npx,calc(100vw-2rem))] 形态(修法见 scripts/mobile-guard.test.mjs 头注 M2)')
+})
+
+// ── allowlist 清零自检(2026-09-09 W5 B12a 收口)──
+// W5 收口时 M1/M2 名单双清零;此测试钉住空名单——未来加条目会先红在这里,迫使加条目者
+// 显式删本测试(= 显式承认留豁免),防止 allowlist 悄悄回潮。
+test('M1/M2 allowlist 清零自检(W5 收口:两名单必须为空)', () => {
+  assert.deepEqual(M1_ALLOWLIST, [])
+  assert.deepEqual(M2_ALLOWLIST, [])
 })
