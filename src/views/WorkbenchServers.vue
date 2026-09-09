@@ -4,7 +4,7 @@
 // - 首列 = OS 图标(OsIcon,OS 探测落库的 osId 映射发行版图标)+ 名称/描述;
 // - 状态列 = ok(正常)/fail(异常)/unknown(未测)三态 badge,试连即刷新;
 // - 暴露 AI 列 = 状态展示 + 快速编辑 icon(原地切换开关与审批策略,即时 PUT);
-// - 操作列 = 终端/文件 + 更多▾(测试连接/编辑/删除收进菜单,降低行内按钮密度);
+// - 操作列 = 终端/文件 + 更多▾(共享 DropdownMenu,测试连接/编辑/删除收进菜单,降低行内按钮密度);
 //   手机档(Wave5 R5)清单迁 DataTable 卡片化,更多▾在卡片 overflow 链里会被裁 → 五钮扁平组。
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -19,6 +19,7 @@ import { useSshTerminalStore } from '@/stores/sshTerminals'
 import { useAuthStore } from '@/stores/auth'
 import { Z } from '@/styles/zScale'
 import DataTable from '@/components/common/DataTable.vue'
+import DropdownMenu from '@/components/common/DropdownMenu.vue'
 import { useIsPhone } from '@/composables/useBreakpoint'
 
 const { t } = useI18n()
@@ -118,14 +119,19 @@ async function onExposeToggle(s, v) {
 // —— 台账弹窗(2026-08-29 双域化):内容迁 ServerLedgerPanel,弹窗只留壳 ——
 const showLedger = ref(false)
 
-// —— 更多菜单(每行一个,同时至多一个展开)——
-const moreOpenFor = ref('')
-function toggleMore(s) { moreOpenFor.value = moreOpenFor.value === s.id ? '' : s.id }
+// —— 更多菜单:共享 DropdownMenu(Teleport body + fixed,仓库既定防裁配方;Wave5 R5 修复轮)。
+//    旧就地 absolute bottom-full 菜单迁 DataTable 后被其 overflow-x-auto/overflow-hidden 链裁掉首两行 ——
 async function moreAction(s, action) {
-  moreOpenFor.value = ''
   if (action === 'test') await onTest(s)
   else if (action === 'edit') openEdit(s)
   else if (action === 'delete') await onDelete(s)
+}
+function moreItems(s) {
+  return [
+    { label: t('ssh.testConnection'), icon: 'network_check', action: () => moreAction(s, 'test') },
+    { label: t('common.edit'), icon: 'edit', action: () => moreAction(s, 'edit') },
+    { label: t('common.delete'), icon: 'delete', danger: true, action: () => moreAction(s, 'delete') },
+  ]
 }
 const statusBadge = s => s.status === 'ok'
   ? { cls: 'bg-primary-container/40 text-primary border-primary/30', dot: 'bg-primary', label: t('ssh.statusOk') }
@@ -213,22 +219,8 @@ defineExpose({ servers })
           <div v-else class="flex items-center gap-xs">
             <button data-test="btnTerm" @click="sshTerminals.openOrFocus(row)" class="relative px-sm py-xs rounded-lg bg-primary-container/60 text-body-xs max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">{{ t('ssh.terminal') }}</button>
             <button data-test="btnFiles" @click="openFiles(row)" class="relative px-sm py-xs rounded-lg bg-secondary-container/60 text-body-xs max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">{{ t('ssh.files') }}</button>
-            <div class="relative">
-              <button v-if="isAdmin" data-test="btnMore" @click="toggleMore(row)"
-                class="px-xs py-xs rounded-lg bg-surface-container text-body-xs text-on-surface-variant hover:text-primary"
-                :title="t('ssh.moreActions')">
-                <span class="material-symbols-outlined text-base align-middle">more_vert</span>
-              </button>
-              <!-- 更多菜单:任务栏同款遮罩+下拉 -->
-              <div v-if="moreOpenFor === row.id" class="absolute bottom-full mb-xs left-0 min-w-[140px] bg-surface-container-lowest border border-outline-variant rounded-lg shadow-xl p-xs whitespace-nowrap" style="z-index: 101">
-                <button data-test="moreTest" @click="moreAction(row, 'test')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
-                  <span class="material-symbols-outlined text-sm">network_check</span>{{ t('ssh.testConnection') }}</button>
-                <button data-test="moreEdit" @click="moreAction(row, 'edit')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs hover:bg-surface-container text-left">
-                  <span class="material-symbols-outlined text-sm">edit</span>{{ t('common.edit') }}</button>
-                <button data-test="moreDelete" @click="moreAction(row, 'delete')" class="w-full flex items-center gap-xs px-sm py-xs rounded-md text-body-xs text-error hover:bg-error/10 text-left">
-                  <span class="material-symbols-outlined text-sm">delete</span>{{ t('common.delete') }}</button>
-              </div>
-            </div>
+            <DropdownMenu v-if="isAdmin" data-test="btnMore" trigger-icon="more_vert" :trigger-label="t('ssh.moreActions')"
+              :items="moreItems(row)" />
           </div>
         </template>
       </DataTable>

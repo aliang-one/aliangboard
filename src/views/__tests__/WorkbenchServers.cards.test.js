@@ -47,12 +47,21 @@ test('手机档:DataTable 卡片模式,2 服务器 2 卡片,无裸 table;终端/
   } finally { spy.mockRestore() }
 })
 
-test('桌面档:表格分支在场,更多▾下拉保留', async () => {
+test('桌面档:表格分支在场,更多▾菜单走共享 DropdownMenu(传送 body,不受 DataTable overflow 裁切)', async () => {
   const spy = mockViewport(false)
   try {
     const w = await mountView()
     expect(w.find('table').exists()).toBe(true)
     expect(w.find('[data-test="btnMore"]').exists()).toBe(true)
+    // 旧就地 absolute 菜单在 DataTable overflow-x-auto/overflow-hidden 链里首两行被裁;
+    // 共享 DropdownMenu = Teleport body + fixed(仓库既定配方),菜单项必须出现在 body
+    await w.find('[data-test="btnMore"] button').trigger('click')
+    await flushPromises()
+    const menu = document.body.querySelector('[data-testid="dropdown-menu-panel"]')
+    expect(menu).toBeTruthy()
+    expect(menu.textContent).toContain(i18n.global.t('ssh.testConnection'))
+    expect(menu.textContent).toContain(i18n.global.t('common.edit'))
+    expect(menu.textContent).toContain(i18n.global.t('common.delete'))
     w.unmount(); document.body.innerHTML = ''
   } finally { spy.mockRestore() }
 })
