@@ -99,22 +99,22 @@ function saveEdit() {
       { label: route.params.name }
     ]" />
 
-    <!-- Header -->
-    <div class="flex items-center justify-between mt-sm mb-xl">
-      <div class="flex items-center gap-lg">
-        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center">
+    <!-- Header(R4 页头配方:wrap + min-w-0 链 + h1 手机 truncate,审计 NsNetworkPolicyDetail:103) -->
+    <div class="flex flex-wrap items-center justify-between gap-x-sm gap-y-sm mt-sm mb-xl">
+      <div class="flex items-center gap-lg min-w-0">
+        <div class="w-14 h-14 rounded-xl bg-primary-container/20 flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-primary text-3xl">shield</span>
         </div>
-        <div>
-          <h1 class="text-display-lg text-on-surface">{{ np.name }}</h1>
-          <div class="flex items-center gap-md mt-xs">
+        <div class="min-w-0">
+          <h1 class="text-display-lg text-on-surface min-w-0 max-sm:truncate" :title="np.name">{{ np.name }}</h1>
+          <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-primary-container/10 text-primary text-label-caps rounded-full font-medium">{{ t('ns.netpolDetail.networkPolicy') }}</span>
             <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ np.age }}</span>
             <span class="text-body-sm text-on-surface-variant">{{ t('common.namespace') }}: <span class="text-primary font-medium">{{ np.namespace }}</span></span>
           </div>
         </div>
       </div>
-      <div class="flex gap-sm">
+      <div class="flex flex-wrap gap-sm">
         <button @click="openEdit" class="flex items-center gap-sm px-md py-sm bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-colors">
           <span class="material-symbols-outlined">edit</span> {{ t('common.edit') }}
         </button>
@@ -124,10 +124,10 @@ function saveEdit() {
       </div>
     </div>
 
-    <!-- Tabs -->
-    <div class="flex border-b border-outline-variant mb-lg">
+    <!-- Tabs(R3 横滚:4 tab 自然宽 ≈550px > 手机内容宽 326px,审计 NsNetworkPolicyDetail:128) -->
+    <div class="flex border-b border-outline-variant mb-lg overflow-x-auto">
       <button v-for="tab in ['overview', 'ingress rules', 'egress rules', 'yaml']" :key="tab" @click="activeTab = tab"
-        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors"
+        class="px-xl py-3 border-b-2 text-body-md font-medium capitalize transition-colors shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:bg-surface-container'">
         {{ tab === 'overview' ? t('common.status') : tab === 'ingress rules' ? t('ns.netpolDetail.ingressRulesTab') : tab === 'egress rules' ? t('ns.netpolDetail.egressRulesTab') : 'YAML' }}
       </button>
@@ -208,34 +208,38 @@ function saveEdit() {
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
           <h3 class="text-headline-sm">{{ t('ns.netpolDetail.ingressRulesTab') }} {{ t('ns.netpolDetail.ruleCount', { n: (np.ingressRules || []).length }) }}</h3>
         </div>
-        <table v-if="(np.ingressRules || []).length" class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">#</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.from') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.ports') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="(rule, idx) in np.ingressRules" :key="idx" class="hover:bg-surface-container-low/30 transition-colors">
-              <td class="px-lg py-md">
-                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-container/10 text-primary text-body-sm font-bold">{{ idx + 1 }}</span>
-              </td>
-              <td class="px-lg py-md">
-                <div class="flex flex-col gap-xs">
-                  <div v-for="(peer, pIdx) in (rule.from || [])" :key="pIdx" class="flex items-center gap-sm">
-                    <span class="material-symbols-outlined text-sm" :class="peer.type === 'namespaceSelector' ? 'text-primary' : 'text-tertiary'">
-                      {{ peer.type === 'namespaceSelector' ? 'grid_view' : 'layers' }}
-                    </span>
-                    <span class="text-body-sm text-on-surface">{{ describePeer(peer) }}</span>
+        <!-- 保底横滚(审计 NsNetworkPolicyDetail:211):describePeer 产出不可断长串,
+             语义特殊表不迁 DataTable,按 M1 保底配方 overflow-x-auto + min-w-[600px] + 长串 truncate+title -->
+        <div v-if="(np.ingressRules || []).length" class="overflow-x-auto">
+          <table class="w-full min-w-[600px] text-left border-collapse">
+            <thead>
+              <tr class="bg-surface-container-low border-b border-outline-variant">
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">#</th>
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.from') }}</th>
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.ports') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-outline-variant/30">
+              <tr v-for="(rule, idx) in np.ingressRules" :key="idx" class="hover:bg-surface-container-low/30 transition-colors">
+                <td class="px-lg py-md">
+                  <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-container/10 text-primary text-body-sm font-bold">{{ idx + 1 }}</span>
+                </td>
+                <td class="px-lg py-md">
+                  <div class="flex flex-col gap-xs">
+                    <div v-for="(peer, pIdx) in (rule.from || [])" :key="pIdx" class="flex items-center gap-sm min-w-0">
+                      <span class="material-symbols-outlined text-sm shrink-0" :class="peer.type === 'namespaceSelector' ? 'text-primary' : 'text-tertiary'">
+                        {{ peer.type === 'namespaceSelector' ? 'grid_view' : 'layers' }}
+                      </span>
+                      <span class="text-body-sm text-on-surface min-w-0 truncate" :title="describePeer(peer)">{{ describePeer(peer) }}</span>
+                    </div>
+                    <span v-if="!rule.from || rule.from.length === 0" class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.noFromRules') }}</span>
                   </div>
-                  <span v-if="!rule.from || rule.from.length === 0" class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.noFromRules') }}</span>
-                </div>
-              </td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ describePorts(rule.ports) }}</td>
-            </tr>
-          </tbody>
-        </table>
+                </td>
+                <td class="px-lg py-md text-body-sm text-on-surface-variant"><span class="block max-w-[220px] truncate" :title="describePorts(rule.ports)">{{ describePorts(rule.ports) }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div v-else class="p-xl text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-3xl">block</span>
           <p class="mt-sm" v-html="t('ns.netpolDetail.noIngressRules', { status: np.policyTypes.includes('Ingress') ? t('ns.netpolDetail.blocked') : t('ns.netpolDetail.allowed') })"></p>
@@ -249,34 +253,37 @@ function saveEdit() {
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
           <h3 class="text-headline-sm">{{ t('ns.netpolDetail.egressRulesTab') }} {{ t('ns.netpolDetail.ruleCount', { n: (np.egressRules || []).length }) }}</h3>
         </div>
-        <table v-if="(np.egressRules || []).length" class="w-full text-left border-collapse">
-          <thead>
-            <tr class="bg-surface-container-low border-b border-outline-variant">
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">#</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.to') }}</th>
-              <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.ports') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/30">
-            <tr v-for="(rule, idx) in np.egressRules" :key="idx" class="hover:bg-surface-container-low/30 transition-colors">
-              <td class="px-lg py-md">
-                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-tertiary-container/10 text-tertiary text-body-sm font-bold">{{ idx + 1 }}</span>
-              </td>
-              <td class="px-lg py-md">
-                <div class="flex flex-col gap-xs">
-                  <div v-for="(peer, pIdx) in (rule.to || [])" :key="pIdx" class="flex items-center gap-sm">
-                    <span class="material-symbols-outlined text-sm" :class="peer.type === 'namespaceSelector' ? 'text-primary' : 'text-tertiary'">
-                      {{ peer.type === 'namespaceSelector' ? 'grid_view' : 'layers' }}
-                    </span>
-                    <span class="text-body-sm text-on-surface">{{ describePeer(peer) }}</span>
+        <!-- 保底横滚(同 ingress rules 表):to/ports 列长串同病,审计 NsNetworkPolicyDetail:211 -->
+        <div v-if="(np.egressRules || []).length" class="overflow-x-auto">
+          <table class="w-full min-w-[600px] text-left border-collapse">
+            <thead>
+              <tr class="bg-surface-container-low border-b border-outline-variant">
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">#</th>
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.to') }}</th>
+                <th class="px-lg py-md text-label-caps text-on-surface-variant">{{ t('ns.netpolDetail.ports') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-outline-variant/30">
+              <tr v-for="(rule, idx) in np.egressRules" :key="idx" class="hover:bg-surface-container-low/30 transition-colors">
+                <td class="px-lg py-md">
+                  <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-tertiary-container/10 text-tertiary text-body-sm font-bold">{{ idx + 1 }}</span>
+                </td>
+                <td class="px-lg py-md">
+                  <div class="flex flex-col gap-xs">
+                    <div v-for="(peer, pIdx) in (rule.to || [])" :key="pIdx" class="flex items-center gap-sm min-w-0">
+                      <span class="material-symbols-outlined text-sm shrink-0" :class="peer.type === 'namespaceSelector' ? 'text-primary' : 'text-tertiary'">
+                        {{ peer.type === 'namespaceSelector' ? 'grid_view' : 'layers' }}
+                      </span>
+                      <span class="text-body-sm text-on-surface min-w-0 truncate" :title="describePeer(peer)">{{ describePeer(peer) }}</span>
+                    </div>
+                    <span v-if="!rule.to || rule.to.length === 0" class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.noToRules') }}</span>
                   </div>
-                  <span v-if="!rule.to || rule.to.length === 0" class="text-body-sm text-on-surface-variant">{{ t('ns.netpolDetail.noToRules') }}</span>
-                </div>
-              </td>
-              <td class="px-lg py-md text-body-sm text-on-surface-variant">{{ describePorts(rule.ports) }}</td>
-            </tr>
-          </tbody>
-        </table>
+                </td>
+                <td class="px-lg py-md text-body-sm text-on-surface-variant"><span class="block max-w-[220px] truncate" :title="describePorts(rule.ports)">{{ describePorts(rule.ports) }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div v-else class="p-xl text-center text-on-surface-variant">
           <span class="material-symbols-outlined text-3xl">block</span>
           <p class="mt-sm" v-html="t('ns.netpolDetail.noEgressRules', { status: np.policyTypes.includes('Egress') ? t('ns.netpolDetail.blocked') : t('ns.netpolDetail.allowed') })"></p>
@@ -319,14 +326,15 @@ function saveEdit() {
           <span class="text-xs text-on-surface-variant">{{ t('ns.netpolDetail.emptyAllPods') }}</span>
         </div>
         <div class="flex flex-col gap-sm">
-          <div v-for="(entry, idx) in editPodSelector" :key="idx" class="flex items-center gap-sm">
+          <!-- 手机纵排(审计 NsNetworkPolicyDetail:322):两输入 min-content ≈473px > 手机全屏 Modal 内宽 -->
+          <div v-for="(entry, idx) in editPodSelector" :key="idx" class="flex items-center gap-sm max-sm:flex-col max-sm:items-stretch">
             <input v-model="entry.key" :placeholder="t('common.name')"
-              class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
-            <span class="text-on-surface-variant">=</span>
+              class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+            <span class="text-on-surface-variant max-sm:hidden">=</span>
             <input v-model="entry.value" :placeholder="t('common.name')"
-              class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
-            <button @click="removePodSelectorRow(idx)"
-              class="flex items-center justify-center w-9 h-9 border border-outline-variant rounded-lg text-on-surface-variant hover:bg-error-container/10 hover:text-error hover:border-error/30 transition-colors">
+              class="flex-1 min-w-0 max-sm:w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
+            <button @click="removePodSelectorRow(idx)" :title="t('common.delete')"
+              class="flex items-center justify-center w-9 h-9 border border-outline-variant rounded-lg text-on-surface-variant hover:bg-error-container/10 hover:text-error hover:border-error/30 transition-colors shrink-0 max-sm:self-end">
               <span class="material-symbols-outlined">remove</span>
             </button>
           </div>
@@ -335,7 +343,7 @@ function saveEdit() {
           </div>
         </div>
         <button @click="addPodSelectorRow"
-          class="mt-sm flex items-center gap-xs px-md py-xs border border-outline-variant rounded-lg text-body-sm text-primary hover:bg-primary-container/10 transition-colors">
+          class="mt-sm flex items-center gap-xs px-md py-xs max-sm:min-h-[40px] border border-outline-variant rounded-lg text-body-sm text-primary hover:bg-primary-container/10 transition-colors">
           <span class="material-symbols-outlined text-base">add</span> {{ t('ns.netpolDetail.addLabel') }}
         </button>
       </div>

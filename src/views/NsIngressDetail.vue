@@ -232,7 +232,7 @@ function saveEditLabel() {
         <div class="min-w-0">
           <h1 class="text-headline-md font-bold text-on-surface truncate">{{ ing.name }}</h1>
           <div class="flex items-center gap-xs flex-wrap mt-xs">
-            <span class="px-2 py-0.5 bg-primary/8 text-primary text-xs rounded-md font-medium">{{ $t('ns.ingressDetail.ingress') }}</span>
+            <span class="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-md font-medium">{{ $t('ns.ingressDetail.ingress') }}</span>
             <span v-if="ing.className" class="px-2 py-0.5 bg-surface-container text-on-surface-variant text-xs rounded-md font-medium border border-outline-variant">{{ ing.className }}</span>
             <span class="flex items-center gap-0.5 px-2 py-0.5 text-xs rounded-md font-medium" :class="ing.tls ? 'bg-primary-container/15 text-primary' : 'bg-surface-container text-on-surface-variant border border-outline-variant'">
               <span class="material-symbols-outlined text-sm">{{ ing.tls ? 'lock' : 'lock_open' }}</span>{{ ing.tls ? $t('ns.ingressDetail.tls') : $t('ns.ingressDetail.noTls') }}
@@ -345,7 +345,7 @@ function saveEditLabel() {
             <span class="ml-auto text-xs text-on-surface-variant">{{ backendServices.length }}</span>
           </div>
           <div class="p-sm flex flex-wrap gap-xs">
-            <button v-for="svc in backendServices" :key="svc" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: svc } })" class="flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-primary-container/10 text-primary text-xs font-mono font-medium hover:bg-primary-container/20 transition-colors">
+            <button v-for="svc in backendServices" :key="svc" @click="router.push({ name: 'NsServiceDetail', params: { namespace: route.params.namespace, name: svc } })" :title="svc" class="flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-primary-container/10 text-primary text-xs font-mono font-medium hover:bg-primary-container/20 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
               <span class="material-symbols-outlined text-sm">share</span>{{ svc }}
             </button>
           </div>
