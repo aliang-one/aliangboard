@@ -65,7 +65,7 @@ describe('FloatingWindow headerless', () => {
     expect(w.vm.winStyle).toMatchObject({ width: '720px' })
     w.vm.toggleMaximize()
     await Promise.resolve()
-    expect(w.vm.winStyle).toMatchObject({ left: '268px', top: '72px', right: '8px', bottom: '44px', zIndex: 7 })
+    expect(w.vm.winStyle).toMatchObject({ left: 'calc(var(--sb-width, 260px) + 8px)', top: '72px', right: '8px', bottom: '44px', zIndex: 7 })
     const evts = w.emitted('maximize-change')
     expect(evts).toHaveLength(1)
     expect(evts[0]).toEqual([true])
@@ -82,7 +82,7 @@ describe('FloatingWindow headerless', () => {
     await dragFrom(w, '[data-test="drag-head"]')
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 400, clientY: 400 }))
     await Promise.resolve()
-    expect(w.vm.winStyle).toMatchObject({ left: '268px' })   // 仍铺满
+    expect(w.vm.winStyle).toMatchObject({ left: 'calc(var(--sb-width, 260px) + 8px)' })   // 仍铺满
     document.dispatchEvent(new MouseEvent('mouseup'))
     w.unmount()
   })

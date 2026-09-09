@@ -13,10 +13,13 @@ import TopologyWorkloadNode from './flow/TopologyWorkloadNode.vue'
 import TopologyPodsNode from './flow/TopologyPodsNode.vue'
 import TopologyConsumersNode from './flow/TopologyConsumersNode.vue'
 import { isRetiredRs } from '@/logic/topology'
+import { useIsPhone } from '@/composables/useBreakpoint'
 import '@vue-flow/core/dist/style.css'
 
 const { t } = useI18n()
 const router = useRouter()
+// Wave5 R11:手机档 min-zoom 放宽到 0.15(fit-view 后双指可缩出全流水线;桌面 0.5 不变)
+const { isPhone } = useIsPhone()
 const props = defineProps({ topo: { type: Object, required: true }, workload: { type: Object, required: true }, canMutate: { type: Boolean, default: true }, managedPods: { type: Array, default: () => [] }, podsPending: { type: Boolean, default: false }, configRefs: { type: Array, default: () => [] } })
 const emit = defineEmits(['goto'])
 
@@ -95,7 +98,7 @@ onNodesInitialized(nodesMeasured => {
     <div class="topo-canvas relative rounded-xl border border-outline-variant bg-surface-container-lowest" style="height: 480px">
       <VueFlow :nodes="nodes" :edges="edges" :node-types="nodeTypes"
         fit-view-on-init :zoom-on-scroll="false" :nodes-draggable="false" :pan-on-drag="true"
-        :min-zoom="0.5" :max-zoom="1.5" />
+        :min-zoom="isPhone ? 0.15 : 0.5" :max-zoom="1.5" />
       <!-- pending 骨架:VueFlow 兄弟节点(不入其变换容器,inset-0 才按容器定位而非画布坐标) -->
       <div v-if="topo.states.value.servicesPending || topo.states.value.ingressesPending" class="absolute inset-0 z-10 flex items-center justify-center bg-surface-container-lowest/70">
         <span class="material-symbols-outlined animate-spin text-2xl text-on-surface-variant">progress_activity</span>

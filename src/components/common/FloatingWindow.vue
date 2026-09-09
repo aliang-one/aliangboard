@@ -6,6 +6,7 @@
 // data-window-drag(交互控件豁免);最大化经 expose toggleMaximize() + maximize-change 驱动。
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { Z } from '@/styles/zScale'
+import { useIsPhone } from '@/composables/useBreakpoint'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -23,6 +24,7 @@ const props = defineProps({
   // true = 无头模式:不渲染标题栏,拖拽委托给内容方 [data-window-drag] 区域
   headerless: { type: Boolean, default: false },
 })
+const { isPhone } = useIsPhone()
 const emit = defineEmits(['focus', 'minimize', 'close', 'maximize-change'])
 
 const isMax = ref(false)
@@ -61,9 +63,17 @@ onUnmounted(() => { document.removeEventListener('mousemove', onDragMove); docum
 // + 顶部导航 64px(TopNavBar h-16,sticky z-50;旧写法 top:8px 让窗口标题栏钻到导航栏下面被压住)
 // + 底部任务栏 32px(TerminalTaskbar)。zIndex 由调用方给(终端/文件窗口窗口带
 // Z.windowBase..Z.windowMax,恒高于顶栏 Z.nav、恒低于模态框 Z.modal——见 zScale)。
-const winStyle = computed(() => isMax.value
-  ? { left: '268px', top: '72px', right: '8px', bottom: '44px', zIndex: props.zIndex }
-  : { left: pos.value.x + 'px', top: pos.value.y + 'px', width: props.width, height: props.height, zIndex: props.zIndex })
+// —— 手机档(R1/Wave5):390px 视口下固定宽(720/860px)+ 级联定位数学会把窗口推出屏外
+// (x=Math.min(80, 390-740)=-350)且拖拽是 mouse 事件触屏不可用 → 浮窗一律 inset 铺满
+// 内容区;最大化 left 消费 --sb-width(手机档该变量为 0,天然全宽),桌面行为不变。
+const winStyle = computed(() => {
+  if (isPhone.value) {
+    return { left: '8px', top: '8px', right: '8px', bottom: '44px', zIndex: props.zIndex }
+  }
+  return isMax.value
+    ? { left: 'calc(var(--sb-width, 260px) + 8px)', top: '72px', right: '8px', bottom: '44px', zIndex: props.zIndex }
+    : { left: pos.value.x + 'px', top: pos.value.y + 'px', width: props.width, height: props.height, zIndex: props.zIndex }
+})
 
 // 最大化状态同步 + 程序化入口(headerless:绿点圆点驱动;非 headerless:壳层按钮与 expose 共用)
 function toggleMaximize() { isMax.value = !isMax.value }

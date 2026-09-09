@@ -2292,13 +2292,13 @@
     "noUpdatePerm": "No update permission",
     "noDeletePerm": "No delete permission",
     "tabs": {
-      "overview": "overview",
-      "topology": "topology",
-      "network": "network",
-      "pods": "pods",
-      "revisions": "revisions",
-      "yaml": "yaml",
-      "events": "events"
+      "overview": "Overview",
+      "topology": "Topology",
+      "network": "Network",
+      "pods": "Pods",
+      "revisions": "Revisions",
+      "yaml": "YAML",
+      "events": "Events"
     },
     "rollout": {
       "healthy": "Running normally",
@@ -3804,7 +3804,9 @@
       "renameFailed": "Rename failed",
       "backgroundChat": "Background",
       "backgroundChatTitle": "Conversation keeps running in background; back to namespace overview",
-      "pausedConvBanner": "\"{title}\" is awaiting your approval — click to review"
+      "pausedConvBanner": "\"{title}\" is awaiting your approval — click to review",
+      "showConversations": "Conversations",
+      "showFiles": "Files"
     },
     "ide": {
       "collapseFiles": "Collapse file tree",
