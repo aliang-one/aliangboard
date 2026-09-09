@@ -857,7 +857,7 @@ async function handleDeploy() {
 
     <!-- Step Indicator -->
     <div v-if="!showDeploySuccess" class="flex items-center mb-md max-sm:overflow-x-auto">
-      <div v-for="(step, idx) in steps" :key="idx" class="flex items-center shrink-0">
+      <div v-for="(step, idx) in steps" :key="idx" class="flex items-center max-sm:shrink-0">
         <div
           class="flex items-center gap-sm cursor-pointer"
           :class="idx <= currentStep ? 'text-primary' : 'text-on-surface-variant'"
