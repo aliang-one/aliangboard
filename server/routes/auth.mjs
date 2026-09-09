@@ -10,6 +10,7 @@ import { queryAuditLog } from '../audit.mjs'
 import { effectiveGrants } from '../authz.mjs'
 import { generateTotpSecret, otpauthUri, verifyTotp, generateRecoveryCodes, hashRecoveryCode } from '../totp.mjs'
 import { oidcSubjectOf, upsertOidcUser, syncGroupsFromClaims } from '../oidc-provision.mjs'
+import { WB_APPROVAL_MODES } from '../wb-approval-mode.mjs'
 import { createHash, randomBytes } from 'node:crypto'
 import { unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -632,6 +633,8 @@ export function createAuthRoutes(deps) {
       if (input.defaultClusterId !== undefined && input.defaultClusterId !== null && (typeof input.defaultClusterId !== 'string' || input.defaultClusterId.length > 64)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
       if (input.defaultNamespace !== undefined && input.defaultNamespace !== null && (typeof input.defaultNamespace !== 'string' || !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(input.defaultNamespace))) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
       if (input.rowsPerPage !== undefined && input.rowsPerPage !== null && !PREF_ROWS.includes(input.rowsPerPage)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
+      // 审批三档模式(2026-09-09):workbenchApprovalMode ∈ WB_APPROVAL_MODES(ask/writes/auto)。
+      if (input.workbenchApprovalMode != null && !WB_APPROVAL_MODES.includes(input.workbenchApprovalMode)) { sendJson(res, 400, { message: msg(req, 'auth.preferenceInvalid') }); return true }
       const prefs = readPrefs(db, ps.userId)
       if (input.language != null) prefs.language = input.language
       if (input.theme != null) prefs.theme = input.theme
@@ -639,6 +642,12 @@ export function createAuthRoutes(deps) {
       if (input.defaultClusterId !== undefined) prefs.defaultClusterId = input.defaultClusterId
       if (input.defaultNamespace !== undefined) prefs.defaultNamespace = input.defaultNamespace
       if (input.rowsPerPage !== undefined) prefs.rowsPerPage = input.rowsPerPage
+      // 切档落审计行(仅值变化时:前端 persist 是全字段双写,值未变也记 = 刷屏);已验证合法才走到这里。
+      const prevApprovalMode = prefs.workbenchApprovalMode ?? 'ask'
+      if (input.workbenchApprovalMode != null) prefs.workbenchApprovalMode = input.workbenchApprovalMode
+      if (input.workbenchApprovalMode != null && input.workbenchApprovalMode !== prevApprovalMode) {
+        writeAudit?.(db, { owner: ps.username, verb: 'change', tool: 'platform_approval_mode', result: 'ok', requestSummary: `workbenchApprovalMode=${prevApprovalMode}->${input.workbenchApprovalMode}`, source: 'platform' })
+      }
       db.prepare('UPDATE platform_users SET prefs=? WHERE id=?').run(JSON.stringify(prefs), ps.userId)
       sendJson(res, 200, { prefs })
       return true

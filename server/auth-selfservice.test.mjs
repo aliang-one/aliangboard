@@ -567,3 +567,44 @@ test('回归锚(W3 R5):无 totpSecret 用户登录 → 直发 token,响应键集
   assert.deepEqual(Object.keys(sent[0].payload).sort(), ['prefs', 'token', 'user'])
   assert.equal(sent[0].payload.mfaRequired, undefined)
 })
+
+// === 审批三档模式(2026-09-09):workbenchApprovalMode 偏好键 ===
+test('PUT preferences workbenchApprovalMode:合法落库回传,GET me 读回;切档落平台审计行', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  routes._body = { workbenchApprovalMode: 'writes' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.equal(sent.at(-1).payload.prefs.workbenchApprovalMode, 'writes')
+  await routes.routes.handle({ method: 'GET', headers: { 'x-platform-token': 't-me' }, url: '/api/auth/me' }, {}, new URL('/api/auth/me', 'http://x'))
+  assert.equal(sent.at(-1).payload.prefs.workbenchApprovalMode, 'writes')
+  // 切档审计行(链上可追「谁在何时把 AI 审批切到哪档」)
+  let rows = db.prepare("SELECT * FROM audit_log WHERE tool='platform_approval_mode' AND status='finalized'").all()
+  assert.equal(rows.length, 1)
+  assert.match(rows[0].requestSummary, /ask->writes/)
+  assert.equal(rows[0].source, 'platform')
+  // 再切 auto:又一行;值未变的 PUT 不重复记
+  routes._body = { workbenchApprovalMode: 'auto' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  rows = db.prepare("SELECT * FROM audit_log WHERE tool='platform_approval_mode' AND status='finalized'").all()
+  assert.equal(rows.length, 2)
+  assert.match(rows[1].requestSummary, /writes->auto/)
+  routes._body = { workbenchApprovalMode: 'auto' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  rows = db.prepare("SELECT * FROM audit_log WHERE tool='platform_approval_mode' AND status='finalized'").all()
+  assert.equal(rows.length, 2, '值未变不重复记(前端 persist 全字段双写,防审计刷屏)')
+})
+
+test('PUT preferences workbenchApprovalMode:非法值 400 且不落库不审计;无关字段 PUT 不记切档行', async () => {
+  const db = makeDb(); seed(db)
+  const { routes, sent } = makeRoutes(db)
+  routes._body = { workbenchApprovalMode: 'yolo' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 400)
+  assert.equal(db.prepare('SELECT prefs FROM platform_users WHERE id=?').get('u1').prefs, null)
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE tool='platform_approval_mode'").get().n, 0)
+  routes._body = { theme: 'dark' }
+  await routes.routes.handle({ method: 'PUT', headers: { 'x-platform-token': 't-me' } }, {}, new URL('http://x/api/auth/preferences'))
+  assert.equal(sent.at(-1).status, 200)
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE tool='platform_approval_mode'").get().n, 0, '不带模式键的 PUT 不记切档行')
+})

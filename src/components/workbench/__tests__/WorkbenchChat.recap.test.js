@@ -3,6 +3,7 @@
 import { test, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia } from 'pinia'
 import zh from '@/locales/zh.json'
 import en from '@/locales/en.json'
 
@@ -36,7 +37,7 @@ async function mountWithProjectRecap(recapText) {
   })
   const w = mount(WorkbenchChat, {
     props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-r', activeConversationId: 'conv-r' },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n, createPinia()] },
   })
   await flushPromises()
   return w
@@ -178,7 +179,7 @@ test('空态卡手动收起后 pollOnce 不再强制重开(一次性闸——终
   })
   const w = mount(WorkbenchChat, {
     props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-r', activeConversationId: 'conv-r' },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n, createPinia()] },
   })
   await flushPromises()
   const card = w.find('[data-testid="project-recap-card"]')
@@ -204,7 +205,7 @@ test('空态:无对话项目(projectId 仅有的场景)卡片同样渲染', asyn
   api.conversations.get.mockRejectedValueOnce(new Error('no conv'))
   const w = mount(WorkbenchChat, {
     props: { projectId: 'p1', projectName: 'demo' },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n, createPinia()] },
   })
   await flushPromises()
   expect(w.find('[data-testid="project-recap-card"]').exists()).toBe(true, '无对话也要能写项目记忆')

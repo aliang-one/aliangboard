@@ -37,7 +37,7 @@ export function assertProjectOwnership(ps, project) {
 export function listConversationsByOwner(db, userId) {
   return db.prepare(`
     SELECT c.id, c.projectId, c.status, c.steps, c.title, c.userMessage, c.error, c.createdAt, c.updatedAt,
-           p.name AS projectName,
+           p.name AS projectName, p.ownerId AS projectOwnerId,
            (SELECT count(*) FROM workbench_messages m WHERE m.conversationId = c.id) AS messageCount
     FROM workbench_conversations c JOIN workbench_projects p ON c.projectId = p.id
     WHERE p.ownerId = ?
@@ -76,7 +76,7 @@ export function createWorkbenchProjectRoutes(deps) {
         const isAdmin = ps.role === 'admin'
         const conversations = isAdmin ? db.prepare(`
           SELECT c.id, c.status, c.steps, c.title, c.userMessage, c.error, c.createdAt, c.updatedAt,
-                 p.id AS projectId, p.name AS projectName,
+                 p.id AS projectId, p.name AS projectName, p.ownerId AS projectOwnerId,
                  (SELECT count(*) FROM workbench_messages m WHERE m.conversationId = c.id) AS messageCount
           FROM workbench_conversations c JOIN workbench_projects p ON c.projectId = p.id
           ORDER BY c.updatedAt DESC LIMIT 200`).all()

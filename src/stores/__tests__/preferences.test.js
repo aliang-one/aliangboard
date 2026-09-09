@@ -28,7 +28,7 @@ test('setLanguage:更新 state + setLocale + 双写(localStorage + 服务端)', 
   expect(s.language).toBe('en')
   expect(setLocale).toHaveBeenCalledWith('en')
   expect(localStorage.getItem('aliangboard.locale')).toBe('en')
-  await vi.waitFor(() => expect(authApi.savePreferences).toHaveBeenCalledWith({ language: 'en', theme: null, landingView: null, defaultClusterId: null, defaultNamespace: null, rowsPerPage: null }))
+  await vi.waitFor(() => expect(authApi.savePreferences).toHaveBeenCalledWith({ language: 'en', theme: null, landingView: null, defaultClusterId: null, defaultNamespace: null, rowsPerPage: null, workbenchApprovalMode: null }))
 })
 
 test('setTheme:更新 state + applyThemeMode + 本地缓存', () => {
@@ -72,7 +72,7 @@ test('新偏好键:hydrateFromServer 覆盖 + setXxx 即时生效并 PUT 全量�
   expect(prefs.defaultNamespace).toBe('team-a')
   prefs.setRowsPerPage(100)
   expect(prefs.rowsPerPage).toBe(100)
-  expect(authApi.savePreferences).toHaveBeenLastCalledWith({ language: 'zh', theme: 'dark', landingView: 'workbench', defaultClusterId: 'c9', defaultNamespace: 'team-a', rowsPerPage: 100 })
+  expect(authApi.savePreferences).toHaveBeenLastCalledWith({ language: 'zh', theme: 'dark', landingView: 'workbench', defaultClusterId: 'c9', defaultNamespace: 'team-a', rowsPerPage: 100, workbenchApprovalMode: null })
   expect(rowsPerPageDefault.value).toBe(100)   // 联动单源模块
 })
 
@@ -80,4 +80,14 @@ test('rowsPerPageDefault:setRowsPerPageDefault 白名单外回 10', () => {
   setRowsPerPageDefault(33); expect(rowsPerPageDefault.value).toBe(10)
   setRowsPerPageDefault(20); expect(rowsPerPageDefault.value).toBe(20)
   setRowsPerPageDefault('x'); expect(rowsPerPageDefault.value).toBe(10)
+})
+
+// 审批三档模式(2026-09-09):workbenchApprovalMode 键(ask 默认/writes/auto)
+test('workbenchApprovalMode:hydrate 覆盖 + setter 即时生效并入 PUT;垃圾值归一 ask', async () => {
+  const prefs = usePreferencesStore()
+  prefs.hydrateFromServer({ workbenchApprovalMode: 'writes' })
+  expect(prefs.workbenchApprovalMode).toBe('writes')
+  prefs.setWorkbenchApprovalMode('ask')
+  expect(prefs.workbenchApprovalMode).toBe('ask')
+  await vi.waitFor(() => expect(authApi.savePreferences).toHaveBeenLastCalledWith(expect.objectContaining({ workbenchApprovalMode: 'ask' })))
 })

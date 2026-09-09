@@ -1,6 +1,7 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia } from 'pinia'
 
 // vi.mock factories are hoisted to the top of the file — they can't reference
 // ordinary top-level vars. vi.hoisted runs alongside the mock so both exist at
@@ -60,7 +61,7 @@ const i18n = createI18n({
 async function mountChat(props = {}) {
   return mount(WorkbenchChat, {
     props: { projectId: 'p1', projectName: 'demo', ...props },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n, createPinia()] },
   })
 }
 
@@ -488,7 +489,7 @@ test('I: 已决策审批的重放不重弹;新 toolCallId 照常弹', async () =
     api.conversations.deny.mockResolvedValue({ status: 'running' })
     api.conversations.get.mockResolvedValueOnce({ id: 'conv-ap', status: 'running', content: '', trace: '[]', steps: 1, recap: '', messages: [] }) // deny 后降级轮询:running
     api.conversations.get.mockResolvedValueOnce({ ...pausedT1 }) // 轮询重放同 t1 → 不应弹
-    const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-ap' }, global: { plugins: [i18n] } })
+    const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-ap' }, global: { plugins: [i18n, createPinia()] } })
     await vi.advanceTimersByTimeAsync(0)
     const rejectBtn = () => w.findAll('button').find(b => b.text().includes('workbench.chat.reject'))
     expect(rejectBtn(), 't1 首次到达弹出审批').toBeTruthy()
@@ -531,7 +532,7 @@ test('paused 对话打开+approve 续跑:snapshot/delta 落在新 turn,上一轮
         { role: 'user', content: '第二问' },
       ],
     })
-    const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-pa', activeConversationId: 'conv-pa' }, global: { plugins: [i18n] } })
+    const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-pa', activeConversationId: 'conv-pa' }, global: { plugins: [i18n, createPinia()] } })
     await flushPromises()
     expect(w.html()).toContain('第一答(完整)', '历史答案可见')
     expect(w.html()).toContain('第二问')
@@ -558,7 +559,7 @@ test('首轮 paused 对话打开:重建后存在 in-flight turn(审批不孤零�
     pendingApproval: JSON.stringify({ toolCallId: 't1', name: 'wb_scale', args: {} }),
     messages: [{ role: 'user', content: '唯一的问题' }],
   })
-  const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-pa2' }, global: { plugins: [i18n] } })
+  const w = mount(WorkbenchChat, { props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-pa2' }, global: { plugins: [i18n, createPinia()] } })
   await flushPromises()
   expect(w.html()).toContain('唯一的问题')
   // 修复前:无任何 assistant turn → 审批弹着但正文区"空转";修复后有 pending_approval 占位
@@ -1370,4 +1371,30 @@ test('A4: 初拉全败→loadRevive 复活成功 → running 接线(sending+轮�
     await vi.advanceTimersByTimeAsync(2100) // 降级轮询(EventSource 缺席)应持续拉取
     expect(api.conversations.get.mock.calls.length).toBeGreaterThan(callsAtRevive, '轮询活着(修复前复活后零拉取)')
   } finally { vi.useRealTimers() }
+})
+
+// 审批三档模式(2026-09-09 评审 Important#1):门执行 project.ownerId 的档位,切换器显示
+// 观看者自己的档位——admin 看他人项目时 UI 会谎报安全姿态(owner 在 auto,UI 说每项确认)。
+// 契约:ownerId 已知且 ≠ 当前用户 → 隐藏切换器;ownerId 匹配或未传(向后兼容)→ 显示。
+test('审批模式切换器:非 owner 视图隐藏;owner/未传 ownerId 显示', async () => {
+  const { useAuthStore } = await import('@/stores/auth')
+  const mountWithViewer = async (ownerId) => {
+    const pinia = createPinia()
+    const auth = useAuthStore(pinia)
+    auth.user = { id: 'u1', username: 'alice', role: 'user' }
+    const w = mount(WorkbenchChat, {
+      props: { projectId: 'p1', projectName: 'demo', ...(ownerId !== undefined ? { ownerId } : {}) },
+      global: { plugins: [i18n, pinia] },
+    })
+    return w
+  }
+  const other = await mountWithViewer('u2')
+  expect(other.find('[data-testid="approval-mode-trigger"]').exists()).toBe(false)
+  other.unmount()
+  const mine = await mountWithViewer('u1')
+  expect(mine.find('[data-testid="approval-mode-trigger"]').exists()).toBe(true)
+  mine.unmount()
+  const unknown = await mountWithViewer(undefined)
+  expect(unknown.find('[data-testid="approval-mode-trigger"]').exists()).toBe(true)
+  unknown.unmount()
 })

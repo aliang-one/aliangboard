@@ -33,6 +33,7 @@ const headerTitle = computed(() => {
         :key="conversation.id"
         :project-id="conversation.projectId"
         :project-name="conversation.projectName"
+        :owner-id="conversation.projectOwnerId ?? null"
         :conversation-id="conversation.id"
         :active-conversation-id="conversation.id"
       />

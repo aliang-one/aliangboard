@@ -9,6 +9,7 @@ import { contextWindowFor, trimBudgetChars } from './model-context.mjs'
 import { eventsForResult } from './conv-events.mjs'
 import { clampTraceStep } from './agent.mjs'
 import { getWorkbenchAiConfig, getMaxStepsConfig } from './workbench-ai-config.mjs'
+import { readUserApprovalMode } from './wb-approval-mode.mjs'
 import { workbenchExcludeTools } from './tool-registry.mjs'
 import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 // gap3-01(2026-09-07 审计批次二):换绑锚定——refreshSystem 装配前比对 refs 戳与当下
@@ -363,6 +364,9 @@ const CK_TIME_MS = 500
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
         // 动态审批白名单路由(2026-09-07 审计 F1):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
         dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
+        // 审批三档模式(2026-09-09):owner 的 prefs 现读(W2 语义:授权/审批主体恒取 project.ownerId,
+        // admin 代触发他人对话不继承 admin 的档位);SSH 工具恒不放宽(服务器策略更严者胜)。
+        approvalMode: () => readUserApprovalMode(db, project.ownerId),
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
         // 轻量取消检查点(2026-09-06 审计#3):agent 循环按 DB 取消态中止队列剩余工具与
         // 后续 LLM 轮(读库失败视为非取消,不误杀正常对话)。
@@ -497,6 +501,9 @@ const CK_TIME_MS = 500
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
         // 动态审批白名单路由(2026-09-07 审计 F1):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
         dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
+        // 审批三档模式(2026-09-09):owner 的 prefs 现读(W2 语义:授权/审批主体恒取 project.ownerId,
+        // admin 代触发他人对话不继承 admin 的档位);SSH 工具恒不放宽(服务器策略更严者胜)。
+        approvalMode: () => readUserApprovalMode(db, project.ownerId),
         excludeTools: workbenchExcludeTools({ hasCluster: !!project.clusterId, sshExposedCount: exposedCount }),
         // 轻量取消检查点(2026-09-06 审计#3):与 run 路径同款(convId 闭包可用)。
         shouldAbort: () => cancelSignal(convId, myEpoch),

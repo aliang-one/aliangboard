@@ -4,6 +4,7 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia } from 'pinia'
 import zh from '@/locales/zh.json'
 import en from '@/locales/en.json'
 
@@ -66,7 +67,7 @@ async function mountRunning() {
   api.conversations.get.mockImplementation(async () => runningConv())
   const w = mount(WorkbenchChat, {
     props: { projectId: 'p1', projectName: 'demo', conversationId: 'conv-q', activeConversationId: 'conv-q' },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n, createPinia()] },
   })
   await flushPromises()
   return w

@@ -6,6 +6,7 @@ import { createAgent } from './agent.mjs'
 import { registry } from './tool-registry.mjs'
 import { effectiveTools } from './authorize.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
+import { modeAutoPasses } from './wb-approval-mode.mjs'
 
 // 工作台审计:wb_* 工具(用项目绑定集群凭据直连)不走 API key 的 callTool 审计,
 // 此处在 execTool 补一条 reserve/finalize 进 audit_log(source='workbench'),让 AI 驱动的集群变更可追溯。
@@ -49,7 +50,12 @@ export function buildToolDefs(tier) {
 // (用户取消 → cancelConversation 主动 abort 在途 fetch;与 shouldAbort 分工:shouldAbort 拦
 // 「下一个工具/下一轮」,signal 断「在途流」)。只对流式路径生效(chat 非流式自有 timeoutMs
 // 总限);缺省零行为变化(API key agent 路径不传)。
-export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps, disabledTools, budgetChars, dynamicApproval, excludeTools, shouldAbort, signal }) {
+// approvalMode(可选,2026-09-09 审批三档模式):() => 'ask'|'writes'|'auto'(同步现读,
+// workbench 路径注入 owner 的 prefs)——needsApproval 静态命中后先问模式层(modeAutoPasses
+// 白名单),命中放行直接 false(不 checkpoint、不进 SSH 路由);放行的执行行审计
+// requestSummary 追加 ' approval:auto' 标记(截断后追加,长 args 不吞标记)。SSH 工具恒不
+// 放宽(服务器策略更严者胜,见 wb-approval-mode.mjs);缺省零行为变化。
+export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps, disabledTools, budgetChars, dynamicApproval, excludeTools, shouldAbort, signal, approvalMode }) {
   const toolDefs = [
     ...(keyRow ? registry.toolDefsFor(effectiveTools(keyRow)) : []),
     ...(workbench ? registry.workbenchToolDefs(disabledTools) : []),
@@ -66,6 +72,12 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     if (!audit) return t.exec(ctx, args) // registry 分派:K8s→callTool(自带审计);工作台无 audit→不审计
     // workbench 路径:reserve → 执行 → finalize(成功/失败都落链)
     const intent = wbAuditIntent(audit, name, args)
+    // 模式放行标记(2026-09-09):链上区分「人批」(wb_approval approve 行)vs「模式放行」。
+    // (mode, name) 纯函数重判——与门同一输入;mid-run 切档的毫秒级窗口内标记可能滞后于门,
+    // 可接受(标记是溯源注记,门的裁决才是权威)。截断后追加,长 args 不吞标记。
+    if (approvalMode && modeAutoPasses(approvalMode(), name)) {
+      intent.requestSummary = intent.requestSummary ? `${intent.requestSummary} approval:auto` : 'approval:auto'
+    }
     reserveAudit(audit.db, intent)
     try {
       const r = await t.exec(ctx, args)
@@ -80,9 +92,11 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     (opts?.onDelta || opts?.onReasoning) ? llmClient.chatStream({ messages, tools }, { onDelta: opts.onDelta, onReasoning: opts.onReasoning, ...(signal ? { signal } : {}) })
                   : llmClient.chat({ messages, tools })
   // 只对「本次 offered 的写工具」要求人审;K8s tier 够不上的写工具不 offered → 直接不调。
-  // 静态命中才问 dynamicApproval(SSH 按服务器策略放宽/收紧);无钩子保持旧行为。
+  // 静态命中才问模式层(2026-09-09 三档:writes/auto 白名单放行,SSH 工具恒不在名单);
+  // 再问 dynamicApproval(SSH 按服务器策略放宽/收紧);无钩子保持旧行为。
   const needsApprovalFn = async (n, args) => {
     if (!requiringApproval.has(n) || !offered.has(n)) return false
+    if (approvalMode && modeAutoPasses(approvalMode(), n)) return false
     if (dynamicApproval) return !!(await dynamicApproval(n, args))
     return true
   }

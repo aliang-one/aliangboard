@@ -12,6 +12,7 @@ import { workbenchApi, getPlatformToken } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
 import ChatTurn from './ChatTurn.vue'
 import AiConfigPanel from './AiConfigPanel.vue'
+import ApprovalModeSwitcher from './ApprovalModeSwitcher.vue'
 import { applyStreamEvent, ensureFinalAnswerBlock, missingFinalTail } from './conv-stream'
 import { pairRefResources } from '@/logic/refResources'
 import { applyLegacyTs } from '@/utils/toolResultFormat'
@@ -20,12 +21,16 @@ import { filterSlashItems } from '@/logic/chatPlaybooks'
 import { isNearBottomCalc } from '@/logic/chatScroll'
 import { getDraft, setDraft } from '@/logic/chatDrafts'
 import { notify } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
 
 const props = defineProps({
   projectId: String,
   projectName: String,
   conversationId: { type: String, default: null },
   activeConversationId: { type: String, default: null },
+  // 项目 owner(审批三档模式 2026-09-09 评审 Important#1):门执行 owner 的档位,切换器
+  // 显示观看者自己的——非 owner 视图(admin 看他人项目)须隐藏,防 UI 谎报安全姿态。
+  ownerId: { type: String, default: null },
 })
 const emit = defineEmits(['conversation-created'])
 
@@ -47,6 +52,10 @@ const pendingApproval = ref(null)
 // 不会再自动重弹——turn 黄条成为重开入口。审批被消费(paused→running/done/failed)时清除。
 const lastApproval = ref(null)
 const showAiConfig = ref(false)
+// 审批模式切换器可见性:ownerId 未知(未传)或观看者即 owner 才显示——切换器写的是观看者
+// 自己的偏好,而服务端门逐调用读 project.ownerId 的档位;两者错位时显示 = 谎报安全姿态。
+const auth = useAuthStore()
+const approvalModeMine = computed(() => props.ownerId == null || props.ownerId === auth.user?.id)
 // I(2026-08-17 审计):已决策(approve/deny)的审批 id——SSE 重连/轮询重放旧审批时跳过,
 // 否则已 deny 的审批会重弹,再点 approve 语义混乱。跨组件实例不持久(服务端 CAS 兜底)。
 const decidedApprovals = new Set()
@@ -1483,8 +1492,9 @@ function useHint(h) { input.value = h }
           </button>
         </div>
 
-        <!-- AI 配置透明面板入口(2026-08-25):恒可见——有对话时面板显示该对话烘焙的 system -->
-        <div class="flex justify-end mt-xs">
+        <!-- composer 工具栏:审批模式切换器(左,2026-09-09;非 owner 视图隐藏)+ AI 配置透明面板入口(右,2026-08-25 恒可见——有对话时面板显示该对话烘焙的 system) -->
+        <div class="flex items-center gap-sm mt-xs" :class="approvalModeMine ? 'justify-between' : 'justify-end'">
+          <ApprovalModeSwitcher v-if="approvalModeMine" />
           <button @click="showAiConfig = true" :title="t('workbench.chat.aiConfig.open')" class="flex items-center gap-xs text-body-xs text-on-surface-variant hover:text-primary transition-colors">
             <span class="material-symbols-outlined text-sm">tune</span>{{ t('workbench.chat.aiConfig.open') }}
           </button>
