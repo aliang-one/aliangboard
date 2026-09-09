@@ -21,7 +21,8 @@ describe('FloatingWindow', () => {
     expect(w.vm.winStyle).toMatchObject({ left: '80px', width: '720px' })
     await w.find('[data-test="btn-maximize"]').trigger('click')
     // 2026-08-17:最大化避让应用骨架——侧栏 260/顶栏 64(sticky z-50,标题栏不再被压)/任务栏 32
-    expect(w.vm.winStyle).toMatchObject({ left: '268px', top: '72px', right: '8px', bottom: '44px', zIndex: 42 })
+    // 2026-09-09(Wave5 R1):left 从硬编码 268px 改为消费 --sb-width(手机档该变量为 0,天然全宽)
+    expect(w.vm.winStyle).toMatchObject({ left: 'calc(var(--sb-width, 260px) + 8px)', top: '72px', right: '8px', bottom: '44px', zIndex: 42 })
     w.unmount()
   })
   it('拖拽:标题栏 mousedown + document mousemove 改 left/top', async () => {
