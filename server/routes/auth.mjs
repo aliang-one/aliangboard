@@ -866,7 +866,8 @@ export function createAuthRoutes(deps) {
         // W2 Phase E:连接成功后 fire-and-forget 探测该集群凭据的 impersonate 能力(不阻塞连接;
         // 结果按 clusterId 缓存,缓存后 egress 注入生效)。legacy ps 无身份不触发探测。
         if (k8sSession.impersonate.length) impersonationProbe?.ensureProbed?.(k8sSession)
-        sendJson(res, 200, { token: k8sToken, cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: k8sSession.version } })
+        // cluster.name 下发(issue#8):前端集群身份展示以 name 为准,只回 apiServer 会逼出 hostname(=IP)兜底
+        sendJson(res, 200, { token: k8sToken, cluster: { apiServer: apiServer.toString().replace(/\/$/, ''), version: k8sSession.version, name: cluster.name } })
         return true
       } catch (e) { sendJson(res, e.status || 502, { message: e?.message || msg(req, 'auth.connectFailed') }); return true }
     }

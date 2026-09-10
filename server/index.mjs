@@ -2009,8 +2009,12 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
 
   if (req.method === 'GET' && url.pathname === '/api/session') {
     const session = req.abSession // 路由鉴权门已预检并缓存
+    // 集群 name 下发(issue#8):session 行带 clusterId → 查表补名;集群已删/legacy 无
+    // clusterId 时 name 缺省,前端 hostname 兜底(展示退 IP 但不破坏会话)。
+    let clusterName
+    try { clusterName = session.clusterId ? db.prepare('SELECT name FROM clusters WHERE id=?').get(session.clusterId)?.name : undefined } catch { /* 查表失败按缺省处理 */ }
     return sendJson(res, 200, {
-      cluster: { apiServer: session.apiServer.toString().replace(/\/$/, ''), version: session.version || 'unknown' },
+      cluster: { apiServer: session.apiServer.toString().replace(/\/$/, ''), version: session.version || 'unknown', name: clusterName },
     })
   }
 
