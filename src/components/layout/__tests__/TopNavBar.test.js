@@ -94,7 +94,8 @@ import { mockViewport } from '@/__tests__/helpers/mobileViewport'
 function mountTopNav() {
   setActivePinia(createPinia())
   const store = useClusterStore()
-  store.savedClusters = [{ name: 'kind-local', apiServer: 'https://k8s.example', version: 'v1.31', distribution: 'k3s' }]
+  // (2026-09-10 issue#8)集群副文本读 store.cluster.name(服务端为源),不再经 savedClusters 登记簿
+  store.cluster = { ...store.cluster, name: 'kind-local' }
   store.currentCluster = 'kind-local'
   store.currentNamespace = 'default'
   return mountNav()
@@ -199,7 +200,7 @@ test('⌘K/Ctrl+K:桌面聚焦内联搜索框', async () => {
   // attachTo:focus() 只在元素挂进 document 时才会改写 activeElement
   setActivePinia(createPinia())
   const store = useClusterStore()
-  store.savedClusters = [{ name: 'kind-local', apiServer: 'https://k8s.example', version: 'v1.31', distribution: 'k3s' }]
+  store.cluster = { ...store.cluster, name: 'kind-local' }
   store.currentCluster = 'kind-local'
   store.currentNamespace = 'default'
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })

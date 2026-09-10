@@ -735,6 +735,7 @@
     "demoModeNoSync": "No sync needed in demo data mode",
     "synced": "Synced {cluster}",
     "syncFailed": "Sync failed: {error}",
+    "switchFailed": "Failed to switch cluster: {error}",
     "unknownError": "Unknown error",
     "totalClusters": "{count} clusters total, currently",
     "removeClusterConfirm": "Remove saved cluster \"{name}\"?\n(Only removes from list, does not affect current connected session)",
