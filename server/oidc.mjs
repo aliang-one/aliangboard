@@ -6,14 +6,17 @@
 //   scopes(缺省 'openid profile email')/groupsClaim(缺省 'groups')/usernameClaim(缺省 'preferred_username')
 // 错误约定:new Error('<code>'):discovery/jwks/token(网络与文档面),验签错误透传 jwt-verify 的码。
 import { verifyIdToken } from './jwt-verify.mjs'
+import { createTtlStore } from './state/kernel.mjs'
 
 export const OIDC_CACHE_TTL_MS = 12 * 3600 * 1000
 const DEFAULTS = { scopes: 'openid profile email', groupsClaim: 'groups', usernameClaim: 'preferred_username' }
 const SETTING_KEYS = ['oidc.enabled', 'oidc.issuer', 'oidc.clientId', 'oidc.clientSecret', 'oidc.scopes', 'oidc.groupsClaim', 'oidc.usernameClaim']
 
 // 模块级缓存(单进程不变式;多 provider 实例共享):discovery 按 issuer、jwks 按 jwks_uri。
-const discoveryCache = new Map() // issuer -> { doc, at }
-const jwksCache = new Map()      // jwksUri -> { jwks, at }
+// 2026-09-11 状态轴 Wave 1:容器迁 kernel ttlStore——值无 exp(带 at)→ kernel 按插入时戳+TTL 盖章
+//   判过期;读写点手写 `Date.now()-cached.at < TTL` 检查保留=双保险,零行为变更。
+const discoveryCache = createTtlStore({ name: 'oidcDiscovery', domain: 'auth', ttlMs: OIDC_CACHE_TTL_MS }) // issuer -> { doc, at }
+const jwksCache = createTtlStore({ name: 'oidcJwks', domain: 'auth', ttlMs: OIDC_CACHE_TTL_MS })           // jwksUri -> { jwks, at }
 export function _clearOidcCacheForTest() { discoveryCache.clear(); jwksCache.clear() }
 
 export function createOidcProvider({ getSetting, fetchImpl = globalThis.fetch.bind(globalThis) }) {
