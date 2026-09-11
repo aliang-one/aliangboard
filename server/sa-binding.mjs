@@ -2,6 +2,8 @@
 // preflight 已验证:audience=issuer、TTL 下限 600s、read 通、RBAC 边界生效、bootstrap 需 create serviceaccounts/token。
 // codex #7/#8:缓存键含 cluster+ns+SA+audience;单飞防并行风暴;吊销 key 不靠 token 失效,靠每次 authorize(查 revoked)。
 
+import { createSingleFlight } from './state/kernel.mjs'
+
 export const MIN_TTL_SECONDS = 600   // apiserver 下限(prefund 实测:may not be less than 10 minutes)
 export const DEFAULT_TTL_SECONDS = 600
 
@@ -13,8 +15,8 @@ export function buildTokenRequestBody({ audience, expirationSeconds = DEFAULT_TT
   return JSON.stringify({ kind: 'TokenRequest', apiVersion: 'authentication.k8s.io/v1', spec })
 }
 
-const _cache = new Map()       // sig -> { token, mintedAt, expiresAt }
-const _inflight = new Map()    // sig -> Promise<token>(单飞)
+const _cache = new Map()       // sig -> { token, mintedAt, expiresAt }(Tier 2:登记不迁,见守卫 PROTECTED)
+const _inflight = createSingleFlight({ name: 'saTokenInflight', domain: 'authkey' })   // sig -> Promise<token>(单飞)
 
 export function _clearSaTokenCacheForTest() { _cache.clear(); _inflight.clear() }
 
@@ -44,11 +46,10 @@ export function createSaBinding({ requestFn, audience, ttlSeconds = DEFAULT_TTL_
       if (lifetime > 0 && now - cached.mintedAt < reuseFraction * lifetime) return cached.token // 复用窗口内
     }
     if (_inflight.has(sig)) return _inflight.get(sig) // 单飞:同 SA 并发只 mint 一次
-    const p = (async () => {
+    const p = _inflight.set(sig, (async () => {
       try { const entry = await mint(callCtx, namespace, name); _cache.set(sig, entry); return entry.token }
       finally { _inflight.delete(sig) } // 失败也清,下次可重试
-    })()
-    _inflight.set(sig, p)
+    })())
     return p
   }
 }

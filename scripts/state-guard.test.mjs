@@ -14,10 +14,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER = join(ROOT, 'server')
 
 const ALLOWLIST = [
-  // --- PENDING:Wave 1 迁入 kernel 后删除(3) ---
-  { file: 'server/workbench-summarize.mjs', name: 'convSummarizerInflight', kind: 'pending', reason: 'Wave1→singleFlight' },
-  { file: 'server/workbench-summarize.mjs', name: 'projectSummarizerInflight', kind: 'pending', reason: 'Wave1→singleFlight' },
-  { file: 'server/sa-binding.mjs', name: '_inflight', kind: 'pending', reason: 'Wave1→singleFlight' },
   // --- PROTECTED:宪法保护区/Wave 2 登记(10;Task 14 后须在 registry 出现) ---
   { file: 'server/index.mjs', name: 'sessions', kind: 'protected', reason: '双写会话,宪法红线' },
   { file: 'server/index.mjs', name: 'platformSessions', kind: 'protected', reason: '双写会话,宪法红线' },
@@ -101,8 +97,9 @@ test('③ PROTECTED 交叉核验:必须在 registry.mjs 有 registerState(或暂
 })
 
 test('终态断言:PENDING 与 NOT_YET_REGISTERED 双清零(Task 14/15 后启用本断言)', () => {
-  // Wave 1 完成后:把下面两行改成 assert.equal(..., 0)(本任务先以 >= 0 占位,消息锚定现状计数防中途漂移)
+  // Wave 1 完成(Task 12 三条 inflight 迁 singleFlight):PENDING 已清零,断言翻 assert.equal;
+  // NOT_YET_REGISTERED 仍以 >= 0 占位,Task 14 完成后翻 assert.equal(..., 0)。
   const pending = ALLOWLIST.filter(e => e.kind === 'pending').length
-  assert.ok(pending >= 0, `pending=${pending}(Wave 1 迁移完成后应翻成 assert.equal(..., 0))`)
+  assert.equal(pending, 0, `pending=${pending}(PENDING 类别已终态清零;新状态须直接迁 kernel 原语或登记 PROTECTED/CONST)`)
   assert.ok(NOT_YET_REGISTERED.length >= 0, `notYetRegistered=${NOT_YET_REGISTERED.length}(Task 14 完成后应翻成 assert.equal(..., 0))`)
 })
