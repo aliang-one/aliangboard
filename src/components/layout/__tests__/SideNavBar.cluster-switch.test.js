@@ -17,12 +17,14 @@ const { _routeObj, pushMock, _store } = vi.hoisted(() => ({
     namespaceList: [],
     fetchNamespaces: vi.fn(),
     currentCluster: 'prod-cluster',
+    // 2026-09-10 issue#8:行带 id(按 id 换连接)+ 挂载期 loadAvailableClusters(服务端列表)
     clusterList: [
-      { name: 'prod-cluster', apiServer: 'https://prod.example', version: 'v1.28.2', status: 'Healthy', distribution: 'k3s' },
-      { name: 'staging', apiServer: 'https://staging.example', version: 'v1.30.1', status: 'Degraded', distribution: 'Kubernetes' },
+      { id: 'c1', name: 'prod-cluster', apiServer: 'https://prod.example', version: 'v1.28.2', status: 'Healthy', distribution: 'k3s' },
+      { id: 'c2', name: 'staging', apiServer: 'https://staging.example', version: 'v1.30.1', status: 'Degraded', distribution: 'Kubernetes' },
     ],
     clusterHealth: { severity: 'ok', reasons: [] },
     switchCluster: vi.fn(async () => {}),
+    loadAvailableClusters: vi.fn(async () => {}),
   },
 }))
 const routeRef = reactive(_routeObj)
@@ -102,14 +104,14 @@ test('桌面:路由变化自动关集群面板(不再跨页漂浮)', async () =>
   routeRef.path = '/cluster'
 })
 
-test('桌面:点集群行 switchCluster(apiServer) 且面板关;管理全部 → /clusters', async () => {
+test('桌面:点集群行 switchCluster(集群 id) 且面板关;管理全部 → /clusters', async () => {
   mockViewport(false, false)
   const w = mountNav()
   await w.find('[data-test="cluster-brand"]').trigger('click')
   await flushPromises()
   document.querySelectorAll('[data-test="cluster-row"]')[1].click()
   await flushPromises()
-  expect(storeMock.switchCluster).toHaveBeenCalledWith('https://staging.example')
+  expect(storeMock.switchCluster).toHaveBeenCalledWith('c2')
   expect(panelEl()).toBeFalsy()
   // 管理全部
   await w.find('[data-test="cluster-brand"]').trigger('click')

@@ -67,11 +67,11 @@ function dotColor(severity) {
       <div class="max-h-80 overflow-y-auto p-sm">
         <div
           v-for="c in clusters"
-          :key="c.name"
+          :key="c.id"
           data-test="cluster-row"
           class="flex items-center justify-between px-md py-sm rounded-lg cursor-pointer transition-all hover:bg-surface-container"
           :class="c.name === currentName ? 'bg-primary-container/20' : ''"
-          @click="emit('select', c.apiServer)"
+          @click="emit('select', c.id)"
         >
           <div class="flex items-center gap-sm min-w-0">
             <span

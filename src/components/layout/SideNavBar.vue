@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
@@ -66,11 +66,16 @@ function onBrandClick() {
   if (belowSm.value) { shell.requestClusterSelect(); return }
   showClusterPanel.value = !showClusterPanel.value
 }
-async function selectCluster(apiServer) {
+// 换连接按集群 id 走平台链(2026-09-10 issue#8):switchCluster 失败会重抛,
+// 此处吞掉留原地(store 已 notify)——不再让未捕获拒绝把整页顶去选择页
+async function selectCluster(id) {
   showClusterPanel.value = false
-  const c = (store.clusterList || []).find(x => x.apiServer === apiServer)
-  if (c && c.apiServer !== store.cluster?.apiServer) await store.switchCluster(apiServer)
+  const c = (store.clusterList || []).find(x => x.id === id)
+  if (!c || c.apiServer === store.cluster?.apiServer) return
+  try { await store.switchCluster(id) } catch { /* store 已 notify,面板静默收场 */ }
 }
+// 面板/侧栏身份数据源服务端化:挂载即拉 my-clusters(登记簿已退役)
+onMounted(() => { store.loadAvailableClusters?.() })
 function goClusters() {
   showClusterPanel.value = false
   navTo('/clusters')
