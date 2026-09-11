@@ -55,3 +55,38 @@ export function purgeAllTtlStores() {
   for (const s of ttlStores) n += s.purgeExpired()
   return n
 }
+
+// 节流原语:窗口内首触 true(= Redis SET NX EX 语义)。key-usage-touch 的 lastTouch 语义单源化。
+export function createThrottle({ name, domain, windowMs = 60_000, now = Date.now }) {
+  const last = new Map() // key -> ts
+  const t = {
+    touch(key, at = now()) {
+      const prev = last.get(key)
+      if (prev != null && at - prev < windowMs) return false
+      last.set(key, at)
+      return true
+    },
+    clear() { last.clear() },
+    get size() { return last.size },
+    snapshot() { return { entries: last.size, windowMs } },
+  }
+  registerState({ name, domain, primitive: 'throttle', describe: () => t.snapshot() })
+  return t
+}
+
+// 单飞原语(Map 形在途去重):sa-binding _inflight / summarize inflight 语义单源化。
+// 不自动清理——调用方 finally delete(与现状一致);注册进 registry 暴露 entries。
+export function createSingleFlight({ name, domain }) {
+  const map = new Map() // key -> Promise
+  const sf = {
+    has: (k) => map.has(k),
+    get: (k) => map.get(k),
+    set: (k, p) => { map.set(k, p); return p },
+    delete: (k) => map.delete(k),
+    clear() { map.clear() },
+    get size() { return map.size },
+    snapshot() { return { entries: map.size } },
+  }
+  registerState({ name, domain, primitive: 'singleflight', describe: () => sf.snapshot() })
+  return sf
+}

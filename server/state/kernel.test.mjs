@@ -2,7 +2,7 @@
 // ttlStore:过期惰性判(读即删过期项)/值自带 exp 优先/无 exp 按插入时戳/FIFO cap/purgeFuse。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createTtlStore } from './kernel.mjs'
+import { createTtlStore, createThrottle, createSingleFlight } from './kernel.mjs'
 import { stateSnapshot } from './registry.mjs'
 
 test('值自带 exp 优先:past-exp 播种读即 miss,事后突变 exp 同样生效(兼容现有票据测试)', () => {
@@ -64,4 +64,22 @@ test('红线(真):哨兵 token 入 store,stateSnapshot 有计数、无键值本�
   assert.ok(probe, '登记可见')
   assert.equal(probe.entries, 1)
   assert.ok(!json.includes(secret), '键与值本体不得出现在快照')
+})
+
+test('throttle:窗口内首触 true,期内 false,越窗再 true(时钟注入)', () => {
+  const th = createThrottle({ name: 'th1', domain: 'test', windowMs: 60_000, now: () => 0 })
+  assert.equal(th.touch('k1', 1000), true)
+  assert.equal(th.touch('k1', 2000), false)
+  assert.equal(th.touch('k1', 61000), true)
+  assert.deepEqual(th.snapshot(), { entries: 1, windowMs: 60000 })
+})
+
+test('singleFlight:Map 形在途去重,delete 释放', async () => {
+  const sf = createSingleFlight({ name: 'sf1', domain: 'test' })
+  let started = 0
+  const p = sf.set('k', (async () => { started++; await new Promise(r => setTimeout(r, 20)); return 'v' })())
+  assert.equal(sf.has('k'), true)
+  assert.equal(await p, 'v'); assert.equal(started, 1)
+  sf.delete('k'); assert.equal(sf.has('k'), false)
+  assert.deepEqual(sf.snapshot(), { entries: 0 })
 })
