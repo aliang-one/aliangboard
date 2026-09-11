@@ -14,10 +14,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER = join(ROOT, 'server')
 
 const ALLOWLIST = [
-  // --- PENDING:Wave 1 迁入 kernel 后删除(4) ---
+  // --- PENDING:Wave 1 迁入 kernel 后删除(3) ---
   { file: 'server/workbench-summarize.mjs', name: 'convSummarizerInflight', kind: 'pending', reason: 'Wave1→singleFlight' },
   { file: 'server/workbench-summarize.mjs', name: 'projectSummarizerInflight', kind: 'pending', reason: 'Wave1→singleFlight' },
-  { file: 'server/key-usage-touch.mjs', name: 'lastTouch', kind: 'pending', reason: 'Wave1→throttle' },
   { file: 'server/sa-binding.mjs', name: '_inflight', kind: 'pending', reason: 'Wave1→singleFlight' },
   // --- PROTECTED:宪法保护区/Wave 2 登记(10;Task 14 后须在 registry 出现) ---
   { file: 'server/index.mjs', name: 'sessions', kind: 'protected', reason: '双写会话,宪法红线' },
