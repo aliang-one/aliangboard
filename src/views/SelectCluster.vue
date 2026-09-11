@@ -48,7 +48,7 @@ async function connect(cluster) {
   errorMsg.value = ''
   try {
     const res = await authStore.connectCluster(cluster.id)
-    clusterStore.setConnectedCluster({ apiServer: res.cluster.apiServer.replace(/\/$/, ''), version: res.cluster.version })
+    clusterStore.setConnectedCluster({ name: res.cluster.name || cluster.name, apiServer: res.cluster.apiServer.replace(/\/$/, ''), version: res.cluster.version })
     router.push('/cluster')
   } catch (e) {
     connecting.value = ''

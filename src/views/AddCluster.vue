@@ -47,7 +47,7 @@ async function connect() {
   connectError.value = ''
   try {
     const res = await authStore.connectCluster(createdId.value)
-    clusterStore.setConnectedCluster({ apiServer: res.cluster.apiServer.replace(/\/$/, ''), version: res.cluster.version })
+    clusterStore.setConnectedCluster({ name: res.cluster.name || form.value.name.trim(), apiServer: res.cluster.apiServer.replace(/\/$/, ''), version: res.cluster.version })
     window.location.href = '/cluster' // 整页跳转,走守卫水合(同 SelectCluster.connect)
   } catch (e) {
     connectError.value = e?.message || t('addCluster.connectFailed')

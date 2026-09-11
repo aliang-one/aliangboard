@@ -591,7 +591,7 @@ router.beforeEach(async (to) => {
       return
     }
     // 自动连接成功 → 设集群状态（setConnectedCluster 内部已置连接态），继续进入页面
-    store.setConnectedCluster({ apiServer: auto.cluster.apiServer.replace(/\/$/, ''), version: auto.cluster.version })
+    store.setConnectedCluster({ name: auto.cluster.name, apiServer: auto.cluster.apiServer.replace(/\/$/, ''), version: auto.cluster.version })
   }
   // 已有 K8s session 但未水合 → 仅验证 session 有效，不做全量水合（各页面按需加载）
   if (!store.currentCluster) {
