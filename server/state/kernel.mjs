@@ -30,7 +30,7 @@ export function createTtlStore({ name, domain, ttlMs = null, cap = null, purgeFu
     },
     get(key) { return peek(key, { consume: true }) },   // getdel=true 时读即删(Redis GETDEL 语义;has 只探不删)
     has(key) { return peek(key) !== undefined },
-    del(key) { return map.delete(key) },
+    delete(key) { return map.delete(key) },   // Map 兼容名(singleFlight 同款;brief 契约:set/get/has/delete/size)
     clear() { map.clear() },
     get size() { return map.size },
     purgeExpired() {
