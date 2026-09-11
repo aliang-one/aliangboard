@@ -38,9 +38,8 @@ const ALLOWLIST = [
   { file: 'server/ssh/readonly-classifier.mjs', name: 'READONLY', kind: 'const', reason: '常量表' },
   { file: 'server/ssh/readonly-classifier.mjs', name: 'ARG_DENY', kind: 'const', reason: '常量表' },
 ]
-// Task 14 清空(交叉核验激活前的缓冲名单)
-const NOT_YET_REGISTERED = ['sessions', 'platformSessions', 'idleTracker', 'forwards',
-  'projectSummarizerFedRid', '_locks', '_cache', 'allowedHosts', '_dispatcherCache', 'sweepSeenServers']
+// Task 14 已清空(Wave 2 登记完成,规则③执法中;保留空数组形状,重命名/撤登记者立红)
+const NOT_YET_REGISTERED = []
 
 function listMjs(dir, out = []) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
@@ -93,13 +92,13 @@ test('③ PROTECTED 交叉核验:必须在 registry.mjs 有 registerState(或暂
     .filter(e => e.kind === 'protected' && !NOT_YET_REGISTERED.includes(e.name))
     .filter(e => !new RegExp(`registerState\\(\\{[^}]*name:\\s*['"\`]${e.name.replace(/[$]/g, '\\$')}['"\`]`).test(registrySrc))
   assert.deepEqual(missing.map(e => e.name), [],
-    '宪法保护区状态必须在 registry 登记(Wave 2 Task 14 完成;完成后清空 NOT_YET_REGISTERED)')
+    '宪法保护区状态必须在 registry 登记(Wave 2 Task 14 已完成,NOT_YET_REGISTERED 已清空,规则执法中)')
 })
 
 test('终态断言:PENDING 与 NOT_YET_REGISTERED 双清零(Task 14/15 后启用本断言)', () => {
-  // Wave 1 完成(Task 12 三条 inflight 迁 singleFlight):PENDING 已清零,断言翻 assert.equal;
-  // NOT_YET_REGISTERED 仍以 >= 0 占位,Task 14 完成后翻 assert.equal(..., 0)。
+  // Wave 1 完成(Task 12 三条 inflight 迁 singleFlight):PENDING 清零;Wave 2 完成(Task 14
+  // 十个 PROTECTED 全入册):NOT_YET_REGISTERED 清零——两条占位断言均已翻成硬断言。
   const pending = ALLOWLIST.filter(e => e.kind === 'pending').length
   assert.equal(pending, 0, `pending=${pending}(PENDING 类别已终态清零;新状态须直接迁 kernel 原语或登记 PROTECTED/CONST)`)
-  assert.ok(NOT_YET_REGISTERED.length >= 0, `notYetRegistered=${NOT_YET_REGISTERED.length}(Task 14 完成后应翻成 assert.equal(..., 0))`)
+  assert.equal(NOT_YET_REGISTERED.length, 0, `notYetRegistered=${NOT_YET_REGISTERED.length}(缓冲名单已清空;撤销登记须同步恢复条目而非留僵尸)`)
 })
