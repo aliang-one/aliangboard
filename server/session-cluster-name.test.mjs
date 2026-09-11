@@ -60,4 +60,8 @@ test('connect-cluster 与 GET /api/session 均下发集群 name', { timeout: 600
   const sess = await (await fetch(`${g.base}/api/session`, { headers: { authorization: `Bearer ${conn.token}` } })).json()
   assert.equal(sess.cluster.name, 'prod-alias')      // 本修复主断言 ②
   assert.equal(sess.cluster.apiServer, api)
+
+  const my = await (await g.json('GET', '/api/my-clusters')).json()
+  // 两端点 apiServer 形态永不漂移(尾斜杠归一,前端守卫按全等比较)
+  assert.equal(my.clusters[0].apiServer, conn.cluster.apiServer)
 })

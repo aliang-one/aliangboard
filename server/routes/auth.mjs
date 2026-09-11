@@ -816,6 +816,8 @@ export function createAuthRoutes(deps) {
             .sort((a, b) => a.namespace.localeCompare(b.namespace))
         }
       }
+      // apiServer 形态对齐 connect-cluster/session 响应(去尾斜杠,前端「已是当前集群」守卫按字符串全等比较)
+      for (const row of rows) row.apiServer = row.apiServer.replace(/\/$/, '')
       sendJson(res, 200, { clusters: rows })
       return true
     }
