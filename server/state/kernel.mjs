@@ -5,6 +5,12 @@
 // ttlMs=null 永不过期。过期惰性判(get/has 读即删过期项)。
 import { registerState } from './registry.mjs'
 
+// 工厂内创建的 store 会随工厂多次调用重复登记(测试反复 createXxx)——首个实例持有登记,
+// 后续静默跳过(观测面板只看生产单实例)。registry 本身的重名 throw 语义保留给手工登记面。
+function registerQuietly(meta) {
+  try { registerState(meta) } catch { /* 重名:首实例已登记 */ }
+}
+
 const ttlStores = new Set()   // 全部在册 ttlStore(purgeAllTtlStores 用;server/state/ 内,守卫豁免区)
 
 export function createTtlStore({ name, domain, ttlMs = null, cap = null, purgeFuse = null, getdel = false, now = Date.now }) {
@@ -44,7 +50,7 @@ export function createTtlStore({ name, domain, ttlMs = null, cap = null, purgeFu
       return { entries: map.size, ttlMs, cap, purgeFuse, expired }
     },
   }
-  registerState({ name, domain, primitive: 'ttl', describe: () => store.snapshot() })
+  registerQuietly({ name, domain, primitive: 'ttl', describe: () => store.snapshot() })
   ttlStores.add(store)
   return store
 }
@@ -70,7 +76,7 @@ export function createThrottle({ name, domain, windowMs = 60_000, now = Date.now
     get size() { return last.size },
     snapshot() { return { entries: last.size, windowMs } },
   }
-  registerState({ name, domain, primitive: 'throttle', describe: () => t.snapshot() })
+  registerQuietly({ name, domain, primitive: 'throttle', describe: () => t.snapshot() })
   return t
 }
 
@@ -87,6 +93,6 @@ export function createSingleFlight({ name, domain }) {
     get size() { return map.size },
     snapshot() { return { entries: map.size } },
   }
-  registerState({ name, domain, primitive: 'singleflight', describe: () => sf.snapshot() })
+  registerQuietly({ name, domain, primitive: 'singleflight', describe: () => sf.snapshot() })
   return sf
 }

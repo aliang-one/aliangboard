@@ -5,6 +5,7 @@
 // 为什么单独成模块:列表探测是编排逻辑(并行 + 超时 + 缓存),抽出后既能被
 //   /api/admin/clusters(GET)复用,也能用 mock requestFn 锁定语义(健康/断连/超时/缓存)。
 //   对标 sa-binding / call-context 的「抽模块 + 可单测」约定。
+import { createTtlStore } from './state/kernel.mjs'
 
 const DEFAULT_TTL = 45_000     // 缓存窗口:列表页频繁刷新不重复打 N 个集群
 const DEFAULT_TIMEOUT = 5_000  // 单集群探测上限:慢/不可达集群不拖垮整列(并行取 max ≈ 上限)
@@ -16,7 +17,8 @@ const DEFAULT_TIMEOUT = 5_000  // 单集群探测上限:慢/不可达集群不�
 //   podCount    /api/v1/pods.items.length;同上
 export function createClusterProber({ requestFn, ttl = DEFAULT_TTL, timeout = DEFAULT_TIMEOUT, now = Date.now } = {}) {
   if (typeof requestFn !== 'function') throw new Error('createClusterProber: requestFn 必传')
-  const cache = new Map() // clusterId -> { data, fetchedAt }
+  // 工厂内实例级缓存(键=clusterId,随 DB 行数有界,无 cap;调用点手写 TTL 检查保留作双保险)。
+  const cache = createTtlStore({ name: 'clusterProbe', domain: 'clustercerts', ttlMs: ttl, now })
 
   // 让一个 promise 在 timeout 内未结算则回退 fallback。
   // 注意:回退只解决外层 race,底层 promise(requestKubernetes)仍会按自身 15s abort 收尾;
