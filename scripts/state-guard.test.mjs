@@ -14,7 +14,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER = join(ROOT, 'server')
 
 const ALLOWLIST = [
-  // --- PENDING:Wave 1 迁入 kernel 后删除(14) ---
+  // --- PENDING:Wave 1 迁入 kernel 后删除(9) ---
   { file: 'server/oidc.mjs', name: 'discoveryCache', kind: 'pending', reason: 'Wave1→ttlStore 12h' },
   { file: 'server/oidc.mjs', name: 'jwksCache', kind: 'pending', reason: 'Wave1→ttlStore 12h' },
   { file: 'server/workbench-summarize.mjs', name: 'convSummarizerInflight', kind: 'pending', reason: 'Wave1→singleFlight' },
@@ -24,11 +24,6 @@ const ALLOWLIST = [
   { file: 'server/api-key-tools.mjs', name: '_issuerCache', kind: 'pending', reason: 'Wave1→ttlStore cap256' },
   { file: 'server/key-usage-touch.mjs', name: 'lastTouch', kind: 'pending', reason: 'Wave1→throttle' },
   { file: 'server/sa-binding.mjs', name: '_inflight', kind: 'pending', reason: 'Wave1→singleFlight' },
-  { file: 'server/routes/auth.mjs', name: 'versionCache', kind: 'pending', reason: 'Wave1→ttlStore 10min' },
-  { file: 'server/routes/auth.mjs', name: 'mfaTickets', kind: 'pending', reason: 'Wave1→ttlStore' },
-  { file: 'server/routes/auth.mjs', name: 'mfaPendingSecrets', kind: 'pending', reason: 'Wave1→ttlStore' },
-  { file: 'server/routes/auth.mjs', name: 'oidcStates', kind: 'pending', reason: 'Wave1→ttlStore purgeFuse' },
-  { file: 'server/routes/auth.mjs', name: 'oidcCodes', kind: 'pending', reason: 'Wave1→ttlStore' },
   // --- PROTECTED:宪法保护区/Wave 2 登记(10;Task 14 后须在 registry 出现) ---
   { file: 'server/index.mjs', name: 'sessions', kind: 'protected', reason: '双写会话,宪法红线' },
   { file: 'server/index.mjs', name: 'platformSessions', kind: 'protected', reason: '双写会话,宪法红线' },

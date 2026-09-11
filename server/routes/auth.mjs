@@ -11,6 +11,7 @@ import { effectiveGrants } from '../authz.mjs'
 import { generateTotpSecret, otpauthUri, verifyTotp, generateRecoveryCodes, hashRecoveryCode } from '../totp.mjs'
 import { oidcSubjectOf, upsertOidcUser, syncGroupsFromClaims } from '../oidc-provision.mjs'
 import { WB_APPROVAL_MODES } from '../wb-approval-mode.mjs'
+import { createTtlStore } from '../state/kernel.mjs'
 import { createHash, randomBytes } from 'node:crypto'
 import { unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -20,19 +21,23 @@ import { fileURLToPath } from 'node:url'
 // mfaTickets:login 密码步通过后签发 → login/mfa 第二步消费。5min TTL,单次(读即删);
 //   导出仅供测试播种(过期票据用例),生产代码只经 login/login-mfa 两处触碰。
 // mfaPendingSecrets:setup 生成的待验证密钥(不落库),5min,重复调用覆盖=轮换;
-//   enable 以 body 传入的 secret 验码(此 Map 仅记录最近一次 pending,便于将来做绑定校验)。
-export const mfaTickets = new Map()        // ticket -> { userId, username, exp }
-export const mfaPendingSecrets = new Map() // userId  -> { secret, exp }
+//   enable 以 body 传入的 secret 验码(此 store 仅记录最近一次 pending,便于将来做绑定校验)。
+// 2026-09-11 状态轴 Wave 1:容器迁 kernel ttlStore——值自带有限数值 exp 则 kernel 沿用(值形状零
+//   破坏,过期惰性判);读写点既有手写 exp 检查/显式 delete 保留=双保险,零行为变更。
 const MFA_TICKET_TTL_MS = 5 * 60_000
 const MFA_PENDING_SECRET_TTL_MS = 5 * 60_000
 const STEP_UP_MAX_AGE_MS = 10 * 60_000
+export const mfaTickets = createTtlStore({ name: 'mfaTickets', domain: 'auth', ttlMs: MFA_TICKET_TTL_MS })        // ticket -> { userId, username, exp }
+export const mfaPendingSecrets = createTtlStore({ name: 'mfaPendingSecrets', domain: 'auth', ttlMs: MFA_PENDING_SECRET_TTL_MS }) // userId  -> { secret, exp }
 
 // ===== Wave 4 OIDC(SSO):模块级单次票据(单进程网关不变式,与 mfaTickets 同政策) =====
 // oidcStates:login 起跳签发 → callback 消费(读即删)。10min TTL、单次;nonce / PKCE verifier /
 //   redirectUri 绑定在 entry 上(state 不是裸游标——防错绑与 redirect_uri 篡改)。
 // oidcCodes:callback 成功签发 → exchange 消费(读即删)。60s TTL、单次、绑 IP——兑换码经浏览器 302
 //   落地(可能进 Referrer),换 IP 即失效。导出仅供测试播种(过期用例),生产只经三端点触碰。
-export const oidcStates = new Map() // state -> { nonce, verifier, redirectUri, exp }
+const OIDC_STATE_TTL_MS = 10 * 60_000
+const OIDC_CODE_TTL_MS = 60_000
+export const oidcStates = createTtlStore({ name: 'oidcStates', domain: 'auth', ttlMs: OIDC_STATE_TTL_MS, purgeFuse: 1000 }) // state -> { nonce, verifier, redirectUri, exp };超 1000 条签发顺手清过期(kernel set 内保险丝)
 
 // ===== 2026-09-08 性能批:/version 探活 TTL 缓存(模块级) =====
 // connect-cluster 串行 await /version 是「首次连接慢」的直接构成(网关→apiserver 冷连接
@@ -42,16 +47,15 @@ export const oidcStates = new Map() // state -> { nonce, verifier, redirectUri, 
 // 凭据签名(apiServer+authHeader+TLS 材料)入值,换凭据自然失效重探;凭据失效的暴露时点
 // 从 connect 顺延到首个资源请求(hydrate 已有清晰错误面),TTL 过期即自愈。
 const VERSION_CACHE_TTL_MS = 10 * 60_000
-const versionCache = new Map() // clusterId -> { sig, version, at }
+// 值无 exp(带 at)→ kernel 按插入时戳+TTL 盖章判过期;at 字段照旧写入,sig/at 手写检查保留=双保险。
+const versionCache = createTtlStore({ name: 'versionCache', domain: 'auth', ttlMs: VERSION_CACHE_TTL_MS }) // clusterId -> { sig, version, at }
 function versionCacheSig(cluster) {
   return createHash('sha256').update(JSON.stringify([
     cluster.apiServer, cluster.authHeader, cluster.ca, cluster.cert, cluster.key, !!cluster.insecure,
   ])).digest('hex')
 }
 
-export const oidcCodes = new Map()  // code  -> { userId, username, role, ip, exp }
-const OIDC_STATE_TTL_MS = 10 * 60_000
-const OIDC_CODE_TTL_MS = 60_000
+export const oidcCodes = createTtlStore({ name: 'oidcCodes', domain: 'auth', ttlMs: OIDC_CODE_TTL_MS })  // code  -> { userId, username, role, ip, exp }
 
 // 回调地址从请求推导:socket 直连事实(encrypted→https),不信任 X-Forwarded-* 系头(与限流 IP 同口径);
 // 反向代理场景由代理层保证 Host 正确(部署文档职责)。
@@ -263,11 +267,7 @@ export function createAuthRoutes(deps) {
         const codeChallenge = createHash('sha256').update(verifier).digest('base64url')
         const redirectUri = deriveOidcRedirectUri(req)
         oidcStates.set(state, { nonce, verifier, redirectUri, exp: Date.now() + OIDC_STATE_TTL_MS })
-        // W4-B 审 2:廉价上界——签发时 Map 超 1000 条顺手清过期项(正常流量远达不到;防匿名堆积)
-        if (oidcStates.size > 1000) {
-          const nowMs = Date.now()
-          for (const [k, v] of oidcStates) if (v.exp < nowMs) oidcStates.delete(k)
-        }
+        // W4-B 审 2:廉价上界(签发时超 1000 条顺手清过期项,防匿名堆积)已迁 kernel:purgeFuse: 1000 在 set 内同语义触发
         res.writeHead(302, { location: oidcProvider.buildAuthUrl({ doc, clientId: cfg.clientId, redirectUri, state, nonce, codeChallenge, scopes: cfg.scopes }) })
         res.end()
         return true
