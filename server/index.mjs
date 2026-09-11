@@ -48,6 +48,8 @@ import { createWorkbenchAgent } from './workbench-agent.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
+import { stateSnapshot } from './state/registry.mjs'
+import { sweepsSnapshot } from './state/scheduler.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
@@ -1887,6 +1889,7 @@ async function handle(req, res) {
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
     oidcProvider, // W4 OIDC:oidc-config GET/PUT/test 配置卡
+    stateOverview: () => ({ ts: Date.now(), stores: stateSnapshot(), sweeps: sweepsSnapshot() }), // 状态轴观测(admin/state 聚合快照;值与键永不离开进程)
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
     provisionCluster: async (row, spec) => {
       if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
