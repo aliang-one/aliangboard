@@ -50,6 +50,7 @@ import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
 import { stateSnapshot } from './state/registry.mjs'
 import { sweepsSnapshot } from './state/scheduler.mjs'
+import { createTtlStore } from './state/kernel.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
@@ -831,9 +832,10 @@ function k8sClient() {
   return _k8sClient
 }
 
-// tmux availability cache: probeKey -> { res: {kind, bin}, at }. TTL-bounded; cleared on error.
-const tmuxProbeCache = new Map()
 const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
+// tmux availability cache: probeKey -> { res: {kind, bin}, at }. TTL-bounded; cleared on error.
+// (TTL 由 kernel 按插入时戳判,读处 Date.now() - hit.at 手检保留为双保险)
+const tmuxProbeCache = createTtlStore({ name: 'tmuxProbeCache', domain: 'exec', ttlMs: TMUX_PROBE_TTL })
 const TMUX_SCROLLBACK_LINES = Number(process.env.TMUX_SCROLLBACK_LINES || 2000)
 
 // idle reaper tracker: tmuxSessionName -> { token, userId, ns, pod, container, terminalId, lastActiveAt, attached }
@@ -980,7 +982,7 @@ async function resolveTmux(session, namespace, pod, container) {
 }
 
 // shell 探测缓存:auto 模式下为 pod/container 选最优 shell(bash 优先;dash/sh 无 tab 补全)。TTL 同 tmux 探测。
-const shellProbeCache = new Map()
+const shellProbeCache = createTtlStore({ name: 'shellProbeCache', domain: 'exec', ttlMs: TMUX_PROBE_TTL })
 async function resolveShell(session, namespace, pod, container) {
   const key = probeKey(namespace, pod, container)
   const hit = shellProbeCache.get(key)

@@ -14,13 +14,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER = join(ROOT, 'server')
 
 const ALLOWLIST = [
-  // --- PENDING:Wave 1 迁入 kernel 后删除(9) ---
+  // --- PENDING:Wave 1 迁入 kernel 后删除(7) ---
   { file: 'server/oidc.mjs', name: 'discoveryCache', kind: 'pending', reason: 'Wave1→ttlStore 12h' },
   { file: 'server/oidc.mjs', name: 'jwksCache', kind: 'pending', reason: 'Wave1→ttlStore 12h' },
   { file: 'server/workbench-summarize.mjs', name: 'convSummarizerInflight', kind: 'pending', reason: 'Wave1→singleFlight' },
   { file: 'server/workbench-summarize.mjs', name: 'projectSummarizerInflight', kind: 'pending', reason: 'Wave1→singleFlight' },
-  { file: 'server/index.mjs', name: 'tmuxProbeCache', kind: 'pending', reason: 'Wave1→ttlStore 5min' },
-  { file: 'server/index.mjs', name: 'shellProbeCache', kind: 'pending', reason: 'Wave1→ttlStore 5min' },
   { file: 'server/api-key-tools.mjs', name: '_issuerCache', kind: 'pending', reason: 'Wave1→ttlStore cap256' },
   { file: 'server/key-usage-touch.mjs', name: 'lastTouch', kind: 'pending', reason: 'Wave1→throttle' },
   { file: 'server/sa-binding.mjs', name: '_inflight', kind: 'pending', reason: 'Wave1→singleFlight' },
