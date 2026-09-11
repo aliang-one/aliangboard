@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, reactive } from 'vue'
 import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
-import { api, k8sStream, k8sChannel, portForwardApi, getSessionToken } from '@/api/client'
+import { api, k8sStream, k8sChannel, portForwardApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { classifyResource } from '@/composables/useLayering'

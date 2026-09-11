@@ -43,6 +43,17 @@ test('点卡片:换集群走 switchCluster(id),成功后进 /cluster', async () 
   expect(pushMock).toHaveBeenCalledWith('/cluster')
 })
 
+test('切换失败:卡片点击被吞掉留原地,不进 /cluster(无未捕获拒绝)', async () => {
+  switchMock.mockRejectedValueOnce(new Error('switch failed'))
+  const w = mount(Clusters, { global: { plugins: [i18n] } })
+  await flushPromises()
+  await w.findAll('[data-test="cluster-card"]')[0].trigger('click')
+  await flushPromises()
+  expect(switchMock).toHaveBeenCalledWith('c1')
+  expect(pushMock).not.toHaveBeenCalled()   // 失败留原地:连 /cluster 都不推
+  w.unmount()
+})
+
 test('「新增集群」指 /add-cluster(不再绕 /login)', async () => {
   const w = mount(Clusters, { global: { plugins: [i18n] } })
   await w.findAll('button').find(b => b.text().includes('添加集群') || b.text().includes('Add')).trigger('click')

@@ -21,7 +21,6 @@ const { pushMock, fetchEventsMock, _routeObj, storeMock } = await vi.hoisted(asy
       fetchClusterCerts: vi.fn(async () => null),
       clusterList: [],
       clusterHealth: { severity: 'ok', reasons: [] },
-      getCurrentCluster: () => ({ name: 'prod' }),
       eventWatchLive: false,
     }),
   }

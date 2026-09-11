@@ -135,6 +135,20 @@ test('桌面:点当前集群行不重复 switchCluster,面板仍关闭', async (
   w.unmount()
 })
 
+test('切换失败留原地(2026-09-10 issue#8):switchCluster 拒绝 → 面板静默收场,不推 /cluster,无未捕获拒绝', async () => {
+  mockViewport(false, false)
+  storeMock.switchCluster.mockRejectedValueOnce(new Error('switch failed'))
+  const w = mountNav()
+  await w.find('[data-test="cluster-brand"]').trigger('click')
+  await flushPromises()
+  document.querySelectorAll('[data-test="cluster-row"]')[1].click()
+  await flushPromises()
+  expect(storeMock.switchCluster).toHaveBeenCalledWith('c2')
+  expect(pushMock).not.toHaveBeenCalledWith('/cluster')   // 失败不被顶飞
+  expect(panelEl()).toBeFalsy()                            // 面板静默收场(toast 已由 store 出)
+  w.unmount()
+})
+
 test('手机抽屉:点集群头部发 shell 通道(tick+1)且弹 bottom sheet 面板', async () => {
   mockViewport(true, true)
   const w = mountNav()

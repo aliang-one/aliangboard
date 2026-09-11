@@ -222,8 +222,8 @@ test('降级持久化: 同集群重启采样不清窗(隐私模式/配额下导�
   store.stopMetricsSampling()
 })
 
-// (2026-09-10 issue#8)「孤儿 key: removeSavedClusterStore 连带删 metrics key」测试随
-// localStorage 登记簿退役一并删除:removeSavedClusterStore 已无实现,存量
+// (2026-09-10 issue#8)「孤儿 key: 登记簿删除函数连带删 metrics key」测试随
+// localStorage 登记簿退役一并删除:该删除函数已无实现,存量
 // aliangboard.metrics.* 与 aliangboard.clusters 键同为惰性孤儿数据,不做迁移。
 
 test('tick 重入守卫: 上一轮未完成时本轮直接跳过', async () => {
