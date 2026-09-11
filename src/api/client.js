@@ -450,6 +450,10 @@ export const adminApi = {
     get: () => platformHttp.request('/api/admin/mcp-config'),
     update: enabled => platformHttp.request('/api/admin/mcp-config', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   },
+  // 状态轴向观测(Wave 0):登记状态聚合快照 + 清扫运行况(只读)
+  state: {
+    get: () => platformHttp.request('/api/admin/state'),
+  },
   // Pod 文件传输限额(单文件 MB,上传下载共用):GET → {limitMb};PUT ← {limitMb} → {ok, limitMb}
   podfileConfig: {
     get: () => platformHttp.request('/api/admin/podfile-config'),

@@ -2664,7 +2664,8 @@
       "about": "About",
       "mcp": "MCP Service",
       "transfers": "File Transfers",
-      "terminal": "Terminal & Sessions"
+      "terminal": "Terminal & Sessions",
+      "state": "State"
     },
     "clusterInfo": "Cluster Information",
     "clusterName": "Cluster Name",
@@ -4806,5 +4807,20 @@
   },
   "mykeys": {
     "formIncomplete": "Pick a cluster and fill in the namespace"
+  },
+  "adminState": {
+    "title": "In-memory State",
+    "refresh": "Refresh",
+    "autoRefresh": "Auto refresh (10s)",
+    "name": "Name",
+    "primitive": "Primitive",
+    "entries": "Entries",
+    "ttl": "TTL",
+    "expired": "Expired",
+    "sweeps": "Sweeps",
+    "cadence": "Cadence",
+    "runs": "Runs",
+    "lastError": "Last error",
+    "empty": "No registered state"
   }
 }

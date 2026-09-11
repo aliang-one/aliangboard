@@ -9,6 +9,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import ColumnManager from '@/components/common/ColumnManager.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import SettingsAboutPanel from '@/components/settings/SettingsAboutPanel.vue'
+import AdminStatePanel from '@/components/settings/AdminStatePanel.vue'
 import { i18n } from '@/i18n'
 import { usePreferencesStore } from '@/stores/preferences'
 
@@ -31,6 +32,7 @@ const tabs = computed(() => [
   ...(auth.isAdmin ? [{ key: 'transfers', label: t('settings.tabs.transfers'), icon: 'swap_vert' }] : []),
   ...(auth.isAdmin ? [{ key: 'ssh', label: t('settings.tabs.terminal'), icon: 'terminal' }] : []),
   ...(auth.isAdmin ? [{ key: 'security', label: t('admin.securityPolicy.title'), icon: 'security' }] : []),
+  ...(auth.isAdmin ? [{ key: 'state', label: t('settings.tabs.state'), icon: 'monitor_heart' }] : []),
 ])
 
 // === Components: real cluster component health ===
@@ -431,6 +433,9 @@ const { catalog, resetAll } = useTableColumns()
 
         <!-- About -->
         <SettingsAboutPanel v-if="activeTab === 'about'" />
+
+        <!-- State overview (admin only) -->
+        <AdminStatePanel v-if="activeTab === 'state'" />
 
         <!-- MCP Service tab (admin only) -->
         <div v-if="activeTab === 'mcp'" class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant">
