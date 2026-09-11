@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, reactive } from 'vue'
 import { load as yamlLoad, loadAll as yamlLoadAll } from 'js-yaml'
-import { api, k8sStream, k8sChannel, portForwardApi, getSavedClusters, addSavedCluster, removeSavedCluster, setActiveToken, activeApiServer, getSessionToken } from '@/api/client'
+import { api, k8sStream, k8sChannel, portForwardApi } from '@/api/client'
 import { notify } from '@/composables/useToast'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { classifyResource } from '@/composables/useLayering'
@@ -12,6 +12,7 @@ import { buildStorageClassYaml } from '@/data/storageClassYaml'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import { queryClient } from '@/queryClient'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useAuthStore } from '@/stores/auth'
 import { mapNode, mapPod, mapWorkload, mapEvent, mapConfigMap, mapSecret, mapPVC, mapPV, mapStorageClass, mapEndpoints, mapIngressClass, mapRuntimeClass, mapPriorityClass, mapService, mapIngress, mapNetworkPolicy, mapHPA, mapResourceQuota, mapLimitRange, mapRole, mapServiceAccount, mapRoleBinding, mapPDB, mapCRD, mapCRInstance, ageOf, eventIconColor, encodeSecretData, encodeBase64, decodeBase64 } from '@/composables/useResourceMappers'
 import { fetchNodes, fetchNode, fetchServices, fetchService, fetchConfigMaps, fetchConfigMap, fetchSecrets, fetchSecret, fetchIngresses, fetchIngress, fetchNetworkPolicies, fetchNetworkPolicy, fetchPDBs, fetchPDB, fetchLimitRanges, fetchLimitRange, fetchResourceQuotas, fetchResourceQuota, fetchHPAs, fetchHPA, fetchEndpoints, fetchWorkloads, fetchPVCs, fetchPVs, fetchPV, fetchStorageClasses, fetchStorageClass, fetchPVC, fetchRoles, fetchRoleBindings, fetchClusterRoleBindings, fetchServiceAccounts, fetchRole, fetchRoleBinding, fetchServiceAccount, fetchClusterRole, fetchClusterRoleBinding, fetchRuntimeClasses, fetchRuntimeClass, fetchIngressClasses, fetchIngressClass, fetchPriorityClasses, fetchPriorityClass, fetchNamespaces, fetchNamespace, fetchWorkloadRevisions, fetchReplicaSets } from '@/composables/useFetchers'
 import { applyWatchEvent } from '@/composables/useK8sQuery'
@@ -59,10 +60,11 @@ export const useClusterStore = defineStore('cluster', () => {
   const namespaceList = ref([])
   // P2-B：podList/workloadList/eventList/serviceList/ingressList 孤儿 ref 已删——
   // 服务端状态全归 Vue Query（列表 useResourceList / 变更 invalidateResource / watch setQueryData 桥）。
-  // 多集群：已保存集群来自 localStorage；clusterList 为其映射
-  const savedClusters = ref(getSavedClusters())
-  const activeApiServerRef = ref(activeApiServer())
-  const clusterList = computed(() => savedClusters.value.map(c => ({ name: c.name, apiServer: c.apiServer, version: c.version, status: c.status || 'Healthy', distribution: c.distribution || 'Kubernetes', context: c.name, current: c.apiServer === activeApiServerRef.value })))
+  // 多集群(2026-09-10 issue#8):可用集群列表服务端为源(my-clusters);活跃身份由
+  // connect/session 响应设置。localStorage 登记簿(aliangboard.clusters)已退役。
+  const activeApiServerRef = ref('')
+  const clusterList = ref([])
+  const authStore = useAuthStore()
   const currentCluster = ref('')
   const connectionState = ref('')
   // 上一次水合的集群级 CPU/内存百分比，用于计算趋势（首次为 null → 趋势显示「—」）
@@ -111,7 +113,7 @@ export const useClusterStore = defineStore('cluster', () => {
   const { addRole, updateRole, deleteRole, checkAccess } = createRbacDomain({ remoteCreate, remoteUpdate, generateYAML })
 
   // === 多集群域(./cluster/clusters.js):switchCluster/连接登记 + 端口转发 ===
-  const { switchCluster, removeSavedClusterStore, setConnectedCluster, portForwards, addPortForward, removePortForward, refreshPortForwards } = createClustersDomain({ cluster, activeApiServerRef, apiReachable, connectionState, currentCluster, currentNamespace, savedClusters, hydrateCriticalResources, startWorkloadFamilyWatch, stopWorkloadFamilyWatch, startHealthCheck, setMetricsHold, metricsReloadWindow: _metricsReloadWindow })
+  const { switchCluster, setConnectedCluster, loadAvailableClusters, portForwards, addPortForward, removePortForward, refreshPortForwards } = createClustersDomain({ cluster, activeApiServerRef, apiReachable, connectionState, currentCluster, currentNamespace, clusterList, hydrateCriticalResources, startWorkloadFamilyWatch, stopWorkloadFamilyWatch, startHealthCheck, setMetricsHold, metricsReloadWindow: _metricsReloadWindow, connectCluster: authStore.connectCluster })
   // === Namespace 作用域的计算属性 ===
 
   // === Actions ===
@@ -550,16 +552,10 @@ export const useClusterStore = defineStore('cluster', () => {
     } finally { setMetricsHold(false) }   // 兜底:任何置 hold 后走水合的路径,水合结束必释放
   }
 
-  function getCurrentCluster() {
-    return clusterList.value.find(c => c.name === currentCluster.value) || clusterList.value[0]
-  }
-
-
-
   return {
     // 基础数据
     cluster, nodeList, namespaceList, currentNamespace,
-    clusterList, savedClusters, currentCluster, connectionState,
+    clusterList, currentCluster, connectionState,
     // 全局计算
     healthyNodes, totalNodes, clusterHealth, apiReachable,
     // Actions
@@ -610,7 +606,7 @@ export const useClusterStore = defineStore('cluster', () => {
     // CRUD: Namespaces
     addNamespace, deleteNamespace,
     // 多集群
-    switchCluster, getCurrentCluster, setConnectedCluster, removeSavedClusterStore,
+    switchCluster, setConnectedCluster, loadAvailableClusters,
     hydrateCriticalResources,
     invalidateAllClusterQueries,
     // Pod 列表轻量刷新（删 Pod 后看重建）

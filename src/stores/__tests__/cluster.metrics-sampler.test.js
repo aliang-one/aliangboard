@@ -12,10 +12,19 @@ vi.mock('@/api/client', () => {
       return url.endsWith('/nodes') ? nodeMetrics : podMetrics
     }) },
     k8sStream: vi.fn(), k8sChannel: vi.fn(() => ({ abort(){} })), portForwardApi: {},
+    authApi: { myClusters: vi.fn(async () => ({ clusters: [] })) },
     getSavedClusters: () => [], addSavedCluster: vi.fn(), removeSavedCluster: vi.fn(),
     setActiveToken: vi.fn(), activeApiServer: () => '', getSessionToken: () => '',
   }
 })
+
+// 2026-09-10 issue#8:switchCluster 改走平台连接链(authStore.connectCluster 按
+// clusterId 换新 token)。此处 mock auth store 注入可控 connectCluster,聚焦采样域
+// 竞态本身,不把 saveSession/rekey 链拖进本套件。
+const connectMock = vi.fn()
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({ connectCluster: (...a) => connectMock(...a) }),
+}))
 
 import { useClusterStore } from '@/stores/cluster'
 import { api } from '@/api/client'
@@ -42,6 +51,7 @@ beforeEach(() => {
   globalThis.localStorage = shim; globalThis.sessionStorage = shim
   mem.clear()
   api.k8s.mockImplementation(defaultK8s)
+  connectMock.mockReset()
   vi.useFakeTimers()
 })
 afterEach(() => {
@@ -138,16 +148,14 @@ function deferred() {
   const promise = new Promise((res, rej) => { resolve = res; reject = rej })
   return { promise, resolve, reject }
 }
-function twoClusters(store) {
-  store.savedClusters = [
-    { name: 'demo', apiServer: 'https://demo', token: 't1' },
-    { name: 'other', apiServer: 'https://other', token: 't2' },
-  ]
+// 切换目标:connect-cluster 响应形状(平台链下发新 token + cluster 身份)
+function stubSwitchTarget(name = 'other') {
+  connectMock.mockResolvedValue({ token: 't2', cluster: { name, apiServer: `https://${name}`, version: 'v1.30' } })
 }
 
 test('竞态 A(epoch): tick 挂起间切集群,恢复后旧集群值不进新窗口/新 key', async () => {
   const store = freshStore()
-  twoClusters(store)
+  stubSwitchTarget()
   const pending = deferred()
   api.k8s.mockImplementation(async (url) => {
     if (url.includes('metrics.k8s.io')) return pending.promise   // metrics 悬置;hydrate 正常返回
@@ -155,7 +163,7 @@ test('竞态 A(epoch): tick 挂起间切集群,恢复后旧集群值不进新窗
   })
   const tickPromise = store.sampleNow()        // tick 进入 await refreshMetrics 挂起
   expect(store.metricsSampling).toBe(true)
-  const swPromise = store.switchCluster('https://other')   // 挂起间切集群(reloadMetricsWindow → epoch++)
+  const swPromise = store.switchCluster('c-other')   // 挂起间切集群(reloadMetricsWindow → epoch++)
   await vi.advanceTimersByTimeAsync(0)
   expect(store.currentCluster).toBe('other')
   pending.resolve(nodeMetricsFor('n1'))        // 旧集群节点数据此刻才 resolve
@@ -169,14 +177,14 @@ test('竞态 A(epoch): tick 挂起间切集群,恢复后旧集群值不进新窗
 
 test('竞态 B(hold): hydrate 未换血前 tick 被挡,hydrate 完成后采样恢复', async () => {
   const store = freshStore()
-  twoClusters(store)
+  stubSwitchTarget()
   const hydrateGate = deferred()
   api.k8s.mockImplementation(async (url) => {
     if (url.includes('metrics.k8s.io')) return url.endsWith('/nodes') ? nodeMetricsFor('x1') : { items: [] }  // 新集群节点名 x1
     if (url === '/api/v1/namespaces') return hydrateGate.promise   // 悬置切集群水合(nodeList 未换血)
     return {}
   })
-  const swPromise = store.switchCluster('https://other')
+  const swPromise = store.switchCluster('c-other')
   await vi.advanceTimersByTimeAsync(0)
   expect(store.currentCluster).toBe('other')
   // 此刻 nodeList 仍是旧集群节点(n1);新集群 metrics(节点 x1)与之不匹配 → 无守卫会算出 0% 并持久化
@@ -194,10 +202,10 @@ test('竞态 B(hold): hydrate 未换血前 tick 被挡,hydrate 完成后采样�
 
 test('切窗口重载时 metricsLastRefresh 清空(残留不跨集群)', async () => {
   const store = freshStore()
-  twoClusters(store)
+  stubSwitchTarget()
   await store.sampleNow()                     // demo: lastRefresh 置位
   expect(store.metricsLastRefresh).not.toBeNull()
-  await store.switchCluster('https://other')  // reloadMetricsWindow → lastRefresh=null
+  await store.switchCluster('c-other')        // reloadMetricsWindow → lastRefresh=null
   expect(store.metricsLastRefresh).toBeNull()
 })
 
@@ -214,15 +222,9 @@ test('降级持久化: 同集群重启采样不清窗(隐私模式/配额下导�
   store.stopMetricsSampling()
 })
 
-test('孤儿 key: removeSavedClusterStore 连带删该集群的 metrics 持久化 key', () => {
-  mem.set('aliangboard.metrics.demo.v1', JSON.stringify({ cpu: [], mem: [] }))
-  mem.set('aliangboard.metrics.other.v1', JSON.stringify({ cpu: [], mem: [] }))
-  const store = freshStore()
-  twoClusters(store)
-  store.removeSavedClusterStore('https://demo')
-  expect(mem.has('aliangboard.metrics.demo.v1')).toBe(false)
-  expect(mem.has('aliangboard.metrics.other.v1')).toBe(true)
-})
+// (2026-09-10 issue#8)「孤儿 key: 登记簿删除函数连带删 metrics key」测试随
+// localStorage 登记簿退役一并删除:该删除函数已无实现,存量
+// aliangboard.metrics.* 与 aliangboard.clusters 键同为惰性孤儿数据,不做迁移。
 
 test('tick 重入守卫: 上一轮未完成时本轮直接跳过', async () => {
   const store = freshStore()

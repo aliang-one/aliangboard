@@ -32,7 +32,6 @@ vi.mock('@/stores/cluster', () => ({
     clusterHealth: { severity: 'ok', reasons: [] },
     currentNamespace: '',
     namespaceList: [],
-    getCurrentCluster: () => ({ name: 'test' }),
     setNamespace: vi.fn(),
     switchCluster: vi.fn(),
     stopPodWatch: vi.fn(),

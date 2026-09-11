@@ -68,13 +68,14 @@ test('create 失败:内联错误,表单保留,不 connect', async () => {
   expect(connectMock).not.toHaveBeenCalled()
 })
 
-test('create+connect 成功:setConnectedCluster(去尾斜杠)并整页跳 /cluster', async () => {
+test('create+connect 成功:setConnectedCluster(name 透传 + 去尾斜杠)并整页跳 /cluster', async () => {
   createMock.mockResolvedValue({ cluster: { id: 'c1', name: 'demo', apiServer: 'https://x', version: 'v1.30' } })
-  connectMock.mockResolvedValue({ token: 'k8s-t', cluster: { apiServer: 'https://x/', version: 'v1.30' } })
+  connectMock.mockResolvedValue({ token: 'k8s-t', cluster: { name: 'demo', apiServer: 'https://x/', version: 'v1.30' } })
   const w = mountView()
   await fillAndSubmit(w)
   expect(connectMock).toHaveBeenCalledWith('c1')
-  expect(setConnectedMock).toHaveBeenCalledWith({ apiServer: 'https://x', version: 'v1.30' })
+  expect(setConnectedMock).toHaveBeenCalledWith(expect.objectContaining({ name: 'demo' }))
+  expect(setConnectedMock).toHaveBeenCalledWith({ name: 'demo', apiServer: 'https://x', version: 'v1.30' })
   expect(window.location.pathname).toBe('/cluster')
 })
 

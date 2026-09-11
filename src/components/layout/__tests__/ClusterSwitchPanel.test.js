@@ -9,9 +9,10 @@ import { i18n } from '@/i18n'
 
 import ClusterSwitchPanel from '@/components/layout/ClusterSwitchPanel.vue'
 
+// 2026-09-10 issue#8:行载荷改集群 id(switchCluster 按平台链按 id 换连接)
 const CLUSTERS = [
-  { name: 'prod', apiServer: 'https://prod.example', version: 'v1.31.2', distribution: 'k3s', status: 'Healthy' },
-  { name: 'staging', apiServer: 'https://staging.example', version: 'v1.30.1', distribution: 'Kubernetes', status: 'Degraded' },
+  { id: 'c1', name: 'prod', apiServer: 'https://prod.example', version: 'v1.31.2', distribution: 'k3s', status: 'Healthy' },
+  { id: 'c2', name: 'staging', apiServer: 'https://staging.example', version: 'v1.30.1', distribution: 'Kubernetes', status: 'Degraded' },
 ]
 
 function mountPanel(extraProps = {}) {
@@ -58,12 +59,12 @@ test('渲染集群列表:名称/版本·发行版,当前项 CURRENT 徽标+高�
   w.unmount()
 })
 
-test('点击集群行 emit select(apiServer);管理全部钮 emit manage', async () => {
+test('点击集群行 emit select 携带集群 id(非 apiServer);管理全部钮 emit manage', async () => {
   const w = mountPanel()
   const rows = document.querySelectorAll('[data-test="cluster-row"]')
   rows[1].click()
   await nextTick()
-  expect(w.emitted('select')).toEqual([['https://staging.example']])
+  expect(w.emitted('select')).toEqual([['c2']])
   document.querySelector('[data-test="manage-all"]').click()
   await nextTick()
   expect(w.emitted('manage')).toHaveLength(1)

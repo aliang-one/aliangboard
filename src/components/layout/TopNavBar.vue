@@ -108,7 +108,6 @@ const searchQuery = ref('')
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
 
-const currentClusterObj = computed(() => store.getCurrentCluster())
 const currentNs = computed(() => store.currentNamespace)
 const filteredNamespaces = computed(() => {
   if (!nsSearch.value) return allNamespaces.value
@@ -268,7 +267,7 @@ onBeforeUnmount(unbindDropFollow)
         <span class="material-symbols-outlined text-lg shrink-0">folder_open</span>
         <div class="flex flex-col items-start leading-tight min-w-0 flex-1">
           <span class="w-full text-body-sm font-semibold truncate">{{ currentNs || $t('nav.notSelected') }}</span>
-          <span class="w-full text-[10px] text-on-surface-variant truncate">{{ currentClusterObj?.name || '—' }}</span>
+          <span class="w-full text-[10px] text-on-surface-variant truncate">{{ store.cluster.name || '—' }}</span>
         </div>
         <!-- 手机档不渲染 expand_more 尾图标(375px 主文本仅剩 ~10-25px,去 chevron 省 ~28px;Wave 4 终审 D) -->
       </button>

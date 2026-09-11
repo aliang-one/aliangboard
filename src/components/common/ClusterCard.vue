@@ -36,20 +36,27 @@ const DISCONNECT_LABEL = {
   'unreachable': 'component.clusterCard.reasonUnreachable',
   'tls-ok': 'component.clusterCard.reasonTlsOk',
 }
+// 换连接按集群 id 走平台链(2026-09-10 issue#8):switchCluster 失败会重抛,
+// 两入口各自吞掉留原地(toast 已由 store 出)——未捕获拒绝不再顶飞页面
 async function open() {
-  if (c.value.apiServer && c.value.apiServer !== store.cluster?.apiServer) await store.switchCluster(c.value.apiServer)
+  if (c.value.id && c.value.apiServer !== store.cluster?.apiServer) {
+    try { await store.switchCluster(c.value.id) } catch { return }   // 失败留原地
+  }
   router.push('/cluster')
 }
 async function switchOnly() {
-  if (c.value.apiServer && c.value.apiServer !== store.cluster?.apiServer) {
-    await store.switchCluster(c.value.apiServer)
-    notify('success', t('component.clusterCard.switchedTo', { name: store.currentCluster }))
+  if (c.value.id && c.value.apiServer !== store.cluster?.apiServer) {
+    try {
+      await store.switchCluster(c.value.id)
+      notify('success', t('component.clusterCard.switchedTo', { name: store.currentCluster }))
+    } catch { /* store 已 notify */ }
   }
 }
 </script>
 
 <template>
   <div
+    data-test="cluster-card"
     class="rounded-xl overflow-hidden bg-surface-container-lowest border p-md flex flex-col gap-sm cursor-pointer hover:border-primary/40 transition-all"
     :class="active ? 'border-primary/60' : 'border-outline-variant'"
     @click="open"

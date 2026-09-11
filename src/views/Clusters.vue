@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
@@ -41,14 +41,12 @@ const filtered = computed(() => {
 
 const { currentPage, pageSize, paginated, total } = usePagination(filtered, { resetDeps: [searchQuery] })
 
-function addCluster() {
-  router.push('/login')
-}
+// 列表服务端化(2026-09-10 issue#8):clusterList = my-clusters 映射(admin 建的、
+// 他端配的都可见),挂载即拉;本地移除流随 localStorage 登记簿退役一并删除。
+onMounted(() => { store.loadAvailableClusters() })
 
-function removeCluster(c) {
-  if (!window.confirm(t('clusters.removeClusterConfirm', { name: c.name }))) return
-  store.removeSavedClusterStore(c.apiServer)
-  notify('success', t('clusters.removed'))
+function addCluster() {
+  router.push('/add-cluster')
 }
 </script>
 
@@ -97,10 +95,10 @@ function removeCluster(c) {
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-md">
       <ClusterCard
         v-for="c in paginated"
-        :key="c.name"
+        :key="c.id"
         :cluster="c"
-        :active="c.name === store.currentCluster"
-        @remove="removeCluster(c)"
+        :active="c.apiServer === store.cluster?.apiServer"
+        :show-remove="false"
       />
     </div>
 

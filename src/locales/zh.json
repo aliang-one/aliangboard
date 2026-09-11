@@ -735,10 +735,9 @@
     "demoModeNoSync": "演示数据模式下无需同步",
     "synced": "已同步 {cluster}",
     "syncFailed": "同步失败：{error}",
+    "switchFailed": "切换集群失败：{error}",
     "unknownError": "未知错误",
     "totalClusters": "共 {count} 个集群，当前为",
-    "removeClusterConfirm": "移除已保存的集群「{name}」？\n（仅从列表删除，不会影响当前已连接的会话）",
-    "removed": "已移除",
     "searchPlaceholder": "按名称、版本或发行版搜索...",
     "noMatchingClusters": "未找到匹配的集群"
   },

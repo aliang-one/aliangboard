@@ -418,6 +418,7 @@ test('connect-cluster: 签发的 K8s session 携带 userId+clusterId(persistSess
   assert.equal(persisted.length, 1)
   assert.equal(persisted[0].s.userId, 'u1')
   assert.equal(persisted[0].s.clusterId, 'c1')
+  assert.equal(sent[0].payload.cluster.name, 'prod')   // 响应下发集群 name(issue#8:前端集群身份展示)
 })
 
 // ===== W2 Phase A Task 4:/me grants 下发 + grantable-ns + my-keys ns 收口 =====

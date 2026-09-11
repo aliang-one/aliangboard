@@ -99,15 +99,16 @@ test('通道卡(非 admin 无集群空状态):仍渲染——不再只有登出�
 
 // === 连接流程反馈 ===
 
-test('连接成功:SPA push /cluster + setConnectedCluster(apiServer 去尾斜杠),connecting 不提前清零', async () => {
+test('连接成功:SPA push /cluster + setConnectedCluster(name 透传 + apiServer 去尾斜杠),connecting 不提前清零', async () => {
   myClustersMock.mockResolvedValue({ clusters: [{ id: 'c1', name: 'demo', apiServer: 'https://x' }] })
-  connectClusterMock.mockResolvedValue({ token: 'tok', cluster: { apiServer: 'https://x/', version: 'v1.29' } })
+  connectClusterMock.mockResolvedValue({ token: 'tok', cluster: { name: 'demo', apiServer: 'https://x/', version: 'v1.29' } })
   const w = mountView()
   await flushPromises()
   await cards(w)[0].trigger('click')
   await flushPromises()
   expect(pushMock).toHaveBeenCalledWith('/cluster')
-  expect(setConnectedMock).toHaveBeenCalledWith({ apiServer: 'https://x', version: 'v1.29' })
+  expect(setConnectedMock).toHaveBeenCalledWith(expect.objectContaining({ name: 'demo' }))
+  expect(setConnectedMock).toHaveBeenCalledWith({ name: 'demo', apiServer: 'https://x', version: 'v1.29' })
   // 旧版 finally 清零 connecting → 整页刷新窗口期网格复活 → 重复点击连接风暴。
   // 成功路径必须保持禁用态直到组件卸载(SPA 跳转)。
   expect(cards(w)[0].attributes('disabled')).toBeDefined()
