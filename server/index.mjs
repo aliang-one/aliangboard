@@ -2651,10 +2651,13 @@ registerState({ name: '_cache', domain: 'sa-binding', primitive: 'registered', d
 registerState({ name: 'allowedHosts', domain: 'k8s', primitive: 'registered', describe: () => ({ entries: null }) })
 registerState({ name: '_dispatcherCache', domain: 'k8s', primitive: 'registered', describe: () => ({ entries: _dispatcherCacheSizeForTest() }) })
 registerState({ name: 'sweepSeenServers', domain: 'ssh', primitive: 'registered', describe: () => ({ entries: jobBridgeForSweep.sweepServerIds().length }) })
-// 重态观测面(非守卫强制):活 SSH 终端 / 连接池水位 / 审计链水位 / 在途 run。
+// 重态观测面(非守卫强制):活 SSH 终端 / 连接池(不透明) / 审计链水位 / 在途 run。
 registerState({ name: 'auditLog', domain: 'audit', primitive: 'registered', describe: () => ({ lastSeq: Number(db.prepare('SELECT COALESCE(MAX(seq),0) AS s FROM audit_log').get().s) }) })
 registerState({ name: 'sshTerminals', domain: 'ssh', primitive: 'registered', describe: () => ({ entries: terminalService._size ? terminalService._size() : terminalService.map.size }) })
-registerState({ name: 'sshPool', domain: 'ssh', primitive: 'registered', describe: () => ({ entries: sshPool._size ? sshPool._size() : 0 }) })
+// sshPool 工厂只出 acquire/testConnection/reapIdle/destroyAll/evictServer,无计数面——
+// entries:null 显式标注不透明(同上方 fedRid/_locks 约定,不猜数、不加导出);
+// 原写法的 `:0` 兜底恒执行 = 满池也显示 0 的假数。
+registerState({ name: 'sshPool', domain: 'ssh', primitive: 'registered', describe: () => ({ entries: null }) })
 registerState({ name: 'runEpoch', domain: 'workbench', primitive: 'registered', describe: () => ({ activeRuns: wbAgent.activeRunCount() }) })
 
 // CSO 2026-08-30 #11:过期会话行定时清扫 —— 此前只在 token 重放时懒删,
