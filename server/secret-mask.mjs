@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 
 export const MASK_PATTERN = /^\*\*\* \(\d+ chars, #[0-9a-f]{8}\)$/
 
-function maskValue(v) {
+export function maskValue(v) {
   const raw = typeof v === 'string' ? v : String(v)
   if (MASK_PATTERN.test(raw)) return raw // 幂等短路:已掩码原样返回
   let decoded
