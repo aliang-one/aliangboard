@@ -48,3 +48,11 @@ test('禁止顶层兄弟键形态回归(ssh:/sshJobs: 不得作为 buildWbCtx �
     '检测到顶层 `sshJobs: createSshJobBridge` 兄弟键——同上,必须挂在 ctx 内'
   )
 })
+
+test('creds 桥必须装配进 ctx 内(ctx.creds = )', () => {
+  assert.match(
+    region,
+    /ctx\.creds\s*=\s*createCredentialsAgentBridge\(/,
+    'ctx.creds 未挂进 ctx——tool-registry 两工具只读 ctx.creds,挂外层 = 恒 undefined = 凭据工具全灭(2026-09-01 事故同款)'
+  )
+})

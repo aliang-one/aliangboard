@@ -16,6 +16,7 @@ const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_ro
 function wbAuditIntent(audit, name, args) {
   let resource = null
   if (args?.server) resource = args.server === '__global__' ? 'SshLedger/__global__' : `SshServer/${args.server}`
+  else if (args?.credential) resource = `Credential/${args.credential}`
   else if (name === 'write_server_notes') resource = `SshLedger/${args?.scope || 'unknown'}`          // SSH 工具(2026-08-28):按服务器归因
   else if (args?.kind && args?.name) resource = `${args.kind}/${args.name}`
   else if (args?.pod) resource = `Pod/${args.pod}`
@@ -62,7 +63,7 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
   ].filter(d => !(excludeTools && excludeTools.has(d.function.name)))
   const offered = new Set(toolDefs.map(t => t.function.name))
   const requiringApproval = new Set(registry.requiringApproval())
-  const ctx = { apiKeyTools, keyRow, cluster, wb: workbench, ssh: workbench?.ssh || null, sshJobs: workbench?.sshJobs || null }
+  const ctx = { apiKeyTools, keyRow, cluster, wb: workbench, ssh: workbench?.ssh || null, sshJobs: workbench?.sshJobs || null, creds: workbench?.creds || null }
   const execTool = async (name, args) => {
     const t = registry.get(name)
     if (!t) throw new Error(`未知工具: ${name}`)

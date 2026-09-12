@@ -66,6 +66,7 @@ import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { createSshRoutes } from './ssh/routes.mjs'
 import { ensureSshSchema, listSshServers } from './ssh/store.mjs'
 import { createCredentialsSchema } from './credentials-store.mjs'
+import { createCredentialsAgentBridge } from './credentials/agent-bridge.mjs'
 import { createCredentialsRoutes } from './routes/credentials.mjs'
 import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { createSshPool } from './ssh/pool.mjs'
@@ -1853,6 +1854,9 @@ async function handle(req, res) {
     // 服务器清单(AI 自相矛盾拒答)。形状守卫:workbench-ctx-wiring.test.mjs。
     ctx.ssh = createSshAgentBridge({ db, key: sshCryptKey, pool: sshPool, projectId: project.id, getSetting, setSetting })
     ctx.sshJobs = createSshJobBridge({ db, pool: sshPool, projectId: project.id, getPolicy: getSshJobPolicy })
+    // 凭据桥(2026-09-12 spec §7):list_credentials/read_credential 经 ctx.creds 到达。
+    // 同 ctx.ssh 铁律:必须赋值进 ctx(挂返回值兄弟键 = 双消费方读不到,2026-09-01 事故)。
+    ctx.creds = createCredentialsAgentBridge({ db, key: credCryptKey })
     return { ctx, k8sSession }
   }
 

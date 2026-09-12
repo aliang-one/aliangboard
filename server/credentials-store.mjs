@@ -146,3 +146,20 @@ export function materializeField(db, key, id, fieldKey) {
   try { return { key: f.key, type: f.type, value: decryptField(key, f.enc) } }
   catch { throw new Error('CRED_DECRYPT_FAILED') }   // 固定码,路由层映射 409(spec §12)
 }
+
+// 系统提示清单(白名单构造:出参只含元数据与字段 {key,type},值/密文永不出现)。
+// 防御式降级同 sshPromptServers:workbench_credentials 表可能尚未建(旧库/测试夹具)——
+// 清单不可用不该让预览/对话创建整体 500,失败降级空清单(= 无凭据段,语义不变)。
+export function listPromptCredentials(db) {
+  try {
+    return db.prepare('SELECT id,name,description,tags,fields FROM workbench_credentials WHERE expose_to_ai=1 ORDER BY updated_at DESC').all()
+      .map(r => ({
+        id: r.id, name: r.name, description: r.description || '',
+        tags: parseJsonArray(r.tags),
+        fields: parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type })),
+      }))
+  } catch (e) {
+    console.error('[credentials] 提示词凭据清单读取失败,按无凭据装配:', e?.message || e)
+    return []
+  }
+}

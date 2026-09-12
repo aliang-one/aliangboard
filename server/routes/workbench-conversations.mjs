@@ -13,6 +13,7 @@
 // WorkbenchDetail Agent 模式)对全部平台会话可见(与前端测试 AppLayout.chat-presence-entry /
 // WorkbenchDetail.lifecycle 对齐)。
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
+import { listPromptCredentials } from '../credentials-store.mjs'
 import { getWorkbenchAiConfig, getMaxRunningConversationsConfig, getMaxConversationsPerProjectConfig, sshPromptServers } from '../workbench-ai-config.mjs'
 import { registry, SSH_HIDDEN_TOOLS } from '../tool-registry.mjs'
 // approval-flow-02:deny 无 LLM 终态转换需要向 conv-bus 广播(与 wbAgent.cancelConversation
@@ -365,7 +366,7 @@ export function createWorkbenchConvRoutes(deps) {
       const sshServers = sshPromptServers(db)
       const sshless = sshServers.length === 0
       sendJson(res, 200, {
-        effectivePrompt: buildWorkbenchSystemPrompt({ ...cfg, sshServers }),
+        effectivePrompt: buildWorkbenchSystemPrompt({ ...cfg, sshServers, credentials: listPromptCredentials(db) }),
         tools: registry.workbenchTools()
           .filter(t => !(sshless && SSH_HIDDEN_TOOLS.includes(t.name)))
           .map(t => ({ name: t.name, description: t.description, requiresApproval: t.requiresApproval, enabled: !disabled.has(t.name) })),
@@ -426,7 +427,7 @@ export function createWorkbenchConvRoutes(deps) {
         // 集群时工具段与实际 offering 同源裁掉 16 个 K8s 依赖工具(与 disabledTools/SSH 维度
         // 同款过滤,不再虚列 AI 调不了的工具)。
         const sshServers = sshPromptServers(db)
-        const system = buildWorkbenchSystemPrompt({ ...getWorkbenchAiConfig(db), sshServers, hasCluster: !!project.clusterId })
+        const system = buildWorkbenchSystemPrompt({ ...getWorkbenchAiConfig(db), sshServers, hasCluster: !!project.clusterId, credentials: listPromptCredentials(db) })
 
         // conv-lifecycle-05(2026-09-07 审计批次三):三语句写包事务(对照 DELETE 既有事务模式)
         // ——中途失败不留半状态:running 孤儿 conv 行会永久毒化并发限额(F6 计数按 status
