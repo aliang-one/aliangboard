@@ -21,7 +21,7 @@ const activeTab = ref('projects')
 onMounted(() => {
   // 顶栏胶囊快捷区落点(2026-08-30 spec §4.3):一次性读 query;tab 仍是组件内状态,不做双向路由同步
   const tab = route.query.tab
-  const all = [...tabs.value, ...moreTabs]
+  const all = [...tabs.value, ...moreTabs.value]
   if (typeof tab === 'string' && all.some(x => x.key === tab)) activeTab.value = tab
 })
 // 2026-09-12 导航改版(spec §10):高频 项目/服务器/凭据 常驻;低频 知识/记录 收进「更多」▾(全员可见)。
@@ -30,11 +30,12 @@ const tabs = computed(() => [
   ...(auth.isAdmin ? [{ key: 'servers', label: t('workbench.shell.tabServers'), icon: 'dns' }] : []),
   ...(auth.isAdmin ? [{ key: 'credentials', label: t('workbench.shell.tabCredentials'), icon: 'key' }] : []),
 ])
-const moreTabs = [
+// computed(与上方 tabs 同配方):t() 在渲染期取值,切语言即时刷新「更多」菜单项/触发器文案
+const moreTabs = computed(() => [
   { key: 'knowledge', label: t('workbench.shell.tabKnowledge'), icon: 'menu_book' },
   { key: 'records', label: t('workbench.shell.tabRecords'), icon: 'history' },
-]
-const moreActive = computed(() => moreTabs.find(x => x.key === activeTab.value) || null)
+])
+const moreActive = computed(() => moreTabs.value.find(x => x.key === activeTab.value) || null)
 </script>
 
 <template>
