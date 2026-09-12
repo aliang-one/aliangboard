@@ -9,4 +9,6 @@ export const TABLE = {
   'wcred.fieldNotFound': { zh: '字段不存在', en: 'Field not found' },
   'wcred.decryptFailed': { zh: '解密失败,请重新录入该凭据', en: 'Decrypt failed, please re-enter this credential' },
   'wcred.methodNotAllowed': { zh: 'method not allowed', en: 'method not allowed' },
+  'wcred.llmNotConfigured': { zh: 'LLM 未配置,请管理员在「LLM 配置」设置 baseURL/model 后重试', en: 'LLM not configured; ask admin to set baseURL/model first' },
+  'wcred.parseFailed': { zh: '解析失败,请重试或改用手动录入', en: 'Parse failed; retry or enter manually' },
 }

@@ -40,7 +40,7 @@ function clampDraft(raw) {
     const key = str(f?.key, 64)
     const value = typeof f?.value === 'string' ? f.value : (f?.value == null ? '' : String(f.value))
     const type = f?.type === 'text' ? 'text' : 'password'   // 未识别从严归一 password
-    if (!key || key.length > 64 || value.length > 16384 || seen.has(key.toLowerCase())) { dropped++; continue }
+    if (!key || value.length > 16384 || seen.has(key.toLowerCase())) { dropped++; continue }
     seen.add(key.toLowerCase())
     fields.push({ key, type, value })
     if (fields.length >= 32) break

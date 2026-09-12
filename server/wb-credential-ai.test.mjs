@@ -114,7 +114,7 @@ test('read_credential:password 指纹/text 明文;system 只有元文;审批 pau
     let st = await waitStatus(['paused', 'failed', 'done'])
     assert.equal(st, 'paused', `read_credential 应停在审批,实际 ${st}`)
     const ap = await approve()
-    assert.equal(ap.status ?? 200, 200, 'approve 应 2xx')
+    assert.equal(ap.status, 200, 'approve 应 2xx')
     st = await waitStatus(['done', 'failed'])
     assert.equal(st, 'done', `approve 后应终态,实际 ${st}`)
     // 面一:system 注入面——元数据在,值不在
@@ -158,7 +158,8 @@ test('同名歧义:read_credential 错误只回候选 id,不含任一明文;对�
     const { waitStatus, approve } = await h.startConversation(H, '读一下 dup 凭据的 token')
     let st = await waitStatus(['paused', 'failed', 'done'])
     assert.equal(st, 'paused', `歧义路径同样先过审批门,实际 ${st}`)
-    await approve()
+    const ap = await approve()
+    assert.equal(ap.status, 200, 'approve 应 2xx')
     st = await waitStatus(['done', 'failed'])
     assert.equal(st, 'done', `工具报错后 LLM 应终答,实际 ${st}`)
     const toolRound = h.llmRounds.find(ms => ms.some(m => m.role === 'tool'))

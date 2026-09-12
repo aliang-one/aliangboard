@@ -8,6 +8,7 @@ import {
   updateCredential, deleteCredential, materializeField, sanitizeCredential,
 } from '../credentials-store.mjs'
 import { decryptField } from '../ssh/crypt.mjs'
+import { runCredentialParse } from '../credential-parse.mjs'
 
 // 详情视图:text 字段明文(admin 管理面),password 字段掩码指纹(明文只能走 reveal 单字段出口)
 function detailView(db, key, id) {
@@ -25,12 +26,31 @@ function detailView(db, key, id) {
 }
 
 export function createCredentialsRoutes(deps) {
-  const { db, sendJson, readBody, requireAdmin, writeAudit, credCryptKey } = deps
+  const { db, sendJson, readBody, requireAdmin, writeAudit, credCryptKey, getLlmConfig, createLlmClient } = deps
 
   // 匹配凭据路由;命中并处理返 true;否则返 false。
   async function handle(req, res, url) {
     const seg = url.pathname.split('/').filter(Boolean)   // ['api','workbench','credentials',...?]
     if (seg[0] !== 'api' || seg[1] !== 'workbench' || seg[2] !== 'credentials') return false
+
+    // POST /api/workbench/credentials/parse:LLM 智能粘贴解析(spec §9)。admin;不落库;
+    // 审计只记动作与原文长度,绝不记 body(请求体含敏感明文)。
+    if (seg.length === 4 && seg[3] === 'parse' && req.method === 'POST') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        const text = String(input.text ?? '')
+        if (!text.trim()) { sendJson(res, 400, { message: msg(req, 'wcred.parseFailed') }); return true }
+        const cfg = getLlmConfig()
+        if (!cfg.baseURL || !cfg.model) { sendJson(res, 503, { message: msg(req, 'wcred.llmNotConfigured') }); return true }
+        const llmClient = createLlmClient({ ...cfg, temperature: 0 })   // 显式覆写:防对话向参数泄漏进解析任务
+        const out = await runCredentialParse({ llmClient, rawText: text })
+        if (!out.ok) { sendJson(res, 400, { message: msg(req, 'wcred.parseFailed') }); return true }
+        writeAudit?.(db, { owner: ps.username, verb: 'read', tool: 'credential_parse', result: 'ok',
+          requestSummary: `len=${text.length} dropped=${out.dropped}`, source: 'platform' })
+        sendJson(res, 200, { draft: out.draft, dropped: out.dropped }); return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wcred.parseFailed') }); return true }
+    }
 
     // ====== 集合端点 ======
     if (seg.length === 3) {

@@ -1944,7 +1944,7 @@ async function handle(req, res) {
     listSshSessions: () => terminalService.list(),
   })
   const credentialsRoutes = createCredentialsRoutes({
-    db, sendJson, readBody, requireAdmin, writeAudit, credCryptKey,
+    db, sendJson, readBody, requireAdmin, writeAudit, credCryptKey, getLlmConfig, createLlmClient,
   })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
   const clusterCertsRoutes = createClusterCertsRoutes({ sendJson, msg, clusterCerts, k8sGate, levelForRequest })

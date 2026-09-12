@@ -21,8 +21,10 @@ function makeHarness({ role = 'admin' } = {}) {
     requireAdmin: () => (role === 'admin' ? { userId: 'u1', role, username: 'u1' } : (sent.push({ status: 403, json: {} }), null)),
     writeAudit: (_db, a) => audits.push(a),
     credCryptKey: KEY,
+    getLlmConfig: () => harness._llmCfg,
+    createLlmClient: cfg => { harness._llmClientCfg = cfg; return { chat: async () => ({ content: JSON.stringify(harness._llmReply ?? {}) }) } },
   })
-  const harness = { sent, db, audits, _body: {},
+  const harness = { sent, db, audits, _body: {}, _llmCfg: { baseURL: '', model: '' }, _llmReply: null,
     call: (m, p, body) => { harness._body = body || {}; return routes.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`)) } }
   return harness
 }
@@ -81,4 +83,18 @@ test('PATCH fields 非数组 → 400(形状护栏,字段袋不被静默清空)',
   await h.call('PATCH', `/api/workbench/credentials/${id}`, { fields: 'not-an-array' })
   assert.equal(h.sent[1].status, 400)
   assert.equal(h.db.prepare('SELECT fields FROM workbench_credentials WHERE id=?').get(id).fields.includes('"a"'), true, '原字段仍在,未被清空')
+})
+
+test('parse:LLM 未配置 503;ok 路径回草稿;审计不记原文', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/workbench/credentials/parse', { text: 'root 密码 abc' })
+  assert.equal(h.sent[0].status, 503)   // 未配置
+  h._llmCfg = { baseURL: 'http://x', model: 'm' }
+  h._llmReply = { name: 'n', fields: [{ key: 'pwd', type: 'password', value: 'abc' }] }
+  await h.call('POST', '/api/workbench/credentials/parse', { text: 'root 密码 abc' })
+  assert.equal(h.sent[1].status, 200)
+  assert.equal(h.sent[1].json.draft.fields[0].type, 'password')
+  assert.equal(h._llmClientCfg.temperature, 0, 'temperature 覆写:防对话向参数泄漏进解析任务')
+  const pa = h.audits.find(a => a.tool === 'credential_parse')
+  assert.ok(pa && !pa.requestSummary.includes('abc'), '审计不记原文值')
 })
