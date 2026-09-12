@@ -40,7 +40,8 @@ function clampDraft(raw) {
     const key = str(f?.key, 64)
     const value = typeof f?.value === 'string' ? f.value : (f?.value == null ? '' : String(f.value))
     const type = f?.type === 'text' ? 'text' : 'password'   // 未识别从严归一 password
-    if (!key || value.length > 16384 || seen.has(key.toLowerCase())) { dropped++; continue }
+    // 掩码形态值(用户把详情页指纹粘回/LLM 回声)视为无效——对齐 §5.4 掩码回写拒收,计数丢弃
+    if (!key || value.length > 16384 || value.startsWith('*** (') || seen.has(key.toLowerCase())) { dropped++; continue }
     seen.add(key.toLowerCase())
     fields.push({ key, type, value })
     if (fields.length >= 32) break

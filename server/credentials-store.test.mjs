@@ -46,6 +46,8 @@ test('校验:重名 key/掩码回写/超限/坏 type 全拒', () => {
   assert.ok(errs.length >= 4, JSON.stringify(errs))
   // 非字符串非 null 的 value(如数组)须拒——否则会漏过 16KB/掩码检查,再被 encryptField String() 强转
   assert.ok(validateCredentialInput({ name: 'x', fields: [{ key: 'a', type: 'text', value: ['y'] }] }).length >= 1)
+  // 非字符串 tag(如数字)须拒——否则 String() 强转后静默落库
+  assert.ok(validateCredentialInput({ name: 'x', fields: [], tags: ['a', 5] }).length >= 1, '非字符串标签拒')
   // 掩码回写在 create 侧也 400
   assert.throws(() => createCredential(db0(), KEY, { name: 'x', fields: [{ key: 'b', type: 'text', value: masked }] }), /掩码/)
   function db0() { return makeDb() }
@@ -77,6 +79,23 @@ test('updateCredential 三态:password 留空保持 / null 清除 / 值覆盖;te
   const upd3 = updateCredential(db, KEY, s.id, { name: 'n2', exposeToAi: true, tags: ['a'], description: 'd' })
   assert.equal(upd3.name, 'n2'); assert.equal(upd3.exposeToAi, true); assert.deepEqual(upd3.tags, ['a'])
   assert.equal(updateCredential(db, KEY, 'nope', {}), null)
+})
+
+test('§5.4 校验共用:update 路径 tags/description 同钳(create 侧 description 上限同生效)', () => {
+  const db = makeDb()
+  const s = createCredential(db, KEY, { name: 'n', fields: [] })
+  // PATCH 9 tags → 抛(≤8 规则与 create 共用)
+  assert.throws(() => updateCredential(db, KEY, s.id, { tags: ['1', '2', '3', '4', '5', '6', '7', '8', '9'] }), /标签数超上限/)
+  assert.throws(() => updateCredential(db, KEY, s.id, { tags: ['x'.repeat(25)] }), /标签超 24 字符/)
+  assert.throws(() => updateCredential(db, KEY, s.id, { tags: ['ok', 5] }), /标签须为字符串/)
+  // PATCH >2000 描述 → 抛;create >2000 描述 → 抛(两侧同一上限)
+  assert.throws(() => updateCredential(db, KEY, s.id, { description: 'x'.repeat(2001) }), /描述超 2000 字符/)
+  assert.throws(() => createCredential(db, KEY, { name: 'n2', description: 'x'.repeat(2001), fields: [] }), /描述超 2000 字符/)
+  // 合法边界放行:8 tags × 24 字符 + 恰 2000 描述
+  const ok = updateCredential(db, KEY, s.id, { tags: ['a'.repeat(24), 'b', 'c', 'd', 'e', 'f', 'g', 'h'], description: 'x'.repeat(2000) })
+  assert.equal(ok.tags.length, 8); assert.equal(ok.description.length, 2000)
+  // 未提交项不校验:只改 name 不碰 tags/description
+  assert.equal(updateCredential(db, KEY, s.id, { name: 'n3' }).name, 'n3')
 })
 
 test('deleteCredential + materializeField 解密失败固定码', () => {

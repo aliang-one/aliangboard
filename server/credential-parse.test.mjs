@@ -35,6 +35,16 @@ test('runCredentialParse:ok 路径 type 归一 password;非法字段丢弃计数
   assert.equal(out.dropped, 1)
 })
 
+test('runCredentialParse:掩码形态值丢弃计数(对齐 §5.4 掩码回写拒收)', async () => {
+  const reply = { content: JSON.stringify({ name: 'x', fields: [
+    { key: 'host', type: 'text', value: '10.0.0.1' },
+    { key: 'tok', type: 'password', value: '*** (12 chars, #abcd1234)' },   // 掩码回粘/LLM 回声
+  ] }) }
+  const out = await runCredentialParse({ llmClient: { chat: async () => reply }, rawText: 'x' })
+  assert.ok(!out.draft.fields.some(f => f.key === 'tok'), '掩码形态值不进草稿')
+  assert.equal(out.dropped, 1, '计入 dropped')
+})
+
 test('runCredentialParse:解析失败 → ok:false', async () => {
   const out = await runCredentialParse({ llmClient: { chat: async () => ({ content: '胡言乱语' }) }, rawText: 'x' })
   assert.deepEqual(out, { ok: false, error: 'parse-failed' })

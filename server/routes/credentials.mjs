@@ -19,6 +19,7 @@ function detailView(db, key, id) {
     fields = JSON.parse(row.fields || '[]').map(f => {
       let value
       try { value = decryptField(key, f.enc) } catch { throw new Error('CRED_DECRYPT_FAILED') }
+      if (value == null) value = ''   // 空值字段归一:空串加密落库为 null,展示侧回 ''(password 则 maskValue('')=0 字符指纹,truthful)
       return { key: f.key, type: f.type, value: f.type === 'password' ? maskValue(value) : value }
     })
   } catch (e) { if (e.message === 'CRED_DECRYPT_FAILED') e.status = 409; throw e }
@@ -41,6 +42,7 @@ export function createCredentialsRoutes(deps) {
         const input = await readBody(req)
         const text = String(input.text ?? '')
         if (!text.trim()) { sendJson(res, 400, { message: msg(req, 'wcred.parseFailed') }); return true }
+        if (text.length > 65536) { sendJson(res, 400, { message: msg(req, 'wcred.parseFailed') }); return true }   // 64KB 上限:超长原文不进 LLM
         const cfg = getLlmConfig()
         if (!cfg.baseURL || !cfg.model) { sendJson(res, 503, { message: msg(req, 'wcred.llmNotConfigured') }); return true }
         const llmClient = createLlmClient({ ...cfg, temperature: 0 })   // 显式覆写:防对话向参数泄漏进解析任务
@@ -65,7 +67,11 @@ export function createCredentialsRoutes(deps) {
           sendJson(res, 200, { credential: c }); return true
         }
         sendJson(res, 405, { message: msg(req, 'wcred.methodNotAllowed') }); return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, req.method === 'POST' ? 'wcred.createFailed' : 'wcred.loadFailed') }); return true }
+      } catch (e) {
+        // store 层 bad() 的中文校验错不外泄:400 一律回双语键(其余状态保留 message 透传)
+        const failKey = req.method === 'POST' ? 'wcred.createFailed' : 'wcred.loadFailed'
+        sendJson(res, e.status || 500, { message: e.status === 400 ? msg(req, failKey) : (e?.message || msg(req, failKey)) }); return true
+      }
     }
 
     // ====== 单条端点 ======
@@ -121,7 +127,14 @@ export function createCredentialsRoutes(deps) {
           sendJson(res, 200, { ok: true }); return true
         }
         sendJson(res, 405, { message: msg(req, 'wcred.methodNotAllowed') }); return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e.status === 409 && e.message === 'CRED_DECRYPT_FAILED' ? msg(req, 'wcred.decryptFailed') : (e?.message || msg(req, 'wcred.updateFailed')) }); return true }
+      } catch (e) {
+        // store 层 bad() 的中文校验错不外泄:400 回双语键(PATCH updateFailed / DELETE deleteFailed);409 解密失败映射 decryptFailed
+        const failKey = req.method === 'DELETE' ? 'wcred.deleteFailed' : 'wcred.updateFailed'
+        const message = e.status === 400 ? msg(req, failKey)
+          : (e.status === 409 && e.message === 'CRED_DECRYPT_FAILED') ? msg(req, 'wcred.decryptFailed')
+          : (e?.message || msg(req, failKey))
+        sendJson(res, e.status || 500, { message }); return true
+      }
     }
     return false
   }

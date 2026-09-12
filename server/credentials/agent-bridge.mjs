@@ -42,7 +42,11 @@ export function createCredentialsAgentBridge({ db, key }) {
       let m = null
       try { m = materializeField(db, key, s.id, meta.key) } catch { m = null }
       if (!m) { out.error = 'CRED_DECRYPT_FAILED' }
-      else out.value = m.type === 'password' ? maskValue(m.value) : m.value
+      else {
+        // 空值字段归一:空串加密落库为 null,回模型前归 ''(text 回空串,password 走 maskValue('')=0 字符指纹,truthful)
+        const v = m.value == null ? '' : m.value
+        out.value = m.type === 'password' ? maskValue(v) : v
+      }
       fields.push(out)
     }
     return { credential: s.name, id: s.id, fields }

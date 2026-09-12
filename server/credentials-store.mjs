@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import { encryptField, decryptField } from './ssh/crypt.mjs'
 
-export const FIELD_LIMITS = { maxNameLen: 80, maxFields: 32, maxKeyLen: 64, maxValueLen: 16384, maxTags: 8, maxTagLen: 24 }
+export const FIELD_LIMITS = { maxNameLen: 80, maxFields: 32, maxKeyLen: 64, maxValueLen: 16384, maxTags: 8, maxTagLen: 24, maxDescriptionLen: 2000 }
 const MASK_PREFIX = '*** ('   // 掩码形态值拒收(fail-safe,同网关仓 normalizePresentedAPIKey 思想)
 
 export function createCredentialsSchema(db) {
@@ -27,6 +27,22 @@ export function createCredentialsSchema(db) {
 
 function bad(msg) { const e = new Error(msg); e.status = 400; return e }
 
+// §5.4 tags/description 校验,创建与更新共用(undefined = 该项未提交,跳过)。
+// tags ≤8 个 × ≤24 字符且须为字符串;description ≤2000 字符。返回错误数组(create 侧汇总,update 侧直接抛)。
+function validateCredentialMeta({ tags, description } = {}) {
+  const errs = []
+  if (tags !== undefined) {
+    const list = Array.isArray(tags) ? tags : []
+    if (list.length > FIELD_LIMITS.maxTags) errs.push(`标签数超上限 ${FIELD_LIMITS.maxTags}`)
+    for (const tg of list) {
+      if (typeof tg !== 'string') { errs.push(`标签须为字符串: ${String(tg)}`); continue }
+      if (tg.length > FIELD_LIMITS.maxTagLen) errs.push(`标签超 24 字符: ${tg}`)
+    }
+  }
+  if (description !== undefined && String(description ?? '').length > FIELD_LIMITS.maxDescriptionLen) errs.push(`描述超 ${FIELD_LIMITS.maxDescriptionLen} 字符`)
+  return errs
+}
+
 export function validateCredentialInput(input) {
   const errs = []
   const name = String(input?.name ?? '').trim()
@@ -45,9 +61,7 @@ export function validateCredentialInput(input) {
     if (typeof f?.value === 'string' && f.value.length > FIELD_LIMITS.maxValueLen) errs.push(`字段 ${key} 值超 16KB`)
     if (typeof f?.value === 'string' && f.value.startsWith(MASK_PREFIX)) errs.push(`字段 ${key} 值为掩码形态,拒绝回写`)
   }
-  const tags = Array.isArray(input?.tags) ? input.tags : []
-  if (tags.length > FIELD_LIMITS.maxTags) errs.push(`标签数超上限 ${FIELD_LIMITS.maxTags}`)
-  for (const tg of tags) if (String(tg).length > FIELD_LIMITS.maxTagLen) errs.push(`标签超 24 字符: ${tg}`)
+  errs.push(...validateCredentialMeta({ tags: input?.tags, description: input?.description }))
   return errs
 }
 
@@ -118,6 +132,9 @@ function mergeFields(existing, patchFields, key) {
 export function updateCredential(db, key, id, patch = {}) {
   const row = getCredentialRow(db, id)
   if (!row) return null
+  // §5.4 校验创建与更新共用:tags/description 走同一钳(未提交的项不校验)
+  const metaErrs = validateCredentialMeta({ tags: patch.tags, description: patch.description })
+  if (metaErrs.length) throw bad(metaErrs.join('; '))
   const sets = [], args = []
   if (patch.name !== undefined) {
     const n = String(patch.name).trim()

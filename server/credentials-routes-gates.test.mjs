@@ -9,10 +9,9 @@ import { createCredentialsRoutes } from './routes/credentials.mjs'
 
 const KEY = randomBytes(32)
 
-function makeHarness({ role = 'admin' } = {}) {
+function makeHarness({ role = 'admin', db: dbArg, credCryptKey = KEY } = {}) {
   const sent = []
-  const db = new DatabaseSync(':memory:')
-  createCredentialsSchema(db)
+  const db = dbArg || (() => { const d = new DatabaseSync(':memory:'); createCredentialsSchema(d); return d })()
   const audits = []
   const routes = createCredentialsRoutes({
     db, sendJson: (r, s, j) => sent.push({ status: s, json: j }),
@@ -20,7 +19,7 @@ function makeHarness({ role = 'admin' } = {}) {
     // 非 admin 返 null 前先 push 403——镜像真实 requireAdmin 的行为(它自发响应,handler 只短路)
     requireAdmin: () => (role === 'admin' ? { userId: 'u1', role, username: 'u1' } : (sent.push({ status: 403, json: {} }), null)),
     writeAudit: (_db, a) => audits.push(a),
-    credCryptKey: KEY,
+    credCryptKey,
     getLlmConfig: () => harness._llmCfg,
     createLlmClient: cfg => { harness._llmClientCfg = cfg; return { chat: async () => ({ content: JSON.stringify(harness._llmReply ?? {}) }) } },
   })
@@ -97,4 +96,37 @@ test('parse:LLM 未配置 503;ok 路径回草稿;审计不记原文', async () =
   assert.equal(h._llmClientCfg.temperature, 0, 'temperature 覆写:防对话向参数泄漏进解析任务')
   const pa = h.audits.find(a => a.tool === 'credential_parse')
   assert.ok(pa && !pa.requestSummary.includes('abc'), '审计不记原文值')
+})
+
+test('parse:原文超 64KB → 400(LLM 已配置仍拒,不进模型)', async () => {
+  const h = makeHarness()
+  h._llmCfg = { baseURL: 'http://x', model: 'm' }
+  await h.call('POST', '/api/workbench/credentials/parse', { text: 'x'.repeat(70000) })
+  assert.equal(h.sent[0].status, 400)
+})
+
+test('解密失败(错钥)→ GET /:id 与 reveal 均 409 + wcred.decryptFailed 文案', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/workbench/credentials', { name: 'gh', fields: [
+    { key: 'user', type: 'text', value: 'liang' }, { key: 'token', type: 'password', value: 'ghp_secret' }] })
+  const id = h.sent[0].json.credential.id
+  // 同一库、不同 credCryptKey 重建路由:reveal 走 materializeField catch,GET /:id 走 detailView catch 映射
+  const wrong = makeHarness({ db: h.db, credCryptKey: randomBytes(32) })
+  await wrong.call('GET', `/api/workbench/credentials/${id}`)
+  assert.equal(wrong.sent[0].status, 409)
+  assert.equal(wrong.sent[0].json.message, '解密失败,请重新录入该凭据')
+  await wrong.call('POST', `/api/workbench/credentials/${id}/reveal`, { fieldKey: 'token' })
+  assert.equal(wrong.sent[1].status, 409)
+  assert.equal(wrong.sent[1].json.message, '解密失败,请重新录入该凭据')
+})
+
+test('空值字段归一:GET :id text 回空串/password 回 0 字符指纹(不露 null)', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/workbench/credentials', { name: 'e', fields: [
+    { key: 'note', type: 'text', value: '' }, { key: 'pwd', type: 'password', value: '' }] })
+  const id = h.sent[0].json.credential.id
+  await h.call('GET', `/api/workbench/credentials/${id}`)
+  const det = h.sent[1].json.credential.fields
+  assert.equal(det[0].value, '', 'text 空值归一为空串')
+  assert.equal(det[1].value, '*** (0 chars, #da39a3ee)', 'password 空值=sha1 空串指纹,truthful')
 })

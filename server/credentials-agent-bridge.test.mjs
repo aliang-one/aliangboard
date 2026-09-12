@@ -41,6 +41,18 @@ test('read():text 明文/password 指纹/带 ref;field 省略返回全部', asyn
   assert.equal(one.fields.length, 1); assert.equal(one.fields[0].key, 'token')
 })
 
+test('read():空值字段归一——text 回空串,password 回 0 字符指纹(不露 null)', async () => {
+  const db = new DatabaseSync(':memory:')
+  createCredentialsSchema(db)
+  createCredential(db, KEY, { name: 'empty', exposeToAi: true, fields: [
+    { key: 'note', type: 'text', value: '' }, { key: 'pwd', type: 'password', value: '' }] })
+  const bridge = createCredentialsAgentBridge({ db, key: KEY })
+  const r = await bridge.read({ credential: 'empty' })
+  const byKey = Object.fromEntries(r.fields.map(f => [f.key, f]))
+  assert.equal(byKey.note.value, '')
+  assert.equal(byKey.pwd.value, '*** (0 chars, #da39a3ee)', '空串 sha1 指纹,truthful')
+})
+
 test('解析三态:not-found / not-exposed(不泄露存在) / id 优先', async () => {
   const { bridge, db } = makeBridge()
   const nf = await bridge.read({ credential: 'nope' })
