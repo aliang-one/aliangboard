@@ -2,27 +2,13 @@
 // ①明文只在桥闭包内 materialize,不外溢;②text 字段明文可回模型(AI 可见等级),password 字段
 // 只回 maskValue 指纹 + ref 'cred:<id>#<key>'(v2 执行工具注入协议);③not-found/not-exposed
 // 文案不泄露未暴露凭据的存在性(resolveServerRef 同款语义)。
-import { listCredentials, materializeField } from '../credentials-store.mjs'
+import { listCredentials, materializeField, resolveCredentialRef } from '../credentials-store.mjs'
 import { maskValue } from '../secret-mask.mjs'
 
 export function createCredentialsAgentBridge({ db, key }) {
   const listExposed = () => listCredentials(db).filter(c => c.exposeToAi)
   // 解析:id 优先;同名歧义只回暴露行候选;not-found 与 not-exposed 文案可区分但都不泄露更多
-  function resolve(ref) {
-    const r = String(ref ?? '').trim()
-    if (!r) return { ok: false, reason: 'not-found', candidates: [] }
-    const all = listCredentials(db)
-    const byId = all.find(x => x.id === r)
-    if (byId) return byId.exposeToAi ? { ok: true, row: byId } : { ok: false, reason: 'not-exposed', candidates: [] }
-    const named = all.filter(x => x.name === r)
-    if (!named.length) return { ok: false, reason: 'not-found', candidates: [] }
-    const exposedNamed = named.filter(x => x.exposeToAi)
-    if (named.length > 1) {
-      if (!exposedNamed.length) return { ok: false, reason: 'not-exposed', candidates: [] }
-      return { ok: false, reason: 'ambiguous', candidates: exposedNamed.map(x => ({ id: x.id, name: x.name })) }
-    }
-    return exposedNamed.length ? { ok: true, row: named[0] } : { ok: false, reason: 'not-exposed', candidates: [] }
-  }
+  function resolve(ref) { return resolveCredentialRef(db, ref) }
 
   async function list() {
     return { credentials: listExposed().map(c => ({ ...c, ref: `cred:${c.id}` })) }

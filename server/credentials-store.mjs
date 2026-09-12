@@ -23,6 +23,14 @@ export function createCredentialsSchema(db) {
     updated_at   INTEGER NOT NULL
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_credentials_updated ON workbench_credentials(updated_at DESC)')
+  db.exec(`CREATE TABLE IF NOT EXISTS credential_grants (
+    id             TEXT PRIMARY KEY,
+    credential_id  TEXT NOT NULL,
+    adapter        TEXT NOT NULL,
+    granted_by     TEXT NOT NULL,
+    granted_at     INTEGER NOT NULL,
+    UNIQUE (credential_id, adapter)
+  )`)
 }
 
 function bad(msg) { const e = new Error(msg); e.status = 400; return e }
@@ -179,4 +187,45 @@ export function listPromptCredentials(db) {
     console.error('[credentials] 提示词凭据清单读取失败,按无凭据装配:', e?.message || e)
     return []
   }
+}
+
+// ═══ v2 适配器授权(spec 2026-09-12-v2 §6):凭据×适配器免审 grants。免审只覆盖读路径,
+// 写方法恒人审由桥的 needsApproval 分级;免审不免审计(agent-runner approval:auto 标记)。 ═══
+export function grantCredentialUse(db, credentialId, adapter, grantedBy) {
+  try {
+    // ok=本次真实写入(changes>0):重复授权幂等回 {ok:false}(brief 原稿的插入后 SELECT 对已存在行恒真,与其自身测试相悖,此处以测试为准)
+    const info = db.prepare('INSERT OR IGNORE INTO credential_grants (id,credential_id,adapter,granted_by,granted_at) VALUES (?,?,?,?,?)')
+      .run(randomUUID(), credentialId, String(adapter), grantedBy, Date.now())
+    return { ok: info.changes > 0 }
+  } catch { return { ok: false } }
+}
+export function revokeCredentialUse(db, credentialId, adapter) {
+  return db.prepare('DELETE FROM credential_grants WHERE credential_id=? AND adapter=?').run(credentialId, String(adapter)).changes > 0
+}
+export function listCredentialGrants(db, credentialId) {
+  try {
+    return db.prepare('SELECT adapter, granted_by AS grantedBy, granted_at AS grantedAt FROM credential_grants WHERE credential_id=? ORDER BY granted_at DESC').all(credentialId)
+  } catch { return [] }   // 表缺失(老库未跑 schema 工厂)防御式降级,照 listPromptCredentials
+}
+export function hasCredentialGrant(db, credentialId, adapter) {
+  try { return !!db.prepare('SELECT 1 FROM credential_grants WHERE credential_id=? AND adapter=?').get(credentialId, String(adapter)) }
+  catch { return false }
+}
+
+// 引用解析(id 优先/同名歧义回暴露行候选/not-found 不泄露存在性)——v1 桥内逻辑上提为纯函数,
+// 供桥与 approve 端点(remember 写 grants)单一事实源复用。
+export function resolveCredentialRef(db, ref) {
+  const r = String(ref ?? '').trim()
+  if (!r) return { ok: false, reason: 'not-found', candidates: [] }
+  const all = listCredentials(db)
+  const byId = all.find(x => x.id === r)
+  if (byId) return byId.exposeToAi ? { ok: true, row: byId } : { ok: false, reason: 'not-exposed', candidates: [] }
+  const named = all.filter(x => x.name === r)
+  if (!named.length) return { ok: false, reason: 'not-found', candidates: [] }
+  const exposedNamed = named.filter(x => x.exposeToAi)
+  if (named.length > 1) {
+    if (!exposedNamed.length) return { ok: false, reason: 'not-exposed', candidates: [] }
+    return { ok: false, reason: 'ambiguous', candidates: exposedNamed.map(x => ({ id: x.id, name: x.name })) }
+  }
+  return exposedNamed.length ? { ok: true, row: named[0] } : { ok: false, reason: 'not-exposed', candidates: [] }
 }
