@@ -4023,6 +4023,7 @@
       "hide": "Hide",
       "copy": "Copy",
       "copied": "Copied",
+      "copyFailed": "Copy failed",
       "revealFailed": "Reveal failed",
       "formTitleCreate": "New Credential",
       "formTitleEdit": "Edit Credential",

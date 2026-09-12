@@ -1,7 +1,8 @@
 <script setup>
 // 凭据页(2026-09-12 spec §11):纯内容组件(舞台归 Shell,chromeless 同 Records)。
 // 列表=卡片网格+搜索+预设快捷;详情=逐字段行(password 显式 reveal);表单=手动/智能粘贴双模式。
-// 编辑三态:password 行 value 恒空 + placeholder「留空保持不变」,空值提交时省略 value 键(SshServerForm 同款)。
+// 编辑三态:password 行 value 恒空 + placeholder「留空保持不变」,空值提交时省略 value 键(SshServerForm 同款;
+// 凭据上不存在的新空 password 行整行不发)。
 import { ref, computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
@@ -78,7 +79,7 @@ async function smartParse() {
       name: d.name || '', description: d.description || '', tagsText: (d.tags || []).join(', '),
       exposeToAi: form.value.exposeToAi,
       fields: (d.fields && d.fields.length ? d.fields : [{ key: '', type: 'password', value: '' }])
-        .map(f => ({ key: f.key, type: f.type, value: f.type === 'text' ? f.value : '' })),
+        .map(f => ({ key: f.key, type: f.type, value: f.value })),   // password 草稿值也回填(type=password 输入框本身就掩码显示)
     }
     notify('success', t('workbench.credentials.parseOk', { n: r.dropped || 0 }))
     formMode.value = 'manual'   // 回填后转手动供检查修改
@@ -90,6 +91,9 @@ async function save() {
   if (!showForm.value || saving.value) return
   if (!form.value.name.trim()) return
   saving.value = true
+  // 编辑态 keep-semantics 只对凭据上已有的 key 生效:新加的空 password 行(凭据上无此 key)整行不发——
+  // 后端无从「保持」一个不存在的字段
+  const existing = new Set((editing.value?.fields || []).map(f => f.key.toLowerCase()))
   const base = {
     name: form.value.name.trim(),
     description: form.value.description.trim(),
@@ -97,6 +101,7 @@ async function save() {
     exposeToAi: !!form.value.exposeToAi,
     fields: form.value.fields
       .filter(f => f.key.trim())
+      .filter(f => !(f.type === 'password' && editing.value && f.value === '' && !existing.has(f.key.trim().toLowerCase())))
       .map(f => {
         const key = f.key.trim()
         // 编辑态 password 留空 = 保持:载荷省略 value 键(三态语义)
@@ -129,7 +134,7 @@ async function revealField(fieldKey) {
 }
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); notify('success', t('workbench.credentials.copied')) }
-  catch { /* 剪贴板不可用(非 https)静默 */ }
+  catch { notify('error', t('workbench.credentials.copyFailed')) }   // 剪贴板不可用(非 https)不再静默——用户可见失败优于无声无息
 }
 
 // ═══ 删除(确认名) ═══

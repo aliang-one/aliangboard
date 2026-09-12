@@ -1,6 +1,6 @@
 <script setup>
-// 工作台 shell(2026-08-29 双域化):四 tab——项目(集群域工作单元)/服务器(服务器域,admin)/
-// 知识(跨域知识:集群台账+服务器台账)/记录(跨域记录)。tab 为组件内状态,无路由影响。
+// 工作台 shell(2026-08-29 双域化;2026-09-12 spec §10 导航重排):常驻 tab——项目(集群域工作单元)/
+// 服务器(服务器域,admin)/凭据(凭据域,admin);低频 知识/记录 收进「更多」▾(全员可见)。tab 为组件内状态,无路由影响。
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -10,6 +10,8 @@ import WorkbenchProjects from './WorkbenchProjects.vue'
 import WorkbenchLedger from './WorkbenchLedger.vue'
 import WorkbenchRecords from './WorkbenchRecords.vue'
 import WorkbenchServers from './WorkbenchServers.vue'
+import WorkbenchCredentials from './WorkbenchCredentials.vue'
+import DropdownMenu from '@/components/common/DropdownMenu.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -19,14 +21,20 @@ const activeTab = ref('projects')
 onMounted(() => {
   // 顶栏胶囊快捷区落点(2026-08-30 spec §4.3):一次性读 query;tab 仍是组件内状态,不做双向路由同步
   const tab = route.query.tab
-  if (typeof tab === 'string' && tabs.value.some(x => x.key === tab)) activeTab.value = tab
+  const all = [...tabs.value, ...moreTabs]
+  if (typeof tab === 'string' && all.some(x => x.key === tab)) activeTab.value = tab
 })
+// 2026-09-12 导航改版(spec §10):高频 项目/服务器/凭据 常驻;低频 知识/记录 收进「更多」▾(全员可见)。
 const tabs = computed(() => [
   { key: 'projects', label: t('workbench.shell.tabProjects'), icon: 'folder' },
   ...(auth.isAdmin ? [{ key: 'servers', label: t('workbench.shell.tabServers'), icon: 'dns' }] : []),
+  ...(auth.isAdmin ? [{ key: 'credentials', label: t('workbench.shell.tabCredentials'), icon: 'key' }] : []),
+])
+const moreTabs = [
   { key: 'knowledge', label: t('workbench.shell.tabKnowledge'), icon: 'menu_book' },
   { key: 'records', label: t('workbench.shell.tabRecords'), icon: 'history' },
-])
+]
+const moreActive = computed(() => moreTabs.find(x => x.key === activeTab.value) || null)
 </script>
 
 <template>
@@ -62,6 +70,12 @@ const tabs = computed(() => [
           <span class="material-symbols-outlined text-sm">{{ tab.icon }}</span>
           {{ tab.label }}
         </button>
+        <!-- 更多▾(2026-09-12):低频 tab 收进共享 DropdownMenu(Teleport body+fixed 防裁配方);
+             moreTabs 中的 tab 激活时触发器显示当前 tab 名,替代平铺高亮 -->
+        <div class="ml-auto flex items-center shrink-0">
+          <DropdownMenu trigger-icon="more_horiz" :trigger-label="moreActive ? moreActive.label : t('workbench.shell.more')"
+            :items="moreTabs.map(x => ({ label: x.label, icon: x.icon, action: () => { activeTab = x.key } }))" />
+        </div>
       </div>
       <div class="flex-1 min-h-0 p-md overflow-y-auto">
         <div :key="activeTab" class="animate-wb-rise motion-reduce:animate-none">
@@ -69,6 +83,7 @@ const tabs = computed(() => [
           <WorkbenchLedger v-else-if="activeTab === 'knowledge'" />
           <WorkbenchRecords v-else-if="activeTab === 'records'" />
           <WorkbenchServers v-else-if="activeTab === 'servers'" @open-files="s => {}" />
+          <WorkbenchCredentials v-else-if="activeTab === 'credentials'" />
         </div>
       </div>
     </WbStage>

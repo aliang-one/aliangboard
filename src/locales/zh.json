@@ -4023,6 +4023,7 @@
       "hide": "隐藏",
       "copy": "复制",
       "copied": "已复制",
+      "copyFailed": "复制失败",
       "revealFailed": "读取失败",
       "formTitleCreate": "新建凭据",
       "formTitleEdit": "编辑凭据",

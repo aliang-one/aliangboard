@@ -17,6 +17,12 @@ vi.mock('@/views/WorkbenchProjects.vue', () => ({ default: { template: '<div dat
 vi.mock('@/views/WorkbenchLedger.vue', () => ({ default: { template: '<div data-test-stub="ledger" />' } }))
 vi.mock('@/views/WorkbenchRecords.vue', () => ({ default: { template: '<div data-test-stub="records" />' } }))
 vi.mock('@/views/WorkbenchServers.vue', () => ({ default: { template: '<div data-test-stub="servers" />' } }))
+vi.mock('@/views/WorkbenchCredentials.vue', () => ({ default: { template: '<div data-test-stub="credentials" />' } }))
+// 2026-09-12 导航重排:知识不再是平铺 button 而收进「更多」▾——切 pane 经 stub 的 more-item 触发
+vi.mock('@/components/common/DropdownMenu.vue', () => ({ default: {
+  props: ['triggerIcon', 'triggerLabel', 'items'],
+  template: '<div data-test-stub="more"><button v-for="(it,i) in items" :key="i" data-test="more-item" @click="it.action">{{ it.label }}</button></div>',
+} }))
 import WorkbenchShell from '@/views/WorkbenchShell.vue'
 
 function mountShell(role) {
@@ -38,7 +44,7 @@ test('staggered 入场:门面标题栏立即/tabs 40ms;pane 挂 wb-rise 且随 t
   expect(rises[0].classes().join(' ')).not.toContain('animation-delay')
   expect(rises[1].classes().join(' ')).toContain('[animation-delay:40ms]')
   expect(w.find('[data-test-stub="projects"]').element.closest('.animate-wb-rise')).toBeTruthy()
-  await w.findAll('button').find(b => b.text().includes('知识')).trigger('click')
+  await w.findAll('[data-test="more-item"]').find(b => b.text().includes('知识')).trigger('click')
   expect(w.find('[data-test-stub="ledger"]').element.closest('.animate-wb-rise')).toBeTruthy()
   // 门面:32px 品牌瓷砖(与顶栏 pill 瓷砖同配方)+ 挂载即播的一次性 sheen(入口→模块 logo 握手)
   const tile = w.find('[data-test="wb-facade-tile"]')
