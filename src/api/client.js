@@ -332,6 +332,17 @@ export const workbenchApi = {
   aiConfig: () => platformHttp.request('/api/workbench/ai-config'),
 }
 
+// 凭据(2026-09-12 spec):admin 管理面;parse 为智能粘贴解析(不落库,人工确认后走 create)
+export const credentialsApi = {
+  list: () => platformHttp.request('/api/workbench/credentials'),
+  get: id => platformHttp.request(`/api/workbench/credentials/${encodeURIComponent(id)}`),
+  create: payload => platformHttp.request('/api/workbench/credentials', { method: 'POST', body: JSON.stringify(payload) }),
+  update: (id, patch) => platformHttp.request(`/api/workbench/credentials/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: (id, confirmName) => platformHttp.request(`/api/workbench/credentials/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) }),
+  reveal: (id, fieldKey) => platformHttp.request(`/api/workbench/credentials/${encodeURIComponent(id)}/reveal`, { method: 'POST', body: JSON.stringify({ fieldKey }) }),
+  parse: text => platformHttp.request('/api/workbench/credentials/parse', { method: 'POST', body: JSON.stringify({ text }) }),
+}
+
 // === 平台认证 API（Layer 1: 用户身份）===
 export const authApi = {
   login: payload => platformHttp.request('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
