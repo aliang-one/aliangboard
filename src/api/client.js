@@ -316,7 +316,9 @@ export const workbenchApi = {
     append: (id, { message, references }) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, references }) }),
     get: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`),
     list: (projectId) => platformHttp.request(`/api/workbench/conversations?projectId=${encodeURIComponent(projectId)}`),
-    approve: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
+    // v2(2026-09-12 credential-adapters):body {remember:true} = 批准并落 grants(适配器只读
+    // 操作此后免审);缺省不带 body——既有调用方(普通批准)零改动向后兼容。
+    approve: (id, body) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/approve`, { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) }),
     deny: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/deny`, { method: 'POST' }),
     cancel: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
     regenerate: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/regenerate`, { method: 'POST' }),
@@ -341,6 +343,10 @@ export const credentialsApi = {
   remove: (id, confirmName) => platformHttp.request(`/api/workbench/credentials/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) }),
   reveal: (id, fieldKey) => platformHttp.request(`/api/workbench/credentials/${encodeURIComponent(id)}/reveal`, { method: 'POST', body: JSON.stringify({ fieldKey }) }),
   parse: text => platformHttp.request('/api/workbench/credentials/parse', { method: 'POST', body: JSON.stringify({ text }) }),
+  // v2(2026-09-12):凭据×适配器免审 grants——grant 由审批卡「批准并记住」在服务端落库,
+  // 详情页「已授权」区一键收回(revokeGrant);此处两端点供详情页收回/后续授权面复用。
+  grant: (id, adapter) => platformHttp.request(`/api/workbench/credentials/${encodeURIComponent(id)}/grants`, { method: 'POST', body: JSON.stringify({ adapter }) }),
+  revokeGrant: (id, adapter) => platformHttp.request(`/api/workbench/credentials/${encodeURIComponent(id)}/grants/${encodeURIComponent(adapter)}`, { method: 'DELETE' }),
 }
 
 // === 平台认证 API（Layer 1: 用户身份）===

@@ -405,3 +405,33 @@ test('fix round 1:approve 400 对齐揭示新审批 → 旧审批不复活(modal
   expect(w.html()).toContain('rm -rf /data', '新审批参数可见(人审的是将决策的动作)')
   expect(w.vm.errorBanner, 'CAS 竞态非错误,不亮横幅').toBe('')
 })
+
+// ── 2026-09-12 credential-adapters v2(Task 5):审批卡第三按钮「批准并记住」──
+
+// 适配器工具(http_request/db_query)的审批卡多一枚「批准并记住」:approve 载荷带
+// {remember:true} → 服务端落 grants(此后该凭据的此类只读操作免审,详情页可收回)。
+// 手机档三键等宽大目标(max-sm:flex-1 + min-h 44px)与 deny/approve 同款。
+test('适配器审批:第三按钮「批准并记住」→ approve 带 {remember:true}', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-rem', name: 'http_request',
+    args: { credential: 'gh', path: '/repos/x/y' },
+  })
+  const btn = w.find('[data-testid="approval-approve-remember"]')
+  expect(btn.exists()).toBe(true)
+  expect(btn.classes()).toContain('max-sm:min-h-[44px]')
+  expect(btn.classes()).toContain('max-sm:flex-1')
+  await btn.trigger('click')
+  await flushPromises()
+  expect(api.conversations.approve).toHaveBeenCalledWith('conv-ap', { remember: true })
+  w.unmount()
+})
+
+// 向后兼容:非适配器工具不渲染第三钮;普通批准 approve 仍只传 id(不带 body)。
+test('普通批准仍不带 remember(向后兼容)', async () => {
+  const w = await mountPausedApproval({ toolCallId: 't-plain', name: 'wb_exec', args: { command: 'ls' } })
+  expect(w.find('[data-testid="approval-approve-remember"]').exists(), '非适配器工具无第三钮').toBe(false)
+  await w.find('[data-testid="approval-approve"]').trigger('click')
+  await flushPromises()
+  expect(api.conversations.approve).toHaveBeenCalledWith('conv-ap')
+  w.unmount()
+})

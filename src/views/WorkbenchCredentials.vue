@@ -136,6 +136,16 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); notify('success', t('workbench.credentials.copied')) }
   catch { notify('error', t('workbench.credentials.copyFailed')) }   // 剪贴板不可用(非 https)不再静默——用户可见失败优于无声无息
 }
+// v2(2026-09-12 credential-adapters spec §12):收回「批准并记住」落的免审 grant——
+// 收回后该凭据的此类适配器只读操作恢复逐次审批。收回成功即重拉详情刷新已授权区。
+async function revokeGrant(adapter) {
+  try {
+    await credentialsApi.revokeGrant(detail.value.id, adapter)
+    const r = await credentialsApi.get(detail.value.id)
+    detail.value = r.credential
+    notify('success', t('workbench.credentials.grantRevoked'))
+  } catch (e) { notify('error', e?.message || t('workbench.credentials.loadFailed')) }
+}
 
 // ═══ 删除(确认名) ═══
 const deleteTarget = ref(null)
@@ -297,6 +307,16 @@ const fmtTime = ts => (ts ? new Date(ts).toLocaleString() : '')
             <button @click="copyText(f.type === 'text' ? f.value : (revealed[f.key] ?? ''))" :disabled="f.type === 'password' && revealed[f.key] == null"
               class="px-xs py-0.5 border border-outline-variant rounded text-body-xs disabled:opacity-40">{{ t('workbench.credentials.copy') }}</button>
           </span>
+        </div>
+        <!-- v2 已授权区(spec §12):凭据×适配器免审 grants,一键收回 -->
+        <div v-if="detail.grants && detail.grants.length" class="flex flex-col gap-xs">
+          <p class="text-body-xs text-on-surface-variant">{{ t('workbench.credentials.grantsTitle') }}</p>
+          <div v-for="g in detail.grants" :key="g.adapter" class="flex items-center gap-sm border-b border-outline-variant/40 pb-sm">
+            <code class="text-body-sm font-mono text-on-surface">{{ g.adapter }}</code>
+            <span class="text-body-xs text-on-surface-variant">{{ fmtTime(g.grantedAt) }}</span>
+            <button @click="revokeGrant(g.adapter)" data-testid="cred-revoke-grant"
+              class="ml-auto px-xs py-0.5 border border-outline-variant rounded text-body-xs hover:text-error">{{ t('workbench.credentials.revoke') }}</button>
+          </div>
         </div>
       </div>
       <template #actions>

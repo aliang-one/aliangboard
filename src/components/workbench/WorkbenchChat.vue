@@ -341,6 +341,12 @@ const approvalArgsFallback = computed(() => {
     return s.length > 2000 ? s.slice(0, 2000) + '…' : s
   } catch { return '' }
 })
+// v2(2026-09-12 credential-adapters):适配器工具(http_request/db_query)的审批卡多一枚
+// 「批准并记住」——approve 载荷 {remember:true} 让服务端落 grants,此后该凭据的此类只读
+// 操作免审(审计仍记录,可在凭据详情页收回)。db_query Wave C 前先注册名字:未上线工具
+// 不会出现在审批卡,渲染条件恒真不破坏现有审批。
+const ADAPTER_TOOLS = new Set(['http_request', 'db_query'])
+const isAdapterApproval = computed(() => ADAPTER_TOOLS.has(pendingApproval.value?.name))
 
 const HINTS = computed(() => [
   t('workbench.chat.hintReadLedger'),
@@ -1207,7 +1213,7 @@ async function send() {
   }
 }
 
-async function decideApproval(approved) {
+async function decideApproval(approved, remember = false) {
   const pa = pendingApproval.value
   if (!pa || !conversationId.value) return
   pendingApproval.value = null
@@ -1216,7 +1222,9 @@ async function decideApproval(approved) {
   await scrollToBottom()
   try {
     const id = conversationId.value
-    const resp = approved ? await workbenchApi.conversations.approve(id)
+    // v2:remember=false 保持旧式单参调用(真实向后兼容——不传 trailing undefined 第二参);
+    // 仅「批准并记住」分支携 {remember:true} 载荷
+    const resp = approved ? await (remember ? workbenchApi.conversations.approve(id, { remember: true }) : workbenchApi.conversations.approve(id))
       : await workbenchApi.conversations.deny(id)
     if (unmounted) return // P0(C)
     // approval-flow-02(2026-09-07 审计批次三):deny 可能直接终态(无 LLM 配置:决策受理、
@@ -1610,6 +1618,11 @@ function useHint(h) { input.value = h }
           class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container max-sm:flex-1 max-sm:min-h-[44px] max-sm:text-body-md">{{ t('workbench.chat.reject') }}</button>
         <button data-testid="approval-approve" @click="decideApproval(true)" :disabled="sending"
           class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40 max-sm:flex-1 max-sm:min-h-[44px] max-sm:text-body-md">{{ t('workbench.chat.approve') }}</button>
+        <!-- v2(2026-09-12 credential-adapters):适配器工具第三钮「批准并记住」——同函数同 catch
+             通路(approval-flow-02 语义整体复用),仅 approve 载荷多 {remember:true} -->
+        <button v-if="isAdapterApproval" data-testid="approval-approve-remember" @click="decideApproval(true, true)" :disabled="sending"
+          class="px-md py-sm bg-primary-container text-on-primary-container rounded-lg text-body-sm font-semibold disabled:opacity-40 max-sm:flex-1 max-sm:min-h-[44px] max-sm:text-body-md"
+          :title="t('workbench.chat.approveRememberHint')">{{ t('workbench.chat.approveRemember') }}</button>
       </template>
     </Modal>
 
