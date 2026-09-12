@@ -17,6 +17,7 @@ export function listAdapters() {
 export function adapterToolNames() {
   return new Set(Object.values(ADAPTERS).filter(Boolean).map(a => a.manifest.name))
 }
+export function getAdapter(name) { return ADAPTERS[name] || null }
 // key 大小写不敏感;needs 的 password 型字段必须真实为 password(text 不匹配)
 export function matchAdapter(adapterName, credentialRow) {
   const a = ADAPTERS[adapterName]

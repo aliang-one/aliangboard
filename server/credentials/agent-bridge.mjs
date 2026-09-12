@@ -2,7 +2,8 @@
 // ①明文只在桥闭包内 materialize,不外溢;②text 字段明文可回模型(AI 可见等级),password 字段
 // 只回 maskValue 指纹 + ref 'cred:<id>#<key>'(v2 执行工具注入协议);③not-found/not-exposed
 // 文案不泄露未暴露凭据的存在性(resolveServerRef 同款语义)。
-import { listCredentials, materializeField, resolveCredentialRef } from '../credentials-store.mjs'
+import { listCredentials, materializeField, resolveCredentialRef, hasCredentialGrant } from '../credentials-store.mjs'
+import { getAdapter, matchAdapter } from '../credential-adapters/registry.mjs'
 import { maskValue } from '../secret-mask.mjs'
 
 export function createCredentialsAgentBridge({ db, key }) {
@@ -38,7 +39,40 @@ export function createCredentialsAgentBridge({ db, key }) {
     return { credential: s.name, id: s.id, fields }
   }
 
-  return { listExposed, list, read }
+  // ═══ v2 适配器面(spec v2 §5/§6)。needsApproval 必须纯(读库判定,无写副作用)——checkpoint 与
+  // resume 两处被咨询。读路径判定:manifest.readonlyMethods 含本次 method(db_query 恒只读)。
+  async function needsApproval(name, args) {
+    const a = getAdapter(name)
+    if (!a) return true                                  // 非适配器工具恒人审(fail-closed)
+    const r = resolveCredentialRef(db, args?.credential)
+    if (!r.ok) return true                               // 解析失败也人审(用户会看到错误)
+    if (!matchAdapter(name, r.row).ok) return true       // 形状不符:人审下暴露错误更安全
+    const method = String(args?.method || 'GET').toUpperCase()
+    const readonly = (a.manifest.readonlyMethods || ['GET']).includes(method) || !a.manifest.readonlyMethods
+    if (!readonly) return true                           // 写方法恒人审(spec §6.2)
+    return !hasCredentialGrant(db, r.row.id, name)       // grant 命中+读路径 → 免审
+  }
+
+  async function runAdapter(name, args) {
+    const a = getAdapter(name)
+    if (!a) return { error: `未知适配器: ${name}` }
+    const r = resolveCredentialRef(db, args?.credential)
+    if (!r.ok) return { error: refusal(r) }
+    const m = matchAdapter(name, r.row)
+    if (!m.ok) return { error: `该凭据字段结构与 ${name} 不匹配(缺 ${m.missing.join('/')})` }
+    // 字段解密在本闭包:适配器 exec 拿到的 fields 只活在函数调用栈内
+    const needKeys = new Set(Object.keys(a.manifest.needs).map(k => k.toLowerCase()))
+    const fields = {}
+    for (const meta of r.row.fields) {
+      if (!needKeys.has(meta.key.toLowerCase())) continue
+      try { const mv = materializeField(db, key, r.row.id, meta.key); fields[meta.key] = mv?.value ?? '' }
+      catch { return { error: 'CRED_DECRYPT_FAILED' } }
+    }
+    try { return await a.exec({ fields, args }) }
+    catch (e) { return { error: `适配器执行失败(${e?.name || 'unknown'})` } }
+  }
+
+  return { listExposed, list, read, needsApproval, runAdapter }
 }
 
 function refusal(r) {
