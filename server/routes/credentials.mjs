@@ -6,7 +6,9 @@ import { maskValue } from '../secret-mask.mjs'
 import {
   createCredential, listCredentials, getCredentialRow,
   updateCredential, deleteCredential, materializeField, sanitizeCredential,
+  grantCredentialUse, revokeCredentialUse, listCredentialGrants,
 } from '../credentials-store.mjs'
+import { adapterToolNames } from '../credential-adapters/registry.mjs'
 import { decryptField } from '../ssh/crypt.mjs'
 import { runCredentialParse } from '../credential-parse.mjs'
 
@@ -23,7 +25,8 @@ function detailView(db, key, id) {
       return { key: f.key, type: f.type, value: f.type === 'password' ? maskValue(value) : value }
     })
   } catch (e) { if (e.message === 'CRED_DECRYPT_FAILED') e.status = 409; throw e }
-  return { ...sanitizeCredential(row), fields }
+  // v2(spec §6):详情附 grants 清单(凭据×适配器免审授权行,管理面展示/前端勾选用)
+  return { ...sanitizeCredential(row), fields, grants: listCredentialGrants(db, id) }
 }
 
 export function createCredentialsRoutes(deps) {
@@ -91,6 +94,31 @@ export function createCredentialsRoutes(deps) {
           requestSummary: `id=${id} field=${m.key}`, source: 'platform' })
         sendJson(res, 200, { field: m.key, value: m.value }); return true
       } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wcred.decryptFailed') }); return true }
+    }
+
+    // grants 子路径:POST /:id/grants body{adapter};DELETE /:id/grants/:adapter(v2 spec §6)。
+    // 前置于单条 seg.length===4 块(与 parse/reveal 同族前置法;POST 是 5 段、DELETE 是 6 段,
+    // 本就不会落入单条块,前置只为可读性)。adapter 须为已实装适配器(registry 单一事实源)。
+    if (seg[4] === 'grants' && req.method === 'POST' && seg.length === 5) {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        const input = await readBody(req)
+        if (!adapterToolNames().has(String(input.adapter ?? ''))) { sendJson(res, 400, { message: msg(req, 'wcred.unknownAdapter') }); return true }
+        const row = getCredentialRow(db, id)
+        if (!row) { sendJson(res, 404, { message: msg(req, 'wcred.notFound') }); return true }
+        grantCredentialUse(db, id, String(input.adapter), ps.userId)
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'credential_grant_create', result: 'ok', requestSummary: `id=${id} adapter=${input.adapter}`, source: 'platform' })
+        sendJson(res, 200, { grant: { adapter: String(input.adapter), grantedBy: ps.userId } }); return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wcred.updateFailed') }); return true }
+    }
+    if (seg[3] && seg[4] === 'grants' && seg[5] && req.method === 'DELETE' && seg.length === 6) {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      try {
+        if (!getCredentialRow(db, id)) { sendJson(res, 404, { message: msg(req, 'wcred.notFound') }); return true }
+        const ok = revokeCredentialUse(db, id, seg[5])
+        writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'credential_grant_revoke', result: ok ? 'ok' : 'noop', requestSummary: `id=${id} adapter=${seg[5]}`, source: 'platform' })
+        sendJson(res, 200, { ok }); return true
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wcred.updateFailed') }); return true }
     }
 
     if (seg.length === 4) {

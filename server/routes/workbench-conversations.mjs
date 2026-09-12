@@ -13,7 +13,8 @@
 // WorkbenchDetail Agent 模式)对全部平台会话可见(与前端测试 AppLayout.chat-presence-entry /
 // WorkbenchDetail.lifecycle 对齐)。
 import { buildWorkbenchSystemPrompt } from '../workbench-prompt.mjs'
-import { listPromptCredentials } from '../credentials-store.mjs'
+import { listPromptCredentials, resolveCredentialRef, grantCredentialUse } from '../credentials-store.mjs'
+import { adapterToolNames } from '../credential-adapters/registry.mjs'
 import { getWorkbenchAiConfig, getMaxRunningConversationsConfig, getMaxConversationsPerProjectConfig, sshPromptServers } from '../workbench-ai-config.mjs'
 import { registry, SSH_HIDDEN_TOOLS } from '../tool-registry.mjs'
 // approval-flow-02:deny 无 LLM 终态转换需要向 conv-bus 广播(与 wbAgent.cancelConversation
@@ -1031,6 +1032,21 @@ export function createWorkbenchConvRoutes(deps) {
       // catch 触发时 run 必未启动,回滚无竞态。200 响应刻意留在 try 外——sendJson 自身异常
       // 不得触发误回滚(run 已在跑)。
       try {
+        // v2(spec §6.3):「批准并记住」——remember 且该审批是适配器工具时,按 pendingApproval 的
+        // args.credential 解析凭据并落 grants(授予者=审批人)。解析失败静默跳过(对话照常续跑,
+        // 用户下次仍人审,fail-closed)。payload 原样保留。CAS 命中后才读 convForGate.pendingApproval
+        // (CAS 只翻 status,载荷未动)——迟到/重复审批走不进这里,remember 零副作用。
+        let rememberInput = {}
+        try { rememberInput = await readBody(req) || {} } catch { /* 空 body 兼容旧前端 */ }
+        if (rememberInput.remember) {
+          try {
+            const pa = convForGate.pendingApproval ? JSON.parse(convForGate.pendingApproval) : null
+            if (pa && adapterToolNames().has(pa.name)) {
+              const r = resolveCredentialRef(db, pa.args?.credential)
+              if (r.ok) grantCredentialUse(db, r.row.id, pa.name, ps.userId)
+            }
+          } catch { /* 解析失败:跳过,对话续跑 */ }
+        }
         // 审批归属留痕:approverId/approvedAt 并入 pendingApproval(载荷原样保留)。
         stampApprover(db, id, ps.userId)
         // 审批归属持久留痕(CB-B 控制器裁决):pendingApproval 的归属戳会在 resume 时被清,

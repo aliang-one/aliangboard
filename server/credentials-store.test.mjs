@@ -122,6 +122,10 @@ test('grants:授权/收回/命中/幂等/按凭据列表', () => {
   assert.equal(revokeCredentialUse(db, s.id, 'http_request'), true)
   assert.equal(revokeCredentialUse(db, s.id, 'http_request'), false)
   assert.equal(hasCredentialGrant(db, s.id, 'http_request'), false)
+  // v2 Task 4 携带项:deleteCredential 级联清 grants(不残留指向已删凭据的孤儿授权行)
+  grantCredentialUse(db, s.id, 'http_request', 'u1')
+  deleteCredential(db, s.id)
+  assert.deepEqual(listCredentialGrants(db, s.id), [])
 })
 
 test('resolveCredentialRef:id 优先/同名歧义回暴露候选/not-found 与 not-exposed 可区分', () => {

@@ -160,6 +160,9 @@ export function updateCredential(db, key, id, patch = {}) {
 }
 
 export function deleteCredential(db, id) {
+  // v2 Task 4 携带项:级联清 grants——孤儿授权行指向不存在的凭据,免审判定凭 (credential_id,
+  // adapter) 命中即放行,残留即安全隐患。两删相邻同步执行,无需事务仪式(单进程 sqlite)。
+  db.prepare('DELETE FROM credential_grants WHERE credential_id=?').run(id)
   return db.prepare('DELETE FROM workbench_credentials WHERE id=?').run(id).changes > 0
 }
 
@@ -200,7 +203,10 @@ export function grantCredentialUse(db, credentialId, adapter, grantedBy) {
   } catch { return { ok: false } }
 }
 export function revokeCredentialUse(db, credentialId, adapter) {
-  return db.prepare('DELETE FROM credential_grants WHERE credential_id=? AND adapter=?').run(credentialId, String(adapter)).changes > 0
+  // 防御式降级同 has/list:表缺失(老库未跑 schema 工厂)返 false,不让收回面 500
+  try {
+    return db.prepare('DELETE FROM credential_grants WHERE credential_id=? AND adapter=?').run(credentialId, String(adapter)).changes > 0
+  } catch { return false }
 }
 export function listCredentialGrants(db, credentialId) {
   try {
