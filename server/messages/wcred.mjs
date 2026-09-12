@@ -2,6 +2,7 @@
 export const TABLE = {
   'wcred.notFound': { zh: '凭据不存在', en: 'Credential not found' },
   'wcred.createFailed': { zh: '创建失败', en: 'Failed to create' },
+  'wcred.loadFailed': { zh: '读取失败', en: 'Failed to load' },
   'wcred.updateFailed': { zh: '更新失败', en: 'Failed to update' },
   'wcred.deleteFailed': { zh: '删除失败', en: 'Failed to delete' },
   'wcred.confirmNameMismatch': { zh: '确认名与凭据名不一致', en: 'Confirm name does not match' },

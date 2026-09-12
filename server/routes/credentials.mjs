@@ -4,7 +4,7 @@
 import { msg } from '../messages.mjs'
 import { maskValue } from '../secret-mask.mjs'
 import {
-  createCredential, listCredentials, getCredentialRow, getCredentialSanitized,
+  createCredential, listCredentials, getCredentialRow,
   updateCredential, deleteCredential, materializeField, sanitizeCredential,
 } from '../credentials-store.mjs'
 import { decryptField } from '../ssh/crypt.mjs'
@@ -20,7 +20,7 @@ function detailView(db, key, id) {
       try { value = decryptField(key, f.enc) } catch { throw new Error('CRED_DECRYPT_FAILED') }
       return { key: f.key, type: f.type, value: f.type === 'password' ? maskValue(value) : value }
     })
-  } catch (e) { if (e.message === 'CRED_DECRYPT_FAILED') { e.status = 409; e.userMessage = true } throw e }
+  } catch (e) { if (e.message === 'CRED_DECRYPT_FAILED') e.status = 409; throw e }
   return { ...sanitizeCredential(row), fields }
 }
 
@@ -45,7 +45,7 @@ export function createCredentialsRoutes(deps) {
           sendJson(res, 200, { credential: c }); return true
         }
         sendJson(res, 405, { message: msg(req, 'wcred.methodNotAllowed') }); return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wcred.createFailed') }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, req.method === 'POST' ? 'wcred.createFailed' : 'wcred.loadFailed') }); return true }
     }
 
     // ====== 单条端点 ======
@@ -64,7 +64,7 @@ export function createCredentialsRoutes(deps) {
         writeAudit?.(db, { owner: ps.username, verb: 'write', tool: 'credential_reveal', result: 'ok',
           requestSummary: `id=${id} field=${m.key}`, source: 'platform' })
         sendJson(res, 200, { field: m.key, value: m.value }); return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wcred.deleteFailed') }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wcred.decryptFailed') }); return true }
     }
 
     if (seg.length === 4) {
@@ -101,7 +101,7 @@ export function createCredentialsRoutes(deps) {
           sendJson(res, 200, { ok: true }); return true
         }
         sendJson(res, 405, { message: msg(req, 'wcred.methodNotAllowed') }); return true
-      } catch (e) { sendJson(res, e.status || 500, { message: e?.message || msg(req, 'wcred.updateFailed') }); return true }
+      } catch (e) { sendJson(res, e.status || 500, { message: e.status === 409 && e.message === 'CRED_DECRYPT_FAILED' ? msg(req, 'wcred.decryptFailed') : (e?.message || msg(req, 'wcred.updateFailed')) }); return true }
     }
     return false
   }

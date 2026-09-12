@@ -65,6 +65,8 @@ import { createVersionRoutes } from './routes/version.mjs'
 import { createIngressControllerRoutes } from './routes/ingress-controllers.mjs'
 import { createSshRoutes } from './ssh/routes.mjs'
 import { ensureSshSchema, listSshServers } from './ssh/store.mjs'
+import { createCredentialsSchema } from './credentials-store.mjs'
+import { createCredentialsRoutes } from './routes/credentials.mjs'
 import { loadOrCreateKey } from './ssh/crypt.mjs'
 import { createSshPool } from './ssh/pool.mjs'
 import { createSshAgentBridge } from './ssh/agent-bridge.mjs'
@@ -286,6 +288,9 @@ createApiKeysSchema(db)
 // SSH 服务器表(Task 3 起挂载;凭据加密密钥与库同目录,仅属主可读由 loadOrCreateKey 保证)
 ensureSshSchema(db)
 const sshCryptKey = loadOrCreateKey(join(dirname(dbPath), 'ssh-crypt.key'))
+// 凭据表(2026-09-12 spec §5):独立密钥文件,与 ssh-crypt.key 互不波及(爆炸半径隔离)
+createCredentialsSchema(db)
+const credCryptKey = loadOrCreateKey(join(dirname(dbPath), 'cred-crypt.key'))
 // SSH 连接池(Task 5):试连走真 ssh2;row=null(未保存表单)时 creds 即表单,池内归一为表单行
 const sshPool = createSshPool({ db, key: sshCryptKey })
 const sshTestConnection = (row, creds) => sshPool.testConnection(row || creds, row ? null : creds)
@@ -1934,6 +1939,9 @@ async function handle(req, res) {
     wbAgent, busDispose,
     listSshSessions: () => terminalService.list(),
   })
+  const credentialsRoutes = createCredentialsRoutes({
+    db, sendJson, readBody, requireAdmin, writeAudit, credCryptKey,
+  })
   const ingressControllerRoutes = createIngressControllerRoutes({ sendJson })
   const clusterCertsRoutes = createClusterCertsRoutes({ sendJson, msg, clusterCerts, k8sGate, levelForRequest })
 const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey: sshCryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting,
@@ -1957,6 +1965,7 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   if (await versionRoutes.handle(req, res, url)) return
   if (await clusterCertsRoutes.handle(req, res, url)) return
   if (await projectRoutes.handle(req, res, url)) return
+  if (await credentialsRoutes.handle(req, res, url)) return
   if (await ingressControllerRoutes.handle(req, res, url)) return
 
   // === API-key 工具路由(T8 walking skeleton:仅 get_pod_logs;MCP 包装在 T12)===
