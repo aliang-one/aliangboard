@@ -5,7 +5,7 @@
 // ③明文仅 materializeField 单出口(Task 2)。
 // 三态更新语义(Task 2):password 字段 value undefined/''=保持 / null=清除 / 字符串=覆盖;text 全量提交。
 import { randomUUID } from 'node:crypto'
-import { encryptField } from './ssh/crypt.mjs'
+import { encryptField, decryptField } from './ssh/crypt.mjs'
 
 export const FIELD_LIMITS = { maxNameLen: 80, maxFields: 32, maxKeyLen: 64, maxValueLen: 16384, maxTags: 8, maxTagLen: 24 }
 const MASK_PREFIX = '*** ('   // 掩码形态值拒收(fail-safe,同网关仓 normalizePresentedAPIKey 思想)
@@ -41,6 +41,7 @@ export function validateCredentialInput(input) {
     if (seen.has(lower)) errs.push(`字段 key 重复: ${key}`)
     seen.add(lower)
     if (f?.type !== 'text' && f?.type !== 'password') errs.push(`字段 ${key} type 非法: ${f?.type}`)
+    if (f?.value != null && typeof f.value !== 'string') errs.push(`字段 ${key} 值须为字符串`)
     if (typeof f?.value === 'string' && f.value.length > FIELD_LIMITS.maxValueLen) errs.push(`字段 ${key} 值超 16KB`)
     if (typeof f?.value === 'string' && f.value.startsWith(MASK_PREFIX)) errs.push(`字段 ${key} 值为掩码形态,拒绝回写`)
   }
@@ -83,4 +84,65 @@ export function createCredential(db, key, input, createdBy = '') {
       JSON.stringify(Array.isArray(input.tags) ? input.tags : []),
       input.exposeToAi ? 1 : 0, JSON.stringify(encFields), createdBy, ts, ts)
   return getCredentialSanitized(db, id)
+}
+
+// patch.fields 数组 = 新字段集(替换语义);password 行三态:无 value/''=保持、null=清除、字符串=覆盖。
+function mergeFields(existing, patchFields, key) {
+  const byKey = new Map(existing.map(f => [f.key.toLowerCase(), f]))
+  const out = [], seen = new Set()
+  for (const f of Array.isArray(patchFields) ? patchFields : []) {
+    const k = String(f?.key ?? '').trim()
+    if (!k || k.length > FIELD_LIMITS.maxKeyLen) throw bad(`字段 key 非法: ${k}`)
+    const lower = k.toLowerCase()
+    if (seen.has(lower)) throw bad(`字段 key 重复: ${k}`)
+    seen.add(lower)
+    if (f?.type !== 'text' && f?.type !== 'password') throw bad(`字段 ${k} type 非法: ${f?.type}`)
+    const prev = byKey.get(lower)
+    if (f.type === 'password') {
+      if (f.value === undefined || f.value === '') { if (prev) out.push(prev); continue }   // 保持
+      if (f.value === null) continue                                                          // 清除
+      if (String(f.value).startsWith(MASK_PREFIX)) throw bad(`字段 ${k} 值为掩码形态,拒绝回写`)
+      if (String(f.value).length > FIELD_LIMITS.maxValueLen) throw bad(`字段 ${k} 值超 16KB`)
+      out.push({ key: k, type: 'password', enc: encryptField(key, f.value) })                // 覆盖
+    } else {
+      if (typeof f.value !== 'string') throw bad(`text 字段 ${k} 需字符串值`)
+      if (f.value.length > FIELD_LIMITS.maxValueLen) throw bad(`字段 ${k} 值超 16KB`)
+      if (f.value.startsWith(MASK_PREFIX)) throw bad(`字段 ${k} 值为掩码形态,拒绝回写`)
+      out.push({ key: k, type: 'text', enc: encryptField(key, f.value) })
+    }
+  }
+  if (out.length > FIELD_LIMITS.maxFields) throw bad(`字段数超上限 ${FIELD_LIMITS.maxFields}`)
+  return out
+}
+
+export function updateCredential(db, key, id, patch = {}) {
+  const row = getCredentialRow(db, id)
+  if (!row) return null
+  const sets = [], args = []
+  if (patch.name !== undefined) {
+    const n = String(patch.name).trim()
+    if (!n || n.length > FIELD_LIMITS.maxNameLen) throw bad('name 必填且 ≤80 字符')
+    sets.push('name=?'); args.push(n)
+  }
+  if (patch.description !== undefined) { sets.push('description=?'); args.push(String(patch.description)) }
+  if (patch.exposeToAi !== undefined) { sets.push('expose_to_ai=?'); args.push(patch.exposeToAi ? 1 : 0) }
+  if (patch.tags !== undefined) { sets.push('tags=?'); args.push(JSON.stringify(Array.isArray(patch.tags) ? patch.tags : [])) }
+  if (patch.fields !== undefined) { sets.push('fields=?'); args.push(JSON.stringify(mergeFields(parseJsonArray(row.fields), patch.fields, key))) }
+  if (!sets.length) return sanitizeCredential(row)
+  sets.push('updated_at=?'); args.push(Date.now()); args.push(id)
+  db.prepare(`UPDATE workbench_credentials SET ${sets.join(',')} WHERE id=?`).run(...args)
+  return getCredentialSanitized(db, id)
+}
+
+export function deleteCredential(db, id) {
+  return db.prepare('DELETE FROM workbench_credentials WHERE id=?').run(id).changes > 0
+}
+
+export function materializeField(db, key, id, fieldKey) {
+  const row = getCredentialRow(db, id)
+  if (!row) return null
+  const f = parseJsonArray(row.fields).find(x => x.key.toLowerCase() === String(fieldKey ?? '').toLowerCase())
+  if (!f) return null
+  try { return { key: f.key, type: f.type, value: decryptField(key, f.enc) } }
+  catch { throw new Error('CRED_DECRYPT_FAILED') }   // 固定码,路由层映射 409(spec §12)
 }
