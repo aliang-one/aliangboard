@@ -98,7 +98,7 @@ async function startHarness({ toolArgs, finalText }) {
 
 test('read_credential:password 指纹/text 明文;system 只有元文;审批 paused→approve→done', { timeout: 120000 }, async () => {
   const h = await startHarness({
-    toolArgs: { credential: 'gh', field: 'token' },
+    toolArgs: { credential: 'gh' },   // 不带 field → 全字段返回:text 明文 + password 指纹,一次读齐
     finalText: '已读取凭据指纹,结论如上。',
   })
   try {
@@ -113,26 +113,29 @@ test('read_credential:password 指纹/text 明文;system 只有元文;审批 pau
     // paused(审批) → approve → done
     let st = await waitStatus(['paused', 'failed', 'done'])
     assert.equal(st, 'paused', `read_credential 应停在审批,实际 ${st}`)
-    await approve()
+    const ap = await approve()
+    assert.equal(ap.status ?? 200, 200, 'approve 应 2xx')
     st = await waitStatus(['done', 'failed'])
     assert.equal(st, 'done', `approve 后应终态,实际 ${st}`)
     // 面一:system 注入面——元数据在,值不在
     const sys = h.sawSystem.text
     assert.ok(sys.includes('gh') && sys.includes('token(password)'), '清单含名称+字段结构')
     assert.ok(!sys.includes('ghp_hunter2secret') && !sys.includes(TEXT_VALUE), '值不进 system')
-    // 面二:工具结果面——tool 消息里 password 指纹 + ref 协议(mock 只读 field=token,断言用包含而非 JSON.parse:
-    // content 序列化形态由 agent.mjs 决定,包含断言对两种形态都成立)
+    // 面二:工具结果面——tool 消息里 password 指纹 + ref 协议 + text 明文(全字段读取,断言用包含而非
+    // JSON.parse:content 序列化形态由 agent.mjs 决定,包含断言对两种形态都成立)
     const toolRound = h.llmRounds.find(ms => ms.some(m => m.role === 'tool'))
     assert.ok(toolRound, '应有回填 tool 消息的轮次')
     const toolMsg = JSON.stringify(toolRound.find(m => m.role === 'tool'))
     assert.match(toolMsg, /\*\*\* \(\d+ chars, #[0-9a-f]{8}\)/, 'password 指纹')
     assert.match(toolMsg, /cred:.{8,}#token/, 'ref 协议在案')
     assert.ok(!toolMsg.includes('ghp_hunter2secret'), 'password 明文绝不出现在 AI 上下文')
+    assert.ok(toolMsg.includes(TEXT_VALUE), 'text 字段明文为设计允许')
     // 面三:DB 落库面——fields 纯密文
     const rdb = new DatabaseSync(join(h.DIR, 'wb.db'), { readOnly: true })
     const row = rdb.prepare("SELECT fields FROM workbench_credentials WHERE name='gh'").get()
     rdb.close()
     assert.ok(!row.fields.includes('ghp_hunter2secret') && row.fields.includes('v1:'), '库内只有密文')
+    assert.ok(!row.fields.includes(TEXT_VALUE), 'text 值也须密文落库')
   } finally {
     h.cleanup()
   }
