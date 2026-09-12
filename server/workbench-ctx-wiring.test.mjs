@@ -56,3 +56,11 @@ test('creds 桥必须装配进 ctx 内(ctx.creds = )', () => {
     'ctx.creds 未挂进 ctx——tool-registry 两工具只读 ctx.creds,挂外层 = 恒 undefined = 凭据工具全灭(2026-09-01 事故同款)'
   )
 })
+
+test('禁止顶层兄弟键形态回归(creds: 不得作为 buildWbCtx 返回值直接属性)', () => {
+  assert.doesNotMatch(
+    region,
+    /^ {6}creds:\s*createCredentialsAgentBridge/m,
+    '检测到顶层 `creds: createCredentialsAgentBridge` 兄弟键——同 2026-09-01 事故形态,必须挂在 ctx 内'
+  )
+})
