@@ -1019,6 +1019,13 @@ export function createWorkbenchConvRoutes(deps) {
       // 可配置恢复后直接重试;旧顺序 CAS 先翻 running,失败即永久卡死(只能重启网关抢救)。
       const cfg = getLlmConfig()
       if (!cfg.baseURL || !cfg.model) { sendJson(res, 400, { message: msg(req, 'wbc.llmNotConfigured') }); return true }
+      // 终审 rider M-1(2026-09-13):readBody 提到 CAS 前——旧序在 CAS(翻 running)与 resume
+      // 之间 await readBody 让出事件环,窗内并发 cancel 置 cancelled 后仍被随后的 resume 启动
+      // 置回 running(取消被吞)。先读 body:此时尚无任何状态副作用,窗内 cancel 只作用在
+      // paused 行,下面的 CAS 会因状态已非 paused 拒绝(fail-closed)。空 body 兼容旧前端
+      // 语义不变(readBody 空体返 {},坏体静默吞)。
+      let rememberInput = {}
+      try { rememberInput = await readBody(req) || {} } catch { /* 空 body 兼容旧前端 */ }
       // P0(E):仅 paused 可审批。迟到审批(done/failed 后)此前会让 resume 的
       // JSON.parse(conv.pendingApproval=null) 抛错 → 把终态改写成 failed(吞掉已完成答案)。
       const cas = claimPausedForResume(req, db, id)
@@ -1034,10 +1041,9 @@ export function createWorkbenchConvRoutes(deps) {
       try {
         // v2(spec §6.3):「批准并记住」——remember 且该审批是适配器工具时,按 pendingApproval 的
         // args.credential 解析凭据并落 grants(授予者=审批人)。解析失败静默跳过(对话照常续跑,
-        // 用户下次仍人审,fail-closed)。payload 原样保留。CAS 命中后才读 convForGate.pendingApproval
-        // (CAS 只翻 status,载荷未动)——迟到/重复审批走不进这里,remember 零副作用。
-        let rememberInput = {}
-        try { rememberInput = await readBody(req) || {} } catch { /* 空 body 兼容旧前端 */ }
+        // 用户下次仍人审,fail-closed)。payload 原样保留。body 已在 CAS 前读毕;grants 只在
+        // CAS 命中后落库(CAS 只翻 status,载荷未动)——迟到/重复/被取消审批走不进这里,
+        // remember 零副作用。
         if (rememberInput.remember) {
           try {
             const pa = convForGate.pendingApproval ? JSON.parse(convForGate.pendingApproval) : null
