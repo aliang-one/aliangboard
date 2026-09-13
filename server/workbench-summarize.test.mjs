@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { maybeSummarize, compactConversation, SUMMARIZE_PROMPT, maybeSummarizeProject, CAPABILITY_CONSTRAINT } from './workbench-summarize.mjs'
+import { createSingleFlight } from './state/kernel.mjs'
 import {
   createWorkbenchSchema,
   createProject,
@@ -436,7 +437,7 @@ test('maybeSummarizeProject:超长摘要硬钳 ≤2000+截断标记', async () =
 // maybeSummarizeProject 可完成并写入更新的 recap+水位;旧任务完成后无条件 UPDATE 会把新
 // recap 覆写回旧内容(内容回退;水位因 MAX 不回退,丢失的增量被跳过,无法自愈)。
 // 契约:落库为条件写(WHERE COALESCE(historyWatermark,0) < maxTs),changes=0 → 本次丢弃 return false。
-// gap2-01 后注:生产路径并发同项目触发已被 in-flight Set 去重,本用例注入独立 Set 复现
+// gap2-01 后注:生产路径并发同项目触发已被 in-flight singleFlight 去重,本用例注入独立实例复现
 //「双双重入」(防重摘/条件写守卫是 in-flight 之外的纵深防御——直接调用方/未来新增触发点)。
 test('maybeSummarizeProject:摘要竞态——旧任务后完成不覆写新摘要', async () => {
   const db = freshDb()
@@ -453,13 +454,13 @@ test('maybeSummarizeProject:摘要竞态——旧任务后完成不覆写新摘�
     await gateA
     return { content: '旧任务产的旧摘要' }
   } }
-  const taskA = maybeSummarizeProject(db, id, llmA, { inflight: new Set() })
+  const taskA = maybeSummarizeProject(db, id, llmA, { inflight: createSingleFlight({ name: 'tA', domain: 'test' }) })
   // maybeSummarizeProject 同步跑到首个 await(chat 调用本身同步执行)——此刻 A 的 pending 已固化
   assert.ok(aEnteredChat, '任务A已读到 pending 并挂在其 chat 上')
 
   // 任务B:同批内容先完成写入(水位=本批最大 ts 7007,recap=新)
   const llmB = { chat: async () => ({ content: '新任务产的新摘要' }) }
-  assert.equal(await maybeSummarizeProject(db, id, llmB, { inflight: new Set() }), true)
+  assert.equal(await maybeSummarizeProject(db, id, llmB, { inflight: createSingleFlight({ name: 'tB', domain: 'test' }) }), true)
   let row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(id)
   assert.equal(row.projectRecap, '新任务产的新摘要')
   assert.equal(row.historyWatermark, 7007)

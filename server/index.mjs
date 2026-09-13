@@ -7,7 +7,7 @@ import { URL, fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
-import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody } from './call-context.mjs'
+import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody, _dispatcherCacheSizeForTest } from './call-context.mjs'
 import { sessionOwnerValid } from './session-guard.mjs'
 import { parseApiPath } from './k8s-path.mjs'
 import { createK8sGate, gateParsedPath, filterNamespaceList, gateWatchResources } from './k8s-gate.mjs'
@@ -48,6 +48,9 @@ import { createWorkbenchAgent } from './workbench-agent.mjs'
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { createWorkbenchProjectRoutes } from './routes/workbench-projects.mjs'
 import { createAdminRoutes } from './routes/admin.mjs'
+import { stateSnapshot, registerState } from './state/registry.mjs'
+import { sweepsSnapshot, registerSweep } from './state/scheduler.mjs'
+import { createTtlStore, purgeAllTtlStores } from './state/kernel.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 import { getWorkbenchAiConfig } from './workbench-ai-config.mjs'
 import { createAuthRoutes } from './routes/auth.mjs'
@@ -835,9 +838,10 @@ function k8sClient() {
   return _k8sClient
 }
 
-// tmux availability cache: probeKey -> { res: {kind, bin}, at }. TTL-bounded; cleared on error.
-const tmuxProbeCache = new Map()
 const TMUX_PROBE_TTL = Number(process.env.TMUX_PROBE_TTL_MS || 5 * 60 * 1000)
+// tmux availability cache: probeKey -> { res: {kind, bin}, at }. TTL-bounded; cleared on error.
+// (TTL 由 kernel 按插入时戳判,读处 Date.now() - hit.at 手检保留为双保险)
+const tmuxProbeCache = createTtlStore({ name: 'tmuxProbeCache', domain: 'exec', ttlMs: TMUX_PROBE_TTL })
 const TMUX_SCROLLBACK_LINES = Number(process.env.TMUX_SCROLLBACK_LINES || 2000)
 
 // idle reaper tracker: tmuxSessionName -> { token, userId, ns, pod, container, terminalId, lastActiveAt, attached }
@@ -849,7 +853,9 @@ const idleTracker = new Map()
 // 已知限制：计时在 gateway 内存,重启后已空闲的会话需等下次 attach-再离开才计时,或等 pod 重启。
 // 阈值每轮现读(2026-09-05「终端与会话」配置页):设置 pod.terminal.idleReapMin > env IDLE_TTL_MS > 30min,
 // 0=禁用;改动 ≤60s(本 sweep 周期)生效。
-const idleSweeper = setInterval(() => {
+// Wave 2 收编 scheduler:节奏 60s 不变;原体自吞错(IIFE 尾 .catch)原样保留——细分失败面
+// 在循环内逐条 catch,这里只兜「绝不让定时器杀进程」。
+registerSweep({ name: 'podIdleReap', cadenceMs: 60 * 1000, fn: () => {
   ;(async () => {
     const { idleReapMin } = getPodTerminalPolicy()
     if (idleReapMin <= 0) return                            // 0=禁用:本轮不回收
@@ -880,8 +886,7 @@ const idleSweeper = setInterval(() => {
       try { db.prepare('DELETE FROM terminals WHERE id = ?').run(meta.terminalId) } catch { /* noop */ }
     }
   })().catch(() => {})
-}, 60 * 1000)
-idleSweeper.unref()
+} })
 
 // 读取随镜像打包的静态 tmux 二进制(server/bin/tmux-<arch>)。缺失 → null(resolveTmux 降级为 ephemeral)。
 function readTmuxBinary(arch) {
@@ -984,7 +989,7 @@ async function resolveTmux(session, namespace, pod, container) {
 }
 
 // shell 探测缓存:auto 模式下为 pod/container 选最优 shell(bash 优先;dash/sh 无 tab 补全)。TTL 同 tmux 探测。
-const shellProbeCache = new Map()
+const shellProbeCache = createTtlStore({ name: 'shellProbeCache', domain: 'exec', ttlMs: TMUX_PROBE_TTL })
 async function resolveShell(session, namespace, pod, container) {
   const key = probeKey(namespace, pod, container)
   const hit = shellProbeCache.get(key)
@@ -1896,6 +1901,7 @@ async function handle(req, res) {
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
     oidcProvider, // W4 OIDC:oidc-config GET/PUT/test 配置卡
+    stateOverview: () => ({ ts: Date.now(), stores: stateSnapshot(), sweeps: sweepsSnapshot() }), // 状态轴观测(admin/state 聚合快照;值与键永不离开进程)
     getCluster: (id) => db.prepare('SELECT * FROM clusters WHERE id=?').get(id) || null,
     provisionCluster: async (row, spec) => {
       if (!row) throw new Error(msg(req, 'api.clusterNotFound'))
@@ -2617,7 +2623,8 @@ terminalService.reconcileOnBoot(Date.now())   // P1 内存态为空=无操作;P2
 const jobBridgeForSweep = createSshJobBridge({ db, pool: sshPool, projectId: '__sweep__', getPolicy: getSshJobPolicy })
 // 60s sweep:每跳现读策略(改设置 ≤60s 生效,无需重启);命中即回收(关 channel+还池句柄+审计),
 // 有附着浏览器的(attached-idle/max-lifetime)先广播告知再关。detached-idle 无人可告,直接收。
-setInterval(() => {
+// Wave 2 收编 scheduler:节奏 60s 不变;两段各自的 try/catch 保留(逐段记具体失败上下文)。
+registerSweep({ name: 'sshTerminalAndJobSweep', cadenceMs: 60000, fn: () => {
   try {
     // 二段式回收经 TerminalService.sweep(策略每跳现读,≤60s 生效);CLOSED/LOST 审计由
     // onIrreversible 统一落链(reason 含阶段与锚点龄期)
@@ -2633,28 +2640,56 @@ setInterval(() => {
     for (const id of jobBridgeForSweep.sweepServerIds())
       await jobBridgeForSweep.sweepServer(id)
   })().catch(e => console.error('[ssh] job sweep failed:', e?.message || e))
-}, 60000).unref?.()
+} })
 // 池本身无内置定时器:同频 sweep 连接池空闲句柄
-setInterval(() => { try { sshPool.reapIdle() } catch {} }, 60000).unref?.()
+// Wave 2 收编 scheduler:原体的 try/catch 吞错删除——reapIdle 失败由 scheduler 记 lastError
+// + console.error(行为改进③:静默吞错=清理从未发生而无人知)。
+registerSweep({ name: 'sshPoolReapIdle', cadenceMs: 60000, fn: () => { sshPool.reapIdle() } })
+// 行为改进②(statePurge):kernel ttlStore 的过期项此前只靠惰性读清,无人再读的票据/缓存
+// 条目永久滞留;60s 主动清一遍(purgeFuse 之外的兜底清扫)。
+registerSweep({ name: 'statePurge', cadenceMs: 60000, fn: () => { purgeAllTtlStores() } })
+
+// ===== Wave 2 重态登记(spec §7:只读聚合快照,值与键永不离开进程) =====
+// 宪法保护区(guard PROTECTED,10 名)全量入册——守卫③激活后须在此以字面量 name 出现。
+// describe 只读计数;所在文件未导出计数面的模块级单例以 entries:null 显式标注不透明
+// (不猜数、不为观测面新增导出;call-context 的 _dispatcherCacheSizeForTest 是其唯一只读面,
+// 借用读数不改名)。sweepSeenServers 经 job bridge 的只读 sweepServerIds() 计数。
+registerState({ name: 'sessions', domain: 'session', primitive: 'registered', describe: () => ({ entries: sessions.size }) })
+registerState({ name: 'platformSessions', domain: 'session', primitive: 'registered', describe: () => ({ entries: platformSessions.size }) })
+registerState({ name: 'idleTracker', domain: 'exec', primitive: 'registered', describe: () => ({ entries: idleTracker.size }) })
+registerState({ name: 'forwards', domain: 'exec', primitive: 'registered', describe: () => ({ entries: forwards.size }) })
+registerState({ name: 'projectSummarizerFedRid', domain: 'workbench', primitive: 'registered', describe: () => ({ entries: null }) })
+registerState({ name: '_locks', domain: 'workbench', primitive: 'registered', describe: () => ({ entries: null }) })
+registerState({ name: '_cache', domain: 'sa-binding', primitive: 'registered', describe: () => ({ entries: null }) })
+registerState({ name: 'allowedHosts', domain: 'k8s', primitive: 'registered', describe: () => ({ entries: null }) })
+registerState({ name: '_dispatcherCache', domain: 'k8s', primitive: 'registered', describe: () => ({ entries: _dispatcherCacheSizeForTest() }) })
+registerState({ name: 'sweepSeenServers', domain: 'ssh', primitive: 'registered', describe: () => ({ entries: jobBridgeForSweep.sweepServerIds().length }) })
+// 重态观测面(非守卫强制):活 SSH 终端 / 连接池(不透明) / 审计链水位 / 在途 run。
+registerState({ name: 'auditLog', domain: 'audit', primitive: 'registered', describe: () => ({ lastSeq: Number(db.prepare('SELECT COALESCE(MAX(seq),0) AS s FROM audit_log').get().s) }) })
+registerState({ name: 'sshTerminals', domain: 'ssh', primitive: 'registered', describe: () => ({ entries: terminalService._size ? terminalService._size() : terminalService.map.size }) })
+// sshPool 工厂只出 acquire/testConnection/reapIdle/destroyAll/evictServer,无计数面——
+// entries:null 显式标注不透明(同上方 fedRid/_locks 约定,不猜数、不加导出);
+// 原写法的 `:0` 兜底恒执行 = 满池也显示 0 的假数。
+registerState({ name: 'sshPool', domain: 'ssh', primitive: 'registered', describe: () => ({ entries: null }) })
+registerState({ name: 'runEpoch', domain: 'workbench', primitive: 'registered', describe: () => ({ activeRuns: wbAgent.activeRunCount() }) })
 
 // CSO 2026-08-30 #11:过期会话行定时清扫 —— 此前只在 token 重放时懒删,
 // 明文凭证行在库内无限累积(loadPersistedSessions 启动还全量复活)。
-const sessionSweeper = setInterval(() => {
-  try {
-    const cutoff = Date.now() - sessionTtl
-    tombstoneExpiredSessions(db, cutoff, Date.now())          // 先墓碑(有 userId 的过期行)再删
-    db.prepare('DELETE FROM sessions WHERE createdAt < ?').run(cutoff)
-    db.prepare('DELETE FROM platform_sessions WHERE createdAt < ?').run(cutoff)
-    purgeRotatedSessions(db, Date.now())                      // 墓碑 7d 保留窗
-    for (const [t, s] of sessions) if (s.createdAt < cutoff) sessions.delete(t)
-    for (const [t, s] of platformSessions) if (s.createdAt < cutoff) platformSessions.delete(t)
-    // 30d 孤儿窗口记录清理(2026-09-04 M2):此前只在启动时跑一次,长驻进程期间「防无界增长」
-    // 不生效;并入周期调度(启动清扫仍在 loadPersistedSessions)
-    const purged = purgeOrphanWindowRecords(db, 30 * 24 * 60 * 60 * 1000)
-    if (purged.terminals || purged.file_browsers) console.log(`[sqlite] 周期清理超龄窗口记录: terminals=${purged.terminals} file_browsers=${purged.file_browsers}`)
-  } catch { /* noop */ }
-}, 10 * 60 * 1000)
-sessionSweeper.unref?.()
+// Wave 2 收编 scheduler:节奏 10min 不变;原体外层 try{...}catch{noop} 删除(行为改进③:
+// 清扫失败由 scheduler 记 lastError + console.error,不再静默)。
+registerSweep({ name: 'sessionSweep', cadenceMs: 10 * 60 * 1000, fn: () => {
+  const cutoff = Date.now() - sessionTtl
+  tombstoneExpiredSessions(db, cutoff, Date.now())          // 先墓碑(有 userId 的过期行)再删
+  db.prepare('DELETE FROM sessions WHERE createdAt < ?').run(cutoff)
+  db.prepare('DELETE FROM platform_sessions WHERE createdAt < ?').run(cutoff)
+  purgeRotatedSessions(db, Date.now())                      // 墓碑 7d 保留窗
+  for (const [t, s] of sessions) if (s.createdAt < cutoff) sessions.delete(t)
+  for (const [t, s] of platformSessions) if (s.createdAt < cutoff) platformSessions.delete(t)
+  // 30d 孤儿窗口记录清理(2026-09-04 M2):此前只在启动时跑一次,长驻进程期间「防无界增长」
+  // 不生效;并入周期调度(启动清扫仍在 loadPersistedSessions)
+  const purged = purgeOrphanWindowRecords(db, 30 * 24 * 60 * 60 * 1000)
+  if (purged.terminals || purged.file_browsers) console.log(`[sqlite] 周期清理超龄窗口记录: terminals=${purged.terminals} file_browsers=${purged.file_browsers}`)
+} })
 
 const handleSshTerminal = createSshTerminalHandler({
   sshPool,
@@ -2718,14 +2753,15 @@ loadPersistedSessions() // 启动时恢复持久化的集群会话（重启不�
 seedAdminFromEnv()
 loadPersistedPlatformSessions()
 
-// 会话保留(2026-08-30 设计 §3.2):启动清一次过期僵尸,60s sweep 兜底(与 SSH terminal sweep 同模式,.unref 不阻退出)。
+// 会话保留(2026-08-30 设计 §3.2):启动清一次过期僵尸,60s sweep 兜底(与 SSH terminal sweep 同模式,unref 不阻退出)。
 // ttl 每跳现读 env(热更新语义,回退启动值);整体异常跳过本轮,60s 后重试。
+// Wave 2 收编 scheduler:节奏 60s 不变;try/catch 保留(带 [auth] 上下文的具体失败日志)。
 reapExpiredSessions({ platformSessions, db, sessions, ttlMs: sessionTtl })
-setInterval(() => {
+registerSweep({ name: 'reapExpiredSessions', cadenceMs: 60000, fn: () => {
   try {
     reapExpiredSessions({ platformSessions, db, sessions, ttlMs: Number(process.env.SESSION_TTL_MS || sessionTtl) })
   } catch (e) { console.error('[auth] platform session reap failed:', e?.message || e) }
-}, 60000).unref?.()
+} })
 
 httpServer.listen(port, host, () => {
   console.log(`AliangBoard API listening on http://${host}:${port}`)
@@ -2762,7 +2798,7 @@ if (distillInterval > 0) {
       }
     } catch (e) { console.error('[distill] scheduler tick 失败:', e.message) }
   }
-  setInterval(tickDistill, distillInterval).unref()
+  registerSweep({ name: 'distill', cadenceMs: distillInterval, fn: tickDistill })
   console.log(`[distill] 定时蒸馏已启用:每 ${Math.round(distillInterval / 1000)}s 一轮(活跃集群,产待审 pending)`)
 }
 
@@ -2799,6 +2835,6 @@ if (reconcileInterval > 0) {
       }
     } catch (e) { console.error('[reconcile] scheduler tick 失败:', e.message) }
   }
-  setInterval(tickReconcile, reconcileInterval).unref()
+  registerSweep({ name: 'reconcile', cadenceMs: reconcileInterval, fn: tickReconcile })
   console.log(`[reconcile] 定时 reconcile 已启用:每 ${Math.round(reconcileInterval / 1000)}s 一轮(所有项目)`)
 }

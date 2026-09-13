@@ -26,6 +26,7 @@ export function createAdminRoutes(deps) {
     parseKubeconfig, certMaterial, normalizeServer, buildCallContext, requestKubernetes,
     hashPassword, getSshSessionPolicy, getSshJobPolicy, getPodTerminalPolicy, writeAudit, platformSessions, sessions,
     oidcProvider, // W4 OIDC:index.mjs 注入的 provider 单例(publicConfig/discovery/jwksFor)
+    stateOverview, // 状态轴观测(Wave 0 Task 5):() => { ts, stores, sweeps } 聚合快照
   } = deps
 
   // ===== W2 Phase E(Task 3):组 RoleBinding 驱动(grants 变更 → 集群侧绑定收敛)=====
@@ -61,6 +62,13 @@ export function createAdminRoutes(deps) {
 
   // 匹配 admin 路由;命中并处理返 true(调用方不再继续 dispatch);否则返 false。
   async function handle(req, res, url) {
+    // ===== 状态轴向观测(spec §9.1):全部登记状态的聚合快照(值与键永不离开进程) =====
+    if (url.pathname === '/api/admin/state' && req.method === 'GET') {
+      const ps = requireAdmin(req, res); if (!ps) return true
+      sendJson(res, 200, deps.stateOverview())
+      return true
+    }
+
     // ====== LLM 配置(baseURL/apiKey/model 存 DB;env 回退;GET 不回传 key)======
     if (url.pathname === '/api/admin/llm-config' && req.method === 'GET') {
       const ps = requireAdmin(req, res); if (!ps) return true

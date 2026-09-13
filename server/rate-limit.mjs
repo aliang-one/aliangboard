@@ -32,3 +32,9 @@ const _login = createRateLimiter({
   refillPerSec: Number(process.env.LOGIN_RATE_REFILL_PER_SEC || 0.1),
 })
 export function checkLoginRate(key) { return _login.check(key) }
+
+// Wave 2 状态轴:模块级两单例自登记(只读聚合;键 = api key / ip|username,永不离开进程)。
+// import 提升到模块顶,置于登记块旁以保持自登记的就近可读性(ESM 合法)。
+import { registerState } from './state/registry.mjs'
+registerState({ name: 'rateLimitGateway', domain: 'ratelimit', primitive: 'registered', describe: () => ({ entries: _gateway._size() }) })
+registerState({ name: 'rateLimitLogin', domain: 'ratelimit', primitive: 'registered', describe: () => ({ entries: _login._size() }) })

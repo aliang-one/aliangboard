@@ -17,3 +17,11 @@ export function emit(convId, event) { bus.emit(convId, event) }
 export function subscribe(convId, fn) { bus.on(convId, fn) }
 export function unsubscribe(convId, fn) { bus.off(convId, fn) }
 export function dispose(convId) { bus.removeAllListeners(convId) }
+
+// Wave 2 状态轴:bus 自登记(只读聚合;channels = 有监听者的 convId 数,listeners = 监听者
+// 总数。convId 与回调永不离开本模块)。import 提升到模块顶,置于登记块旁(ESM 合法)。
+import { registerState } from './state/registry.mjs'
+registerState({ name: 'convBus', domain: 'workbench', primitive: 'registered', describe: () => {
+  const names = bus.eventNames()
+  return { channels: names.length, listeners: names.reduce((n, ev) => n + bus.listenerCount(ev), 0) }
+} })

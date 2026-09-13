@@ -676,5 +676,6 @@ const CK_TIME_MS = 500
     return { ok: true }
   }
 
-  return { runConversation, resumeConversation, cancelConversation, invalidateConversation, preservePausedOutput, flushCheckpoint }
+  // Wave 2 状态轴唯一新增面:在途 run 只读计数(index.mjs 登记 runEpoch 用)。epoch CAS 逻辑零改动。
+  return { runConversation, resumeConversation, cancelConversation, invalidateConversation, preservePausedOutput, flushCheckpoint, activeRunCount: () => activeRuns.size }
 }

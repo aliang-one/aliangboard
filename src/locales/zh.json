@@ -2664,7 +2664,8 @@
       "about": "关于",
       "mcp": "MCP 服务",
       "transfers": "文件传输",
-      "terminal": "终端与会话"
+      "terminal": "终端与会话",
+      "state": "状态总览"
     },
     "clusterInfo": "集群信息",
     "clusterName": "集群名称",
@@ -4861,5 +4862,20 @@
   },
   "mykeys": {
     "formIncomplete": "请选择集群并填写 namespace"
+  },
+  "adminState": {
+    "title": "内存状态总览",
+    "refresh": "刷新",
+    "autoRefresh": "10s 自动刷新",
+    "name": "名称",
+    "primitive": "原语",
+    "entries": "条目",
+    "ttl": "TTL",
+    "expired": "过期",
+    "sweeps": "清扫任务",
+    "cadence": "节奏",
+    "runs": "次数",
+    "lastError": "最近错误",
+    "empty": "暂无登记状态"
   }
 }

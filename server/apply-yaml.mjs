@@ -3,6 +3,7 @@
 // ns 缺省链:显式 metadata.namespace > defaultNs > 'default';集群级 kind 忽略后两者
 // (namespaced 来自集群 discovery,权威且对 CRD 正确)。
 import { loadAll as yamlLoadAll } from 'js-yaml'
+import { createTtlStore } from './state/kernel.mjs'
 
 // ns 解析单一事实源(applyYaml/applyYamlPartial 与 /api/apply 授权门共用;禁止各自内联 || 链,防漂移):
 // 显式 metadata.namespace > defaultNs > 'default';集群级 kind(discovery namespaced=false)返回 undefined。
@@ -23,7 +24,8 @@ export function applyDocNamespaces(objects, defaultNs, resourceFor) {
 }
 
 export function createApplyYaml({ requestKubernetes }) {
-  const discoveryCache = new Map() // apiServer:apiVersion → resources[]
+  // 工厂内 discovery 缓存(准静态:集群 API 资源清单不随请求变,ttl=null 永不过期,与原 Map 同语义)。
+  const discoveryCache = createTtlStore({ name: 'applyYamlDiscovery', domain: 'apply', ttlMs: null })
 
   async function discoverResource(session, object) {
     const apiVersion = String(object.apiVersion || '')

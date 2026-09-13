@@ -13,6 +13,7 @@ import { maskSecretResource } from './secret-mask.mjs'
 import { provisionSa, rbacTier } from './sa-provision.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
 import { listApiPath, getApiPath, KIND_API } from './kind-paths.mjs'
+import { createTtlStore } from './state/kernel.mjs'
 
 const LOG_TAIL_MAX = 500
 const LOG_BYTE_MAX = 32768 // 日志输出字节上限(codex #11:单行巨大也会撑爆;Claude Code >10k token 会告警,32KB ≈ 8k token 留余量)
@@ -72,7 +73,9 @@ export function nsScopeOf(keyRow) {
 }
 
 // 发现 apiserver issuer(= token audience,prefund 验证),按 apiServer 缓存。
-const _issuerCache = new Map()
+// 2026-09-11 状态轴 Wave 1 行为改进①(spec 附录 A):原容器无 TTL 无封顶 → 迁 kernel ttlStore 并
+//   加 cap=256 FIFO 逐最旧(issuer 数=集群数,256 远超现实规模);ttlMs=null 保持永不过期原语义。
+const _issuerCache = createTtlStore({ name: 'issuerCache', domain: 'authkey', ttlMs: null, cap: 256 })
 export function _clearIssuerCacheForTest() { _issuerCache.clear() }
 async function getIssuer(requestFn, callCtx) {
   const key = callCtx.apiServer.toString()

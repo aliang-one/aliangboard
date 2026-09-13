@@ -5,6 +5,7 @@
 import { X509Certificate, createHash } from 'node:crypto'
 import * as nodeTls from 'node:tls'
 import { isIP } from 'node:net'
+import { createTtlStore } from './state/kernel.mjs'
 
 const DEFAULT_TTL = 60_000     // 报告缓存窗口:页面轮询 + 铃铛共享,不重复拨号
 const DEFAULT_TIMEOUT = 5_000  // 单次 TLS 握手上限(cluster-probe 同款量级)
@@ -167,9 +168,10 @@ const CACHE_MAX_KEYS = 32 // FIFO 封顶:缓存键含用户可铸的信任材料
 
 export function createClusterCerts({ tlsConnect = nodeTls.connect, requestFn, now = Date.now, ttl = DEFAULT_TTL, timeout = DEFAULT_TIMEOUT } = {}) {
   if (typeof requestFn !== 'function') throw new Error('createClusterCerts: requestFn 必传')
-  const cache = new Map()
-  const classifyCache = new Map()
-  const cap = (map) => { if (map.size > CACHE_MAX_KEYS) map.delete(map.keys().next().value) }
+  // 工厂内实例级缓存(值带 at,kernel 按插入时戳判 TTL;FIFO-32 由 kernel cap 承担,
+  // 与原手写 cap(map) 同插入序语义;调用点手写 TTL 检查保留作双保险)。
+  const cache = createTtlStore({ name: 'clusterCertsReport', domain: 'clustercerts', ttlMs: ttl, cap: CACHE_MAX_KEYS, now })
+  const classifyCache = createTtlStore({ name: 'clusterCertsClassify', domain: 'clustercerts', ttlMs: ttl, cap: CACHE_MAX_KEYS, now })
   // 缓存键含信任材料 + 凭据指纹:同集群不同 CA/不同 token 的会话不串缓存
   // (scanSecrets 按会话凭据执行——共享键会让窄 RBAC 会话吃到宽会话的扫描结果)。
   const cacheKeyOf = s => {
@@ -195,7 +197,6 @@ export function createClusterCerts({ tlsConnect = nodeTls.connect, requestFn, no
       fetchedAt: now(),
     }
     cache.set(key, { data, at: now() })
-    cap(cache)
     return data
   }
   // admin 断连归因:TLS 层结论;'tls-ok' = 断连但证书链无碍(凭据/上游层);insecure 无法裁决。
@@ -214,7 +215,6 @@ export function createClusterCerts({ tlsConnect = nodeTls.connect, requestFn, no
       const r = await probeConnection(tlsConnect, { apiServer: u, ca: row.ca || null, cert: row.cert || null, key: row.key || null, insecure: effInsecure, timeout, now })
       const reason = r.trust === 'trusted' ? 'tls-ok' : (r.trust === 'unverified' ? 'unknown-insecure' : r.trust)
       classifyCache.set(key, { reason, at: now() })
-      cap(classifyCache)
       return reason
     } catch {
       return 'error'

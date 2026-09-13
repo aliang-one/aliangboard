@@ -12,6 +12,7 @@ import {
 } from './workbench-projects.mjs'
 import { deriveSalvageContent } from './salvage-content.mjs'
 import { trimBudgetChars, contextWindowFor } from './model-context.mjs'
+import { createSingleFlight } from './state/kernel.mjs'
 // 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
 // msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
 
@@ -42,7 +43,7 @@ function transcriptLine(m) {
 
 // per-conv in-flight 去重(H1,镜像 projectSummarizerInflight):messages 路由与 agent done
 // 两触发点并发到达时双双读 pending → 两路 LLM 白烧 + 互以入口快照覆写丢段。测试注入缝同款。
-const convSummarizerInflight = new Set()
+const convSummarizerInflight = createSingleFlight({ name: 'convSummarizerInflight', domain: 'workbench' })
 
 // maybeSummarize(db, convId, llmClient, { thresholdTurns=12, recentKeep=8 }) → Promise<boolean>
 // 返回 true=触发了摘要;false=未达阈值/无可摘/失败(不抛)。
@@ -53,7 +54,7 @@ export async function maybeSummarize(
   { thresholdTurns = 12, recentKeep = 8, inflight = convSummarizerInflight } = {},
 ) {
   if (inflight.has(convId)) return false
-  inflight.add(convId)
+  inflight.set(convId, true)
   try {
     const conv = getConversation(db, convId)
     if (!conv) return false
@@ -198,9 +199,9 @@ const PROJECT_SUMMARY_THRESHOLD = 8
 
 // gap2-01(2026-09-07 审计批次三):per-project in-flight 去重。messages 路由与 agent done 两
 // 触发点 fire-and-forget 并发到达时,旧实现双双读 pending → 两路 LLM → 条件写只留一路(一次
-// LLM 白烧)。内存 Set,单进程不变式(网关单进程);run 出函即清。测试注入缝 { inflight }:
-// 传入独立 Set 可复现「双双重入」竞态(生产恒默认模块级,勿传)。
-const projectSummarizerInflight = new Set()
+// LLM 白烧)。kernel singleFlight(Map 形),单进程不变式(网关单进程);run 出函即清。测试注
+// 入缝 { inflight }:传入独立实例可复现「双重重入」竞态(生产恒默认模块级,勿传)。
+const projectSummarizerInflight = createSingleFlight({ name: 'projectSummarizerInflight', domain: 'workbench' })
 
 // context-assembly-08 防重摘键(2026-09-07 审计批次三):projectId → 已喂给 LLM 的最大 history
 // rowid。`ts >= 水位` 读法(unsummarizedProjectHistory)会把边界毫秒的已摘行重新读出,此键将其
@@ -211,7 +212,7 @@ const projectSummarizerFedRid = new Map()
 
 export async function maybeSummarizeProject(db, projectId, llmClient, { inflight = projectSummarizerInflight } = {}) {
   if (inflight.has(projectId)) return false
-  inflight.add(projectId)
+  inflight.set(projectId, true)
   try {
     const project = getProject(db, projectId)
     if (!project) return false
