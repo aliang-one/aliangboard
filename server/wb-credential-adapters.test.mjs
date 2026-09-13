@@ -128,3 +128,99 @@ test('http_request 闭环:批准并记住→免审二连;token 仅服务端注�
     setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)
   }
 })
+
+// e2e ②(Task 7 Wave B):SSRF 逃逸(302→跨 origin,有 grant 的 GET 免审直跑但工具结果为 error,
+// 且无对逃逸目标的二次请求)+ 写方法恒人审(同凭据同适配器有 grant,POST 仍 paused→deny→failed)。
+// 端口沿 T6 分区原则(K8S 39-43k / LLM 43-46k / TGT 46-47k / GW 48-50k),取各带内与上例错开的半带。
+test('SSRF 逃逸与写方法:跨 origin 重定向拒;POST 恒人审(有 grant 也不免)', { timeout: 120000 }, async () => {
+  const K8S_PORT = 39500 + Math.floor(Math.random() * 3000)
+  const LLM_PORT = 44500 + Math.floor(Math.random() * 1500)
+  const TGT_PORT = 46500 + Math.floor(Math.random() * 500)
+  const GW_PORT = 48500 + Math.floor(Math.random() * 1500)
+  const DIR = mkdtempSync(join(tmpdir(), 'wb-credv2b-'))
+  const llmRounds = []
+  const targetHits = []
+  let toolArgs = { credential: 'gh', path: '/trap' }          // 首轮:SSRF 逃逸
+  const target = createServer((req, res) => {
+    targetHits.push(req.url)
+    if (req.url === '/trap') { res.writeHead(302, { location: 'http://127.0.0.1:1/evil' }); return res.end() }
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}')
+  })
+  const k8s = createServer((req, res) => {
+    const p = new URL(req.url, 'http://x').pathname
+    if (p === '/version') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"major":"1","minor":"31"}') }
+    res.writeHead(404); res.end('{}')
+  })
+  const llm = createServer((req, res) => {
+    let body = ''; req.on('data', c => body += c); req.on('end', () => {
+      const { messages = [], stream } = JSON.parse(body || '{}')
+      llmRounds.push(messages)
+      const ARGS = JSON.stringify(toolArgs)
+      const hasTool = messages.some(m => m.role === 'tool')
+      const reply = hasTool ? { role: 'assistant', content: '完成。' }
+        : { role: 'assistant', content: '执行。', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'http_request', arguments: ARGS } }] }
+      if (stream) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' })
+        const ch = d => `data: ${JSON.stringify({ choices: [{ delta: d }] })}\n\n`
+        if (reply.tool_calls) {
+          res.write(ch({ role: 'assistant', content: reply.content }))
+          res.write(ch({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'http_request', arguments: '' } }] }))
+          res.write(ch({ tool_calls: [{ index: 0, function: { arguments: ARGS } }] }))
+        } else res.write(ch({ role: 'assistant', content: reply.content }))
+        res.write('data: [DONE]\n\n'); return res.end()
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ choices: [{ message: reply }] }))
+    })
+  })
+  await new Promise(r => target.listen(TGT_PORT, '127.0.0.1', r))
+  await new Promise(r => k8s.listen(K8S_PORT, '127.0.0.1', r))
+  await new Promise(r => llm.listen(LLM_PORT, '127.0.0.1', r))
+  target.keepAliveTimeout = 30_000
+  k8s.keepAliveTimeout = 30_000
+  llm.keepAliveTimeout = 30_000
+  const gw = spawn(process.execPath, ['server/index.mjs'], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(GW_PORT), ALIANG_DB: join(DIR, 'wb.db'), ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'x'.repeat(12), ALIANG_STATIC_DIR: DIR, ALIANG_WORKBENCH_DIR: join(DIR, 'wb') },
+    stdio: ['ignore', 'ignore', 'ignore'],
+  })
+  const BASE = `http://127.0.0.1:${GW_PORT}`
+  try {
+    for (let i = 0; i < 60; i++) { try { await fetch(`${BASE}/api/auth/login`, { method: 'POST', body: '{}' }); break } catch { await new Promise(r => setTimeout(r, 300)) } }
+    const lr = await (await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'x'.repeat(12) }) })).json()
+    const H = { 'content-type': 'application/json', 'x-platform-token': lr.token }
+    await fetch(`${BASE}/api/admin/llm-config`, { method: 'PUT', headers: H, body: JSON.stringify({ baseURL: `http://127.0.0.1:${LLM_PORT}`, model: 'mock-1' }) })
+    const cr0 = await (await fetch(`${BASE}/api/workbench/credentials`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'gh', exposeToAi: true, fields: [
+      { key: 'base_url', type: 'text', value: `http://127.0.0.1:${TGT_PORT}` }, { key: 'api_token', type: 'password', value: 't0' }] }) })).json()
+    await fetch(`${BASE}/api/workbench/credentials/${cr0.credential.id}/grants`, { method: 'POST', headers: H, body: JSON.stringify({ adapter: 'http_request' }) })
+    const kubeconfig = `apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: http://127.0.0.1:${K8S_PORT}\n  name: m\ncontexts:\n- context:\n    cluster: m\n    user: m\n  name: m\ncurrent-context: m\nusers:\n- name: m\n  user: {token: d}\n`
+    const cr = await (await fetch(`${BASE}/api/admin/clusters`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'mock-k8s', kubeconfig }) })).json()
+    const pr = await (await fetch(`${BASE}/api/workbench/projects`, { method: 'POST', headers: H, body: JSON.stringify({ name: 't2', clusterId: cr.cluster?.id || cr.id }) })).json()
+    const statusOf = async id => { const c = await (await fetch(`${BASE}/api/workbench/conversations/${id}`, { headers: H })).json(); return c.conversation?.status || c.status }
+    const waitStatus = async (id, set) => { for (let i = 0; i < 120; i++) { await new Promise(r => setTimeout(r, 400)); const s = await statusOf(id); if (set.includes(s)) return s } return 'timeout' }
+    const mkConv = msg => fetch(`${BASE}/api/workbench/conversations`, { method: 'POST', headers: H, body: JSON.stringify({ projectId: pr.project?.id || pr.id, message: msg }) }).then(r => r.json())
+
+    // ① SSRF:302 → 跨 origin,grant 已存在 → GET 免审直跑,工具结果为 error(AI 收到拒因)
+    const cv1 = await mkConv('触发 trap')
+    assert.equal(await waitStatus(cv1.id, ['done', 'failed']), 'done', 'GET+grant 免审')
+    const toolRound = llmRounds.find(ms => ms.some(m => m.role === 'tool'))
+    assert.ok(JSON.stringify(toolRound).includes('不在该凭据声明的 base_url'), '逃逸被拒且 AI 收到拒因')
+    assert.deepEqual(targetHits, ['/trap'], '无对逃逸目标的二次请求')
+
+    // ② 写方法:同凭据同适配器(有 grant)仍 paused → deny → 终态。
+    // 注:LLM 已配置时 deny 走 resumeConversation(id,false) 回喂拒因出终答 → 终态 done
+    // (plan 原稿的 failed 只匹配无 LLM 分支);本断言钉住安全性质本身——工具未执行+拒因回喂。
+    llmRounds.length = 0; targetHits.length = 0
+    toolArgs = { credential: 'gh', path: '/things', method: 'POST', body: '{}' }
+    const cv2 = await mkConv('创建一个 thing')
+    assert.equal(await waitStatus(cv2.id, ['paused', 'failed', 'done']), 'paused', '写方法恒人审(grant 不覆盖)')
+    await fetch(`${BASE}/api/workbench/conversations/${cv2.id}/deny`, { method: 'POST', headers: H, body: '{}' })
+    assert.ok(['done', 'failed'].includes(await waitStatus(cv2.id, ['done', 'failed'])), 'deny 后达终态')
+    assert.equal(targetHits.length, 0, 'deny 后工具未执行(POST 未触达目标)')
+    const denyRound = llmRounds.find(ms => ms.some(m => m.role === 'tool'))
+    assert.ok(denyRound && JSON.stringify(denyRound).includes('用户拒绝了该操作'), '拒因回喂 LLM')
+  } finally {
+    gw.kill('SIGKILL'); target.close(); k8s.close(); llm.close()
+    setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)
+  }
+})
