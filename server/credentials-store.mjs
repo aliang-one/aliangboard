@@ -6,6 +6,7 @@
 // 三态更新语义(Task 2):password 字段 value undefined/''=保持 / null=清除 / 字符串=覆盖;text 全量提交。
 import { randomUUID } from 'node:crypto'
 import { encryptField, decryptField } from './ssh/crypt.mjs'
+import { adaptersForCredential } from './credential-adapters/registry.mjs'
 
 export const FIELD_LIMITS = { maxNameLen: 80, maxFields: 32, maxKeyLen: 64, maxValueLen: 16384, maxTags: 8, maxTagLen: 24, maxDescriptionLen: 2000 }
 const MASK_PREFIX = '*** ('   // 掩码形态值拒收(fail-safe,同网关仓 normalizePresentedAPIKey 思想)
@@ -181,11 +182,17 @@ export function materializeField(db, key, id, fieldKey) {
 export function listPromptCredentials(db) {
   try {
     return db.prepare('SELECT id,name,description,tags,fields FROM workbench_credentials WHERE expose_to_ai=1 ORDER BY updated_at DESC').all()
-      .map(r => ({
-        id: r.id, name: r.name, description: r.description || '',
-        tags: parseJsonArray(r.tags),
-        fields: parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type })),
-      }))
+      .map(r => {
+        const fields = parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type }))
+        return {
+          id: r.id, name: r.name, description: r.description || '',
+          tags: parseJsonArray(r.tags),
+          fields,
+          // v2(Task 6):清单行带✓匹配标记的数据源——registry 形状匹配(db_query 占位期无适配器可标)。
+          // 仍属白名单构造:adaptersForCredential 只吃 {key,type},值/密文不经手。
+          adapters: adaptersForCredential({ fields }),
+        }
+      })
   } catch (e) {
     console.error('[credentials] 提示词凭据清单读取失败,按无凭据装配:', e?.message || e)
     return []
