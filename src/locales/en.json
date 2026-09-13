@@ -4030,7 +4030,6 @@
       "grantsTitle": "Adapters granted approval-free access",
       "revoke": "Revoke",
       "grantRevoked": "Grant revoked",
-      "grantFailed": "Grant failed",
       "formTitleCreate": "New Credential",
       "formTitleEdit": "Edit Credential",
       "nameLabel": "Name",

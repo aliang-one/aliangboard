@@ -43,11 +43,19 @@ export function createDbQueryAdapter({ clients = null, timeoutMs = TIMEOUT_MS } 
   // PG jsonb/json 返回对象(JWT 嵌套明文直达模型)、bytea 返回 Buffer(数字数组可重构),均直通。
   // 对象 → stringify→mask→parse 往返(保对象形状);Buffer/Uint8Array → 字符串占位(杜绝重构);
   // number/boolean/null/bigint/Date 等无自由文本形态,原样。
+  // T8 复审残端:Buffer 嵌套在数组/对象内(pg bytea[]/jsonb 复合字段)走通用对象分支,
+  // JSON.stringify 产出 {"type":"Buffer","data":[...]} 数字数组可重构——stringify 前递归
+  // 占位(数组元素/对象属性值同游),Date 留给 stringify 原生 ISO 形态。
+  const binaryPlaceholder = v => v instanceof Uint8Array ? `[binary ${v.length} bytes]`
+    : Array.isArray(v) ? v.map(binaryPlaceholder)
+    : (v !== null && typeof v === 'object' && !(v instanceof Date))
+      ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, binaryPlaceholder(x)]))
+      : v
   function maskCell(v) {
     if (v == null || typeof v !== 'object') return typeof v === 'string' ? maskSensitiveText(v) : v
     if (v instanceof Date) return v
     if (v instanceof Uint8Array) return `[binary ${v.length} bytes]`   // Buffer 是 Uint8Array 子类(pg bytea/mysql BLOB)
-    try { return JSON.parse(maskSensitiveText(JSON.stringify(v))) } catch { return String(v) }
+    try { return JSON.parse(maskSensitiveText(JSON.stringify(binaryPlaceholder(v)))) } catch { return String(v) }
   }
   async function exec({ fields, args }) {
     // 审查修复 B(字段键归一,与 http_request T2/T3 同型债):桥按存储原键传 fields(表单可自由输键,

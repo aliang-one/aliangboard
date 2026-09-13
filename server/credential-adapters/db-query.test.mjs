@@ -103,6 +103,23 @@ test('非字符串单元格脱敏:jsonb 嵌套 JWT 打码/Buffer 占位/标量�
   assert.ok(out.rows[0].when instanceof Date, 'Date 原样')
 })
 
+// ── T8 复审残端:Buffer 嵌套在数组/对象内(pg bytea[]/jsonb 复合字段)不得产出可重构数字数组 ──
+test('嵌套 Buffer 占位:对象/数组内 Buffer 递归占位,无 {"type":"Buffer","data":[...]} 形态', async () => {
+  const a = createDbQueryAdapter({ clients: { postgres: async () => ({
+    query: async sql => sql.startsWith('SET') ? undefined : {
+      rows: [{ obj: { buf: Buffer.from('secret'), n: 1 }, arr: [Buffer.from([7, 8, 9]), 'plain'] }],
+      fields: [],
+    },
+    end: async () => {},
+  }) } })
+  const out = await a.exec({ fields: FIELDS, args: { sql: 'SELECT * FROM t' } })
+  const s = JSON.stringify(out)
+  assert.ok(!s.includes('"type":"Buffer"') && !s.includes('"data":['), '无可重构的 Buffer JSON 形态')
+  assert.ok(s.includes('[binary 6 bytes]') && s.includes('[binary 3 bytes]'), '嵌套 Buffer 递归占位')
+  assert.equal(out.rows[0].obj.n, 1, '同对象内非二进制字段存活')
+  assert.equal(out.rows[0].arr[1], 'plain', '同数组内字符串元素存活')
+})
+
 // ── 审查修复 D:查询阶段超时(SELECT SLEEP(99999) 形态永挂 → race 超时 + destroy)──
 test('查询阶段超时:永不 resolve 的 query 触发超时错误并 destroy 连接(修复 D,注入 50ms)', async () => {
   const destroyed = []

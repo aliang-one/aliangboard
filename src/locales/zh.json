@@ -4030,7 +4030,6 @@
       "grantsTitle": "已授权的免审适配器",
       "revoke": "收回",
       "grantRevoked": "已收回授权",
-      "grantFailed": "授权失败",
       "formTitleCreate": "新建凭据",
       "formTitleEdit": "编辑凭据",
       "nameLabel": "名称",

@@ -118,11 +118,15 @@ test('http_request 闭环:批准并记住→免审二连;token 仅服务端注�
     const cv2 = await mkConv()
     assert.equal(await waitStatus(cv2.id, ['done', 'failed']), 'done', 'grant 后同操作免审直达终态')
     assert.equal(targetHits.length, 2, '第二次真实执行')
-    // 免审审计标记
+    // 免审审计标记:逐行收紧——只看 finalized 结果行(两阶段审计每次执行 started+finalized 各一条,
+    // checkpoint 不落 tool 行)。row1=首次对话人批后执行(resume 不过门,裁决时点是人批,即使
+    // approve remember 已落 grant)不带 approval:auto;row2=grant 后免审带标记。
     const adb = new DatabaseSync(join(DIR, 'wb.db'), { readOnly: true })
-    const auto = adb.prepare("SELECT requestSummary FROM audit_log WHERE tool='http_request' ORDER BY rowid").all()
+    const auto = adb.prepare("SELECT requestSummary FROM audit_log WHERE tool='http_request' AND status='finalized' ORDER BY rowid").all()
     adb.close()
-    assert.ok(auto.length >= 2 && auto.some(a => (a.requestSummary || '').includes('approval:auto')), '免审行带 approval:auto 标记')
+    assert.equal(auto.length, 2, '两次执行各一条 finalized 结果行')
+    assert.ok(!(auto[0].requestSummary || '').includes('approval:auto'), '首行=人批后执行,无免审标记(预期语义)')
+    assert.ok((auto[1].requestSummary || '').includes('approval:auto'), '次行=grant 免审,带 approval:auto 标记')
   } finally {
     gw.kill('SIGKILL'); target.close(); k8s.close(); llm.close()
     setTimeout(() => { try { rmSync(DIR, { recursive: true, force: true }) } catch {} }, 500)

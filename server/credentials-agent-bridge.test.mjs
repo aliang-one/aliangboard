@@ -69,6 +69,9 @@ test('buildWorkbenchSystemPrompt:凭据清单段只有元数据', () => {
   assert.ok(sys.includes('gh') && sys.includes('user(text)'), '清单含名称+字段结构')
   assert.ok(!sys.includes('ghp_x') && !sys.includes('octocat'), '值不进提示词')
   assert.ok(sys.includes('read_credential'))
+  // user/token 不匹配任何适配器(http_request 需 base_url+api_token/db_query 需 driver…),
+  // 本夹具形态即「无匹配适配器」——锁定行尾标注,防 ✓ 匹配标记渲染回归为静默空串。
+  assert.ok(sys.includes('(无匹配适配器)'))
 })
 
 test('runAdapter:解析失败拒;needsApproval:无grant人审/有grant+GET免审/写方法恒审/非适配器恒审', async () => {
