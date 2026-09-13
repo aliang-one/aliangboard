@@ -45,9 +45,9 @@ test('registry.workbenchToolDefs(disabled):过滤 + 未知名忽略 + 无参兼�
   assert.deepEqual(registry.workbenchToolDefs().map(t => t.function.name), all)
 })
 
-test('registry.workbenchTools():31 个 WB 工具,每个带 promptHint', () => {
+test('registry.workbenchTools():32 个 WB 工具(实装 db_query 后 31+1),每个带 promptHint', () => {
   const tools = registry.workbenchTools()
-  assert.equal(tools.length, 31)
+  assert.equal(tools.length, 32)
   assert.ok(tools.every(t => typeof t.promptHint === 'string' && t.promptHint.length > 0))
   assert.ok(tools.some(t => t.name === 'wb_exec' && t.requiresApproval === true))
 })
