@@ -19,10 +19,10 @@ test('形状匹配:全中/缺字段/password 型错配/大小写不敏感', () =
   assert.deepEqual(matchAdapter('http_request', lower), { ok: true }, 'key 大小写不敏感')
 })
 
-test('adaptersForCredential:正向清单(db_query 未实装时不出现)', () => {
+test('adaptersForCredential:正向清单(db_query 实装)', () => {
   assert.deepEqual(adaptersForCredential(HTTP_CRED), ['http_request'])
-  assert.deepEqual(adaptersForCredential(DB_CRED), [], 'db_query Wave C 前不匹配任何适配器')
-  assert.deepEqual(listAdapters().map(a => a.name), ['http_request'])
+  assert.deepEqual(adaptersForCredential(DB_CRED), ['db_query'])
+  assert.deepEqual(listAdapters().map(a => a.name), ['http_request', 'db_query'])
 })
 
 test('http_request 最小版:注入 Authorization/origin 白名单拒逃逸/GET 默认/结果含状态与裁剪体', async () => {
@@ -70,6 +70,7 @@ test('http_request 加固:重定向逐跳复验(同 origin 过/跨 origin 拒/�
   const loop = createHttpRequestAdapter({ fetchImpl: async () => { hops++; return makeRes(302, { location: `/h${hops}` }, '') } })
   const out3 = await loop.exec({ fields: { base_url: 'https://a.com', api_token: 't' }, args: { path: '/' } })
   assert.match(out3.error, /重定向/)
+  assert.equal(hops, 4, '上界语义:初始请求+3 跳后停止(不多发第 5 次)')
   // headers 剥离 + POST body
   let seen = null
   const poster = createHttpRequestAdapter({ fetchImpl: async (u, init) => { seen = { u: String(u), init }; return makeRes(201, { 'content-type': 'application/json' }, '{"id":1}') } })
@@ -93,4 +94,19 @@ test('http_request 顺带清偿:base_url 协议守卫 + 字段键大小写归一
   const out2 = await mixed.exec({ fields: { base_url: 'https://a.com', API_Token: 't' }, args: { path: '/' } })
   assert.equal(out2.status, 200)
   assert.equal(seen.init.headers.authorization, 'Bearer t', '存储 API_Token 大写键仍按 needs 键归一注入')
+})
+
+test('http_request 跨边界秘密加固:先 mask 后 truncate(半截 JWT 不外泄)', async () => {
+  // T7 审查修复回归钉:响应体含跨 32KB 边界的 JWT,截断若先行会把 JWT 切成两段式半截,
+  // mask 正则(须三段结构)不再命中 → 半截秘密直达 LLM。修复后先整体 mask 再裁剪。
+  const BODY_MAX = 32768
+  const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
+  // JWT 起点 32719 < 32768 < JWT 终点:跨界(前后留空格/换行保 \b 可命中);后缀保证 mask 后仍超 BODY_MAX(截断路径真实触发)
+  const text = 'a'.repeat(BODY_MAX - 50) + ' ' + jwt + '\n' + 'b'.repeat(300)
+  const a = createHttpRequestAdapter({ fetchImpl: async () => ({ status: 200, headers: { get: () => 'text/plain' }, text: async () => text }) })
+  const out = await a.exec({ fields: { base_url: 'https://a.com', api_token: 't' }, args: { path: '/big' } })
+  assert.ok(out.body.includes('截断'), '脱敏后仍超限,截断路径真实触发')
+  assert.ok(!out.body.includes('eyJhbGciOiJIUzI1NiIs'), '跨边界 JWT 不留半截头部')
+  assert.ok(!out.body.includes('eyJzdWIiOiIxMjM0NTY3ODkw'), '跨边界 JWT 不留半截载荷')
+  assert.ok(!out.body.includes('SflKxwRJSMeKKF2QT'), '跨边界 JWT 不留半截签名')
 })

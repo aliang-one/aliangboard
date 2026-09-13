@@ -4058,6 +4058,7 @@
       "presetSsh": "SSH",
       "presetApiToken": "API Token",
       "presetAccount": "账号密码",
+      "presetDb": "数据库",
       "deleteTitle": "删除凭据",
       "deleteHint": "输入凭据名称确认删除:",
       "deleteBtn": "删除",

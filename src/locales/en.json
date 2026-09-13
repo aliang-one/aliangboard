@@ -4058,6 +4058,7 @@
       "presetSsh": "SSH",
       "presetApiToken": "API Token",
       "presetAccount": "Account",
+      "presetDb": "Database",
       "deleteTitle": "Delete Credential",
       "deleteHint": "Type the credential name to confirm:",
       "deleteBtn": "Delete",

@@ -37,6 +37,7 @@ const PRESETS = {
   ssh: [['host', 'text'], ['port', 'text'], ['user', 'text'], ['password', 'password']],
   apiToken: [['api_token', 'password'], ['base_url', 'text']],
   account: [['username', 'text'], ['password', 'password']],
+  db: [['driver', 'text'], ['host', 'text'], ['port', 'text'], ['user', 'text'], ['password', 'password'], ['database', 'text']],
 }
 const showForm = ref(false)
 const editing = ref(null)          // null=新建;行对象=编辑
@@ -185,6 +186,7 @@ const fmtTime = ts => (ts ? new Date(ts).toLocaleString() : '')
       <button @click="openCreate('ssh')" class="px-sm py-xs border border-outline-variant rounded-lg text-body-xs">{{ t('workbench.credentials.presetSsh') }}</button>
       <button @click="openCreate('apiToken')" class="px-sm py-xs border border-outline-variant rounded-lg text-body-xs">{{ t('workbench.credentials.presetApiToken') }}</button>
       <button @click="openCreate('account')" class="px-sm py-xs border border-outline-variant rounded-lg text-body-xs">{{ t('workbench.credentials.presetAccount') }}</button>
+      <button @click="openCreate('db')" class="px-sm py-xs border border-outline-variant rounded-lg text-body-xs">{{ t('workbench.credentials.presetDb') }}</button>
       <button @click="openCreate()" data-testid="cred-create-btn" class="px-md py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('workbench.credentials.create') }}</button>
     </div>
 

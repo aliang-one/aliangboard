@@ -63,12 +63,15 @@ export function createHttpRequestAdapter({ fetchImpl = defaultFetch } = {}) {
     if (res.status >= 300 && res.status < 400) return { error: `重定向超过 ${REDIRECT_MAX} 跳` }
     let text = ''
     try { text = await res.text() } catch { text = '' }
+    // T7 审查修复:先脱敏后裁剪(spec §11.2)——先 slice 会把跨 32KB 边界的 JWT/PEM 切成半截,
+    // mask 正则不再命中,半截秘密直达 LLM。与 db_query 的逐单元格先 mask 后裁剪同序。
+    text = maskSensitiveText(text)
     if (text.length > BODY_MAX) text = text.slice(0, BODY_MAX) + `…(截断,共 ${text.length})`
     const outHeaders = {}
     for (const [k, v] of (res.headers.entries ? res.headers.entries() : [])) {
       if (HEADER_PASSLIST.some(re => re.test(k.toLowerCase()))) outHeaders[k.toLowerCase()] = v
     }
-    return { status: res.status, contentType: res.headers.get('content-type') || '', headers: outHeaders, body: maskSensitiveText(text) }
+    return { status: res.status, contentType: res.headers.get('content-type') || '', headers: outHeaders, body: text }
   }
   return { manifest, exec }
 }

@@ -1,14 +1,17 @@
 // 适配器注册表(2026-09-12-v2 spec §5):manifest 契约 + 字段形状匹配。
-// db_query 在 Wave C 实装(占位 null → listAdapters 跳过);新增适配器 = 清单 + exec,零接线。
+// 新增适配器 = 清单 + exec,零接线。
 import { createHttpRequestAdapter } from './http-request.mjs'
+import { createDbQueryAdapter } from './db-query.mjs'
 
 // re-export:测试与调用方统一从 registry 取适配器工厂(定义仍在 http-request.mjs)
 export { createHttpRequestAdapter }
+export { createDbQueryAdapter }
 
 const httpAdapter = createHttpRequestAdapter()
+const dbAdapter = createDbQueryAdapter()
 export const ADAPTERS = {
   http_request: httpAdapter,
-  db_query: null,   // Wave C: createDbQueryAdapter()
+  db_query: dbAdapter,
 }
 
 export function listAdapters() {
