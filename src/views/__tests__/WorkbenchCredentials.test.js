@@ -16,6 +16,7 @@ vi.mock('@/api/client', () => ({
     get: vi.fn(), create: vi.fn().mockResolvedValue({ credential: { id: 'c2' } }),
     update: vi.fn().mockResolvedValue({ credential: { id: 'c1' } }),
     remove: vi.fn(), reveal: vi.fn(),
+    grant: vi.fn(), revokeGrant: vi.fn(),
     parse: vi.fn().mockResolvedValue({ draft: { name: 'ssh-1', description: '', tags: ['a'],
       fields: [{ key: 'host', type: 'text', value: '10.0.0.1' }, { key: 'pwd', type: 'password', value: 'x' }] }, dropped: 0 }),
   },
@@ -91,4 +92,24 @@ test('编辑三态:password 值留空 → update 载荷该字段无 value 键', 
   const payload = credentialsApi.update.mock.calls[0][1]
   expect(payload.fields[1]).not.toHaveProperty('value', expect.anything())
   expect(payload.fields[1]).toEqual({ key: 'token', type: 'password' })
+})
+
+// ── 2026-09-12 credential-adapters v2(Task 5):详情页「已授权」区 ──
+
+// 详情入口选型:卡片菜单(DropdownMenu)teleport 后不便点——brief 给的二选一里取
+// 「直调组件方法」路径:script setup 经 VTU vm 代理可达(WorkbenchChat 测试调
+// vm.pollOnce 同款),真实触发 openDetail → credentialsApi.get → detail Modal。
+test('详情页已授权区:渲染 grants + 一键收回', async () => {
+  credentialsApi.get.mockResolvedValue({ credential: { id: 'c1', name: 'gh', description: '', tags: [],
+    exposeToAi: true, fields: [], grants: [{ adapter: 'http_request', grantedBy: 'u1', grantedAt: 1 }] } })
+  credentialsApi.revokeGrant.mockResolvedValue({ ok: true })
+  const w = mountPage()
+  await flushPromises()
+  await w.vm.openDetail({ id: 'c1' })
+  await flushPromises()
+  // Modal Teleport 到 body:w.text() 看不见,断言走 body(既有 q() 同款)
+  await vi.waitFor(() => expect(document.body.textContent).toContain('http_request'))
+  await q('[data-testid="cred-revoke-grant"]').trigger('click')
+  await flushPromises()
+  expect(credentialsApi.revokeGrant).toHaveBeenCalledWith('c1', 'http_request')
 })

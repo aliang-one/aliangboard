@@ -64,6 +64,9 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
   const offered = new Set(toolDefs.map(t => t.function.name))
   const requiringApproval = new Set(registry.requiringApproval())
   const ctx = { apiKeyTools, keyRow, cluster, wb: workbench, ssh: workbench?.ssh || null, sshJobs: workbench?.sshJobs || null, creds: workbench?.creds || null }
+  // 最近一次审批门(needsApprovalFn)裁决是否为「免审放行」——execTool 落审计行时消费
+  // (approval:auto 标记)。捕获点见 needsApprovalFn;语义注记见 execTool 标记块注释。
+  let gateAutoPassed = false
   const execTool = async (name, args) => {
     const t = registry.get(name)
     if (!t) throw new Error(`未知工具: ${name}`)
@@ -73,10 +76,14 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     if (!audit) return t.exec(ctx, args) // registry 分派:K8s→callTool(自带审计);工作台无 audit→不审计
     // workbench 路径:reserve → 执行 → finalize(成功/失败都落链)
     const intent = wbAuditIntent(audit, name, args)
-    // 模式放行标记(2026-09-09):链上区分「人批」(wb_approval approve 行)vs「模式放行」。
-    // (mode, name) 纯函数重判——与门同一输入;mid-run 切档的毫秒级窗口内标记可能滞后于门,
-    // 可接受(标记是溯源注记,门的裁决才是权威)。截断后追加,长 args 不吞标记。
-    if (approvalMode && modeAutoPasses(approvalMode(), name)) {
+    // 免审放行标记(2026-09-09 模式三档;v2 2026-09-12 改读门的真实裁决):链上区分「人批」
+    // (wb_approval approve 行)vs「免审放行」(模式三档 / 凭据×适配器 grants / SSH 服务器策略)。
+    // 此前 (mode, name) 纯函数重判只盖模式档——v2 grants 走 dynamicApproval 桥免审,执行行
+    // 无标记(e2e wb-credential-adapters 实证),故改由 needsApprovalFn 捕获门裁决于此消费。
+    // 工具执行串行(agent.mjs 注:同一时刻至多一个工具),捕获与执行一一对应;resume 批准路径
+    // 不再过门,捕获保持 checkpoint 时的 false(人批行不带标记——即使 approve 的 remember 已
+    // 落 grant:执行当时的裁决是人批,不是 grant 免审)。截断后追加,长 args 不吞标记。
+    if (gateAutoPassed) {
       intent.requestSummary = intent.requestSummary ? `${intent.requestSummary} approval:auto` : 'approval:auto'
     }
     reserveAudit(audit.db, intent)
@@ -94,11 +101,15 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
                   : llmClient.chat({ messages, tools })
   // 只对「本次 offered 的写工具」要求人审;K8s tier 够不上的写工具不 offered → 直接不调。
   // 静态命中才问模式层(2026-09-09 三档:writes/auto 白名单放行,SSH 工具恒不在名单);
-  // 再问 dynamicApproval(SSH 按服务器策略放宽/收紧);无钩子保持旧行为。
+  // 再问 dynamicApproval(SSH 按服务器策略放宽/收紧;v2 凭据×适配器 grants 免审);无钩子保持旧行为。
+  // 每条路径同步捕获 gateAutoPassed(免审放行=true):execTool 据此落 approval:auto 审计标记——
+  // 读类工具不经门(恒 false 不标);人审路径(返 true → checkpoint)false,resume 批准后执行
+  // 不再过门,捕获沿用 checkpoint 时的 false(人批行不带标记)。
   const needsApprovalFn = async (n, args) => {
-    if (!requiringApproval.has(n) || !offered.has(n)) return false
-    if (approvalMode && modeAutoPasses(approvalMode(), n)) return false
-    if (dynamicApproval) return !!(await dynamicApproval(n, args))
+    if (!requiringApproval.has(n) || !offered.has(n)) { gateAutoPassed = false; return false }
+    if (approvalMode && modeAutoPasses(approvalMode(), n)) { gateAutoPassed = true; return false }
+    if (dynamicApproval) { const need = !!(await dynamicApproval(n, args)); gateAutoPassed = !need; return need }
+    gateAutoPassed = false
     return true
   }
   const agent = createAgent({ chat, toolDefs, execTool, needsApproval: needsApprovalFn, ...(maxSteps != null ? { maxSteps } : {}), ...(budgetChars ? { budgetChars } : {}), ...(shouldAbort ? { shouldAbort } : {}) })

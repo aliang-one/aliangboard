@@ -8,6 +8,7 @@ import {
   createCredentialsSchema, validateCredentialInput, createCredential,
   listCredentials, getCredentialSanitized,
   updateCredential, deleteCredential, materializeField,
+  grantCredentialUse, revokeCredentialUse, listCredentialGrants, hasCredentialGrant, resolveCredentialRef,
 } from './credentials-store.mjs'
 
 function makeDb() { const db = new DatabaseSync(':memory:'); createCredentialsSchema(db); return db }
@@ -106,4 +107,36 @@ test('deleteCredential + materializeField 解密失败固定码', () => {
   assert.equal(deleteCredential(db, s.id), true)
   assert.equal(getCredentialSanitized(db, s.id), null)
   assert.equal(deleteCredential(db, s.id), false)
+})
+
+test('grants:授权/收回/命中/幂等/按凭据列表', () => {
+  const db = makeDb()
+  const s = createCredential(db, KEY, { name: 'gh', exposeToAi: true, fields: [{ key: 'k', type: 'text', value: 'v' }] })
+  assert.equal(hasCredentialGrant(db, s.id, 'http_request'), false)
+  assert.deepEqual(grantCredentialUse(db, s.id, 'http_request', 'u1'), { ok: true })
+  assert.deepEqual(grantCredentialUse(db, s.id, 'http_request', 'u2'), { ok: false })   // 幂等:已存在
+  assert.equal(hasCredentialGrant(db, s.id, 'http_request'), true)
+  assert.equal(hasCredentialGrant(db, s.id, 'db_query'), false)
+  const gs = listCredentialGrants(db, s.id)
+  assert.equal(gs.length, 1); assert.equal(gs[0].adapter, 'http_request'); assert.equal(gs[0].grantedBy, 'u1')
+  assert.equal(revokeCredentialUse(db, s.id, 'http_request'), true)
+  assert.equal(revokeCredentialUse(db, s.id, 'http_request'), false)
+  assert.equal(hasCredentialGrant(db, s.id, 'http_request'), false)
+  // v2 Task 4 携带项:deleteCredential 级联清 grants(不残留指向已删凭据的孤儿授权行)
+  grantCredentialUse(db, s.id, 'http_request', 'u1')
+  deleteCredential(db, s.id)
+  assert.deepEqual(listCredentialGrants(db, s.id), [])
+})
+
+test('resolveCredentialRef:id 优先/同名歧义回暴露候选/not-found 与 not-exposed 可区分', () => {
+  const db = makeDb()
+  const a = createCredential(db, KEY, { name: 'dup', exposeToAi: true, fields: [{ key: 'k', type: 'text', value: 'v' }] })
+  createCredential(db, KEY, { name: 'dup', exposeToAi: true, fields: [{ key: 'k', type: 'text', value: 'v' }] })
+  createCredential(db, KEY, { name: 'hid', exposeToAi: false, fields: [{ key: 'k', type: 'text', value: 'v' }] })
+  assert.equal(resolveCredentialRef(db, a.id).ok, true)
+  assert.equal(resolveCredentialRef(db, 'dup').reason, 'ambiguous')
+  assert.equal(resolveCredentialRef(db, 'dup').candidates.length, 2)
+  assert.equal(resolveCredentialRef(db, 'hid').reason, 'not-exposed')
+  assert.equal(resolveCredentialRef(db, 'nope').reason, 'not-found')
+  assert.deepEqual(resolveCredentialRef(db, ''), { ok: false, reason: 'not-found', candidates: [] })
 })

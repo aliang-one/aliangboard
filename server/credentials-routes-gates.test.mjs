@@ -130,3 +130,23 @@ test('空值字段归一:GET :id text 回空串/password 回 0 字符指纹(不�
   assert.equal(det[0].value, '', 'text 空值归一为空串')
   assert.equal(det[1].value, '*** (0 chars, #da39a3ee)', 'password 空值=sha1 空串指纹,truthful')
 })
+
+// v2 Task 4:grants 子端点(POST 授权/DELETE 收回/GET :id 带 grants)+ 审计留痕。
+// approve remember 的进程内测试属 conversations 路由——闭环由 Task 6 e2e 覆盖,gates 只测 grants 面。
+test('grants 端点:POST 授权/DELETE 收回/GET :id 带 grants/审计', async () => {
+  const h = makeHarness()
+  await h.call('POST', '/api/workbench/credentials', { name: 'gh', fields: [
+    { key: 'base_url', type: 'text', value: 'https://x' }, { key: 'api_token', type: 'password', value: 't' }] })
+  const id = h.sent[0].json.credential.id
+  await h.call('POST', `/api/workbench/credentials/${id}/grants`, { adapter: 'http_request' })
+  assert.equal(h.sent[1].status, 200)
+  await h.call('POST', `/api/workbench/credentials/${id}/grants`, { adapter: 'banana' })
+  assert.equal(h.sent[2].status, 400, '未实装适配器拒绝')
+  await h.call('GET', `/api/workbench/credentials/${id}`)
+  assert.deepEqual(h.sent[3].json.credential.grants.map(g => g.adapter), ['http_request'])
+  await h.call('DELETE', `/api/workbench/credentials/${id}/grants/http_request`)
+  assert.equal(h.sent[4].status, 200)
+  await h.call('GET', `/api/workbench/credentials/${id}`)
+  assert.deepEqual(h.sent[5].json.credential.grants, [])
+  assert.ok(h.audits.some(a => a.tool === 'credential_grant_create') && h.audits.some(a => a.tool === 'credential_grant_revoke'))
+})

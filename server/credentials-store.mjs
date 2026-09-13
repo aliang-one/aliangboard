@@ -6,6 +6,7 @@
 // 三态更新语义(Task 2):password 字段 value undefined/''=保持 / null=清除 / 字符串=覆盖;text 全量提交。
 import { randomUUID } from 'node:crypto'
 import { encryptField, decryptField } from './ssh/crypt.mjs'
+import { adaptersForCredential } from './credential-adapters/registry.mjs'
 
 export const FIELD_LIMITS = { maxNameLen: 80, maxFields: 32, maxKeyLen: 64, maxValueLen: 16384, maxTags: 8, maxTagLen: 24, maxDescriptionLen: 2000 }
 const MASK_PREFIX = '*** ('   // 掩码形态值拒收(fail-safe,同网关仓 normalizePresentedAPIKey 思想)
@@ -23,6 +24,14 @@ export function createCredentialsSchema(db) {
     updated_at   INTEGER NOT NULL
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_credentials_updated ON workbench_credentials(updated_at DESC)')
+  db.exec(`CREATE TABLE IF NOT EXISTS credential_grants (
+    id             TEXT PRIMARY KEY,
+    credential_id  TEXT NOT NULL,
+    adapter        TEXT NOT NULL,
+    granted_by     TEXT NOT NULL,
+    granted_at     INTEGER NOT NULL,
+    UNIQUE (credential_id, adapter)
+  )`)
 }
 
 function bad(msg) { const e = new Error(msg); e.status = 400; return e }
@@ -152,6 +161,9 @@ export function updateCredential(db, key, id, patch = {}) {
 }
 
 export function deleteCredential(db, id) {
+  // v2 Task 4 携带项:级联清 grants——孤儿授权行指向不存在的凭据,免审判定凭 (credential_id,
+  // adapter) 命中即放行,残留即安全隐患。两删相邻同步执行,无需事务仪式(单进程 sqlite)。
+  db.prepare('DELETE FROM credential_grants WHERE credential_id=?').run(id)
   return db.prepare('DELETE FROM workbench_credentials WHERE id=?').run(id).changes > 0
 }
 
@@ -170,13 +182,63 @@ export function materializeField(db, key, id, fieldKey) {
 export function listPromptCredentials(db) {
   try {
     return db.prepare('SELECT id,name,description,tags,fields FROM workbench_credentials WHERE expose_to_ai=1 ORDER BY updated_at DESC').all()
-      .map(r => ({
-        id: r.id, name: r.name, description: r.description || '',
-        tags: parseJsonArray(r.tags),
-        fields: parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type })),
-      }))
+      .map(r => {
+        const fields = parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type }))
+        return {
+          id: r.id, name: r.name, description: r.description || '',
+          tags: parseJsonArray(r.tags),
+          fields,
+          // v2(Task 6):清单行带✓匹配标记的数据源——registry 形状匹配(db_query 占位期无适配器可标)。
+          // 仍属白名单构造:adaptersForCredential 只吃 {key,type},值/密文不经手。
+          adapters: adaptersForCredential({ fields }),
+        }
+      })
   } catch (e) {
     console.error('[credentials] 提示词凭据清单读取失败,按无凭据装配:', e?.message || e)
     return []
   }
+}
+
+// ═══ v2 适配器授权(spec 2026-09-12-v2 §6):凭据×适配器免审 grants。免审只覆盖读路径,
+// 写方法恒人审由桥的 needsApproval 分级;免审不免审计(agent-runner approval:auto 标记)。 ═══
+export function grantCredentialUse(db, credentialId, adapter, grantedBy) {
+  try {
+    // ok=本次真实写入(changes>0):重复授权幂等回 {ok:false}(brief 原稿的插入后 SELECT 对已存在行恒真,与其自身测试相悖,此处以测试为准)
+    const info = db.prepare('INSERT OR IGNORE INTO credential_grants (id,credential_id,adapter,granted_by,granted_at) VALUES (?,?,?,?,?)')
+      .run(randomUUID(), credentialId, String(adapter), grantedBy, Date.now())
+    return { ok: info.changes > 0 }
+  } catch { return { ok: false } }
+}
+export function revokeCredentialUse(db, credentialId, adapter) {
+  // 防御式降级同 has/list:表缺失(老库未跑 schema 工厂)返 false,不让收回面 500
+  try {
+    return db.prepare('DELETE FROM credential_grants WHERE credential_id=? AND adapter=?').run(credentialId, String(adapter)).changes > 0
+  } catch { return false }
+}
+export function listCredentialGrants(db, credentialId) {
+  try {
+    return db.prepare('SELECT adapter, granted_by AS grantedBy, granted_at AS grantedAt FROM credential_grants WHERE credential_id=? ORDER BY granted_at DESC').all(credentialId)
+  } catch { return [] }   // 表缺失(老库未跑 schema 工厂)防御式降级,照 listPromptCredentials
+}
+export function hasCredentialGrant(db, credentialId, adapter) {
+  try { return !!db.prepare('SELECT 1 FROM credential_grants WHERE credential_id=? AND adapter=?').get(credentialId, String(adapter)) }
+  catch { return false }
+}
+
+// 引用解析(id 优先/同名歧义回暴露行候选/not-found 不泄露存在性)——v1 桥内逻辑上提为纯函数,
+// 供桥与 approve 端点(remember 写 grants)单一事实源复用。
+export function resolveCredentialRef(db, ref) {
+  const r = String(ref ?? '').trim()
+  if (!r) return { ok: false, reason: 'not-found', candidates: [] }
+  const all = listCredentials(db)
+  const byId = all.find(x => x.id === r)
+  if (byId) return byId.exposeToAi ? { ok: true, row: byId } : { ok: false, reason: 'not-exposed', candidates: [] }
+  const named = all.filter(x => x.name === r)
+  if (!named.length) return { ok: false, reason: 'not-found', candidates: [] }
+  const exposedNamed = named.filter(x => x.exposeToAi)
+  if (named.length > 1) {
+    if (!exposedNamed.length) return { ok: false, reason: 'not-exposed', candidates: [] }
+    return { ok: false, reason: 'ambiguous', candidates: exposedNamed.map(x => ({ id: x.id, name: x.name })) }
+  }
+  return exposedNamed.length ? { ok: true, row: named[0] } : { ok: false, reason: 'not-exposed', candidates: [] }
 }

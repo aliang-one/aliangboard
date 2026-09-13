@@ -285,13 +285,16 @@ const convStatusBadgeClass = computed(() => {
 })
 
 // 审批弹窗:按工具选图标/标题/目标行(wb_exec 等运维工具不再套"写文件"文案)
-const APPROVAL_ICONS = { apply_project_manifests: 'rocket_launch', bootstrap_ledger: 'fact_check', wb_exec: 'terminal', wb_scale: 'unfold_more', wb_restart: 'restart_alt', wb_update_image: 'system_update_alt', wb_rollout_undo: 'undo' }
+const APPROVAL_ICONS = { apply_project_manifests: 'rocket_launch', bootstrap_ledger: 'fact_check', wb_exec: 'terminal', wb_scale: 'unfold_more', wb_restart: 'restart_alt', wb_update_image: 'system_update_alt', wb_rollout_undo: 'undo', http_request: 'api', db_query: 'database' }
 const approvalIcon = computed(() => APPROVAL_ICONS[pendingApproval.value?.name] || 'edit_document')
 const approvalTitle = computed(() => {
   const n = pendingApproval.value?.name
   // CSO #5(2026-08-30):SSH 工具走独立标题,别落到泛化「集群变更审批」造成盲批观感
   if (n === 'wb_ssh_exec' || n === 'wb_ssh_read_file') return t('workbench.chat.sshApprovalTitle')
   if (n === 'wb_exec') return t('workbench.chat.execApprovalTitle')
+  // v2 终审 rider I-1(2026-09-13):适配器工具不以 wb_ 开头,旧序落「写文件审批」误标
+  if (n === 'http_request') return t('workbench.chat.httpApprovalTitle')
+  if (n === 'db_query') return t('workbench.chat.dbApprovalTitle')
   if (n && n.startsWith('wb_')) return t('workbench.chat.actionApprovalTitle')
   return t('workbench.chat.writeFileApproval')
 })
@@ -328,13 +331,37 @@ const approvalJobText = computed(() => {
   if (a.text == null) return ''
   return typeof a.text === 'string' ? a.text : JSON.stringify(a.text)
 })
+// v2(2026-09-12 credential-adapters):适配器工具(http_request/db_query)的审批卡多一枚
+// 「批准并记住」——approve 载荷 {remember:true} 让服务端落 grants,此后该凭据的此类只读
+// 操作免审(审计仍记录,可在凭据详情页收回)。db_query Wave C 前先注册名字:未上线工具
+// 不会出现在审批卡,渲染条件恒真不破坏现有审批。
+const ADAPTER_TOOLS = new Set(['http_request', 'db_query'])
+const isAdapterApproval = computed(() => ADAPTER_TOOLS.has(pendingApproval.value?.name))
+// v2 终审 rider I-1(2026-09-13):适配器审批卡专用展示视图——旧渲染三连盲:标题落「写文件
+// 审批」兜底(不以 wb_ 开头)、args.path 恒在场压掉 JSON 兜底、path 模板渲染空 content
+// <pre> → 凭据名/method/body/SQL 全不可见。此处按工具名归一:凭据名 + method(缺省
+// GET)+path+body 或 SQL;body/SQL 超 2000 截断(与 approvalArgsFallback 同口径)。
+const ADAPTER_VIEW_TRIM = 2000
+const trimApprovalText = s => (s.length > ADAPTER_VIEW_TRIM ? s.slice(0, ADAPTER_VIEW_TRIM) + '…' : s)
+const approvalAdapterView = computed(() => {
+  const pa = pendingApproval.value
+  if (!isAdapterApproval.value) return null
+  const a = pa.args || {}
+  const credential = a.credential != null ? String(a.credential) : ''
+  if (pa.name === 'http_request') {
+    const body = a.body != null ? trimApprovalText(String(a.body)) : ''
+    return { kind: 'http', credential, method: a.method != null ? String(a.method) : 'GET', path: a.path != null ? String(a.path) : '', body }
+  }
+  return { kind: 'db', credential, sql: a.sql != null ? trimApprovalText(String(a.sql)) : '' }
+})
 // approval-flow-01 兜底:无任何匹配分支的 requiresApproval 工具(未来新增/参数面变迁)此前只显示
 // 工具名 = 盲批。完整 args JSON(截断)兜底,任何审批工具至少可见完整参数;已有结构化展示
-// (command/path/content/应答/notes/target 行)的工具不再叠一份 JSON(同屏双显是噪音)。
+// (command/path/content/应答/notes/target 行/适配器专用分支)的工具不再叠一份 JSON(同屏双显是噪音)。
 const approvalArgsFallback = computed(() => {
   const a = pendingApproval.value?.args
   if (!a || typeof a !== 'object' || !Object.keys(a).length) return ''
   if (approvalCommand.value || approvalJobText.value || approvalTarget.value) return ''
+  if (isAdapterApproval.value) return ''
   if (a.path != null || a.content != null || a.notes != null) return ''
   try {
     const s = JSON.stringify(a, null, 2)
@@ -1207,7 +1234,7 @@ async function send() {
   }
 }
 
-async function decideApproval(approved) {
+async function decideApproval(approved, remember = false) {
   const pa = pendingApproval.value
   if (!pa || !conversationId.value) return
   pendingApproval.value = null
@@ -1216,7 +1243,9 @@ async function decideApproval(approved) {
   await scrollToBottom()
   try {
     const id = conversationId.value
-    const resp = approved ? await workbenchApi.conversations.approve(id)
+    // v2:remember=false 保持旧式单参调用(真实向后兼容——不传 trailing undefined 第二参);
+    // 仅「批准并记住」分支携 {remember:true} 载荷
+    const resp = approved ? await (remember ? workbenchApi.conversations.approve(id, { remember: true }) : workbenchApi.conversations.approve(id))
       : await workbenchApi.conversations.deny(id)
     if (unmounted) return // P0(C)
     // approval-flow-02(2026-09-07 审计批次三):deny 可能直接终态(无 LLM 配置:决策受理、
@@ -1594,7 +1623,25 @@ function useHint(h) { input.value = h }
           <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.approvalNotes') }}</p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.notes }}</pre>
         </template>
-        <template v-if="pendingApproval.args?.path">
+        <!-- v2 终审 rider I-1(2026-09-13):适配器工具专用展示(approvalAdapterView)——凭据行 +
+             http_request 的 method(缺省 GET)+path+body 或 db_query 的 SQL(等宽/截断)。
+             下面的 path 兜底改挂 v-else-if:适配器分支命中即跳过,不再把 http_request 当写文件
+             渲染出空 content <pre>(旧序三连盲:标题误标+兜底被 path 抑制+空 pre)。 -->
+        <template v-if="isAdapterApproval && approvalAdapterView">
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalAdapterView.credential || '—' }}</span></p>
+          <template v-if="approvalAdapterView.kind === 'http'">
+            <p class="text-body-sm text-on-surface-variant"><span class="font-mono font-semibold text-on-surface">{{ approvalAdapterView.method }}</span> <span class="font-mono text-on-surface">{{ approvalAdapterView.path || '—' }}</span></p>
+            <template v-if="approvalAdapterView.body">
+              <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.approvalRequestBody') }}</p>
+              <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalAdapterView.body }}</pre>
+            </template>
+          </template>
+          <template v-else>
+            <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.approvalSql') }}</p>
+            <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalAdapterView.sql }}</pre>
+          </template>
+        </template>
+        <template v-else-if="pendingApproval.args?.path">
           <p class="text-body-sm text-on-surface-variant">Path: <span class="font-mono text-on-surface">{{ pendingApproval.args.path }}</span></p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>
         </template>
@@ -1610,6 +1657,11 @@ function useHint(h) { input.value = h }
           class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container max-sm:flex-1 max-sm:min-h-[44px] max-sm:text-body-md">{{ t('workbench.chat.reject') }}</button>
         <button data-testid="approval-approve" @click="decideApproval(true)" :disabled="sending"
           class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-sm font-semibold disabled:opacity-40 max-sm:flex-1 max-sm:min-h-[44px] max-sm:text-body-md">{{ t('workbench.chat.approve') }}</button>
+        <!-- v2(2026-09-12 credential-adapters):适配器工具第三钮「批准并记住」——同函数同 catch
+             通路(approval-flow-02 语义整体复用),仅 approve 载荷多 {remember:true} -->
+        <button v-if="isAdapterApproval" data-testid="approval-approve-remember" @click="decideApproval(true, true)" :disabled="sending"
+          class="px-md py-sm bg-primary-container text-on-primary-container rounded-lg text-body-sm font-semibold disabled:opacity-40 max-sm:flex-1 max-sm:min-h-[44px] max-sm:text-body-md"
+          :title="t('workbench.chat.approveRememberHint')">{{ t('workbench.chat.approveRemember') }}</button>
       </template>
     </Modal>
 

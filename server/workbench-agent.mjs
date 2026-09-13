@@ -16,6 +16,7 @@ import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 // gap3-01(2026-09-07 审计批次二):换绑锚定——refreshSystem 装配前比对 refs 戳与当下
 // project.clusterId,旧集群 ref 停用(不重拉)+ 注入作废注记。见 refs-normalize.mjs 文件头注。
 import { splitStaleRefs, buildStaleRefsNote } from './refs-normalize.mjs'
+import { adapterToolNames } from './credential-adapters/registry.mjs'
 
 // deps: { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose }
 //   db                —— node:sqlite DatabaseSync(index.mjs 顶层构造)
@@ -34,10 +35,13 @@ import { splitStaleRefs, buildStaleRefsNote } from './refs-normalize.mjs'
 // (两桥对它的裁决语义同款:none→免审/readonly→分类器/always→人审)。agent-bridge.needsApproval
 // 另有同名前缀防御兜底(双保险,防未来路由再错配)。
 // 两处装配点(run/resume)必须都走这里;被路由的桥缺位走默认收紧(true)。
+// v2(2026-09-12 凭据适配器):适配器工具(http_request 等)→ 凭据桥按 grants 裁决(读路径
+// grant 命中免审/写方法恒审/其余人审),仍不在 wb-approval-mode 白名单(fail-closed)。
 // 纯函数:不落地/无副作用——needsApproval 在 checkpoint 与 resume 两处被咨询。
-export async function routeDynamicApproval(n, args, sshBridge, sshJobs) {
+export async function routeDynamicApproval(n, args, sshBridge, sshJobs, credsBridge = null) {
   if (n.startsWith('wb_ssh_job_')) return sshJobs ? sshJobs.needsApproval(n, args) : true
   if (n.startsWith('wb_ssh_') || n === 'write_server_notes') return sshBridge ? sshBridge.needsApproval(n, args) : true
+  if (adapterToolNames().has(n)) return credsBridge ? credsBridge.needsApproval(n, args) : true   // v2:凭据×适配器 grants
   return true
 }
 
@@ -381,7 +385,7 @@ const CK_TIME_MS = 500
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
         // 动态审批白名单路由(2026-09-07 审计 F1):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
-        dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
+        dynamicApproval: (sshBridge || sshJobs || ctx.creds) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs, ctx.creds || null) : undefined,
         // 审批三档模式(2026-09-09):owner 的 prefs 现读(W2 语义:授权/审批主体恒取 project.ownerId,
         // admin 代触发他人对话不继承 admin 的档位);SSH 工具恒不放宽(服务器策略更严者胜)。
         approvalMode: () => readUserApprovalMode(db, project.ownerId),
@@ -522,7 +526,7 @@ const CK_TIME_MS = 500
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
         budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
         // 动态审批白名单路由(2026-09-07 审计 F1):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
-        dynamicApproval: (sshBridge || sshJobs) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs) : undefined,
+        dynamicApproval: (sshBridge || sshJobs || ctx.creds) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs, ctx.creds || null) : undefined,
         // 审批三档模式(2026-09-09):owner 的 prefs 现读(W2 语义:授权/审批主体恒取 project.ownerId,
         // admin 代触发他人对话不继承 admin 的档位);SSH 工具恒不放宽(服务器策略更严者胜)。
         approvalMode: () => readUserApprovalMode(db, project.ownerId),

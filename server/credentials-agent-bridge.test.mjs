@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { randomBytes } from 'node:crypto'
-import { createCredentialsSchema, createCredential, listPromptCredentials } from './credentials-store.mjs'
+import { createCredentialsSchema, createCredential, listPromptCredentials, grantCredentialUse } from './credentials-store.mjs'
 import { createCredentialsAgentBridge } from './credentials/agent-bridge.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 
@@ -69,4 +69,24 @@ test('buildWorkbenchSystemPrompt:凭据清单段只有元数据', () => {
   assert.ok(sys.includes('gh') && sys.includes('user(text)'), '清单含名称+字段结构')
   assert.ok(!sys.includes('ghp_x') && !sys.includes('octocat'), '值不进提示词')
   assert.ok(sys.includes('read_credential'))
+  // user/token 不匹配任何适配器(http_request 需 base_url+api_token/db_query 需 driver…),
+  // 本夹具形态即「无匹配适配器」——锁定行尾标注,防 ✓ 匹配标记渲染回归为静默空串。
+  assert.ok(sys.includes('(无匹配适配器)'))
+})
+
+test('runAdapter:解析失败拒;needsApproval:无grant人审/有grant+GET免审/写方法恒审/非适配器恒审', async () => {
+  const db = new DatabaseSync(':memory:')
+  createCredentialsSchema(db)
+  createCredential(db, KEY, { name: 'gh', exposeToAi: true, fields: [
+    { key: 'base_url', type: 'text', value: 'https://api.x.com' }, { key: 'api_token', type: 'password', value: 'ghp_s' }] })
+  const bridge = createCredentialsAgentBridge({ db, key: KEY })
+
+  const bad = await bridge.runAdapter('http_request', { credential: 'nope' })
+  assert.match(bad.error, /未找到该凭据/)
+  assert.equal(await bridge.needsApproval('http_request', { credential: 'gh' }), true, '无 grant 人审')
+  const cid = db.prepare('SELECT id FROM workbench_credentials WHERE name=?').get('gh').id
+  grantCredentialUse(db, cid, 'http_request', 'u1')
+  assert.equal(await bridge.needsApproval('http_request', { credential: 'gh' }), false, 'grant+GET 免审')
+  assert.equal(await bridge.needsApproval('http_request', { credential: 'gh', method: 'POST' }), true, '写方法恒人审')
+  assert.equal(await bridge.needsApproval('read_credential', { credential: 'gh' }), true, '非适配器工具恒人审(不经本桥,routeDynamicApproval 分流前的兜底语义)')
 })

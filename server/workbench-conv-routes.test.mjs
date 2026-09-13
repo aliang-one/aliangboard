@@ -290,6 +290,37 @@ test('E2: paused 双击 approve——第二次被 CAS 挡住,只 resume 一次',
   assert.equal(resumed, 1, '只 resume 一次')
 })
 
+// ── 终审 rider M-1(2026-09-13):approve 的 readBody 提到 CAS 前 ──
+// 旧序:CAS 翻 running → await readBody(让出事件环)→ resume。窗内并发 cancel 置 cancelled
+// 后,approve 的 resume 照常启动并把状态翻回 running(取消被吞)。契约:readBody 先于 CAS
+// 完成——窗内 cancel 只作用在未动过的 paused 行,随后的 CAS 因状态已非 paused 拒绝(400),
+// resume 不启动(remember 落 grants 的分支同在 CAS 之后,零副作用),终态保持 cancelled。
+test('M-1: readBody 窗内并发 cancel——CAS 拒绝,不被 resume 翻回 running', async () => {
+  const h = makeHarness()
+  const conv = createConversation(h.db, { projectId: h.pid, system: '', userMessage: 'q1' })
+  h.db.prepare("UPDATE workbench_conversations SET status='paused', pendingApproval='{\"toolCallId\":\"t\",\"name\":\"http_request\",\"args\":{\"credential\":\"gh\",\"path\":\"/x\"}}', messages='[]', queue='[]', denied='[]' WHERE id=?").run(conv.id)
+  let resumed = 0
+  const sent2 = []
+  // readBody 注入桩模拟「读 body 的 await 窗内另一请求 cancel 到达」(旧序该窗在 CAS 之后):
+  // 窗内置 cancelled 并消费 pendingApproval(真实 cancel 端点的落库形状)。
+  const routes2 = createWorkbenchConvRoutes({
+    db: h.db, sendJson: (r, s, j) => { sent2.push({ status: s, json: j }) },
+    readBody: async () => { h.db.prepare("UPDATE workbench_conversations SET status='cancelled', pendingApproval=NULL WHERE id=?").run(conv.id); return { remember: true } },
+    requireAdmin: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    requirePlatform: () => ({ userId: 'u1', username: 'u', role: 'admin' }),
+    wbAgent: { runConversation: () => {}, resumeConversation: async () => { resumed++ }, cancelConversation: () => ({ ok: true }) },
+    getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'm' }),
+    createLlmClient: () => ({ chat: async () => ({ content: '' }) }),
+    buildCallContext: () => ({}), requestKubernetes: async () => ({}),
+    busSubscribe: () => {}, busUnsubscribe: () => {}, busDispose: () => {},
+  })
+  const call2 = (m, p) => routes2.handle({ method: m, on: () => {} }, { writeHead: () => {}, end: () => {} }, new URL(`http://x${p}`))
+  assert.ok(await call2('POST', `/api/workbench/conversations/${conv.id}/approve`))
+  assert.equal(sent2.at(-1).status, 400, 'CAS 拒:readBody 窗内 cancel 后状态已非 paused')
+  assert.equal(resumed, 0, 'resume 不启动(取消不被翻回 running)')
+  assert.equal(getConversation(h.db, conv.id).status, 'cancelled', '终态保持 cancelled')
+})
+
 test('F: 删除运行中对话——先取消(结果不回写)再事务删除,bus dispose', async () => {
   const h = makeHarness()
   const cancelled = []
