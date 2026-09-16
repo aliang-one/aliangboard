@@ -214,6 +214,44 @@ test('reapIdle: 空闲超时回收;持有中不回收;destroyAll 全清', async 
   h3.release()
 })
 
+// ── lane 分道(2026-09-16):sshd MaxSessions(默认 10)按连接限并发 session channel。
+// 终端(长驻 shell)/job(长驻)/文件传输(sftp+exec)/AI exec 全挤一条连接时,channel 满
+// 10 后 sshd 对新 channel 回 "open failed"(线上:修复 413 后上传即撞此墙,04:39
+// [sshfile/upload] 502 (SSH) Channel open failure: open failed)。分道后各占一条连接。──
+test('lane 分道:同 server 不同 lane 各自建连;同 lane 复用;无 lane 保持默认道', async () => {
+  reset()
+  const pool = createSshPool({ db: fakeDb(), key: Buffer.alloc(32), SshClient: FakeClient,
+    onFingerprint: () => {}, knownFp: () => '' })
+  const file1 = await pool.acquire('s1', 'u1', 'file')
+  const term1 = await pool.acquire('s1', 'u1', 'terminal')
+  assert.notEqual(file1.client, term1.client, '不同 lane 必须是不同连接')
+  assert.equal(FakeClient.created.length, 2)
+  const file2 = await pool.acquire('s1', 'u2', 'file')   // 跨 user 同 lane 复用(userId 只记账)
+  assert.equal(file2.client, file1.client)
+  assert.equal(FakeClient.created.length, 2)
+  const def = await pool.acquire('s1', 'u1')             // 无 lane = 默认道(旧语义)
+  assert.equal(FakeClient.created.length, 3)
+  file1.release(); file2.release(); term1.release(); def.release()
+})
+
+test('lane 分道:一条 lane 连接死亡只逐出该道(它道存活);evictServer 清全部 lane', async () => {
+  reset()
+  const pool = createSshPool({ db: fakeDb(), key: Buffer.alloc(32), SshClient: FakeClient,
+    onFingerprint: () => {}, knownFp: () => '' })
+  const fileH = await pool.acquire('s1', 'u1', 'file')
+  const termH = await pool.acquire('s1', 'u1', 'terminal')
+  fileH.client.emit('error', new Error('boom'))           // file 道死亡
+  const term2 = await pool.acquire('s1', 'u1', 'terminal')
+  assert.equal(term2.client, termH.client, 'terminal 道不受 file 道死亡影响')
+  const file2 = await pool.acquire('s1', 'u1', 'file')
+  assert.notEqual(file2.client, fileH.client, 'file 道重建新连接')
+  file2.release(); term2.release()
+  pool.evictServer('s1')                                  // 凭据轮换:全 lane 连带清理
+  const anyLane = await pool.acquire('s1', 'u1', 'job')
+  assert.equal(FakeClient.created.length, 4, 'evictServer 后所有 lane 均重建(此前 file×2+terminal+job)')
+  anyLane.release()
+})
+
 test('testConnection: 未保存表单(row=null, credsOverride)归一为表单行 → ok:true;失败返回 errorKind', async () => {
   reset()
   const pool = createSshPool({ db: fakeDb(), key: Buffer.alloc(32), SshClient: FakeClient, onFingerprint: () => {}, knownFp: () => '' })

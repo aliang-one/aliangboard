@@ -1,6 +1,12 @@
-// SSH 连接池:key=serverId。连接按 server 复用(同机同凭据,终端/AI exec 共享);userId
+// SSH 连接池:key=serverId[#lane]。连接按 server×lane 复用(同机同凭据);userId
 // 只参与引用计数与审计归属(spec 裁决 10 的隔离语义由引用计数+审计按 user 记账承担)。
 // 若需严格按 server+user 各自建连,把 Map key 改为 `${serverId}:${userId}` 即可(单行改动)。
+//
+// lane 分道(2026-09-16):sshd 的 MaxSessions(默认 10)按「每条连接」限并发 session
+// channel,而终端(长驻 shell)、后台 job(长驻)、文件传输(sftp+预检 exec)、AI exec
+// 四类负载若共用一条连接,channel 挂满 10 后 sshd 对新 channel 直接回 "open failed"
+// (线上事故:修复上传 413 后即撞此墙,[sshfile/upload] 502 (SSH) Channel open
+// failure: open failed)。按 lane 各占一条连接互不挤兑;无 lane = 默认道(旧语义)。
 //
 // ssh2 README 事实核对(2026-08-28,Step 0):
 //  - `handshake` 事件的 negotiated 对象只含算法协商(kex/srvHostKey/cs/sc),**不含 host key 本体**
@@ -140,11 +146,13 @@ export function createSshPool({
     try { recordHostKey(db, id, fp) } catch { /* 只读场景容忍 */ }
   })
 
-  const conns = new Map() // serverId → { client, refs, idleAt }
-  const pending = new Map() // serverId → Promise<entry>:并发首连去重(否则后建者覆盖先建者 → 先建连接变孤儿)
-  const evict = (serverId, client) => {
-    const c = conns.get(serverId)
-    if (c?.client === client) conns.delete(serverId)
+  const conns = new Map() // laneKey(serverId, lane) → { client, refs, idleAt }
+  const pending = new Map() // laneKey → Promise<entry>:并发首连去重(否则后建者覆盖先建者 → 先建连接变孤儿)
+  // lane 归入池键(空/未传 = 默认道,键即裸 serverId,保持旧语义与旧行为)
+  const laneKey = (serverId, lane) => (lane ? `${serverId}#${lane}` : serverId)
+  const evict = (k, client) => {
+    const c = conns.get(k)
+    if (c?.client === client) conns.delete(k)
   }
 
   // 统一的 release 闭包:refs 归零即进入空闲(reapIdle 的回收窗口从这里起算)
@@ -153,9 +161,10 @@ export function createSshPool({
     release: () => { entry.refs--; if (entry.refs <= 0) entry.idleAt = now() },
   })
 
-  async function acquire(serverId, userId) {
-    void userId // 仅审计归属用(Task 7/11 记账);池按 server 复用(见文件头注释)
-    const entry = conns.get(serverId)
+  async function acquire(serverId, userId, lane) {
+    void userId // 仅审计归属用(Task 7/11 记账);池按 server×lane 复用(见文件头注释)
+    const k = laneKey(serverId, lane)
+    const entry = conns.get(k)
     if (entry) {
       entry.refs++
       entry.idleAt = 0
@@ -163,7 +172,7 @@ export function createSshPool({
     }
     // 并发首连:第二个调用者 await 同一建连 Promise,拿到同一条连接(refs++),
     // 也顺带消除了 host key TOFU 竞态(只有一个 connectWith 会读 known/recordFp)。
-    const inflight = pending.get(serverId)
+    const inflight = pending.get(k)
     if (inflight) {
       const shared = await inflight
       shared.refs++
@@ -180,18 +189,18 @@ export function createSshPool({
       const { row, ...creds } = credsRow
       const client = await connectWith(SshClient, row, creds, {
         keepaliveMs, getKnownFp, recordFp,
-        onDead: dead => evict(serverId, dead), // ready 后 error/close 都逐出死连接
+        onDead: dead => evict(k, dead), // ready 后 error/close 都逐出死连接
       })
       const fresh = { client, refs: 1, idleAt: 0 }
-      conns.set(serverId, fresh)
-      client.on('close', () => evict(serverId, client))
+      conns.set(k, fresh)
+      client.on('close', () => evict(k, client))
       return fresh
     })()
-    pending.set(serverId, creating)
+    pending.set(k, creating)
     try {
       return handle(await creating)
     } finally {
-      pending.delete(serverId) // 失败也清位,后续重试可重建
+      pending.delete(k) // 失败也清位,后续重试可重建
     }
   }
 
@@ -244,11 +253,19 @@ export function createSshPool({
     conns.clear()
   }
 
-  // 按 serverId 逐出(凭据/host/port 轮换、服务器删除时由路由调用):杀连接+清位
+  // 按 serverId 逐出(凭据/host/port 轮换、服务器删除时由路由调用):连带该 server 全部
+  // lane(键 = serverId 或 serverId#lane)一起杀——凭据轮换对任何道都不再有效。
   function evictServer(serverId) {
-    const e = conns.get(serverId)
-    if (e) { try { e.client.end() } catch { /* 已断 */ }; conns.delete(serverId) }
-    pending.delete(serverId)
+    const matches = kk => kk === serverId || kk.startsWith(`${serverId}#`)
+    for (const kk of [...conns.keys()]) {
+      if (matches(kk)) {
+        try { conns.get(kk).client.end() } catch { /* 已断 */ }
+        conns.delete(kk)
+      }
+    }
+    for (const kk of [...pending.keys()]) {
+      if (matches(kk)) pending.delete(kk)
+    }
   }
   return { acquire, testConnection, reapIdle, destroyAll, evictServer }
 }

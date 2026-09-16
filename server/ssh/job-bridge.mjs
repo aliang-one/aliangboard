@@ -28,10 +28,11 @@ const clampN = (v, lo, hi, fb) => {
 // 有意不复用其函数——那里缠着 sudo/stdin/审计,是已测代码,不动)。
 // 死亡处置(终审 I1,移植 agent-bridge):超时先 `stream.close()`(只是这条命令慢,流可收);
 // 仅「exec 回调从未触发」(stream==null=疑似死连接)才拆整条池化客户端——client.end 会杀掉
-// 该服务器上所有用户共享的连接。此前两者都不做,把半死连接还给池:后续该服务器每个任务操作
-// 都烧满 15s 返回垃圾。exit 只记退出码、close 才结算:stdout/stderr 需在流关闭后才算完整。
+// 该服务器 job 道上共享的连接(2026-09-16 分道后不再波及终端/文件传输/AI 道,见 pool.mjs)。
+// 此前两者都不做,把半死连接还给池:后续该服务器每个任务操作都烧满 15s 返回垃圾。
+// exit 只记退出码、close 才结算:stdout/stderr 需在流关闭后才算完整。
 function execOnce(pool, serverId, label, cmd) {
-  return pool.acquire(serverId, label).then(conn => new Promise(resolveP => {
+  return pool.acquire(serverId, label, 'job').then(conn => new Promise(resolveP => {
     let done = false, stream = null, timer = null
     let out = Buffer.alloc(0), errBuf = ''
     const settle = r => { if (done) return; done = true; if (timer) clearTimeout(timer); try { conn.release() } catch {}; resolveP(r) }

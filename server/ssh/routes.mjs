@@ -48,7 +48,7 @@ export function createSshRoutes(deps) {
         try {
           const m = materializeCreds(db, cryptKey, serverId)
           if (!m) { sendJson(res, 404, { message: msg(req, 'ssh.notFound') }); return true }
-          conn = await sshPool.acquire(serverId, ps.username)
+          conn = await sshPool.acquire(serverId, ps.username, 'file')
           const target = (path.endsWith('/') ? path : path + '/') + name
           const contentLength = parseInt(req.headers['content-length'] || '', 10)
           // 预检(2026-09-04):与 podfile 同一探针/判定——目录不存在/不可写/磁盘不足在开传前秒拒。
@@ -95,7 +95,7 @@ export function createSshRoutes(deps) {
       try {
         const m = materializeCreds(db, cryptKey, serverId)
         if (!m) { sendJson(res, 404, { message: msg(req, 'ssh.notFound') }); return true }
-        conn = await sshPool.acquire(serverId, ps.username)
+        conn = await sshPool.acquire(serverId, ps.username, 'file')
         if (action === 'list') {
           const entries = await withSftp(conn.client, s => sftpReaddir(s, path))
           audit('read', 'ssh_sftp', 'ok', { owner: ps.username, summary: `server=${serverId} path=${path}` })

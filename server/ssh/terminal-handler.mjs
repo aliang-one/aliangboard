@@ -26,7 +26,8 @@ export function createSshTerminalHandler(deps) {
       let isOwner = false
       let created = false
       if (!session) {
-        const { client, release } = await sshPool.acquire(serverId, ps.userId)
+        // terminal 道:长驻 shell channel 与文件传输/AI exec 分道,互不挤兑 sshd MaxSessions(见 pool.mjs)
+        const { client, release } = await sshPool.acquire(serverId, ps.userId, 'terminal')
         if (sentinel.gone) { try { release() } catch { /* noop */ } return }   // 窗口内已断:还池句柄
         // 创建单飞由 service.getOrCreate 结构性保证;第二连接走 existing(等待者排队)
         const got = service.getOrCreate(tid, () =>

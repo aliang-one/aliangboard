@@ -105,7 +105,7 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
       stdinPassword = creds.sudoPassword
     }
     let conn
-    try { conn = await pool.acquire(row.id, `wb:${projectId}`) }
+    try { conn = await pool.acquire(row.id, `wb:${projectId}`, 'agent') }
     catch (e) { return { error: `SSH 连接失败(${e.errorKind || 'unknown'})` } }
     try {
       return await new Promise(resolveP => {
@@ -162,7 +162,7 @@ export function createSshAgentBridge({ db, key, pool, projectId, actor = 'agent'
     const path = String(args?.path || '')
     if (!path.startsWith('/') || path.includes('..')) return { error: 'path 须为绝对路径且不含 ..' }
     let conn
-    try { conn = await pool.acquire(row.id, `wb:${projectId}`) }
+    try { conn = await pool.acquire(row.id, `wb:${projectId}`, 'agent') }
     catch (e) { return { error: `SSH 连接失败(${e.errorKind || 'unknown'})` } }
     try {
       const data = await withSftp(conn.client, s => sftpReadFile(s, path, maxBytes))
