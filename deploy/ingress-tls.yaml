@@ -31,6 +31,12 @@ metadata:
     # cert-manager 自动证书 (可选,需安装 cert-manager)
     # cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # 文件上传必需:ingress-nginx 默认 proxy-body-size=1m,超限请求在 ingress 层即被
+    # 413 掐掉,到不了网关(网关自身在 设置→文件传输 有 sshfile.limitMb 默认 512MB
+    # 可调限额,是真正的执行点)。此处只放行通道,1024m 留一倍头部空间(2026-09-16
+    # 线上 aboard.liang.home 上传 6.2MB zip 即 413 于此,同集群 gitlab/registry/dev
+    # 实例均已按此法修过)。
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
 spec:
   ingressClassName: nginx
   tls:
