@@ -35,9 +35,15 @@ export function clampReplay(snap, maxBytes) {
 
 // 把一个浏览器 ws 接到已就绪的终端会话:先发快照(重连续跑),再进直播;断开即摘除。
 // replayMaxBytes>0 时快照按尾部裁剪(截断时前置一行黄色提示,提示字节计入预算);缺省 0 = 全量。
+// 2026-09-18:回放源改 ring.snapshotTail(预算+16KB slack)——高碎片满环时全量 snapshot()
+// 实测最高 186ms 且每次 attach 都付;slack 让下方 clampReplay 仍有行对齐空间(语义与旧
+// 全量路径逐字节一致,等价性由 terminal-wire.test.mjs 钉住)。ring 无 snapshotTail(旧 mock)退回 snapshot。
 export function attachSocketToSession(ws, session, { connId = ws, send, touch = () => {}, onDetach = () => {},
-  replayMaxBytes = 0, types = { stdin: 1, resize: 2, replay: 6 } } = {}) {
-  const full = session.ring.snapshot()
+  replayMaxBytes = 0, types = { stdin: 1, resize: 2, replay: 6, ping: 7, pong: 8 } } = {}) {
+  const ring = session.ring
+  const full = replayMaxBytes > 0
+    ? (ring.snapshotTail ? ring.snapshotTail(replayMaxBytes + 16384) : ring.snapshot())
+    : ring.snapshot()
   if (replayMaxBytes > 0 && full.length > replayMaxBytes) {
     const NOTICE_RESERVE = 96   // 提示行字节数上界(全角文案+转义序列实测 ≤53,留裕量)
     const clamped = clampReplay(full, Math.max(1, replayMaxBytes - NOTICE_RESERVE))
@@ -64,6 +70,11 @@ export function attachSocketToSession(ws, session, { connId = ws, send, touch = 
         const { cols: c, rows: r } = JSON.parse(payload.toString('utf8'))
         session.channel?.setWindow?.(r, c, 0, 0)   // ssh2 语义 setWindow(rows, cols, height, width)
       } catch {}
+    } else if (type === types.ping) {
+      // 客户端心跳(2026-09-18):应用层 ping → 原样回 pong。附带 touch():客户端还活着
+      // 本身就是活跃证据(否则纯静默的附着会话只剩 liveness ping/pong 一条生命线)。
+      touch()
+      try { send(ws, types.pong, payload) } catch { /* noop */ }
     }
   })
 

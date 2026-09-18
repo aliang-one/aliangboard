@@ -534,13 +534,22 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
     else if (type === 3) { try { onExit?.(JSON.parse(utf8.decode(payload) || '{}')) } catch { onExit?.({}) } }
     else if (type === 4) onError?.(utf8.decode(payload))
     else if (type === 5) { try { onMode?.(JSON.parse(utf8.decode(payload) || '{}')) } catch { onMode?.({}) } }
+    else if (type === 8) lastPongAt = Date.now()   // 服务端心跳应答
   }
   ws.onerror = () => onError?.(i18n.global.t('terminal.execConnectError'))
+  // 客户端心跳看门狗(2026-09-18,与 sshTerminalStream 同款):>30s 无 pong 主动断开,
+  // exec 会话随之本地收尾显示重连按钮——好过对死终端打字。close 时清定时器防泄漏。
+  let lastPongAt = Date.now()
+  const heartbeat = setInterval(() => {
+    if (ws.readyState !== 1) return
+    if (Date.now() - lastPongAt > 30000) { try { ws.close(4000, 'client-stall') } catch { /* noop */ } return }
+    try { ws.send(new Uint8Array([7])) } catch { /* noop */ }
+  }, 15000)
   // 握手失败(未 open 即 close,典型=K8s token 过期被升级门 401 拒)回调:组件借此发廉价
   // 探针走既有 401 拦截器(清 K8s session→选集群页);正常会话结束不触发。
   let opened = false
-  ws.onopen = () => { opened = true }
-  ws.onclose = ev => { if (!opened) onHandshakeFailure?.(ev?.code); onClose?.() }
+  ws.onopen = () => { opened = true; lastPongAt = Date.now() }   // open 重置基线:慢握手不被误杀
+  ws.onclose = ev => { clearInterval(heartbeat); if (!opened) onHandshakeFailure?.(ev?.code); onClose?.() }
   const encoder = new TextEncoder()
   function frame(type, data) {
     if (ws.readyState !== 1) return
@@ -579,21 +588,32 @@ export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdou
     probed = true
     platformHttp.request('/api/auth/me').catch(() => {})
   }
-  ws.onopen = () => { opened = true; onOpen?.() }
   ws.onmessage = ev => {
     const buf = new Uint8Array(ev.data)
     if (!buf.length) return
     const type = buf[0]
     const payload = buf.subarray(1)
     if (type === 1) onStdout?.(payload)
-    else if (type === 6) onReplay?.(payload)
     else if (type === 4) onError?.(utf8.decode(payload))
+    else if (type === 6) onReplay?.(payload)
+    else if (type === 8) lastPongAt = Date.now()   // 服务端心跳应答
   }
   // 传输错误≠终态(2026-09-08 复查 P0):浏览器对异常断开的既定事件序是 error→close,若 error
   // 也上报 onError,组件会先置 error 终态拦掉随后的 close,自动重连被整个吞掉。onError 仅保留
   // 给 CH_ERROR 帧(服务端明确宣判);传输错误只走鉴权探针(未 open 时),善后归 onClose。
   ws.onerror = () => { probeAuthIfHandshakeFailed() }
-  ws.onclose = () => { probeAuthIfHandshakeFailed(); onClose?.() }
+  // 客户端心跳看门狗(2026-09-18):路径静默中断(休眠/无线漫游/NAT 超时)时,服务端要等
+  // 自己的 liveness 两轮(60-90s)才判死,此间前端毫无感知 = 用户对着死终端打字。15s 应用层
+  // ping,>30s 无 pong 主动断开(code 4000,服务端日志可辨)→ onClose 走既有自动重连+回放,
+  // 冻结窗从 60-90s 压到 ≤30s;pings 顺带保活 NAT 映射,降低断链本身的发生率。
+  let lastPongAt = Date.now()
+  const heartbeat = setInterval(() => {
+    if (ws.readyState !== 1) return
+    if (Date.now() - lastPongAt > 30000) { try { ws.close(4000, 'client-stall') } catch { /* noop */ } return }
+    try { ws.send(new Uint8Array([7])) } catch { /* noop */ }
+  }, 15000)
+  ws.onopen = () => { opened = true; lastPongAt = Date.now(); onOpen?.() }   // open 重置基线:慢握手不被误杀
+  ws.onclose = () => { clearInterval(heartbeat); probeAuthIfHandshakeFailed(); onClose?.() }
   const encoder = new TextEncoder()
   function frame(type, data) {
     if (ws.readyState !== 1) return

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { TERMINAL_TRANSITIONS, canTransition, createTerminalService } from './terminal-service.mjs'
+import { TERMINAL_TRANSITIONS, canTransition, createTerminalService, createRingBuffer } from './terminal-service.mjs'
 
 test('转换表:spec §2 全边存在,非法边不存在', () => {
   assert.deepEqual(canTransition('CREATING', 'ATTACHED'), true)
@@ -395,4 +395,32 @@ test('markLost 关闭全部附着浏览器 socket(LOST 即收流,无悬挂)', as
   svc.markLost('t1', 'channel-closed')
   assert.equal(svc.get('t1').status, 'LOST')
   assert.equal(closed.length, 2, '两个附着的浏览器 socket 均被关闭')
+})
+
+// —— snapshotTail(2026-09-18:回放尾部直取,免满环高碎片下的全量 Buffer.concat)——
+test('ring snapshotTail:高碎片满环下与 snapshot() 尾部逐字节一致', () => {
+  const ring = createRingBuffer(4096)
+  for (let i = 0; i < 512; i++) ring.push(Buffer.alloc(8, i & 0xff))   // 8B×512 → 满环高碎片
+  const full = ring.snapshot()
+  assert.equal(full.length, 4096)
+  const tail = ring.snapshotTail(100)
+  assert.equal(tail.length, 100)
+  assert.deepEqual([...tail], [...full.subarray(full.length - 100)])
+})
+
+test('ring snapshotTail:超大/非法 maxBytes 等价 snapshot();空环返回空;单 chunk 超限截尾', () => {
+  const ring = createRingBuffer(4096)
+  for (let i = 0; i < 512; i++) ring.push(Buffer.alloc(8, i & 0xff))
+  const full = ring.snapshot()
+  assert.deepEqual([...ring.snapshotTail(999999)], [...full])
+  assert.deepEqual([...ring.snapshotTail(0)], [...full])
+  assert.deepEqual([...ring.snapshotTail(-5)], [...full])
+  assert.deepEqual([...ring.snapshotTail(NaN)], [...full])
+  const empty = createRingBuffer(1024)
+  assert.equal(empty.snapshotTail(10).length, 0)
+  const r2 = createRingBuffer(1024)
+  r2.push(Buffer.alloc(1000, 7))
+  const tail = r2.snapshotTail(100)
+  assert.equal(tail.length, 100)
+  assert.ok([...tail].every(b => b === 7))
 })

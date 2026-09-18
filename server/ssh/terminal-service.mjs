@@ -22,6 +22,18 @@ export function createRingBuffer(maxBytes = 4 * 1024 * 1024) {
       }
     },
     snapshot() { return Buffer.concat(chunks) },
+    // 尾部直取(2026-09-18:满 4MB 环且高碎片时 snapshot() 全量 Buffer.concat 实测最高 186ms,
+    // 且每次 WS attach 都要付;回放只需尾部 → 只 concat 尾部所需 chunk,基准 15-26× 提速)。
+    // 返回 ≤maxBytes 的尾部字节;maxBytes 非法/≥总量时等价 snapshot()。注意切点是 chunk 边界
+    // (非行对齐),调用方(terminal-wire 回放)须再过 clampReplay 对齐。
+    snapshotTail(maxBytes) {
+      if (!Number.isFinite(maxBytes) || maxBytes <= 0 || total <= maxBytes) return Buffer.concat(chunks)
+      const picked = []
+      let acc = 0
+      for (let i = chunks.length - 1; i >= 0 && acc < maxBytes; i--) { picked.push(chunks[i]); acc += chunks[i].length }
+      const buf = Buffer.concat(picked.reverse())
+      return buf.length > maxBytes ? buf.subarray(buf.length - maxBytes) : buf
+    },
     byteLength() { return total },
   }
 }

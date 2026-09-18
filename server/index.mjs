@@ -1035,6 +1035,7 @@ function buildKubeConfig(KubeConfig, session) {
 // exec 浏览器↔网关 二进制帧首字节（流标识），客户端按首字节解帧
 const CH_STDIN = 1, CH_RESIZE = 2
 const CH_STDOUT = 1, CH_STDERR = 2, CH_EXIT = 3, CH_ERROR = 4, CH_MODE = 5, CH_REPLAY = 6   // 6 = ssh 终端重连快照(直播前发)
+const CH_PING = 7, CH_PONG = 8   // 应用层心跳(2026-09-18,终端两通道共用):客户端 15s ping → 服务端原样回 pong
 
 // 把 exec 的 stdout/stderr 字节流写入浏览器 WS（带通道前缀）；
 // 兼具「可缩放」语义（rows/columns + resize 事件）以触发 client-node 自动转发终端尺寸。
@@ -1046,9 +1047,21 @@ class WsSink extends Writable {
   }
 }
 
+// WS 发送背压(2026-09-18):慢消费者(Mac 无线断续/半开路径)此前无界积压——发送队列越排
+// 越深,该连接上所有帧(含小 echo)延迟=积压/下行速率,且 ping/pong 排队后被 liveness 误杀。
+// bufferedAmount 超限 = 这条连接已经救不回来 → 果断 terminate(触发 close → 前端既有
+// 重连+回放路径恢复),把无界排队变成有界的一次性断连。阈值宽松(4MB):正常突发(≤256KB
+// 回放+流式输出)远达不到;env WS_MAX_BUFFERED_BYTES 可调,下限 256KB。
+const WS_MAX_BUFFERED_BYTES = Math.max(256 * 1024, Number(process.env.WS_MAX_BUFFERED_BYTES) || 4 * 1024 * 1024)
+
 function wsSend(ws, type, payload) {
   try {
     if (ws.readyState !== 1) return
+    if ((ws.bufferedAmount || 0) > WS_MAX_BUFFERED_BYTES) {
+      console.log(`[ws] slow-consumer terminate id=${ws.terminalId || 'unknown'} buffered=${ws.bufferedAmount}`)
+      try { ws.terminate() } catch { /* noop */ }
+      return
+    }
     const body = Buffer.concat([Buffer.from([type]), Buffer.from(payload)])
     ws.send(body)
   } catch { /* ws 已断，忽略 */ }
@@ -1187,6 +1200,9 @@ async function handleExec(ws, session, url, req) {
     }
     else if (type === CH_RESIZE) {
       try { const { cols, rows } = JSON.parse(payload.toString('utf8')); stdout.columns = cols; stdout.rows = rows; stdout.emit('resize') } catch { /* 帧格式错误 */ }
+    }
+    else if (type === CH_PING) {
+      try { wsSend(ws, CH_PONG, payload) } catch { /* noop */ }   // 心跳应答(与 ssh 终端同款,2026-09-18)
     }
   })
   ws.on('close', () => {

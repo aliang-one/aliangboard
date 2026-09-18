@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { execStream } from '../client.js'
 
 // Capture the URL the code passes to `new WebSocket(url)` and expose a way to
@@ -6,14 +6,14 @@ import { execStream } from '../client.js'
 let capturedUrl = ''
 let wsInstance = null
 class FakeWS {
-  constructor(url) { this.url = url; capturedUrl = url; this.readyState = 1; this._l = {}; wsInstance = this }
+  constructor(url) { this.url = url; capturedUrl = url; this.readyState = 1; this._l = {}; this.sent = []; this.closeArgs = null; wsInstance = this }
   set onmessage(fn) { this._l.message = fn }
   set onopen(fn) { this._l.open = fn }
   set onclose(fn) { this._l.close = fn }
   set onerror(fn) { this._l.error = fn }
   set binaryType(_) { /* noop */ }
-  send() { /* noop */ }
-  close() { this.readyState = 3 }
+  send(buf) { this.sent.push(new Uint8Array(buf)) }
+  close(code, reason) { this.closeArgs = [code, reason]; this.readyState = 3 }
   emit(type, ev) { this._l[type]?.(ev) }
 }
 
@@ -93,5 +93,40 @@ describe('execStream handshake failure', () => {
     wsInstance.fireOpen()
     wsInstance.fireClose(1000)
     expect(seen).toEqual([['close']])
+  })
+})
+
+// —— 客户端心跳看门狗(2026-09-18,与 sshTerminalStream 同款)——
+describe('execStream 心跳看门狗', () => {
+  beforeEach(() => {
+    capturedUrl = ''; wsInstance = null
+    globalThis.WebSocket = FakeWS
+    globalThis.sessionStorage = { getItem: () => 'tok' }
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    delete globalThis.sessionStorage
+    delete globalThis.WebSocket
+  })
+
+  it('每 15s 发心跳 ping(type 7);pong(type 8)续命;>30s 无 pong → close(4000)', () => {
+    execStream({ namespace: 'default', pod: 'web', command: 'sh' })
+    vi.advanceTimersByTime(15000)
+    expect(wsInstance.sent.filter(f => f[0] === 7)).toHaveLength(1)
+    wsInstance.emit('message', { data: new Uint8Array([8]).buffer })
+    vi.advanceTimersByTime(15000)
+    expect(wsInstance.sent.filter(f => f[0] === 7)).toHaveLength(2)
+    vi.advanceTimersByTime(30000)   // 上一 pong 后 45s 无应答
+    expect(wsInstance.closeArgs).not.toBeNull()
+    expect(wsInstance.closeArgs[0]).toBe(4000)
+  })
+
+  it('close 清心跳定时器(不泄漏)', () => {
+    execStream({ namespace: 'default', pod: 'web', command: 'sh' })
+    wsInstance.emit('close')
+    const n = wsInstance.sent.length
+    vi.advanceTimersByTime(60000)
+    expect(wsInstance.sent.length).toBe(n)
   })
 })

@@ -262,3 +262,55 @@ test('attachWsLiveness 默认 onDead:terminate 前记 terminalId/missedPongs/buf
     assert.ok(logs[0].includes('ssh-liv-1') && logs[0].includes('missedPongs=2') && logs[0].includes('buffered=4096'), `元数据齐全:${logs[0]}`)
   } finally { stop() }
 })
+
+// —— 客户端心跳 PING/PONG(2026-09-18)——
+test('客户端心跳:type 7 ping → 原样回 type 8 pong,并 touch(客户端活着=活跃证据)', () => {
+  const sent = []
+  const send = (ws, type, payload) => sent.push([type, payload])
+  let touched = 0
+  const session = fakeSession({ channel: { write() {}, setWindow() {} } })
+  const ws = fakeWs()
+  attach(session, ws)
+  attachSocketToSession(ws, session, { send, touch: () => { touched++ } })
+  ws.emit('message', Buffer.from([7, 0x61, 0x62]))   // ping,payload='ab'
+  const pong = sent.find(([t]) => t === 8)
+  assert.ok(pong, 'pong 已回')
+  assert.equal(pong[1].toString('utf8'), 'ab')        // payload 原样回显
+  assert.equal(touched, 1)
+})
+
+// —— 回放等价性(2026-09-18):snapshotTail 路径必须与旧全量 snapshot 路径逐字节一致 ——
+// 满环(>replayMaxBytes+16KB slack)高碎片下,两条路径都走 clampReplay 对齐;数学上尾部
+// 窗口 ≥ 预算 ⇒ 对齐起点在全量坐标里重合 ⇒ 截点相同。此测试钉死该等价性,防未来走样。
+test('回放等价性:snapshotTail 路径 == 旧全量 snapshot 路径(满环高碎片+截断分支)', () => {
+  const session = fakeSession()
+  for (let i = 0; i < 65536; i++) session.ring.push(Buffer.from([i & 0xff]))   // 64KB 环 × 1B chunk 全碎片
+  assert.equal(session.ring.snapshot().length, 65536)
+  const captured = { tail: [], legacy: [] }
+  const wsA = fakeWs(), wsB = fakeWs()
+  attach(session, wsA)
+  attachSocketToSession(wsA, session, { send: (ws, t, p) => captured.tail.push(Buffer.from(p)), replayMaxBytes: 1024 })
+  attach(session, wsB)
+  const real = session.ring.snapshotTail
+  session.ring.snapshotTail = undefined   // 模拟旧 ring(仅 snapshot)→ 走 legacy 全量路径
+  attachSocketToSession(wsB, session, { send: (ws, t, p) => captured.legacy.push(Buffer.from(p)), replayMaxBytes: 1024 })
+  session.ring.snapshotTail = real
+  assert.equal(captured.tail.length, 1)
+  assert.equal(captured.legacy.length, 1)
+  assert.ok(captured.tail[0].length <= 1024 + 96, '截断分支:回放+提示 ≤ 预算+提示上界')
+  assert.deepEqual([...captured.tail[0]], [...captured.legacy[0]], '两条路径回放字节完全一致')
+})
+
+test('回放:ring 未超预算时原样全发(两路径一致);legacy ring(无 snapshotTail)不崩', () => {
+  const session = fakeSession()
+  session.ring.push('hello')   // 5B ≪ 预算
+  const captured = { tail: [], legacy: [] }
+  const wsA = fakeWs(), wsB = fakeWs()
+  attach(session, wsA)
+  attachSocketToSession(wsA, session, { send: (ws, t, p) => captured.tail.push(Buffer.from(p)), replayMaxBytes: 256 * 1024 })
+  attach(session, wsB)
+  session.ring.snapshotTail = undefined
+  attachSocketToSession(wsB, session, { send: (ws, t, p) => captured.legacy.push(Buffer.from(p)), replayMaxBytes: 256 * 1024 })
+  assert.equal(captured.tail[0].toString('utf8'), 'hello')
+  assert.deepEqual([...captured.tail[0]], [...captured.legacy[0]])
+})

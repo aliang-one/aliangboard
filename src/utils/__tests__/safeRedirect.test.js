@@ -29,7 +29,7 @@ test('client.js:sshTerminalStream 握手段失败探针 /api/auth/me(仅一次,�
   expect(src).toContain('probeAuthIfHandshakeFailed')
   expect(src).toContain("platformHttp.request('/api/auth/me')")
   expect(src).toContain('if (opened || probed) return')
-  expect(src).toContain('ws.onopen = () => { opened = true }')
+  expect(src).toContain('ws.onopen = () => { opened = true; lastPongAt = Date.now(); onOpen?.() }')   // 2026-09-18 心跳:open 重置 pong 基线,探针仅未 open 才发的语义不变
 })
 
 test('Login.vue:登录成功优先安全回跳(全量加载,弹窗页可完整重建)', () => {
