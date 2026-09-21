@@ -66,6 +66,8 @@ export function validateCredentialInput(input) {
     if (seen.has(lower)) errs.push(`字段 key 重复: ${key}`)
     seen.add(lower)
     if (f?.type !== 'text' && f?.type !== 'password') errs.push(`字段 ${key} type 非法: ${f?.type}`)
+    if (f?.aiReadable != null && typeof f.aiReadable !== 'boolean') errs.push(`字段 ${key} aiReadable 须为布尔`)
+    if (f?.aiReadable === true && f?.type !== 'password') errs.push(`字段 ${key} 仅 password 类型可开 aiReadable`)
     if (f?.value != null && typeof f.value !== 'string') errs.push(`字段 ${key} 值须为字符串`)
     if (typeof f?.value === 'string' && f.value.length > FIELD_LIMITS.maxValueLen) errs.push(`字段 ${key} 值超 16KB`)
     if (typeof f?.value === 'string' && f.value.startsWith(MASK_PREFIX)) errs.push(`字段 ${key} 值为掩码形态,拒绝回写`)
@@ -82,7 +84,7 @@ export function sanitizeCredential(r) {
     id: r.id, name: r.name, description: r.description || '',
     tags: parseJsonArray(r.tags),
     exposeToAi: !!r.expose_to_ai,
-    fields: parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type })),
+    fields: parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type, ...(f.aiReadable ? { aiReadable: true } : {}) })),
     createdBy: r.created_by || '', createdAt: r.created_at, updatedAt: r.updated_at,
   }
 }
@@ -99,7 +101,8 @@ export function createCredential(db, key, input, createdBy = '') {
   const errs = validateCredentialInput(input)
   if (errs.length) throw bad(errs.join('; '))
   const id = randomUUID(), ts = Date.now()
-  const encFields = input.fields.map(f => ({ key: String(f.key).trim(), type: f.type, enc: encryptField(key, f.value) }))
+  const encFields = input.fields.map(f => ({ key: String(f.key).trim(), type: f.type,
+    ...(f.type === 'password' && f.aiReadable === true ? { aiReadable: true } : {}), enc: encryptField(key, f.value) }))
   db.prepare(`INSERT INTO workbench_credentials
     (id,name,description,tags,expose_to_ai,fields,created_by,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?)`)
@@ -107,6 +110,15 @@ export function createCredential(db, key, input, createdBy = '') {
       JSON.stringify(Array.isArray(input.tags) ? input.tags : []),
       input.exposeToAi ? 1 : 0, JSON.stringify(encFields), createdBy, ts, ts)
   return getCredentialSanitized(db, id)
+}
+
+// aiReadable 三态(2026-09-20 spec §5):patch 行未提交该键 = 保持存量;false = 清除(delete 键);true = 置位。稀疏存储:true 才落键。
+function withAiReadable(row, patch) {
+  if (patch?.aiReadable === undefined) return row
+  const next = { ...row }
+  if (patch.aiReadable === true) next.aiReadable = true
+  else delete next.aiReadable
+  return next
 }
 
 // patch.fields 数组 = 新字段集(替换语义);password 行三态:无 value/''=保持、null=清除、字符串=覆盖。
@@ -120,13 +132,15 @@ function mergeFields(existing, patchFields, key) {
     if (seen.has(lower)) throw bad(`字段 key 重复: ${k}`)
     seen.add(lower)
     if (f?.type !== 'text' && f?.type !== 'password') throw bad(`字段 ${k} type 非法: ${f?.type}`)
+    if (f?.aiReadable != null && typeof f.aiReadable !== 'boolean') throw bad(`字段 ${k} aiReadable 须为布尔`)
+    if (f?.aiReadable === true && f.type !== 'password') throw bad(`字段 ${k} 仅 password 类型可开 aiReadable`)
     const prev = byKey.get(lower)
     if (f.type === 'password') {
-      if (f.value === undefined || f.value === '') { if (prev) out.push(prev); continue }   // 保持
+      if (f.value === undefined || f.value === '') { if (prev) out.push(withAiReadable(prev, f)); continue }   // 保持(标志仍可翻)
       if (f.value === null) continue                                                          // 清除
       if (String(f.value).startsWith(MASK_PREFIX)) throw bad(`字段 ${k} 值为掩码形态,拒绝回写`)
       if (String(f.value).length > FIELD_LIMITS.maxValueLen) throw bad(`字段 ${k} 值超 16KB`)
-      out.push({ key: k, type: 'password', enc: encryptField(key, f.value) })                // 覆盖
+      out.push({ key: k, type: 'password', ...(f.aiReadable === true ? { aiReadable: true } : {}), enc: encryptField(key, f.value) })
     } else {
       if (typeof f.value !== 'string') throw bad(`text 字段 ${k} 需字符串值`)
       if (f.value.length > FIELD_LIMITS.maxValueLen) throw bad(`字段 ${k} 值超 16KB`)
@@ -183,7 +197,7 @@ export function listPromptCredentials(db) {
   try {
     return db.prepare('SELECT id,name,description,tags,fields FROM workbench_credentials WHERE expose_to_ai=1 ORDER BY updated_at DESC').all()
       .map(r => {
-        const fields = parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type }))
+        const fields = parseJsonArray(r.fields).map(f => ({ key: f.key, type: f.type, ...(f.aiReadable ? { aiReadable: true } : {}) }))
         return {
           id: r.id, name: r.name, description: r.description || '',
           tags: parseJsonArray(r.tags),
