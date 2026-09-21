@@ -4,7 +4,7 @@ import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { randomBytes } from 'node:crypto'
 import { createCredentialsSchema, createCredential, listPromptCredentials, grantCredentialUse } from './credentials-store.mjs'
-import { createCredentialsAgentBridge, containsCredRef } from './credentials/agent-bridge.mjs'
+import { createCredentialsAgentBridge, containsCredRef, firstCredRefName } from './credentials/agent-bridge.mjs'
 import { scrubDeep } from './secret-mask.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 
@@ -145,4 +145,16 @@ test('containsCredRef:字符串参数命中模式;非对象/无命中 false', ()
   assert.equal(containsCredRef({ command: 'x {{cred:a#b}}' }), true)
   assert.equal(containsCredRef({ command: 'ls', path: '/x' }), false)
   assert.equal(containsCredRef(null), false); assert.equal(containsCredRef('str'), false)
+})
+
+// I1(2026-09-20 final review):审计归因取首个占位符的凭据名(wbAuditIntent 消费)。
+test('firstCredRefName:首个含模式字符串参数的 NAME;无命中/非对象 null', () => {
+  assert.equal(firstCredRefName({ namespace: 'default', pod: 'p', command: 'mysql -p{{cred:prod-db#password}} -e 1' }), 'prod-db')
+  assert.equal(firstCredRefName({ a: 'plain', b: 'x {{cred: reg #f}}' }), 'reg', '名带空白 trim')
+  assert.equal(firstCredRefName({ a: 'plain', b: '{{cred:x#y}}{{cred:z#w}}' }), 'x', '多占位符取首个')
+  assert.equal(firstCredRefName({ command: 'ls' }), null)
+  assert.equal(firstCredRefName(null), null); assert.equal(firstCredRefName('str'), null)
+  // 形似但不成对({{cred: 开却在但无完整 #…}} 收口)→ containsCredRef 会 true,名字解析 null
+  // → wbAuditIntent 兜底 Credential/unknown(在那侧测)
+  assert.equal(firstCredRefName({ command: 'echo {{cred:broken' }), null)
 })

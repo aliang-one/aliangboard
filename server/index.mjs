@@ -88,7 +88,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'n
 import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failover.js'
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { buildImpersonation, impersonateDisplaynameFor, mergeImpersonate, createImpersonationProbe } from './impersonate.mjs'
-import { maskSecretResource, maskSensitiveText } from './secret-mask.mjs'
+import { maskSecretResource, maskSensitiveText, logSafeCommand, logSafeFacet } from './secret-mask.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, tmuxListClientsCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
@@ -1220,7 +1220,10 @@ async function handleExec(ws, session, url, req) {
 // argv 整串被当二进制名 → 必败；AI 工具曾全部踩中，人用路径一直数组所以无恙）。
 // bounds={timeoutMs,maxBytes}（审计 P1a,2026-08-14）：AI 路径传——超时主动断连（防 tail -f 挂死
 // MCP 调用）+ 流式字节上限（防 cat 大文件先吃满内存）；交互/浏览路径不传 → 无界（行为同旧版）。
-async function execCapture(session, namespace, pod, container, command, raw = false, bounds = null) {
+// credLog={command,scrub}(C1,2026-09-20 final review):{{cred:}} 注入路径由 execInPod 下传——
+// 两个 console.error 站点的 cmd=/hint/head 只落占位符版/洗净文本(红线 8:日志只见占位符版);
+// 只参与日志面,绝不进 K8s 请求(argv 由 command 派生)。其余调用方不传 → 零行为变化。
+async function execCapture(session, namespace, pod, container, command, raw = false, bounds = null, credLog = null) {
   const { KubeConfig, Exec } = await k8sClient()
   const kc = buildKubeConfig(KubeConfig, session)
   const exec = new Exec(kc)
@@ -1240,7 +1243,7 @@ async function execCapture(session, namespace, pod, container, command, raw = fa
     const raw = e?.message || String(e)
     // 500 通常=目标容器已终止(Succeeded/Failed),exec 无法进入;给出可读提示而非裸 ws 报错
     const hint = /Unexpected server response:\s*500/i.test(raw) ? `${raw}（目标容器可能未运行/已终止,exec 无法进入;请确认 Pod 为 Running）` : raw
-    console.error(`[exec] 失败 ns=${namespace} pod=${pod} c=${container} cmd=${JSON.stringify(command)} :: ${hint}`)
+    console.error(`[exec] 失败 ns=${namespace} pod=${pod} c=${container} cmd=${JSON.stringify(logSafeCommand(command, credLog))} :: ${logSafeFacet(hint, credLog)}`)
     throw Object.assign(new Error(hint), { status: 502 })
   }
   // 命令（ls/head/cat）自行退出 → kubelet 关闭 → conn close；不主动关 stdin
@@ -1252,7 +1255,8 @@ async function execCapture(session, namespace, pod, container, command, raw = fa
   if (raw) return out
   const rawStr = collected.stdout.toString('utf8')
   const clean = rawStr.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
-  console.error(`[exec] DONE cmd=${JSON.stringify(command)} raw=${rawStr.length} clean=${clean.length} timedOut=${collected.timedOut} truncated=${collected.truncated} head=${JSON.stringify(clean.slice(0, 80))}`)
+  // C1:head 面先 logSafeFacet(整段洗)后 slice——先截断会把跨截断点的物化值切成半截明文穿透 scrub
+  console.error(`[exec] DONE cmd=${JSON.stringify(logSafeCommand(command, credLog))} raw=${rawStr.length} clean=${clean.length} timedOut=${collected.timedOut} truncated=${collected.truncated} head=${JSON.stringify(logSafeFacet(clean, credLog).slice(0, 80))}`)
   return { ...out, stdout: Buffer.from(clean, 'utf8') }
 }
 
@@ -1856,7 +1860,9 @@ async function handle(req, res) {
           if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
           const command = Array.isArray(args.command) ? args.command.join(' ') : String(args.command || '')
           if (!command.trim()) throw new Error(msg(req, 'api.missingCommand'))
-          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', toExecArgv(command), false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
+          // C1:{{cred:}} 注入路径下 tool-registry 随 args 携 __credLog={command:占位符版,scrub}
+          // (服务端内部键,仅进 execCapture 日志面;command 本身已是物化版,不回写)
+          const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', toExecArgv(command), false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX }, args.__credLog || null)
           return {
             pod: args.pod, container: args.container || '', exitCode: r.exitCode ?? null,
             // CSO #4:审批通过后输出同样进 LLM/trace,stdout/stderr 一并高精度脱敏

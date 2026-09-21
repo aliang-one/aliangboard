@@ -65,11 +65,15 @@ async function startHarness({ toolArgs, finalText, toolName = 'read_credential' 
   await new Promise(r => llm.listen(LLM_PORT, '127.0.0.1', r))
   k8s.keepAliveTimeout = 30_000
   llm.keepAliveTimeout = 30_000
+  // C1(2026-09-20 final review):stderr 改 pipe 收集(红线 8 活体断言用——网关日志面不得出现
+  // 物化凭据值)。data 监听持续排水,管道不会积压阻塞网关。
+  const gwStderr = { text: '' }
   const gw = spawn(process.execPath, ['server/index.mjs'], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(GW_PORT), ALIANG_DB: join(DIR, 'wb.db'), ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'x'.repeat(12), ALIANG_STATIC_DIR: DIR, ALIANG_WORKBENCH_DIR: join(DIR, 'wb') },
-    stdio: ['ignore', 'ignore', 'ignore'],
+    stdio: ['ignore', 'ignore', 'pipe'],
   })
+  gw.stderr.on('data', d => { gwStderr.text += d.toString('utf8') })
   const BASE = `http://127.0.0.1:${GW_PORT}`
   const cleanup = () => {
     gw.kill('SIGKILL'); k8s.close(); llm.close()
@@ -103,7 +107,7 @@ async function startHarness({ toolArgs, finalText, toolName = 'read_credential' 
     }
     return { cvId: cv.id, waitStatus, approve: () => fetch(`${BASE}/api/workbench/conversations/${cv.id}/approve`, { method: 'POST', headers: H, body: '{}' }) }
   }
-  return { DIR, BASE, llmRounds, sawSystem, k8sSaw, cleanup, login, startConversation }
+  return { DIR, BASE, llmRounds, sawSystem, k8sSaw, gwStderr, cleanup, login, startConversation }
 }
 
 test('read_credential:password 指纹/text 明文;system 只有元文;审批 paused→approve→done', { timeout: 120000 }, async () => {
@@ -250,6 +254,11 @@ test('注入:wb_exec 占位符命令 paused;approve 后物化命令到达 K8s;�
     const toolRound = h.llmRounds.find(ms => ms.some(m => m.role === 'tool'))
     assert.ok(toolRound, '应有回填 tool 消息的轮次')
     assert.ok(!JSON.stringify(toolRound).includes(SECRET), '回传无明文')
+    // C1(红线 8 活体面):mock 404 → execCapture 失败分支的 [exec] 失败 cmd= 日志已落——
+    // 网关 stderr 全程不得出现物化值;cmd= 面落的是占位符版
+    assert.ok(!h.gwStderr.text.includes(SECRET), `网关日志面无物化凭据值,stderr=${h.gwStderr.text.slice(-600)}`)
+    assert.ok(h.gwStderr.text.includes('[exec] 失败'), '失败日志已落(断言锚定在真实日志行上)')
+    assert.ok(h.gwStderr.text.includes('{{cred:gh#token}}'), 'cmd= 为占位符版')
   } finally {
     h.cleanup()
   }

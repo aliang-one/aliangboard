@@ -180,6 +180,31 @@ test('audit:写工具(write_project_file resume 批准)→ finalized verb=write 
   assert.equal(rows[1].resource, 'a.yaml')
 })
 
+// ═══ I1(2026-09-20 final review):{{cred:}} 注入命令的审计归因(spec §8 句)═══
+// wb_exec/wb_ssh_exec 的 args 无 server/credential 键,占位符是唯一凭据线索——审计 resource
+// 须归因 Credential/<名>;requestSummary 恒占位符版(物化只发生在执行面内,红线 8)。
+test('I1:wb_exec 带 {{cred:}} 占位符 → 审计 resource=Credential/<名>,summary 占位符版无物化值', async () => {
+  const db = new DatabaseSync(':memory:')
+  createAuditSchema(db)
+  const SECRET = 'ghp_materialized_secret'
+  const execArgs = []
+  const wb = {
+    readLedger: async () => '', readFile: async () => '', writeFile: async () => {},
+    execInPod: async (args) => { execArgs.push(args); return { pod: args.pod, exitCode: 0, stdout: 'ok', stderr: '', timedOut: false, truncated: false } },
+    creds: { substitute: c => ({ ok: true, text: c.split('{{cred:prod-db#password}}').join(SECRET), refs: [], scrub: s => String(s).split(SECRET).join('***') }) },
+  }
+  const llmClient = { chat: seqChat([tc('1', 'wb_exec', { namespace: 'default', pod: 'p1', command: 'mysql -p{{cred:prod-db#password}} -e "select 1"' }), fin('查完了')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb, audit: { db, owner: 'admin', clusterId: 'c1' } })
+  const cp = await run({ history: [] })
+  assert.equal(cp.status, 'pending_approval', '占位符命令恒人审')
+  await run({ resume: { messages: cp.messages, queue: cp.queue, denied: cp.denied, steps: cp.steps, toolCallId: cp.pending.toolCallId, approved: true } })
+  const rows = db.prepare('SELECT resource, requestSummary FROM audit_log ORDER BY seq').all()
+  assert.equal(rows[1].resource, 'Credential/prod-db', '归因到被注入凭据名(占位符是唯一凭据线索)')
+  assert.ok(rows[1].requestSummary.includes('{{cred:prod-db#password}}'), 'summary 是占位符版')
+  assert.ok(!rows[1].requestSummary.includes(SECRET), 'summary 无物化值(物化只在执行面内)')
+  assert.ok(execArgs[0].command.includes(SECRET), '对照:执行面确实收到物化命令(归因针对真实注入)')
+})
+
 // dev22: 容器内诊断 exec 工具(wb_exec 需人审 / wb_read_pod_file 只读免审)
 test('registry:wb_exec 需人审、wb_read_pod_file 免审,都在 workbenchToolDefs', () => {
   const names = registry.workbenchToolDefs().map(t => t.function.name)

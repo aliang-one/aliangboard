@@ -7,6 +7,7 @@ import { registry } from './tool-registry.mjs'
 import { effectiveTools } from './authorize.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { modeAutoPasses } from './wb-approval-mode.mjs'
+import { containsCredRef, firstCredRefName } from './credentials/agent-bridge.mjs'
 
 // 工作台审计:wb_* 工具(用项目绑定集群凭据直连)不走 API key 的 callTool 审计,
 // 此处在 execTool 补一条 reserve/finalize 进 audit_log(source='workbench'),让 AI 驱动的集群变更可追溯。
@@ -15,7 +16,13 @@ const WRITE_TOOLS = new Set(['wb_scale', 'wb_restart', 'wb_update_image', 'wb_ro
   'wb_ssh_run', 'wb_ssh_job_write', 'wb_ssh_job_kill'])
 function wbAuditIntent(audit, name, args) {
   let resource = null
-  if (args?.server) resource = args.server === '__global__' ? 'SshLedger/__global__' : `SshServer/${args.server}`
+  // I1(2026-09-20 final review,spec §8):{{cred:名#字段}} 注入命令归因到 Credential/<名>——
+  // wb_exec/wb_ssh_exec 的 args 无 server/credential 键,占位符是唯一凭据线索;解析不成形
+  // (含 {{cred: 前缀但无完整收口)兜底 Credential/unknown。args 是占位符版(物化只在执行面内),
+  // 故 requestSummary 天然安全,不动。
+  const credRefName = containsCredRef(args) ? (firstCredRefName(args) ?? 'unknown') : null
+  if (credRefName) resource = `Credential/${credRefName}`
+  else if (args?.server) resource = args.server === '__global__' ? 'SshLedger/__global__' : `SshServer/${args.server}`
   else if (args?.credential) resource = `Credential/${args.credential}`
   else if (name === 'write_server_notes') resource = `SshLedger/${args?.scope || 'unknown'}`          // SSH 工具(2026-08-28):按服务器归因
   else if (args?.kind && args?.name) resource = `${args.kind}/${args.name}`

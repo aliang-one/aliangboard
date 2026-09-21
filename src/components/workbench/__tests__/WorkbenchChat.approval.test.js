@@ -479,3 +479,22 @@ test('db_query 审批卡:专用标题 + 凭据/SQL 可见(不再误标写文件)
   expect(w.findAll('pre').some(p => p.text() === 'SELECT id FROM users LIMIT 5'), 'SQL 入 pre 展示').toBe(true)
   expect(w.findAll('pre').every(p => p.text() !== ''), '无空 pre').toBe(true)
 })
+
+// ── M1(2026-09-20 final review,spec §8 句):审批卡凭据占位符提示行 ──
+// 命令含 {{cred:名#字段}} 时,人须知道「批准后由平台注入实际值,值不会展示」——否则占位符
+// 形态的命令对人是未知语义,构成盲批观感。契约:含占位符 → 一行提示;普通命令 → 无提示行。
+test('M1:命令含 {{cred:}} → 审批卡提示注入占位符;普通命令无提示', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-cred', name: 'wb_exec',
+    args: { namespace: 'default', pod: 'mysql-1', command: 'mysql -p{{cred:prod-db#password}} -e "select 1"' },
+  })
+  const text = w.text()
+  expect(text).toContain('{{cred:prod-db#password}}', '命令本体(占位符形态)可见')
+  expect(text).toContain(zh.workbench.chat.credInjectHint, '占位符语义提示行在')
+
+  const w2 = await mountPausedApproval({
+    toolCallId: 't-plain2', name: 'wb_exec',
+    args: { namespace: 'default', pod: 'nginx-1', command: 'uptime' },
+  })
+  expect(w2.text()).not.toContain(zh.workbench.chat.credInjectHint, '普通命令不出现提示(免噪音)')
+})

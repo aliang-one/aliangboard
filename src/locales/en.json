@@ -3853,6 +3853,7 @@
       "httpApprovalTitle": "HTTP Request Approval",
       "dbApprovalTitle": "Database Query Approval",
       "execDesc": "The command will run inside the target container (kubectl exec — one-shot, non-interactive, 30s timeout). Output goes back to the AI for further analysis; confirm the command is not destructive.",
+      "credInjectHint": "This command contains a credential-injection placeholder; the actual value is injected by the platform upon approval (the value is never shown).",
       "targetLabel": "Target",
       "approvalJobText": "Answer to write to the job's stdin:",
       "approvalNotes": "Notes to write to the ledger (full replace):",

@@ -15,12 +15,15 @@ const KIND_DESC = `资源类别,复数形式:${CANONICAL_KINDS.join('/')};单数
 // 命令)→ scrubDeep(回传输出把注入值洗回指纹——往返双洗)。无占位符/无 creds 桥零开销直通
 // (API-key 面无桥字面执行;MCP 面不经本 registry)。审计红线自然成立:execTool 消费的 args 恒为
 // 占位符版(物化发生在 exec 内部最后一刻,不回写 args)。
+// C1(2026-09-20 final review):run 第二参 __credLog={command:占位符版,scrub}——lane 把它随
+// 执行面下传(execInPod → execCapture),网关日志站点(cmd=/head=)据此只落占位符版/洗净文本
+// (红线 8:日志只见占位符版)。T5:非对象返回值同样洗(裸字符串经 sub.scrub,数字/null 原样)。
 async function execWithCredInjection(ctx, args, run) {
   if (!ctx.creds || !containsCredRef(args)) return run(args.command)
   const sub = ctx.creds.substitute(args.command)
   if (!sub.ok) return { error: sub.error }
-  const r = await run(sub.text)
-  return (r && typeof r === 'object') ? scrubDeep(r, sub.scrub) : r
+  const r = await run(sub.text, { command: args.command, scrub: sub.scrub })
+  return (r && typeof r === 'object') ? scrubDeep(r, sub.scrub) : (typeof r === 'string' ? sub.scrub(r) : r)
 }
 
 const RANK = { read: 0, operator: 1, admin: 2 }
@@ -88,7 +91,12 @@ const K8S = [
     description: '更新工作负载某容器的镜像(kubectl set image 语义)。先校验容器名存在再 strategic-merge-patch。admin 档:需人审/admin key。kind: deployments/statefulsets/daemonsets。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', enum: ['deployments', 'statefulsets', 'daemonsets'] }, name: { type: 'string' }, container: { type: 'string' }, image: { type: 'string', description: '新镜像,如 nginx:1.25' } }, required: ['namespace', 'kind', 'name', 'container', 'image'] } },
 ].map(t => ({ ...t, principal: 'k8s',
-  // exec_pod 挂 cred: 注入(2026-09-20 spec §7 v1 三面之一);其余 K8s 工具原样直通
+  // exec_pod 挂 cred: 注入(2026-09-20 spec §7 v1 三面之一);其余 K8s 工具原样直通。
+  // ⚠ I2(2026-09-20 final review)此分支今日休眠:workbench runner 只提供 WB 工具(keyRow=null,
+  //   K8s toolDefs 不进 offering),而 API-key 路径 ctx.creds=null(直通零注入)。若未来启用
+  //   dual-principal(keyRow+workbench 同 ctx),必须先让 apiKeyTools.callTool 的 exec_pod 审计
+  //   摘要(server/api-key-tools.mjs `summary: …cmd=${command.slice(0, 80)}`)具备 scrub 感知——
+  //   届时该摘要记录的是物化后命令,违反红线 8。在那之前不得启用(故本分支不下传 __credLog)。
   exec: t.name === 'exec_pod'
     ? async (ctx, args) => execWithCredInjection(ctx, args, cmd => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, { ...args, command: cmd }, 'agent'))
     : (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args, 'agent') }))
@@ -225,7 +233,7 @@ const WB = [
     description: '在 pod 容器内执行一次性诊断命令(workbench,需人审;命令会展示给用户确认)。非交互、30s 超时、stdout 截 32KB。用于:网络连通(nc -zv / curl / ping)、数据库连通(mysql -e "select 1")、进程端口(ps / netstat)、env 检查。不适用于 tail -f 等长驻命令。读文件用 wb_read_pod_file。 命令中需要密码/令牌时写 {{cred:凭据名#字段}} 占位符,平台执行时注入实际值(你看不到值;命令以占位符形态展示给用户审批)。',
     promptHint: '容器内一次性诊断命令(30s 超时,非交互)。Service 通不通(nc -zv / curl)、DB 连不连得上(mysql -e \'select 1\')、进程/端口(ps / netstat)。命令会展示给用户,人批了才跑;一句话说明跑它要验证什么。需要密码时命令里写 {{cred:凭据名#字段}} 占位符,平台注入。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, command: { type: 'string', description: '非交互命令,如 "nc -zv mysql-svc 3306"、"curl -s -o /dev/null -w \\"%{http_code}\\" http://svc:80/healthz"' } }, required: ['namespace', 'pod', 'command'] },
-    exec: async (ctx, args) => { try { return await execWithCredInjection(ctx, args, cmd => ctx.wb.execInPod({ ...args, command: cmd })) } catch (e) { return { error: e.message } } } },
+    exec: async (ctx, args) => { try { return await execWithCredInjection(ctx, args, (cmd, credLog) => ctx.wb.execInPod({ ...args, command: cmd, ...(credLog ? { __credLog: credLog } : {}) })) } catch (e) { return { error: e.message } } } },
   { name: 'wb_ssh_exec', requiresApproval: true,
     description: '在平台托管的 SSH 服务器上执行一次性命令(非交互,默认 30s 超时,stdout 截 32KB)。服务器由用户预先配置并授权;凭据对 AI 不可见,server 用服务器名称。审批策略随服务器配置(必审/只读免审/免审)。不适用于 tail -f 等长驻命令。 命令中需要密码/令牌时写 {{cred:凭据名#字段}} 占位符,平台执行时注入实际值(你看不到值;命令以占位符形态展示给用户审批)。',
     promptHint: 'SSH 服务器上执行一次性诊断命令(30s 超时)。用户说"去某台服务器看看/查一下/重启个服务"时用;server=服务器名称;命令按该服务器策略可能展示给用户审批。需要密码时命令里写 {{cred:凭据名#字段}} 占位符,平台注入。',
@@ -251,7 +259,7 @@ const WB = [
     promptHint: 'SSH 服务器长时任务(装包/构建/交互安装器)。server=服务器名称;启动即返 jobId,用 wb_ssh_job_out 轮询(建议 2-5s)、wb_ssh_job_write 应答、wb_ssh_job_kill 终止。启动按服务器策略可能展示给用户审批。',
     inputSchema: { type: 'object', properties: { server: { type: 'string', description: 'SSH 服务器名称(见系统提示清单)' }, command: { type: 'string', description: '非交互起跑的命令;交互应答交给 wb_ssh_job_write' }, timeoutMin: { type: 'number', description: '任务寿命上限(分钟),默认 30,上限 120,远端强制' }, maxOutMb: { type: 'number', description: '输出封顶(MB),默认 64,超出终止任务' } }, required: ['server', 'command'] },
     exec: async (ctx, args) => { try {
-      if (containsCredRef(args)) return { error: '该工具暂不支持 {{cred:}} 注入占位符;一次性命令请改用 wb_ssh_exec(长任务输出异轮轮询,洗涤需跨轮值登记,见 spec §3 延期面)' }
+      if (containsCredRef(args)) return { error: '该工具暂不支持 {{cred:}} 注入占位符;一次性命令请改用 wb_ssh_exec' }
       return await ctx.sshJobs.run(args) } catch (e) { return { error: e.message } } } },
   { name: 'wb_ssh_job_out', requiresApproval: false,
     description: '读取 SSH 异步任务的输出块(增量):传上次返回的 offset 取新数据,返回体含 size/running/exitCode。免审。任务由 wb_ssh_run 启动。',

@@ -15,6 +15,19 @@ export function containsCredRef(args) {
   return Object.values(args).some(v => typeof v === 'string' && v.includes('{{cred:'))
 }
 
+// I1(2026-09-20 final review):取首个含占位符字符串参数里的凭据名(wbAuditIntent 审计归因消费:
+// wb_exec/wb_ssh_exec 的 args 无 server/credential 键,占位符是唯一凭据线索)。无命中返 null
+// (消费方兜底 'unknown',fail-visible);matchAll 不动模块级 RE 的 lastIndex(同 substitute)。
+export function firstCredRefName(args) {
+  if (!args || typeof args !== 'object') return null
+  for (const v of Object.values(args)) {
+    if (typeof v !== 'string') continue
+    const m = v.matchAll(CRED_REF_RE).next().value   // 首个占位符即停(归因取首线索足够)
+    if (m) return String(m[1] || '').trim() || 'unknown'
+  }
+  return null
+}
+
 export function createCredentialsAgentBridge({ db, key }) {
   const listExposed = () => listCredentials(db).filter(c => c.exposeToAi)
   // 解析:id 优先;同名歧义只回暴露行候选;not-found 与 not-exposed 文案可区分但都不泄露更多

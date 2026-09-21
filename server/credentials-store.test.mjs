@@ -178,3 +178,31 @@ test('aiReadable 三态更新:值保持仍可翻标志;false 清除;未提交键
   assert.equal(materializeField(db, KEY, s.id, 'token').value, 'v2', '值覆盖生效')
   assert.ok(raw[0].aiReadable === undefined, '覆盖行标志随行')
 })
+
+// ═══ M3(2026-09-20 final review):>4KB 值不可开 aiReadable ═══
+// agent.mjs MAX_TOOL_CONTENT_CHARS=8192 会截断工具 JSON → 解析失败 → 裸字符串(整段明文)
+// 直接回模型,洗窗完全失效。落库即拒:创建/更新两路、值覆盖/值保持(翻存量标志)两态全防。
+const BIG = 'x'.repeat(4097), OK = 'x'.repeat(4096)
+test('M3:>4KB 值开 aiReadable 拒收(创建+更新值覆盖);≤4096 放行;>4KB 不开标志仍可存(≤16KB 既有上限)', () => {
+  const db = makeDb()
+  // 创建路
+  assert.ok(validateCredentialInput({ name: 'x', fields: [{ key: 'a', type: 'password', value: BIG, aiReadable: true }] })
+    .some(e => e.includes('4KB') && e.includes('aiReadable')), '创建:>4KB+标志 → 校验错误')
+  assert.throws(() => createCredential(db, KEY, { name: 'big1', fields: [{ key: 'a', type: 'password', value: BIG, aiReadable: true }] }), /4KB/, '创建抛 400')
+  const okBig = createCredential(db, KEY, { name: 'bigok', fields: [{ key: 'a', type: 'password', value: OK, aiReadable: true }] })
+  assert.equal(okBig.fields[0].aiReadable, true, '恰 4096 放行')
+  const noFlag = createCredential(db, KEY, { name: 'bignoflag', fields: [{ key: 'a', type: 'password', value: BIG }] })
+  assert.equal(noFlag.fields[0].aiReadable, undefined, '>4KB 不开标志仍可存(16KB 上限不动)')
+  // 更新路:新值 >4KB + 标志 → 拒
+  assert.throws(() => updateCredential(db, KEY, noFlag.id, { fields: [{ key: 'a', type: 'password', value: BIG, aiReadable: true }] }), /4KB/, '值覆盖路拒')
+  // 更新路:值保持,翻存量标志——存量值 >4KB → 拒(需解密量长,不是只看提交载荷)
+  assert.throws(() => updateCredential(db, KEY, noFlag.id, { fields: [{ key: 'a', type: 'password', aiReadable: true }] }), /4KB/, '值保持+翻标志路拒(存量值超限)')
+  // 对照:存量 ≤4096,值保持翻标志 → 放行(既有三态语义不回归)
+  const u = updateCredential(db, KEY, okBig.id, { fields: [{ key: 'a', type: 'password', aiReadable: false }] })
+  assert.equal(u.fields[0].aiReadable, undefined)
+  const u2 = updateCredential(db, KEY, okBig.id, { fields: [{ key: 'a', type: 'password', aiReadable: true }] })
+  assert.equal(u2.fields[0].aiReadable, true, '存量 ≤4096 值保持翻标志放行')
+  // 更新路:值覆盖为 >4KB 且不带标志 → 放行(标志未开,洗窗不适用)
+  const u3 = updateCredential(db, KEY, noFlag.id, { fields: [{ key: 'a', type: 'password', value: BIG }] })
+  assert.equal(materializeField(db, KEY, noFlag.id, 'a').value.length, 4097, '>4KB 无标志覆盖仍可')
+})

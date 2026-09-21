@@ -321,6 +321,10 @@ const approvalCommand = computed(() => {
   if (Array.isArray(c)) return c.map(String).join(' ')
   return c ? String(c) : ''
 })
+// M1(final review 2026-09-20,spec §8):命令含 {{cred:名#字段}} 占位符 → 审批卡加一行提示
+// (批准后由平台注入实际值,值不展示)——占位符形态对人否则是未知语义。基于归一后的
+// approvalCommand 判定(argv 数组已 join,同上方一行)。
+const approvalCredInject = computed(() => approvalCommand.value.includes('{{cred:') ? t('workbench.chat.credInjectHint') : '')
 // approval-flow-01:wb_ssh_job_write 应答——人必须看到"往哪个任务写什么",否则盲批安装器应答。
 // 终审修复(2026-09-07 批次二):门只看 text——旧条件 jobId!=null && text!=null 在 LLM 违
 // schema 漏发 jobId 时把应答文本挤没(approvalTarget 因 a.server 在场恒真,兜底 JSON 也被压
@@ -1609,6 +1613,7 @@ function useHint(h) { input.value = h }
           <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span></p>
           <p v-if="pendingApproval.args?.sudo" class="text-body-sm font-semibold text-status-warning">{{ t('workbench.chat.sudoLabel') }}</p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalCommand }}</pre>
+          <p v-if="approvalCredInject" class="text-body-sm text-on-surface-variant">{{ approvalCredInject }}</p>
         </template>
         <!-- approval-flow-01:wb_ssh_job_write 应答——server(+jobId 若在场)目标行 + 将写入 stdin 的文本;
              终审修复:jobId 段仅在场时渲染(LLM 违 schema 漏发 jobId 不再把整块应答展示挤没) -->

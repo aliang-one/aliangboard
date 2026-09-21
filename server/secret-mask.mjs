@@ -52,3 +52,18 @@ export function scrubDeep(value, scrub, depth = 0) {
   for (const [k, v] of Object.entries(value)) out[k] = scrubDeep(v, scrub, depth + 1)
   return out
 }
+
+// C1(2026-09-20 final review)日志面两助手:execCapture 的两个 console.error 站点(cmd=/head=/hint)
+// 只许见占位符版命令与洗净文本(红线 8:日志只见占位符版)。execWithCredInjection 把
+// __credLog={command:占位符版, scrub} 随 lane 线下传,此处消费:
+//   - logSafeCommand:cmd= 面优先占位符版;无 __credLog(非注入路径)原样——其余调用方零变化。
+//   - logSafeFacet:自由文本面先整段洗再用——调用方须先本函数后 slice,先截断会把跨截断点的
+//     物化值切成半截明文,scrub 认不出整值即穿透。纯函数。
+export function logSafeCommand(actual, credLog) {
+  return (credLog && typeof credLog.command === 'string') ? credLog.command : actual
+}
+
+export function logSafeFacet(text, credLog) {
+  const s = String(text ?? '')
+  return (credLog && typeof credLog.scrub === 'function') ? credLog.scrub(s) : s
+}
