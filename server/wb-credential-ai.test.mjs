@@ -18,17 +18,24 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // 见 tool 后终答;流式/非流式双形态,照 wb-approval-roundtrip.test.mjs)+ spawn 真网关。
 // keepAliveTimeout=30s:同 wb-approval-roundtrip 的 keep-alive 竞态根修——Node mock 默认 5s 关闲连,
 // 网关 undici 4s 回收延迟复用已死 socket → fetch failed → 对话被打成 failed。
-async function startHarness({ toolArgs, finalText }) {
+async function startHarness({ toolArgs, finalText, toolName = 'read_credential' }) {
   const K8S_PORT = 39000 + Math.floor(Math.random() * 4000)
   const LLM_PORT = 43000 + Math.floor(Math.random() * 3000)
   const GW_PORT = 47000 + Math.floor(Math.random() * 2000)
   const DIR = mkdtempSync(join(tmpdir(), 'wb-credai-'))
   const llmRounds = []
   const sawSystem = { text: '' }
+  // k8s 记录器(2026-09-20 spec §7 物化证明):记全部到达 mock 的请求(URL+body)。
+  // WS 升级请求(exec)同样命中本 handler——命令 argv 在 query 串里,urls 即物化证据。
+  const k8sSaw = { urls: [], bodies: [] }
   const k8s = createServer((req, res) => {
     const p = new URL(req.url, 'http://x').pathname
-    if (p === '/version') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"major":"1","minor":"31"}') }
-    res.writeHead(404, { 'content-type': 'application/json' }); res.end(`{"kind":"Status","message":"nf ${p}"}`)
+    k8sSaw.urls.push(req.url)
+    let b = ''; req.on('data', c => b += c); req.on('end', () => {
+      k8sSaw.bodies.push(b)
+      if (p === '/version') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"major":"1","minor":"31"}') }
+      res.writeHead(404, { 'content-type': 'application/json' }); res.end(`{"kind":"Status","message":"nf ${p}"}`)
+    })
   })
   const llm = createServer((req, res) => {
     let body = ''; req.on('data', c => body += c); req.on('end', () => {
@@ -39,13 +46,13 @@ async function startHarness({ toolArgs, finalText }) {
       const hasTool = messages.some(m => m.role === 'tool')
       const reply = hasTool
         ? { role: 'assistant', content: finalText }
-        : { role: 'assistant', content: '我读一下该凭据。', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_credential', arguments: args } }] }
+        : { role: 'assistant', content: '我读一下该凭据。', tool_calls: [{ id: 'c1', type: 'function', function: { name: toolName, arguments: args } }] }
       if (stream) {
         res.writeHead(200, { 'content-type': 'text/event-stream' })
         const ch = d => `data: ${JSON.stringify({ choices: [{ delta: d }] })}\n\n`
         if (reply.tool_calls) {
           res.write(ch({ role: 'assistant', content: reply.content }))
-          res.write(ch({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'read_credential', arguments: '' } }] }))
+          res.write(ch({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: toolName, arguments: '' } }] }))
           res.write(ch({ tool_calls: [{ index: 0, function: { arguments: args } }] }))
         } else res.write(ch({ role: 'assistant', content: reply.content }))
         res.write('data: [DONE]\n\n'); return res.end()
@@ -80,7 +87,10 @@ async function startHarness({ toolArgs, finalText }) {
   // 造集群+项目+对话,返回 waitStatus 轮询器与对话 id
   const startConversation = async (H, message) => {
     const kubeconfig = `apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: http://127.0.0.1:${K8S_PORT}\n  name: m\ncontexts:\n- context:\n    cluster: m\n    user: m\n  name: m\ncurrent-context: m\nusers:\n- name: m\n  user: {token: d}\n`
-    const cr = await (await fetch(`${BASE}/api/admin/clusters`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'mock-k8s', kubeconfig }) })).json()
+    // insecure:true:注册请求的显式字段(非 kubeconfig 解析)——wb_exec 走 client-node exec,
+    // 其 kubeconfig 层拒绝「http 且 skipTLSVerify 未置」(HTTP protocol is not allowed…)。
+    // mock 是明文 http,必须置位;requestKubernetes(undici)路径对此无感。
+    const cr = await (await fetch(`${BASE}/api/admin/clusters`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'mock-k8s', kubeconfig, insecure: true }) })).json()
     const pr = await (await fetch(`${BASE}/api/workbench/projects`, { method: 'POST', headers: H, body: JSON.stringify({ name: 't', clusterId: cr.cluster?.id || cr.id }) })).json()
     const cv = await (await fetch(`${BASE}/api/workbench/conversations`, { method: 'POST', headers: H, body: JSON.stringify({ projectId: pr.project?.id || pr.id, message }) })).json()
     const waitStatus = async set => {
@@ -93,7 +103,7 @@ async function startHarness({ toolArgs, finalText }) {
     }
     return { cvId: cv.id, waitStatus, approve: () => fetch(`${BASE}/api/workbench/conversations/${cv.id}/approve`, { method: 'POST', headers: H, body: '{}' }) }
   }
-  return { DIR, BASE, llmRounds, sawSystem, cleanup, login, startConversation }
+  return { DIR, BASE, llmRounds, sawSystem, k8sSaw, cleanup, login, startConversation }
 }
 
 test('read_credential:password 指纹/text 明文;system 只有元文;审批 paused→approve→done', { timeout: 120000 }, async () => {
@@ -167,6 +177,79 @@ test('同名歧义:read_credential 错误只回候选 id,不含任一明文;对�
     const toolMsg = JSON.stringify(toolRound.find(m => m.role === 'tool'))
     assert.ok(toolMsg.includes('候选 id:'), `歧义错误须回候选 id,实际:${toolMsg.slice(0, 200)}`)
     assert.ok(!toolMsg.includes('ghp_dup_one_secret') && !toolMsg.includes('ghp_dup_two_secret'), '任一 password 明文不得出现在错误回执')
+  } finally {
+    h.cleanup()
+  }
+})
+
+// ═══ 2026-09-20 spec §13-5:🔓明文通道四面断言 ═══
+test('🔓 aiReadable:明文进当轮上下文;落库 trace/messages 洗指纹;system 带🔓无值;审批 paused→done', { timeout: 120000 }, async () => {
+  const h = await startHarness({ toolArgs: { credential: 'gh', field: 'token' }, finalText: '已按批准读取明文,结论如上。' })
+  try {
+    const H = await h.login()
+    const PLAIN = 'ghp_ai_readable_secret'
+    await fetch(`${h.BASE}/api/workbench/credentials`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'gh', exposeToAi: true, fields: [
+      { key: 'user', type: 'text', value: 'octocat' },
+      { key: 'token', type: 'password', value: PLAIN, aiReadable: true }] }) })
+    const { cvId, waitStatus, approve } = await h.startConversation(H, '读 gh 的 token 明文')
+    let st = await waitStatus(['paused', 'failed', 'done'])
+    assert.equal(st, 'paused', '明文读取同样先过审批门')
+    await approve()
+    st = await waitStatus(['done', 'failed'])
+    assert.equal(st, 'done', `approve 后应终态,实际 ${st}`)
+    // 面一:system 带🔓标记、无值。锚定清单行 token(password🔓)——提示词双通道指引散文本身含
+    // 🔓 字样,「全 prompt 无🔓」式断言恒假(2026-09-21 裁决①)。
+    const sys = h.sawSystem.text
+    assert.ok(sys.includes('token(password🔓)'), '🔓标记在清单行')
+    assert.ok(!sys.includes(PLAIN), 'system 永不携带明文')
+    // 面二:当轮 LLM 上下文(tool 消息)含明文——🔓通道定义本身(approve 后工具现执行,明文只活本轮内存)
+    const toolRound = h.llmRounds.find(ms => ms.some(m => m.role === 'tool'))
+    assert.ok(toolRound, '应有回填 tool 消息的轮次')
+    assert.ok(JSON.stringify(toolRound).includes(PLAIN), '批准后明文进当轮上下文')
+    // 面三:落库三面洗成指纹——workbench_messages.trace + workbench_conversations.trace
+    // + workbench_conversations.messages(persistableMessages 落库面,2026-09-21 裁决②补扫)
+    const rdb = new DatabaseSync(join(h.DIR, 'wb.db'), { readOnly: true })
+    const msgTraces = rdb.prepare('SELECT trace FROM workbench_messages WHERE conversationId=? AND trace IS NOT NULL').all(cvId).map(r => r.trace).join('\n')
+    const convTrace = JSON.stringify(rdb.prepare('SELECT trace FROM workbench_conversations WHERE id=?').get(cvId) || {})
+    const convMessages = JSON.stringify(rdb.prepare('SELECT messages FROM workbench_conversations WHERE id=?').get(cvId) || {})
+    const credRow = rdb.prepare("SELECT fields FROM workbench_credentials WHERE name='gh'").get()
+    rdb.close()
+    assert.ok(!msgTraces.includes(PLAIN) && !convTrace.includes(PLAIN) && !convMessages.includes(PLAIN),
+      '落库 trace/messages 无明文(消息行+对话级 trace+messages 列)')
+    assert.match(msgTraces + convTrace, /\*\*\* \(\d+ chars, #[0-9a-f]{8}\)/, '落库为指纹')
+    // 面四:凭据行密文落库(既有不变式)
+    assert.ok(!credRow.fields.includes(PLAIN) && credRow.fields.includes('v1:'), '库内只有密文')
+  } finally {
+    h.cleanup()
+  }
+})
+
+// ═══ 2026-09-20 spec §7/§8:注入门 + 物化到达执行面 + 回传无明文 ═══
+test('注入:wb_exec 占位符命令 paused;approve 后物化命令到达 K8s;回传无明文', { timeout: 120000 }, async () => {
+  const h = await startHarness({
+    toolName: 'wb_exec',
+    toolArgs: { namespace: 'default', pod: 'p1', command: 'echo {{cred:gh#token}}' },
+    finalText: '已尝试执行,结论如上。',
+  })
+  try {
+    const H = await h.login()
+    const SECRET = 'ghp_inject_secret'
+    await fetch(`${h.BASE}/api/workbench/credentials`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'gh', exposeToAi: true, fields: [
+      { key: 'token', type: 'password', value: SECRET }] }) })
+    const { waitStatus, approve } = await h.startConversation(H, '在 pod 里 echo token')
+    let st = await waitStatus(['paused', 'failed', 'done'])
+    assert.equal(st, 'paused', '占位符命令恒人审(ask 档基线;auto 档由 modeAutoPasses 单测覆盖)')
+    await approve()
+    st = await waitStatus(['done', 'failed'])
+    assert.equal(st, 'done', `approve 后应终态,实际 ${st}`)
+    // 物化证明:materialized 命令到达 K8s——exec 走 WS 升级请求,命中 mock 的普通 handler
+    // 被记进 k8sSaw(命令 argv 在 query 串);mock 404 → exec 报错,但请求已发出
+    const wire = h.k8sSaw.urls.join(' ') + ' ' + h.k8sSaw.bodies.join(' ')
+    assert.ok(wire.includes(SECRET), `物化后的命令到达 K8s(注入生效),wire=${wire.slice(0, 300)}`)
+    // 回传:工具错误回执无明文(往返双洗;exec 404 错误文案本身不含命令)
+    const toolRound = h.llmRounds.find(ms => ms.some(m => m.role === 'tool'))
+    assert.ok(toolRound, '应有回填 tool 消息的轮次')
+    assert.ok(!JSON.stringify(toolRound).includes(SECRET), '回传无明文')
   } finally {
     h.cleanup()
   }
