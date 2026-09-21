@@ -11,7 +11,7 @@ import { clampTraceStep } from './agent.mjs'
 import { getWorkbenchAiConfig, getMaxStepsConfig } from './workbench-ai-config.mjs'
 import { readUserApprovalMode } from './wb-approval-mode.mjs'
 import { deriveSalvageContent } from './salvage-content.mjs'
-import { persistableTrace } from './workbench-persist.mjs'
+import { persistableTrace, persistableMessages } from './workbench-persist.mjs'
 import { workbenchExcludeTools } from './tool-registry.mjs'
 import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 // gap3-01(2026-09-07 审计批次二):换绑锚定——refreshSystem 装配前比对 refs 戳与当下
@@ -117,7 +117,7 @@ const CK_TIME_MS = 500
     if (out.status === 'pending_approval') {
       const patch = {
         status: 'paused',
-        messages: JSON.stringify(out.messages),
+        messages: JSON.stringify(persistableMessages(out.messages)),
         queue: JSON.stringify(out.queue),
         denied: JSON.stringify(out.denied),
         // gap3-02(2026-09-07 审计批次三):审批盖集群戳——裁决快照锚定「审批创建时」的项目
@@ -132,7 +132,7 @@ const CK_TIME_MS = 500
       updateConversation(db, convId, patch)
     } else {
       const patch = {
-        status: 'done', messages: JSON.stringify(out.messages),
+        status: 'done', messages: JSON.stringify(persistableMessages(out.messages)),
         content: out.content, steps: out.steps,
       }
       if (tracker) patch.reasoning = readFinalReasoning(tracker)

@@ -22,3 +22,18 @@ export function persistableTrace(trace) {
     ? { ...b, result: scrubReadResult(b.result) }
     : b)
 }
+
+// messages 列落库前洗(spec §11 红线7「含 messages」):role:'tool' 消息的 content 是工具结果
+// JSON 字符串——read_credential 结果里带 plaintext:true 的 password 字段洗回指纹。解析失败/
+// 形状不符(无 fields 数组)的 content 原串保留(不 round-trip,零格式扰动);非数组直通;
+// 纯函数不 mutate。resume 语义(spec §6):重启/续跑读到掩码是设计行为,不是回归。
+export function persistableMessages(messages) {
+  if (!Array.isArray(messages)) return messages
+  return messages.map(m => {
+    if (!m || m.role !== 'tool' || typeof m.content !== 'string') return m
+    let parsed
+    try { parsed = JSON.parse(m.content) } catch { return m }
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.fields)) return m
+    return { ...m, content: JSON.stringify(scrubReadResult(parsed)) }
+  })
+}
