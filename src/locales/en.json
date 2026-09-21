@@ -4043,6 +4043,7 @@
       "tagsPlaceholder": "Comma separated, up to 8",
       "exposeLabel": "Visible to AI",
       "exposeHint": "AI sees name and field structure; password values stay hidden",
+      "aiReadableHint": "When enabled, AI can read this field's plaintext after user approval; the value will be sent to the LLM provider with the conversation. Evaluate the risk yourself",
       "fieldKey": "Key",
       "fieldType": "Type",
       "fieldValue": "Value",

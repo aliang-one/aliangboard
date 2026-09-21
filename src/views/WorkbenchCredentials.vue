@@ -47,12 +47,12 @@ const parseText = ref('')
 const parseBusy = ref(false)
 const saving = ref(false)
 
-function emptyForm() { return { name: '', description: '', tagsText: '', exposeToAi: false, fields: [{ key: '', type: 'password', value: '' }] } }
+function emptyForm() { return { name: '', description: '', tagsText: '', exposeToAi: false, fields: [{ key: '', type: 'password', value: '', aiReadable: false }] } }
 
 function openCreate(preset) {
   editing.value = null; formMode.value = 'manual'; parseText.value = ''
   form.value = emptyForm()
-  if (preset) form.value.fields = PRESETS[preset].map(([key, type]) => ({ key, type, value: '' }))
+  if (preset) form.value.fields = PRESETS[preset].map(([key, type]) => ({ key, type, value: '', aiReadable: false }))
   showForm.value = true
 }
 async function openEdit(row) {
@@ -64,7 +64,7 @@ async function openEdit(row) {
     form.value = {
       name: c.name, description: c.description || '', tagsText: (c.tags || []).join(', '),
       exposeToAi: !!c.exposeToAi,
-      fields: (c.fields || []).map(f => ({ key: f.key, type: f.type, value: f.type === 'text' ? (f.value ?? '') : '' })),
+      fields: (c.fields || []).map(f => ({ key: f.key, type: f.type, aiReadable: f.type === 'password' && !!f.aiReadable, value: f.type === 'text' ? (f.value ?? '') : '' })),
     }
     showForm.value = true
   } catch (e) { notify('error', e?.message || t('workbench.credentials.loadFailed')) }
@@ -80,7 +80,7 @@ async function smartParse() {
       name: d.name || '', description: d.description || '', tagsText: (d.tags || []).join(', '),
       exposeToAi: form.value.exposeToAi,
       fields: (d.fields && d.fields.length ? d.fields : [{ key: '', type: 'password', value: '' }])
-        .map(f => ({ key: f.key, type: f.type, value: f.value })),   // password 草稿值也回填(type=password 输入框本身就掩码显示)
+        .map(f => ({ key: f.key, type: f.type, value: f.value, aiReadable: false })),   // password 草稿值也回填(type=password 输入框本身就掩码显示);aiReadable 恒 false——解析草稿不带明文标志,从严
     }
     notify('success', t('workbench.credentials.parseOk', { n: r.dropped || 0 }))
     formMode.value = 'manual'   // 回填后转手动供检查修改
@@ -105,8 +105,11 @@ async function save() {
       .filter(f => !(f.type === 'password' && editing.value && f.value === '' && !existing.has(f.key.trim().toLowerCase())))
       .map(f => {
         const key = f.key.trim()
-        // 编辑态 password 留空 = 保持:载荷省略 value 键(三态语义)
-        if (f.type === 'password' && editing.value && f.value === '') return { key, type: f.type }
+        if (f.type === 'password') {
+          // 编辑态 password 留空 = 保持:载荷省略 value 键(三态语义);aiReadable 随行可翻(值保持也能翻标志)
+          if (editing.value && f.value === '') return { key, type: f.type, aiReadable: !!f.aiReadable }
+          return { key, type: f.type, aiReadable: !!f.aiReadable, value: f.value }
+        }
         return { key, type: f.type, value: f.value }
       }),
   }
@@ -261,7 +264,7 @@ const fmtTime = ts => (ts ? new Date(ts).toLocaleString() : '')
 
           <!-- 动态字段行:key | type | value | 删行 -->
           <div class="flex flex-col gap-xs">
-            <div v-for="(f, i) in form.fields" :key="i" class="grid gap-xs [grid-template-columns:1fr_7rem_1fr_auto] items-center">
+            <div v-for="(f, i) in form.fields" :key="i" class="grid gap-xs [grid-template-columns:1fr_7rem_1fr_auto_auto] items-center">
               <input v-model="f.key" :data-testid="`cred-field-key-${i}`" :placeholder="t('workbench.credentials.fieldKey')"
                 class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" />
               <select v-model="f.type" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm">
@@ -273,6 +276,11 @@ const fmtTime = ts => (ts ? new Date(ts).toLocaleString() : '')
               <input v-else v-model="f.value" :data-testid="`cred-field-value-${i}`" type="password"
                 :placeholder="editing ? t('workbench.credentials.keepPlaceholder') : t('workbench.credentials.fieldValue')"
                 class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" />
+              <label v-if="f.type === 'password'" class="flex items-center gap-1 text-body-xs text-on-surface-variant cursor-pointer" :title="t('workbench.credentials.aiReadableHint')">
+                <input type="checkbox" v-model="f.aiReadable" :data-testid="`cred-field-ai-${i}`" class="accent-primary" />
+                <span class="material-symbols-outlined text-sm">lock_open</span>
+              </label>
+              <div v-else></div>
               <button @click="form.fields.splice(i, 1)" class="material-symbols-outlined text-on-surface-variant hover:text-error" :title="t('workbench.credentials.delete')">close</button>
             </div>
             <button @click="form.fields.push({ key: '', type: 'password', value: '' })" class="self-start px-md py-xs border border-outline-variant rounded-lg text-body-sm">{{ t('workbench.credentials.addField') }}</button>
@@ -300,6 +308,7 @@ const fmtTime = ts => (ts ? new Date(ts).toLocaleString() : '')
           <span class="px-xs rounded text-body-xs shrink-0" :class="f.type === 'password' ? 'bg-error-container text-on-error-container' : 'bg-surface-container text-on-surface-variant'">
             {{ f.type === 'password' ? t('workbench.credentials.typePassword') : t('workbench.credentials.typeText') }}
           </span>
+          <span v-if="f.aiReadable" :title="t('workbench.credentials.aiReadableHint')" class="px-xs rounded text-body-xs shrink-0 bg-tertiary-container text-on-tertiary-container">🔓</span>
           <span class="ml-auto flex items-center gap-xs shrink-0">
             <code v-if="f.type === 'text'" class="text-body-sm font-mono text-on-surface-variant max-w-[16rem] truncate">{{ f.value }}</code>
             <code v-else-if="revealed[f.key] != null" class="text-body-sm font-mono text-on-surface-variant max-w-[16rem] truncate">{{ revealed[f.key] }}</code>

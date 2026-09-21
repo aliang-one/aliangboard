@@ -4043,6 +4043,7 @@
       "tagsPlaceholder": "逗号分隔,至多 8 个",
       "exposeLabel": "对 AI 可见",
       "exposeHint": "开启后 AI 可见名称与字段结构;密码字段值仍不可见",
+      "aiReadableHint": "开启后 AI 可在用户批准后读到该字段明文;该值会随对话发送至 LLM 服务,请自行评估风险",
       "fieldKey": "字段名",
       "fieldType": "类型",
       "fieldValue": "值",

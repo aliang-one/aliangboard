@@ -73,6 +73,19 @@ test('凭据全链:CRUD/reveal/三态/审计/密文落库', { timeout: 90000 }, 
   assert.deepEqual(tools, ['credential_create', 'credential_reveal', 'credential_update', 'credential_reveal', 'credential_delete'])
 })
 
+test('aiReadable:详情带标志;PATCH 值保持翻标志;text 上开标志 400', { timeout: 90000 }, async () => {
+  const tok = (await (await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'x'.repeat(12) }) })).json()).token
+  const cr = await (await fetch(`${BASE}/api/workbench/credentials`, { method: 'POST', headers: j(tok), body: JSON.stringify({ name: 'ai-r', exposeToAi: true, fields: [
+    { key: 'token', type: 'password', value: 'vvv-secret', aiReadable: true }] }) })).json()
+  const id = cr.credential.id
+  const det = await (await fetch(`${BASE}/api/workbench/credentials/${id}`, { headers: j(tok) })).json()
+  assert.equal(det.credential.fields[0].aiReadable, true, '详情视图带标志')
+  const pu = await (await fetch(`${BASE}/api/workbench/credentials/${id}`, { method: 'PATCH', headers: j(tok), body: JSON.stringify({ fields: [{ key: 'token', type: 'password', aiReadable: false }] }) })).json()
+  assert.ok(pu.credential.fields[0].aiReadable === undefined, '值保持+翻 false:标志清除')
+  const bad = await fetch(`${BASE}/api/workbench/credentials/${id}`, { method: 'PATCH', headers: j(tok), body: JSON.stringify({ fields: [{ key: 'token', type: 'text', value: 'v', aiReadable: true }] }) })
+  assert.equal(bad.status, 400, 'text 上开标志 400')
+})
+
 test('cleanup', async () => {
   gw.kill('SIGKILL')
   await new Promise(r => setTimeout(r, 200))

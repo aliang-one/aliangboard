@@ -22,7 +22,7 @@ function detailView(db, key, id) {
       let value
       try { value = decryptField(key, f.enc) } catch { throw new Error('CRED_DECRYPT_FAILED') }
       if (value == null) value = ''   // 空值字段归一:空串加密落库为 null,展示侧回 ''(password 则 maskValue('')=0 字符指纹,truthful)
-      return { key: f.key, type: f.type, value: f.type === 'password' ? maskValue(value) : value }
+      return { key: f.key, type: f.type, ...(f.aiReadable ? { aiReadable: true } : {}), value: f.type === 'password' ? maskValue(value) : value }
     })
   } catch (e) { if (e.message === 'CRED_DECRYPT_FAILED') e.status = 409; throw e }
   // v2(spec §6):详情附 grants 清单(凭据×适配器免审授权行,管理面展示/前端勾选用)
