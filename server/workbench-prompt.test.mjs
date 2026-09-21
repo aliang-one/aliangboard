@@ -195,3 +195,20 @@ test('workbench-agent 两处 refreshSystem 与 buildHistory 均走注入单源,�
   assert.equal(projSrc.includes('trust current tools/capabilities'), false, 'caveat 措辞不得内联(裸 caveat 头注=护栏缺失温床)')
   assert.ok(projSrc.includes('buildRecapInjection('), 'buildHistory 必须消费 buildRecapInjection 单源')
 })
+
+// 凭据清单🔓标记 + 双通道指引(2026-09-20 spec §10)
+test('凭据清单:🔓标记明文可申请;占位符注入指引在;无标志不误标', () => {
+  const p = buildWorkbenchSystemPrompt({ credentials: [{ id: 'i1', name: 'reg', description: '', tags: [],
+    fields: [{ key: 'user', type: 'text' }, { key: 'password', type: 'password', aiReadable: true }], adapters: [] }] })
+  assert.ok(p.includes('password(password🔓)'), '🔓标记在清单行')
+  assert.ok(p.includes('{{cred:凭据名#字段}}'), '占位符注入指引在')
+  assert.ok(p.includes('经用户批准可读到明文'), '明文申请指引在')
+  const p2 = buildWorkbenchSystemPrompt({ credentials: [{ id: 'i1', name: 'x', description: '', tags: [],
+    fields: [{ key: 'k', type: 'password' }], adapters: [] }] })
+  // 无标志不误标,断言锚在「字段级标记」而非整份提示词:指引句以概念提及🔓(「字段名带🔓的…」),
+  // 整文 includes('🔓') 恒真,误标判据只能是清单行内不出现🔓(brief 原稿断言与 brief 实现行互相矛盾,取意图)。
+  const p2line = p2.split('\n').find(l => l.startsWith('- **x**'))
+  assert.ok(p2line, '无标志凭据清单行在')
+  assert.ok(!p2line.includes('🔓'), '无标志字段不误标')
+  assert.ok(!/\([^()]*🔓\)/.test(p2), '全提示无字段级🔓标记(概念性提及不算误标)')
+})
