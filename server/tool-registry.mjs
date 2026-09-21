@@ -6,8 +6,22 @@
 // agent-runner 按 ctx 里有什么(keyRow / workbench)决定 offering;execTool 经 registry.get(name).exec(ctx,args) 分派。
 
 import { CANONICAL_KINDS } from './kindAlias.mjs'
+import { containsCredRef } from './credentials/agent-bridge.mjs'
+import { scrubDeep } from './secret-mask.mjs'
 // schema 词表动态生成:kind 清单跟 kind-paths.mjs 的 KIND_API 走,不再手抄第 5 份拷贝
 const KIND_DESC = `资源类别,复数形式:${CANONICAL_KINDS.join('/')};单数/Kind 名/缩写(svc/po 等)自动归一`
+
+// cred: 注入执行包装(2026-09-20 spec §7):substitute →(失败即拒,命令不执行)→ 原执行(物化
+// 命令)→ scrubDeep(回传输出把注入值洗回指纹——往返双洗)。无占位符/无 creds 桥零开销直通
+// (API-key 面无桥字面执行;MCP 面不经本 registry)。审计红线自然成立:execTool 消费的 args 恒为
+// 占位符版(物化发生在 exec 内部最后一刻,不回写 args)。
+async function execWithCredInjection(ctx, args, run) {
+  if (!ctx.creds || !containsCredRef(args)) return run(args.command)
+  const sub = ctx.creds.substitute(args.command)
+  if (!sub.ok) return { error: sub.error }
+  const r = await run(sub.text)
+  return (r && typeof r === 'object') ? scrubDeep(r, sub.scrub) : r
+}
 
 const RANK = { read: 0, operator: 1, admin: 2 }
 const rank = t => RANK[t] ?? 99 // 工作台工具无 minTier → rank 99 → 自动排除出 forTier/toolDefsForTier
@@ -43,7 +57,8 @@ const K8S = [
     description: 'rollout restart(operator+ 档)。kind: deployments/statefulsets/daemonsets。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', enum: ['deployments', 'statefulsets', 'daemonsets'] }, name: { type: 'string' } }, required: ['namespace', 'kind', 'name'] } },
   { name: 'exec_pod', minTier: 'admin', requiresApproval: true,
-    description: '在 pod 内执行命令(一次性,捕获 stdout/stderr,非交互)。admin 档:内置 agent 需人审,外部 MCP 走 admin key。stdout 截 32KB、stderr 8KB。受绑定 SA 的 RBAC(pods/exec)约束。',
+    description: '在 pod 内执行命令(一次性,捕获 stdout/stderr,非交互)。admin 档:内置 agent 需人审,外部 MCP 走 admin key。stdout 截 32KB、stderr 8KB。受绑定 SA 的 RBAC(pods/exec)约束。 命令支持 {{cred:凭据名#字段}} 占位符注入(平台执行时替换,你看不到值)。',
+    promptHint: '需要密码时命令里写 {{cred:凭据名#字段}} 占位符,平台注入。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, command: { type: 'string', description: '要执行的 shell 命令(字符串,非交互式)' } }, required: ['namespace', 'pod', 'command'] } },
   { name: 'browse_files', minTier: 'admin', requiresApproval: true,
     description: '列出 pod 内某路径下的文件(ls -la)。admin 档:内置 agent 需人审 / 外部 MCP 走 admin key。listing 截 32KB。受 SA RBAC 约束。',
@@ -72,7 +87,11 @@ const K8S = [
   { name: 'update_image', minTier: 'admin', requiresApproval: true,
     description: '更新工作负载某容器的镜像(kubectl set image 语义)。先校验容器名存在再 strategic-merge-patch。admin 档:需人审/admin key。kind: deployments/statefulsets/daemonsets。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, kind: { type: 'string', enum: ['deployments', 'statefulsets', 'daemonsets'] }, name: { type: 'string' }, container: { type: 'string' }, image: { type: 'string', description: '新镜像,如 nginx:1.25' } }, required: ['namespace', 'kind', 'name', 'container', 'image'] } },
-].map(t => ({ ...t, principal: 'k8s', exec: (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args, 'agent') }))
+].map(t => ({ ...t, principal: 'k8s',
+  // exec_pod 挂 cred: 注入(2026-09-20 spec §7 v1 三面之一);其余 K8s 工具原样直通
+  exec: t.name === 'exec_pod'
+    ? async (ctx, args) => execWithCredInjection(ctx, args, cmd => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, { ...args, command: cmd }, 'agent'))
+    : (ctx, args) => ctx.apiKeyTools.callTool(ctx.keyRow, ctx.cluster, t.name, args, 'agent') }))
 
 // 工作台工具(principal:'platform')。exec 用 ctx.wb.{readLedger,readFile,writeFile}(端点注入闭包)。
 // 失败统一返 { error } 形状(2026-08-31 审计修复⑦):agent-runner 的 finalize 审计据 r.error 记
@@ -203,15 +222,15 @@ const WB = [
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, name: { type: 'string' }, toRevision: { type: 'number', description: '目标 revision;不传回滚到上一版本' } }, required: ['namespace', 'name'] },
     exec: async (ctx, args) => { try { return await ctx.wb.rolloutUndo(args.namespace, args.name, args.toRevision) } catch (e) { return { error: e.message } } } },
   { name: 'wb_exec', requiresApproval: true,
-    description: '在 pod 容器内执行一次性诊断命令(workbench,需人审;命令会展示给用户确认)。非交互、30s 超时、stdout 截 32KB。用于:网络连通(nc -zv / curl / ping)、数据库连通(mysql -e "select 1")、进程端口(ps / netstat)、env 检查。不适用于 tail -f 等长驻命令。读文件用 wb_read_pod_file。',
-    promptHint: '容器内一次性诊断命令(30s 超时,非交互)。Service 通不通(nc -zv / curl)、DB 连不连得上(mysql -e \'select 1\')、进程/端口(ps / netstat)。命令会展示给用户,人批了才跑;一句话说明跑它要验证什么。',
+    description: '在 pod 容器内执行一次性诊断命令(workbench,需人审;命令会展示给用户确认)。非交互、30s 超时、stdout 截 32KB。用于:网络连通(nc -zv / curl / ping)、数据库连通(mysql -e "select 1")、进程端口(ps / netstat)、env 检查。不适用于 tail -f 等长驻命令。读文件用 wb_read_pod_file。 命令中需要密码/令牌时写 {{cred:凭据名#字段}} 占位符,平台执行时注入实际值(你看不到值;命令以占位符形态展示给用户审批)。',
+    promptHint: '容器内一次性诊断命令(30s 超时,非交互)。Service 通不通(nc -zv / curl)、DB 连不连得上(mysql -e \'select 1\')、进程/端口(ps / netstat)。命令会展示给用户,人批了才跑;一句话说明跑它要验证什么。需要密码时命令里写 {{cred:凭据名#字段}} 占位符,平台注入。',
     inputSchema: { type: 'object', properties: { namespace: { type: 'string' }, pod: { type: 'string' }, container: { type: 'string' }, command: { type: 'string', description: '非交互命令,如 "nc -zv mysql-svc 3306"、"curl -s -o /dev/null -w \\"%{http_code}\\" http://svc:80/healthz"' } }, required: ['namespace', 'pod', 'command'] },
-    exec: async (ctx, args) => { try { return await ctx.wb.execInPod(args) } catch (e) { return { error: e.message } } } },
+    exec: async (ctx, args) => { try { return await execWithCredInjection(ctx, args, cmd => ctx.wb.execInPod({ ...args, command: cmd })) } catch (e) { return { error: e.message } } } },
   { name: 'wb_ssh_exec', requiresApproval: true,
-    description: '在平台托管的 SSH 服务器上执行一次性命令(非交互,默认 30s 超时,stdout 截 32KB)。服务器由用户预先配置并授权;凭据对 AI 不可见,server 用服务器名称。审批策略随服务器配置(必审/只读免审/免审)。不适用于 tail -f 等长驻命令。',
-    promptHint: 'SSH 服务器上执行一次性诊断命令(30s 超时)。用户说"去某台服务器看看/查一下/重启个服务"时用;server=服务器名称;命令按该服务器策略可能展示给用户审批。',
+    description: '在平台托管的 SSH 服务器上执行一次性命令(非交互,默认 30s 超时,stdout 截 32KB)。服务器由用户预先配置并授权;凭据对 AI 不可见,server 用服务器名称。审批策略随服务器配置(必审/只读免审/免审)。不适用于 tail -f 等长驻命令。 命令中需要密码/令牌时写 {{cred:凭据名#字段}} 占位符,平台执行时注入实际值(你看不到值;命令以占位符形态展示给用户审批)。',
+    promptHint: 'SSH 服务器上执行一次性诊断命令(30s 超时)。用户说"去某台服务器看看/查一下/重启个服务"时用;server=服务器名称;命令按该服务器策略可能展示给用户审批。需要密码时命令里写 {{cred:凭据名#字段}} 占位符,平台注入。',
     inputSchema: { type: 'object', properties: { server: { type: 'string', description: 'SSH 服务器名称(见系统提示清单)' }, command: { type: 'string', description: '非交互命令,如 "df -h"、"systemctl status nginx"' }, timeoutSec: { type: 'number', description: '默认 30,上限 120' }, sudo: { type: 'boolean', description: 'true=以 sudo 执行(需该服务器已存 sudo 密码)' } }, required: ['server', 'command'] },
-    exec: async (ctx, args) => { try { return await ctx.ssh.exec(args) } catch (e) { return { error: e.message } } } },
+    exec: async (ctx, args) => { try { return await execWithCredInjection(ctx, args, cmd => ctx.ssh.exec({ ...args, command: cmd })) } catch (e) { return { error: e.message } } } },
   { name: 'read_server_ledger', requiresApproval: false,
     description: '读取 SSH 服务器台账:每台服务器扮演的角色/职责/部署内容(自由备注,人与 AI 共同维护)+ 全局备注;结构信息(OS/状态/暴露策略)由平台自动生成,实时反映现状。仅含已暴露给 AI 的服务器。',
     promptHint: '读 SSH 服务器台账——知道每台服务器扮演什么角色(网关/DB/应用机)、部署了什么。任何涉及服务器的问题先读它,别从零猜。',
@@ -231,7 +250,9 @@ const WB = [
     description: '在平台托管的 SSH 服务器上启动长时/交互任务(后台运行,立即返回 jobId)。适用:装包/构建/备份等超 120s 的命令、需要应答的安装器(配合 wb_ssh_job_write)。服务器按其审批策略在启动时审一次;寿命上限远端强制(默认 30min,上限 120);输出封顶(默认 64MB,超出会终止任务并记 code=141)。不支持 sudo 长任务(密码会与交互应答抢 stdin)。轮询输出用 wb_ssh_job_out。',
     promptHint: 'SSH 服务器长时任务(装包/构建/交互安装器)。server=服务器名称;启动即返 jobId,用 wb_ssh_job_out 轮询(建议 2-5s)、wb_ssh_job_write 应答、wb_ssh_job_kill 终止。启动按服务器策略可能展示给用户审批。',
     inputSchema: { type: 'object', properties: { server: { type: 'string', description: 'SSH 服务器名称(见系统提示清单)' }, command: { type: 'string', description: '非交互起跑的命令;交互应答交给 wb_ssh_job_write' }, timeoutMin: { type: 'number', description: '任务寿命上限(分钟),默认 30,上限 120,远端强制' }, maxOutMb: { type: 'number', description: '输出封顶(MB),默认 64,超出终止任务' } }, required: ['server', 'command'] },
-    exec: async (ctx, args) => { try { return await ctx.sshJobs.run(args) } catch (e) { return { error: e.message } } } },
+    exec: async (ctx, args) => { try {
+      if (containsCredRef(args)) return { error: '该工具暂不支持 {{cred:}} 注入占位符;一次性命令请改用 wb_ssh_exec(长任务输出异轮轮询,洗涤需跨轮值登记,见 spec §3 延期面)' }
+      return await ctx.sshJobs.run(args) } catch (e) { return { error: e.message } } } },
   { name: 'wb_ssh_job_out', requiresApproval: false,
     description: '读取 SSH 异步任务的输出块(增量):传上次返回的 offset 取新数据,返回体含 size/running/exitCode。免审。任务由 wb_ssh_run 启动。',
     promptHint: '读长任务输出(增量轮询,建议 2-5s 一次)。offset=上次返回的 offset;看 running/exitCode 判断是否结束,结束前别急着下结论。',
