@@ -107,7 +107,7 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
   // 不再过门,捕获沿用 checkpoint 时的 false(人批行不带标记)。
   const needsApprovalFn = async (n, args) => {
     if (!requiringApproval.has(n) || !offered.has(n)) { gateAutoPassed = false; return false }
-    if (approvalMode && modeAutoPasses(approvalMode(), n)) { gateAutoPassed = true; return false }
+    if (approvalMode && modeAutoPasses(approvalMode(), n, args)) { gateAutoPassed = true; return false }
     if (dynamicApproval) { const need = !!(await dynamicApproval(n, args)); gateAutoPassed = !need; return need }
     gateAutoPassed = false
     return true

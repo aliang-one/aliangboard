@@ -18,6 +18,7 @@ import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 // project.clusterId,旧集群 ref 停用(不重拉)+ 注入作废注记。见 refs-normalize.mjs 文件头注。
 import { splitStaleRefs, buildStaleRefsNote } from './refs-normalize.mjs'
 import { adapterToolNames } from './credential-adapters/registry.mjs'
+import { containsCredRef } from './credentials/agent-bridge.mjs'
 
 // deps: { db, buildWbCtx, buildK8sSession, fetchRefContext, createAgentRunner, busEmit, busDispose }
 //   db                —— node:sqlite DatabaseSync(index.mjs 顶层构造)
@@ -40,6 +41,9 @@ import { adapterToolNames } from './credential-adapters/registry.mjs'
 // grant 命中免审/写方法恒审/其余人审),仍不在 wb-approval-mode 白名单(fail-closed)。
 // 纯函数:不落地/无副作用——needsApproval 在 checkpoint 与 resume 两处被咨询。
 export async function routeDynamicApproval(n, args, sshBridge, sshJobs, credsBridge = null) {
+  // cred: 注入前置门(2026-09-20 spec §8):命令含占位符恒人审,先于 job 桥/SSH 服务器策略/
+  // 适配器 grants 一切放宽路径。纯模式检查,不依赖 credsBridge 在场(与模式层双保险同源谓词)。
+  if (containsCredRef(args)) return true
   if (n.startsWith('wb_ssh_job_')) return sshJobs ? sshJobs.needsApproval(n, args) : true
   if (n.startsWith('wb_ssh_') || n === 'write_server_notes') return sshBridge ? sshBridge.needsApproval(n, args) : true
   if (adapterToolNames().has(n)) return credsBridge ? credsBridge.needsApproval(n, args) : true   // v2:凭据×适配器 grants

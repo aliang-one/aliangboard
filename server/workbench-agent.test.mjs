@@ -12,7 +12,7 @@ import {
   updateConversation,
   appendMessage,
 } from './workbench-projects.mjs'
-import { createWorkbenchAgent } from './workbench-agent.mjs'
+import { createWorkbenchAgent, routeDynamicApproval } from './workbench-agent.mjs'
 import { createLlmClient } from './llm.mjs' // fix round 1:总限 DB 级测试驱动真 chatStream(滴流桩)
 
 // 构造 fresh db + 项目 + 对话;捕获 bus 事件到数组(可断言事件序列)。
@@ -1398,4 +1398,12 @@ test('D2: 失败轮 salvage content 从最终 trace 的 assistant 块派生(不�
   assert.equal(msg.content, '收到,我来查。', 'content=trace assistant 块派生(LLM/摘要/复制拿到非空语义)')
   const trace = JSON.parse(msg.trace)
   assert.ok(trace.some(e => e.type === 'tool' && e.name === 'wb_list_resources'), 'trace 保工具事件(交错渲染)')
+})
+
+// cred: 注入前置门(2026-09-20 spec §8):占位符命令先于 job 桥/服务器策略/适配器 grants,恒人审
+test('routeDynamicApproval:{{cred: 占位符恒人审——免审 SSH 服务器策略也不放宽', async () => {
+  const laxSsh = { needsApproval: async () => false }
+  assert.equal(await routeDynamicApproval('wb_ssh_exec', { server: 's', command: 'x {{cred:reg#password}}' }, laxSsh, null, null), true)
+  assert.equal(await routeDynamicApproval('wb_exec', { command: 'ls' }, laxSsh, null, null), true, '无占位符走既有兜底人审')
+  assert.equal(await routeDynamicApproval('wb_exec', { command: '{{cred:reg#password}}' }, null, null, null), true, '无桥也人审(fail-closed)')
 })
