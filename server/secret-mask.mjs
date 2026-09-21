@@ -40,3 +40,15 @@ export function maskSensitiveText(text) {
   if (!s) return s
   return s.replace(PEM_RE, '[redacted-private-key]').replace(JWT_RE, '[redacted-jwt]').replace(AKIA_RE, '[redacted-aws-key]')
 }
+
+// 已知值精确洗(2026-09-20 凭据注入 spec §7):深走对象树,对全部字符串值应用 scrub 函数。
+// 与 maskSensitiveText(高置信模式洗)互补:那认 JWT/PEM/AKIA 形态,这只认调用方携带的确切值集
+// (注入物化值)。深度上限 8 防循环引用炸栈。纯函数,不 mutate。
+export function scrubDeep(value, scrub, depth = 0) {
+  if (typeof value === 'string') return scrub(value)
+  if (value == null || typeof value !== 'object' || depth > 8) return value
+  if (Array.isArray(value)) return value.map(v => scrubDeep(v, scrub, depth + 1))
+  const out = {}
+  for (const [k, v] of Object.entries(value)) out[k] = scrubDeep(v, scrub, depth + 1)
+  return out
+}

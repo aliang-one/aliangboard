@@ -6,6 +6,15 @@ import { listCredentials, materializeField, resolveCredentialRef, hasCredentialG
 import { getAdapter, matchAdapter } from '../credential-adapters/registry.mjs'
 import { maskValue } from '../secret-mask.mjs'
 
+// cred: 占位符协议(2026-09-20 spec §7):{{cred:<名或id>#<字段>}}。纯模式判定,供审批门
+// (wb-approval-mode / routeDynamicApproval)与工具包装(tool-registry)同源复用——两处门都问
+// 同一个谓词,缺一即漏(auto 档 wb_exec 走模式白名单、免审服务器走桥策略,各绕开对方)。
+export const CRED_REF_RE = /\{\{cred:([^#}]+)#([^}]+)\}\}/g
+export function containsCredRef(args) {
+  if (!args || typeof args !== 'object') return false
+  return Object.values(args).some(v => typeof v === 'string' && v.includes('{{cred:'))
+}
+
 export function createCredentialsAgentBridge({ db, key }) {
   const listExposed = () => listCredentials(db).filter(c => c.exposeToAi)
   // 解析:id 优先;同名歧义只回暴露行候选;not-found 与 not-exposed 文案可区分但都不泄露更多
@@ -32,7 +41,8 @@ export function createCredentialsAgentBridge({ db, key }) {
       else {
         // 空值字段归一:空串加密落库为 null,回模型前归 ''(text 回空串,password 走 maskValue('')=0 字符指纹,truthful)
         const v = m.value == null ? '' : m.value
-        out.value = m.type === 'password' ? maskValue(v) : v
+        if (m.type === 'password' && meta.aiReadable) { out.value = v; out.plaintext = true }   // 🔓明文通道(spec §6):工具恒 requiresApproval=每读必人审
+        else out.value = m.type === 'password' ? maskValue(v) : v
       }
       fields.push(out)
     }
@@ -72,7 +82,34 @@ export function createCredentialsAgentBridge({ db, key }) {
     catch (e) { return { error: `适配器执行失败(${e?.name || 'unknown'})` } }
   }
 
-  return { listExposed, list, read, needsApproval, runAdapter }
+  // cred: 执行点注入(spec §7):物化只发生在本闭包;scrub 携带本次值集,回传输出精确洗回指纹
+  // (往返双洗)。fail-closed:任一占位符解析失败整体拒,绝不执行部分物化命令。空值不进洗集
+  // (split/join 空串灾难);matchAll 不动原 regex lastIndex,模块级 RE 复用安全。
+  function substitute(text) {
+    const s = String(text ?? '')
+    const matches = [...s.matchAll(CRED_REF_RE)]
+    if (!matches.length) return { ok: true, text: s, refs: [], scrub: x => x }
+    let out = s
+    const refs = [], pairs = [], seen = new Set()
+    for (const m of matches) {
+      const r = resolve(m[1].trim())
+      if (!r.ok) return { ok: false, error: refusal(r) }
+      const fieldKey = m[2].trim()
+      const meta = r.row.fields.find(f => f.key.toLowerCase() === fieldKey.toLowerCase())
+      if (!meta) return { ok: false, error: `凭据 ${r.row.name} 无字段 ${fieldKey}` }
+      let mv
+      try { mv = materializeField(db, key, r.row.id, meta.key) } catch { mv = null }
+      if (!mv) return { ok: false, error: 'CRED_DECRYPT_FAILED' }
+      const value = mv.value == null ? '' : mv.value
+      out = out.split(m[0]).join(value)
+      refs.push({ name: r.row.name, id: r.row.id, field: meta.key, type: meta.type })
+      if (value && !seen.has(value)) { seen.add(value); pairs.push({ value, mask: maskValue(value) }) }
+    }
+    return { ok: true, text: out, refs,
+      scrub: t => { let x = String(t ?? ''); for (const p of pairs) x = x.split(p.value).join(p.mask); return x } }
+  }
+
+  return { listExposed, list, read, needsApproval, runAdapter, substitute }
 }
 
 function refusal(r) {
