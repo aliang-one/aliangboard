@@ -91,7 +91,7 @@ test('编辑三态:password 值留空 → update 载荷该字段无 value 键', 
   await flushPromises()
   const payload = credentialsApi.update.mock.calls[0][1]
   expect(payload.fields[1]).not.toHaveProperty('value', expect.anything())
-  expect(payload.fields[1]).toEqual({ key: 'token', type: 'password' })
+  expect(payload.fields[1]).toEqual({ key: 'token', type: 'password', aiReadable: false })   // Task 7:password 行载荷恒带 aiReadable(未勾=false=清除标志,三态)
 })
 
 // ── 2026-09-12 credential-adapters v2(Task 5):详情页「已授权」区 ──
@@ -112,4 +112,47 @@ test('详情页已授权区:渲染 grants + 一键收回', async () => {
   await q('[data-testid="cred-revoke-grant"]').trigger('click')
   await flushPromises()
   expect(credentialsApi.revokeGrant).toHaveBeenCalledWith('c1', 'http_request')
+})
+
+// ── 2026-09-20 credential-plaintext(Task 7):逐字段 aiReadable 开关 ──
+
+test('aiReadable:password 行独占 checkbox;创建载荷带标志', async () => {
+  const w = mountPage()
+  await flushPromises()
+  await w.find('[data-testid="cred-create-btn"]').trigger('click')
+  await q('[data-testid="cred-name-input"]').setValue('reg')
+  await q('[data-testid="cred-field-key-0"]').setValue('password')
+  await q('[data-testid="cred-field-value-0"]').setValue('p@ss')
+  await q('[data-testid="cred-field-ai-0"]').setValue(true)
+  await q('[data-testid="cred-save-btn"]').trigger('click')
+  await flushPromises()
+  const created = credentialsApi.create.mock.calls.at(-1)[0]
+  expect(created.fields[0]).toEqual({ key: 'password', type: 'password', aiReadable: true, value: 'p@ss' })
+})
+
+test('编辑三态:password 留空 + 翻 aiReadable → update 载荷 {key,type,aiReadable} 无 value;text 行无 checkbox', async () => {
+  credentialsApi.get.mockResolvedValue({ credential: { id: 'c1', name: 'gh', description: '', tags: [], exposeToAi: true,
+    fields: [{ key: 'user', type: 'text', value: 'liang' }, { key: 'token', type: 'password', value: '*** (17 chars, #abcd1234)' }], grants: [] } })
+  const w = mountPage()
+  await flushPromises()
+  await w.find('[data-testid="cred-edit-c1"]').trigger('click')
+  await flushPromises()
+  // text 行无 checkbox(Modal teleport 到 body,w.find 看不见,须查 body)
+  expect(document.body.querySelector('[data-testid="cred-field-ai-0"]')).toBe(null)
+  await q('[data-testid="cred-field-ai-1"]').setValue(true)
+  await q('[data-testid="cred-save-btn"]').trigger('click')
+  await flushPromises()
+  const upd = credentialsApi.update.mock.calls.at(-1)[1]   // update(id, payload):载荷在第二参
+  expect(upd.fields[0]).toEqual({ key: 'user', type: 'text', value: 'liang' }, 'text 行载荷无 aiReadable 键')
+  expect(upd.fields[1]).toEqual({ key: 'token', type: 'password', aiReadable: true })
+})
+
+test('详情:aiReadable 字段渲染🔓徽章', async () => {
+  credentialsApi.get.mockResolvedValue({ credential: { id: 'c1', name: 'gh', description: '', tags: [], exposeToAi: true,
+    fields: [{ key: 'token', type: 'password', value: '*** (17 chars, #abcd1234)', aiReadable: true }], grants: [] } })
+  const w = mountPage()
+  await flushPromises()
+  await w.vm.openDetail({ id: 'c1' })            // 既有用例同款直调(DropdownMenu teleport 不便点)
+  await flushPromises()
+  await vi.waitFor(() => expect(document.body.textContent).toContain('🔓'))   // Modal teleport:断言走 body(grants 用例同款)
 })

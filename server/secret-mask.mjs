@@ -40,3 +40,30 @@ export function maskSensitiveText(text) {
   if (!s) return s
   return s.replace(PEM_RE, '[redacted-private-key]').replace(JWT_RE, '[redacted-jwt]').replace(AKIA_RE, '[redacted-aws-key]')
 }
+
+// 已知值精确洗(2026-09-20 凭据注入 spec §7):深走对象树,对全部字符串值应用 scrub 函数。
+// 与 maskSensitiveText(高置信模式洗)互补:那认 JWT/PEM/AKIA 形态,这只认调用方携带的确切值集
+// (注入物化值)。深度上限 8 防循环引用炸栈。纯函数,不 mutate。
+export function scrubDeep(value, scrub, depth = 0) {
+  if (typeof value === 'string') return scrub(value)
+  if (value == null || typeof value !== 'object' || depth > 8) return value
+  if (Array.isArray(value)) return value.map(v => scrubDeep(v, scrub, depth + 1))
+  const out = {}
+  for (const [k, v] of Object.entries(value)) out[k] = scrubDeep(v, scrub, depth + 1)
+  return out
+}
+
+// C1(2026-09-20 final review)日志面两助手:execCapture 的两个 console.error 站点(cmd=/head=/hint)
+// 只许见占位符版命令与洗净文本(红线 8:日志只见占位符版)。execWithCredInjection 把
+// __credLog={command:占位符版, scrub} 随 lane 线下传,此处消费:
+//   - logSafeCommand:cmd= 面优先占位符版;无 __credLog(非注入路径)原样——其余调用方零变化。
+//   - logSafeFacet:自由文本面先整段洗再用——调用方须先本函数后 slice,先截断会把跨截断点的
+//     物化值切成半截明文,scrub 认不出整值即穿透。纯函数。
+export function logSafeCommand(actual, credLog) {
+  return (credLog && typeof credLog.command === 'string') ? credLog.command : actual
+}
+
+export function logSafeFacet(text, credLog) {
+  const s = String(text ?? '')
+  return (credLog && typeof credLog.scrub === 'function') ? credLog.scrub(s) : s
+}

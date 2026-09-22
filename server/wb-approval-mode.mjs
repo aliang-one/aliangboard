@@ -6,6 +6,8 @@
 // (更严者胜——服务器策略是注册时的治理决定,用户模式只在其上放宽自己这层);
 // write_server_notes 是平台台账写(非服务器命令),归模式管辖。
 // 白名单枚举 = fail-closed:未来新加入 requiringApproval 的工具不进名单 → 任何模式下仍人审。
+import { containsCredRef } from './credentials/agent-bridge.mjs'
+
 export const WB_APPROVAL_MODES = ['ask', 'writes', 'auto']
 
 // writes 档自动放行的写类(9 个);auto 档管辖全集 = 此名单 + wb_exec(10 个)。
@@ -15,8 +17,11 @@ const WRITES_AUTO_TOOLS = new Set([
 ])
 const AUTO_TOOLS = new Set([...WRITES_AUTO_TOOLS, 'wb_exec'])
 
-// 纯函数:该 (mode, tool) 组合是否免人审直执行。SSH 前缀工具永不在名单里(恒 false)。
-export function modeAutoPasses(mode, name) {
+// 纯函数:该 (mode, tool, args) 组合是否免人审直执行。SSH 前缀工具永不在名单里(恒 false);
+// args 含 cred: 占位符恒 false(2026-09-20 spec §8:注入命令恒人审——auto 档的 wb_exec 在
+// AUTO_TOOLS 里,模式层不拦就会绕过动态门,故此层也前置)。
+export function modeAutoPasses(mode, name, args) {
+  if (containsCredRef(args)) return false
   if (mode === 'writes') return WRITES_AUTO_TOOLS.has(name)
   if (mode === 'auto') return AUTO_TOOLS.has(name)
   return false // ask / 未知模式 / 未成名工具一律不放行

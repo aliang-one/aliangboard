@@ -4,7 +4,8 @@ import { strict as assert } from 'node:assert'
 import { DatabaseSync } from 'node:sqlite'
 import { randomBytes } from 'node:crypto'
 import { createCredentialsSchema, createCredential, listPromptCredentials, grantCredentialUse } from './credentials-store.mjs'
-import { createCredentialsAgentBridge } from './credentials/agent-bridge.mjs'
+import { createCredentialsAgentBridge, containsCredRef, firstCredRefName } from './credentials/agent-bridge.mjs'
+import { scrubDeep } from './secret-mask.mjs'
 import { buildWorkbenchSystemPrompt } from './workbench-prompt.mjs'
 
 const KEY = randomBytes(32)
@@ -89,4 +90,71 @@ test('runAdapter:解析失败拒;needsApproval:无grant人审/有grant+GET免审
   assert.equal(await bridge.needsApproval('http_request', { credential: 'gh' }), false, 'grant+GET 免审')
   assert.equal(await bridge.needsApproval('http_request', { credential: 'gh', method: 'POST' }), true, '写方法恒人审')
   assert.equal(await bridge.needsApproval('read_credential', { credential: 'gh' }), true, '非适配器工具恒人审(不经本桥,routeDynamicApproval 分流前的兜底语义)')
+})
+
+// ═══ 2026-09-20 spec §6/§7:🔓明文通道 + cred: 注入协议 ═══
+test('read():🔓 aiReadable password 回明文+plaintext 标记;无标志照旧指纹', async () => {
+  const db = new DatabaseSync(':memory:')
+  createCredentialsSchema(db)
+  createCredential(db, KEY, { name: 'gh', exposeToAi: true, fields: [
+    { key: 'user', type: 'text', value: 'octocat' },
+    { key: 'token', type: 'password', value: 'ghp_plain_text', aiReadable: true },
+    { key: 'secret', type: 'password', value: 'ghp_still_masked' }] })
+  const bridge = createCredentialsAgentBridge({ db, key: KEY })
+  const r = await bridge.read({ credential: 'gh' })
+  const byKey = Object.fromEntries(r.fields.map(f => [f.key, f]))
+  assert.equal(byKey.token.value, 'ghp_plain_text'); assert.equal(byKey.token.plaintext, true)
+  assert.match(byKey.secret.value, /^\*\*\* \(\d+ chars, #/); assert.ok(byKey.secret.plaintext === undefined)
+})
+
+test('substitute():物化/往返双洗/重复占位符/fail-closed 三态/空值护栏', () => {
+  const db = new DatabaseSync(':memory:')
+  createCredentialsSchema(db)
+  createCredential(db, KEY, { name: 'reg', exposeToAi: true, fields: [
+    { key: 'user', type: 'text', value: 'ci-bot' }, { key: 'password', type: 'password', value: 'hunter2-' }] })
+  createCredential(db, KEY, { name: 'hid', exposeToAi: false, fields: [{ key: 'password', type: 'password', value: 'x' }] })
+  createCredential(db, KEY, { name: 'dup', exposeToAi: true, fields: [{ key: 'password', type: 'password', value: 'dup-one' }] })
+  createCredential(db, KEY, { name: 'dup', exposeToAi: true, fields: [{ key: 'password', type: 'password', value: 'dup-two' }] })
+  const bridge = createCredentialsAgentBridge({ db, key: KEY })
+  const none = bridge.substitute('docker login -u ci-bot')
+  assert.equal(none.ok, true); assert.equal(none.text, 'docker login -u ci-bot')
+  assert.equal(none.scrub('abc'), 'abc'); assert.deepEqual(none.refs, [])
+  const sub = bridge.substitute('echo {{cred:reg#password}} && user={{cred:reg#user}} pw2={{cred:reg#PASSWORD}}')
+  assert.equal(sub.ok, true)
+  assert.equal(sub.text, 'echo hunter2- && user=ci-bot pw2=hunter2-')
+  assert.deepEqual(sub.refs.map(r => r.field), ['password', 'user', 'password'])
+  const scrubbed = sub.scrub('stdout: hunter2- ok')
+  assert.ok(!scrubbed.includes('hunter2-') && /\*\*\* \(\d+ chars, #/.test(scrubbed), '回传输出洗回指纹')
+  assert.equal(bridge.substitute('x {{cred:nope#password}}').ok, false, 'not-found 拒')
+  assert.equal(bridge.substitute('x {{cred:hid#password}}').ok, false, 'not-exposed 拒')
+  assert.equal(bridge.substitute('x {{cred:reg#missing}}').ok, false, '字段缺失拒')
+  const amb = bridge.substitute('{{cred:dup#password}}')
+  assert.equal(amb.ok, false)
+})
+
+test('scrubDeep:深走嵌套对象字符串全洗,非字符串直通', () => {
+  const scrub = s => s.split('hunter2-').join('***MASK***')
+  const out = scrubDeep({ stdout: 'hunter2- ok', nested: { arr: ['hunter2-', 42, null] }, n: 7, b: false }, scrub)
+  assert.equal(out.stdout, '***MASK*** ok')
+  assert.equal(out.nested.arr[0], '***MASK***')
+  assert.equal(out.nested.arr[1], 42); assert.equal(out.n, 7); assert.equal(out.b, false)
+  assert.equal(scrubDeep('plain hunter2-', scrub), 'plain ***MASK***')
+})
+
+test('containsCredRef:字符串参数命中模式;非对象/无命中 false', () => {
+  assert.equal(containsCredRef({ command: 'x {{cred:a#b}}' }), true)
+  assert.equal(containsCredRef({ command: 'ls', path: '/x' }), false)
+  assert.equal(containsCredRef(null), false); assert.equal(containsCredRef('str'), false)
+})
+
+// I1(2026-09-20 final review):审计归因取首个占位符的凭据名(wbAuditIntent 消费)。
+test('firstCredRefName:首个含模式字符串参数的 NAME;无命中/非对象 null', () => {
+  assert.equal(firstCredRefName({ namespace: 'default', pod: 'p', command: 'mysql -p{{cred:prod-db#password}} -e 1' }), 'prod-db')
+  assert.equal(firstCredRefName({ a: 'plain', b: 'x {{cred: reg #f}}' }), 'reg', '名带空白 trim')
+  assert.equal(firstCredRefName({ a: 'plain', b: '{{cred:x#y}}{{cred:z#w}}' }), 'x', '多占位符取首个')
+  assert.equal(firstCredRefName({ command: 'ls' }), null)
+  assert.equal(firstCredRefName(null), null); assert.equal(firstCredRefName('str'), null)
+  // 形似但不成对({{cred: 开却在但无完整 #…}} 收口)→ containsCredRef 会 true,名字解析 null
+  // → wbAuditIntent 兜底 Credential/unknown(在那侧测)
+  assert.equal(firstCredRefName({ command: 'echo {{cred:broken' }), null)
 })

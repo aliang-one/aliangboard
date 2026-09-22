@@ -143,3 +143,11 @@ test('人审批准的执行:审计行无 approval:auto 标记', async () => {
   assert.equal(rows.length, 1)
   assert.doesNotMatch(rows[0].requestSummary, /approval:auto/)
 })
+
+// cred: 注入命令恒人审(2026-09-20 spec §8):auto 档的 wb_exec 也不例外;无 args 维持旧语义
+test('modeAutoPasses:args 含 {{cred: 占位符恒 false;无 args 旧语义不变', () => {
+  assert.equal(modeAutoPasses('auto', 'wb_exec', { command: 'docker login -p {{cred:reg#password}}' }), false)
+  assert.equal(modeAutoPasses('writes', 'wb_scale', { command: '{{cred:x#y}}' }), false)
+  assert.equal(modeAutoPasses('auto', 'wb_exec', { command: 'ls' }), true)
+  assert.equal(modeAutoPasses('auto', 'wb_exec'), true, '无 args 维持旧语义')
+})

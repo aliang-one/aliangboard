@@ -1,7 +1,7 @@
 // server/secret-mask.test.mjs
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { maskSecretResource, MASK_PATTERN } from './secret-mask.mjs'
+import { maskSecretResource, MASK_PATTERN, logSafeCommand, logSafeFacet } from './secret-mask.mjs'
 import { createHash } from 'node:crypto'
 
 const b64 = s => Buffer.from(s, 'utf8').toString('base64')
@@ -54,4 +54,30 @@ test('MASK_PATTERN 形状自锁', () => {
   assert.ok(MASK_PATTERN.test('*** (24 chars, #a1b2c3d4)'))
   assert.ok(!MASK_PATTERN.test('*** (24 chars, a1b2c3d4)'))
   assert.ok(!MASK_PATTERN.test('YWJjZA=='))
+})
+
+// ═══ C1(2026-09-20 final review):execCapture 日志面只许见占位符版命令 ═══
+// 红线 8:审计/审批卡/日志只见占位符版。execWithCredInjection 把 __credLog={command:占位符版,
+// scrub} 随 lane 线下传;两个纯 helper 是 execCapture 两个 console.error 站点的唯一日志侧消费点。
+test('logSafeCommand:有 credLog 用占位符版;无 credLog 原样(其余调用方零行为变化)', () => {
+  const credLog = { command: 'echo {{cred:gh#token}}', scrub: () => 'x' }
+  assert.equal(logSafeCommand(['sh', '-c', 'echo ghp_materialized_secret'], credLog), 'echo {{cred:gh#token}}',
+    'cmd= 面恒占位符版(物化值不进日志)')
+  assert.equal(logSafeCommand('ls -la', null), 'ls -la', '无 credLog(非注入路径)原样')
+  assert.equal(logSafeCommand('ls -la', {}), 'ls -la', 'credLog 缺 command 键也原样(防御)')
+})
+
+test('logSafeFacet:有 scrub 先洗后用;无 credLog 原样;跨截断点的物化值不残留', () => {
+  const SECRET = 'ghp_materialized_secret'
+  const scrub = s => String(s).split(SECRET).join('*** (23 chars, #ab12cd34)')
+  const credLog = { command: 'x', scrub }
+  // hint 面:错误文案含物化值(如 exec 错误回显 URL)→ 洗净
+  assert.ok(!logSafeFacet(`Unexpected 500 at /exec?cmd=echo+${SECRET}`, credLog).includes(SECRET))
+  // head 面:调用方先 logSafeFacet(整段) 再 slice —— 跨 80 字符截断点的物化值不会以半截明文存活
+  const head = logSafeFacet(`prefix ${SECRET} suffix-and-more-text-beyond-eighty-charsAAAAAAAAAAAAAAAAAAAAAA`, credLog).slice(0, 80)
+  assert.ok(!head.includes(SECRET) && !head.includes('ghp_mat'), `切片后无物化值残段,实际:${head}`)
+  assert.match(head, /\*\*\* \(23 chars/, '整值洗成指纹')
+  // 无 credLog:原样(其余 execCapture 调用方日志行为不变)
+  assert.equal(logSafeFacet(SECRET, null), SECRET)
+  assert.equal(logSafeFacet(null, null), '')
 })

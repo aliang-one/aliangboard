@@ -62,16 +62,17 @@ export function buildWorkbenchSystemPrompt({ additionalInstructions = '', disabl
     lines.push('服务器台账(read_server_ledger)记录每台的角色/职责/部署内容——涉及服务器的问题先读台账;在服务器上探测到或变更了角色与部署,用 write_server_notes 同步进去(需用户批准)。')
   }
 
-  // 凭据清单(2026-09-12 spec §7.2;v2 Task 6 加✓匹配标记):仅元数据(白名单构造,
-  // listPromptCredentials 出参即无值);行尾标注该凭据匹配的适配器工具(✓)或无匹配,
-  // 配合下方 L2 顾问约定——密码由平台服务端注入,AI 只传 credential 名。
+  // 凭据清单(2026-09-12 spec §7.2;v2 Task 6 加✓匹配标记;2026-09-20 spec §10 双通道):
+  // 仅元数据(白名单构造,listPromptCredentials 出参即无值);行尾标注该凭据匹配的适配器工具(✓)
+  // 或无匹配;aiReadable 的 password 字段尾缀🔓(明文可申请的唯一标记,未标则系统提示永不携带明文——
+  // 红线⑥);指引行给出 {{cred:名#字段}} 占位符注入与🔓明文申请两条通道。
   const creds = Array.isArray(credentials) ? credentials.filter(c => c && c.name) : []
   if (creds.length) {
     lines.push('', '## 可用凭据(仅元数据;凭据值你不可见)')
     for (const c of creds) {
-      lines.push(`- **${c.name}**(id:${c.id})${c.description ? `:${c.description}` : ''} 字段:${c.fields.map(f => `${f.key}(${f.type})`).join(', ')}${(c.adapters && c.adapters.length) ? ` ✓可用: ${c.adapters.join('/')}` : ' (无匹配适配器)'}`)
+      lines.push(`- **${c.name}**(id:${c.id})${c.description ? `:${c.description}` : ''} 字段:${c.fields.map(f => `${f.key}(${f.type}${f.aiReadable ? '🔓' : ''})`).join(', ')}${(c.adapters && c.adapters.length) ? ` ✓可用: ${c.adapters.join('/')}` : ' (无匹配适配器)'}`)
     }
-    lines.push('需要凭据内容时用 list_credentials 查清单、read_credential 读字段(需人审):文本字段可见明文,密码字段只见指纹。带 ✓ 标记的凭据可用对应适配器工具(http_request 等,credential 参数用名称)——密码由平台在服务端注入,对你不可见,不要索要或尝试传递密码明文。无匹配适配器的凭据无法由 AI 直接使用:可读其 text 字段(host/用户名等),为用户拼出完整手动命令(密码位置留占位符)并明确告知需用户自行执行。')
+    lines.push('需要凭据内容时用 list_credentials 查清单、read_credential 读字段(需人审):文本字段可见明文,密码字段默认只见指纹;字段名带🔓的密码字段经用户批准可读到明文。带 ✓ 标记的凭据可用对应适配器工具(http_request 等,credential 参数用名称)——密码由平台在服务端注入,对你不可见,不要索要或尝试传递密码明文。执行命令需要用到密码/令牌时,在命令里写 {{cred:凭据名#字段}} 占位符(如 docker login -u ci -p {{cred:reg#password}}),平台执行时注入实际值——你看不到值,命令以占位符形态展示给用户批准。无匹配适配器且未标🔓的凭据无法由 AI 直接使用:可读其 text 字段(host/用户名等),为用户拼出完整手动命令(密码位置留占位符)并明确告知需用户自行执行。')
   }
 
   const extra = String(additionalInstructions || '').trim()

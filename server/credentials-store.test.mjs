@@ -9,6 +9,7 @@ import {
   listCredentials, getCredentialSanitized,
   updateCredential, deleteCredential, materializeField,
   grantCredentialUse, revokeCredentialUse, listCredentialGrants, hasCredentialGrant, resolveCredentialRef,
+  listPromptCredentials,
 } from './credentials-store.mjs'
 
 function makeDb() { const db = new DatabaseSync(':memory:'); createCredentialsSchema(db); return db }
@@ -139,4 +140,69 @@ test('resolveCredentialRef:id 优先/同名歧义回暴露候选/not-found 与 n
   assert.equal(resolveCredentialRef(db, 'hid').reason, 'not-exposed')
   assert.equal(resolveCredentialRef(db, 'nope').reason, 'not-found')
   assert.deepEqual(resolveCredentialRef(db, ''), { ok: false, reason: 'not-found', candidates: [] })
+})
+
+// ═══ 2026-09-20 spec §5:aiReadable 字段标志(仅 password;稀疏存储;三态更新)═══
+test('aiReadable:创建落库+sanitize 带标志;text 上开标志拒收;旧行缺省不可读', () => {
+  const db = makeDb()
+  const s = createCredential(db, KEY, { name: 'gh2', exposeToAi: true, fields: [
+    { key: 'user', type: 'text', value: 'octocat' },
+    { key: 'token', type: 'password', value: 'ghp_plain', aiReadable: true }] }, 'u1')
+  assert.deepEqual(s.fields, [{ key: 'user', type: 'text' }, { key: 'token', type: 'password', aiReadable: true }])
+  const raw = JSON.parse(db.prepare('SELECT fields FROM workbench_credentials WHERE id=?').get(s.id).fields)
+  assert.equal(raw[1].aiReadable, true, '标志落库')
+  assert.ok(raw[0].aiReadable === undefined, 'text 行稀疏不带键')
+  assert.ok(validateCredentialInput({ name: 'x', fields: [{ key: 'a', type: 'text', value: 'v', aiReadable: true }] }).length > 0, 'text 上开标志拒收')
+  assert.ok(validateCredentialInput({ name: 'x', fields: [{ key: 'a', type: 'password', aiReadable: 'yes' }] }).length > 0, '非布尔拒收')
+  // 旧行(无标志键)缺省不可读
+  db.prepare(`INSERT INTO workbench_credentials (id,name,description,tags,expose_to_ai,fields,created_by,created_at,updated_at)
+    VALUES ('old','o','','[]',1,'[{"key":"k","type":"password","enc":"x"}]','',1,1)`).run()
+  assert.deepEqual(getCredentialSanitized(db, 'old').fields, [{ key: 'k', type: 'password' }])
+  // 提示词清单同带标志(listPromptCredentials 自己映射 fields,须同步)
+  assert.ok(listPromptCredentials(db).some(c => c.name === 'gh2' && c.fields.some(f => f.key === 'token' && f.aiReadable === true)))
+})
+
+test('aiReadable 三态更新:值保持仍可翻标志;false 清除;未提交键保持;值覆盖随行', () => {
+  const db = makeDb()
+  const s = createCredential(db, KEY, { name: 'gh3', fields: [{ key: 'token', type: 'password', value: 'v1', aiReadable: true }] })
+  let u = updateCredential(db, KEY, s.id, { fields: [{ key: 'token', type: 'password', aiReadable: false }] })
+  assert.deepEqual(u.fields, [{ key: 'token', type: 'password' }], '值保持+翻 false:标志清除')
+  let raw = JSON.parse(db.prepare('SELECT fields FROM workbench_credentials WHERE id=?').get(s.id).fields)
+  assert.ok(raw[0].aiReadable === undefined && raw[0].enc.startsWith('v1:'), '标志清、密文未重写')
+  u = updateCredential(db, KEY, s.id, { fields: [{ key: 'token', type: 'password' }] })
+  assert.deepEqual(u.fields, [{ key: 'token', type: 'password' }], '未提交键:保持现值(false)')
+  u = updateCredential(db, KEY, s.id, { fields: [{ key: 'token', type: 'password', aiReadable: true }] })
+  assert.deepEqual(u.fields, [{ key: 'token', type: 'password', aiReadable: true }], '值保持+翻 true')
+  u = updateCredential(db, KEY, s.id, { fields: [{ key: 'token', type: 'password', value: 'v2', aiReadable: false }] })
+  raw = JSON.parse(db.prepare('SELECT fields FROM workbench_credentials WHERE id=?').get(s.id).fields)
+  assert.equal(materializeField(db, KEY, s.id, 'token').value, 'v2', '值覆盖生效')
+  assert.ok(raw[0].aiReadable === undefined, '覆盖行标志随行')
+})
+
+// ═══ M3(2026-09-20 final review):>4KB 值不可开 aiReadable ═══
+// agent.mjs MAX_TOOL_CONTENT_CHARS=8192 会截断工具 JSON → 解析失败 → 裸字符串(整段明文)
+// 直接回模型,洗窗完全失效。落库即拒:创建/更新两路、值覆盖/值保持(翻存量标志)两态全防。
+const BIG = 'x'.repeat(4097), OK = 'x'.repeat(4096)
+test('M3:>4KB 值开 aiReadable 拒收(创建+更新值覆盖);≤4096 放行;>4KB 不开标志仍可存(≤16KB 既有上限)', () => {
+  const db = makeDb()
+  // 创建路
+  assert.ok(validateCredentialInput({ name: 'x', fields: [{ key: 'a', type: 'password', value: BIG, aiReadable: true }] })
+    .some(e => e.includes('4KB') && e.includes('aiReadable')), '创建:>4KB+标志 → 校验错误')
+  assert.throws(() => createCredential(db, KEY, { name: 'big1', fields: [{ key: 'a', type: 'password', value: BIG, aiReadable: true }] }), /4KB/, '创建抛 400')
+  const okBig = createCredential(db, KEY, { name: 'bigok', fields: [{ key: 'a', type: 'password', value: OK, aiReadable: true }] })
+  assert.equal(okBig.fields[0].aiReadable, true, '恰 4096 放行')
+  const noFlag = createCredential(db, KEY, { name: 'bignoflag', fields: [{ key: 'a', type: 'password', value: BIG }] })
+  assert.equal(noFlag.fields[0].aiReadable, undefined, '>4KB 不开标志仍可存(16KB 上限不动)')
+  // 更新路:新值 >4KB + 标志 → 拒
+  assert.throws(() => updateCredential(db, KEY, noFlag.id, { fields: [{ key: 'a', type: 'password', value: BIG, aiReadable: true }] }), /4KB/, '值覆盖路拒')
+  // 更新路:值保持,翻存量标志——存量值 >4KB → 拒(需解密量长,不是只看提交载荷)
+  assert.throws(() => updateCredential(db, KEY, noFlag.id, { fields: [{ key: 'a', type: 'password', aiReadable: true }] }), /4KB/, '值保持+翻标志路拒(存量值超限)')
+  // 对照:存量 ≤4096,值保持翻标志 → 放行(既有三态语义不回归)
+  const u = updateCredential(db, KEY, okBig.id, { fields: [{ key: 'a', type: 'password', aiReadable: false }] })
+  assert.equal(u.fields[0].aiReadable, undefined)
+  const u2 = updateCredential(db, KEY, okBig.id, { fields: [{ key: 'a', type: 'password', aiReadable: true }] })
+  assert.equal(u2.fields[0].aiReadable, true, '存量 ≤4096 值保持翻标志放行')
+  // 更新路:值覆盖为 >4KB 且不带标志 → 放行(标志未开,洗窗不适用)
+  const u3 = updateCredential(db, KEY, noFlag.id, { fields: [{ key: 'a', type: 'password', value: BIG }] })
+  assert.equal(materializeField(db, KEY, noFlag.id, 'a').value.length, 4097, '>4KB 无标志覆盖仍可')
 })
