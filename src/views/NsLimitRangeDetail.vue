@@ -145,7 +145,7 @@ const limitSections = computed(() => {
           <h1 class="text-display-lg text-on-surface min-w-0 max-sm:truncate" :title="lr.name">{{ lr.name }}</h1>
           <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-secondary-container/10 text-secondary text-label-caps rounded-full font-medium">LimitRange</span>
-            <span class="text-body-sm text-on-surface-variant">{{ t('common.type') }}: Container</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.type') }}: {{ t('ns.limitRange.container') }}</span>
             <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ lr.age }}</span>
           </div>
         </div>
@@ -211,7 +211,7 @@ const limitSections = computed(() => {
             <input v-model="editForm.defaultCPU" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">Memory</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">{{ t('common.memory') }}</label>
             <input v-model="editForm.defaultMemory" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
         </div>
@@ -224,7 +224,7 @@ const limitSections = computed(() => {
             <input v-model="editForm.defaultRequestCPU" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">Memory</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">{{ t('common.memory') }}</label>
             <input v-model="editForm.defaultRequestMemory" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
         </div>
@@ -237,7 +237,7 @@ const limitSections = computed(() => {
             <input v-model="editForm.maxCPU" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">Memory</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">{{ t('common.memory') }}</label>
             <input v-model="editForm.maxMemory" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
         </div>
@@ -250,7 +250,7 @@ const limitSections = computed(() => {
             <input v-model="editForm.minCPU" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">Memory</label>
+            <label class="text-label-caps text-on-surface-variant block mb-xs text-xs">{{ t('common.memory') }}</label>
             <input v-model="editForm.minMemory" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
           </div>
         </div>

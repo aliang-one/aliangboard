@@ -399,7 +399,7 @@ const refCount = computed(() =>
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.secretDetail.value') }}</label>
-        <textarea v-model="newValue" class="w-full min-h-[100px] resize-y bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="secret value..."></textarea>
+        <textarea v-model="newValue" class="w-full min-h-[100px] resize-y bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" :placeholder="t('ns.secretDetail.valuePlaceholder')"></textarea>
       </div>
     </div>
     <template #actions>

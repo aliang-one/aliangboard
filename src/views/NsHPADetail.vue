@@ -275,10 +275,10 @@ const metricRows = computed(() => {
           </div>
         </template>
         <template #type>
-          <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant">Resource</span>
+          <span class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant border border-outline-variant">{{ t('ns.hpa.resource') }}</span>
         </template>
         <template #targetType>
-          <span class="text-body-sm text-on-surface-variant">Utilization</span>
+          <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpa.utilization') }}</span>
         </template>
         <template #targetValue="{ row }">
           <span class="font-mono text-code-sm font-semibold text-on-surface">{{ row.target }}%</span>
@@ -305,11 +305,11 @@ const metricRows = computed(() => {
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
               <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.metricType') }}</span>
-              <span class="text-body-md text-on-surface">Resource</span>
+              <span class="text-body-md text-on-surface">{{ t('ns.hpa.resource') }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
               <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.targetType') }}</span>
-              <span class="text-body-md text-on-surface">Utilization</span>
+              <span class="text-body-md text-on-surface">{{ t('ns.hpa.utilization') }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
               <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.averageUtilization') }}</span>
@@ -333,11 +333,11 @@ const metricRows = computed(() => {
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
               <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.metricType') }}</span>
-              <span class="text-body-md text-on-surface">Resource</span>
+              <span class="text-body-md text-on-surface">{{ t('ns.hpa.resource') }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
               <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.targetType') }}</span>
-              <span class="text-body-md text-on-surface">Utilization</span>
+              <span class="text-body-md text-on-surface">{{ t('ns.hpa.utilization') }}</span>
             </div>
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
               <span class="text-body-sm text-on-surface-variant">{{ t('ns.hpaDetail.averageUtilization') }}</span>

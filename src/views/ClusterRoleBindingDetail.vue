@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
@@ -8,6 +9,7 @@ import { useResourceApply } from '@/composables/useResourceApply'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -53,8 +55,8 @@ const activeTab = ref('overview')
           <h1 class="text-display-lg text-on-surface max-sm:truncate" :title="crb.name">{{ crb.name }}</h1>
           <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded-full font-medium">CLUSTER-WIDE</span>
-            <span class="text-body-sm text-on-surface-variant">{{ crb.subjects?.length || 0 }} subjects</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ crb.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('clusterRoleDetail.subjectsCount', { n: crb.subjects?.length || 0 }) }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ crb.age }}</span>
           </div>
         </div>
       </div>
@@ -71,7 +73,7 @@ const activeTab = ref('overview')
     <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
       <div class="lg:col-span-8">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Subjects</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('clusterRoleDetail.subjects') }}</h3>
           <div v-if="crb.subjects?.length" class="flex flex-col gap-sm">
             <div v-for="(s, i) in crb.subjects" :key="i" class="flex flex-wrap items-center gap-x-md gap-y-xs p-md bg-surface-container-low rounded-lg">
               <span class="material-symbols-outlined text-tertiary-container shrink-0">{{ s.kind === 'ServiceAccount' ? 'person' : (s.kind === 'Group' ? 'group' : 'person') }}</span>
@@ -80,15 +82,15 @@ const activeTab = ref('overview')
               <span v-if="s.namespace" class="text-body-sm text-on-surface-variant ml-auto shrink-0">{{ s.namespace }}</span>
             </div>
           </div>
-          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">No subjects</p>
+          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">{{ t('clusterRoleDetail.noSubjects') }}</p>
         </div>
       </div>
       <div class="lg:col-span-4">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Role Reference</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('clusterRoleDetail.roleReference') }}</h3>
           <div class="space-y-md">
             <div class="flex justify-between items-center py-sm border-b border-outline-variant/30">
-              <span class="text-body-sm text-on-surface-variant">Kind</span>
+              <span class="text-body-sm text-on-surface-variant">{{ t('common.type') }}</span>
               <span class="text-body-md text-on-surface">{{ crb.roleKind }}</span>
             </div>
             <div class="flex justify-between items-center gap-sm py-sm">
@@ -107,7 +109,7 @@ const activeTab = ref('overview')
   </section>
   <section v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">ClusterRoleBinding Not Found</h2>
-    <button @click="router.push('/rbac')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to RBAC</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'ClusterRoleBinding' }) }}</h2>
+    <button @click="router.push('/rbac')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: 'RBAC' }) }}</button>
   </section>
 </template>

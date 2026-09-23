@@ -105,10 +105,10 @@ const { currentPage, pageSize, paginated, total } = usePagination(filtered, { re
         <div class="flex flex-col gap-xs">
           <StatusChip :status="row.status === 'Ready' ? 'Ready' : 'NotReady'" />
           <div class="flex gap-xs">
-            <span v-if="row.conditions?.DiskPressure" class="px-1 py-0.5 bg-error-container/30 text-error text-xs rounded" title="DiskPressure">Disk</span>
-            <span v-if="row.conditions?.MemoryPressure" class="px-1 py-0.5 bg-error-container/30 text-error text-xs rounded" title="MemoryPressure">Mem</span>
+            <span v-if="row.conditions?.DiskPressure" class="px-1 py-0.5 bg-error-container/30 text-error text-xs rounded" title="DiskPressure">{{ t('nodes.diskChip') }}</span>
+            <span v-if="row.conditions?.MemoryPressure" class="px-1 py-0.5 bg-error-container/30 text-error text-xs rounded" title="MemoryPressure">{{ t('nodes.memChip') }}</span>
             <span v-if="row.conditions?.PIDPressure" class="px-1 py-0.5 bg-error-container/30 text-error text-xs rounded" title="PIDPressure">PID</span>
-            <span v-if="row.taintCount" class="px-1 py-0.5 bg-tertiary-container/20 text-tertiary-container text-xs rounded" title="Taints">{{ row.taintCount }} taint{{ row.taintCount > 1 ? 's' : '' }}</span>
+            <span v-if="row.taintCount" class="px-1 py-0.5 bg-tertiary-container/20 text-tertiary-container text-xs rounded" :title="t('nodes.taints')">{{ t('nodes.taintCount', { n: row.taintCount }) }}</span>
           </div>
         </div>
       </template>

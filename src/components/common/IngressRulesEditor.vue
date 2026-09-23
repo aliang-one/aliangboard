@@ -102,11 +102,11 @@ function fieldError(hi, pi, field) { return errors.value.find(e => e.loc === `ho
       </label>
       <div v-if="defaultBackend.enabled" class="grid grid-cols-2 gap-sm mt-sm">
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Service</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('workload.ingressMap.service') }}</label>
           <PortSelect :model-value="defaultBackend.serviceName" :options="svcOptions" placeholder="my-svc" :empty-hint="t('ns.ingressDetail.defaultBackendSvcHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-sm font-mono" @update:model-value="v => setDb({ serviceName: v })" />
         </div>
         <div>
-          <label class="text-label-caps text-on-surface-variant block mb-xs">Port</label>
+          <label class="text-label-caps text-on-surface-variant block mb-xs">{{ t('workload.edit.port') }}</label>
           <PortSelect :model-value="defaultBackend.servicePort" :options="portsFor(defaultBackend.serviceName)" placeholder="80" :empty-hint="t('ns.ingressDetail.defaultBackendPortHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-1 text-sm font-mono" @update:model-value="v => setDb({ servicePort: v })" />
         </div>
       </div>

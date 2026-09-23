@@ -336,7 +336,7 @@ onBeforeUnmount(unbindDropFollow)
               :class="currentNs === ns.name ? 'bg-primary-container/20 text-primary' : 'text-on-surface'"
             >
               <span class="text-body-md font-medium truncate">{{ ns.name }}</span>
-              <span class="text-xs text-on-surface-variant shrink-0">{{ ns.pods ?? '' }} pods</span>
+              <span class="text-xs text-on-surface-variant shrink-0">{{ ns.pods ?? '' }} {{ t('layout.podsUnit') }}</span>
             </div>
             <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">{{ $t('nav.noMatchingNamespaces') }}</p>
           </div>

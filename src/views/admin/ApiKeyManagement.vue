@@ -212,7 +212,7 @@ async function doRevoke(k) {
       <template #cluster="{ row }"><span class="text-body-sm">{{ clusterName(row.clusterId) }}</span></template>
       <template #state="{ row }">
         <span v-if="row.revokedAt" class="text-body-xs text-error">{{ $t('admin.apiKeys.revokedBadge') }}</span>
-        <span v-else class="text-body-xs text-status-running flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-status-running inline-block"></span>active</span>
+        <span v-else class="text-body-xs text-status-running flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-status-running inline-block"></span>{{ t('admin.apiKeys.active') }}</span>
       </template>
       <template #created="{ row }"><span class="text-body-xs text-on-surface-variant">{{ fmt(row.createdAt) }}</span></template>
       <template #actions="{ row }">
@@ -294,9 +294,9 @@ async function doRevoke(k) {
           </div>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-sm text-body-xs text-on-surface-variant">
-          <div>prefix: <span class="font-mono">{{ newKey.prefix }}</span></div>
-          <div>tier: {{ newKey.tier }}</div>
-          <div>owner: {{ newKey.owner }}</div>
+          <div>{{ t('admin.apiKeys.prefixLabel') }}: <span class="font-mono">{{ newKey.prefix }}</span></div>
+          <div>{{ t('admin.apiKeys.tierLabel') }}: {{ newKey.tier }}</div>
+          <div>{{ t('admin.apiKeys.ownerLabel') }}: {{ newKey.owner }}</div>
           <div>SA: {{ newKey.boundSA_namespace }}/{{ newKey.boundSA_name }}</div>
         </div>
       </div>

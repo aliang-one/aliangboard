@@ -404,7 +404,7 @@ const showRevYamlModal = ref(false)
 const revYamlContent = ref('')
 const revYamlTitle = ref('')
 function viewRevYaml(rev) {
-  revYamlTitle.value = `Rev ${rev.rev} · ${rev.rsName || ''}`
+  revYamlTitle.value = `${t('workload.revisionsTab.rev')} ${rev.rev} · ${rev.rsName || ''}`
   if (rev._template) {
     revYamlContent.value = yamlDump(rev._template)
   } else {
@@ -1391,7 +1391,7 @@ function podStatusBorder(s) {
               :class="revCardClass(rev)">
               <!-- 头：Rev + 徽标 + 年龄 -->
               <div class="flex items-center gap-1 min-w-0">
-                <span class="text-xs font-bold shrink-0" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">Rev {{ rev.rev }}</span>
+                <span class="text-xs font-bold shrink-0" :class="rev.current ? 'text-on-primary' : 'text-on-surface'">{{ t('workload.revisionsTab.rev') }} {{ rev.rev }}</span>
                 <span v-if="rev.current" class="px-1 py-px rounded text-[10px] font-bold leading-none bg-on-primary/20 text-on-primary shrink-0">{{ $t('workload.revision.active') }}</span>
                 <span v-else class="px-1 py-px rounded text-[10px] leading-none shrink-0" :class="selectedRev?.rev === rev.rev ? 'bg-primary/15 text-primary' : 'bg-surface-container text-on-surface-variant/60'">{{ $t('workload.revision.historical') }}</span>
                 <span class="text-[11px] shrink-0 ml-auto" :class="rev.current ? 'text-on-primary/70' : 'text-on-surface-variant/50'">{{ rev.age }}</span>
@@ -1424,7 +1424,7 @@ function podStatusBorder(s) {
             <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/40">
               <span class="material-symbols-outlined text-primary text-base">view_in_ar</span>
               <span class="text-body-sm font-semibold text-on-surface">{{ $t('workload.podList.pods') }}</span>
-              <span class="text-xs text-on-surface-variant">Rev {{ selectedRev.rev }}</span>
+              <span class="text-xs text-on-surface-variant">{{ t('workload.revisionsTab.rev') }} {{ selectedRev.rev }}</span>
               <div class="flex items-center gap-sm ml-auto">
                 <span class="text-xs text-primary font-medium">{{ currentRevPods.filter(p => p.status === 'Running').length }} {{ $t('workload.podList.running') }}</span>
                 <span v-if="currentRevPods.filter(p => p.status !== 'Running').length" class="text-xs text-tertiary-container">{{ currentRevPods.filter(p => p.status !== 'Running').length }} {{ $t('workload.podList.abnormal') }}</span>
@@ -1457,7 +1457,7 @@ function podStatusBorder(s) {
             <div class="flex items-center gap-sm px-md py-2.5 border-b border-outline-variant/40">
               <span class="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center"><span class="material-symbols-outlined text-primary text-sm">history</span></span>
               <span class="text-body-sm font-semibold text-on-surface">{{ $t('workload.revision.historicalRev') }}</span>
-              <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">Rev {{ selectedRev.rev }}</span>
+              <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">{{ t('workload.revisionsTab.rev') }} {{ selectedRev.rev }}</span>
             </div>
             <div class="flex-1 overflow-y-auto flex flex-col">
               <!-- Hero：镜像（最显眼）+ ReplicaSet 副标题 -->
@@ -1551,7 +1551,7 @@ function podStatusBorder(s) {
                   </div>
                   <AreaLineChart :series="windowed(podCpuSeries)" color="primary" unit="m" :ref-lines="podCpuRefLines" :sample-interval-sec="5" :height="72" />
                   <div class="flex items-center gap-xs mt-xs text-[10px] text-on-surface-variant/60">
-                    <span>req {{ podRes.cpuReq || '—' }}m</span><span v-if="podRes.cpuLim">· lim {{ podRes.cpuLim }}m</span>
+                    <span>{{ t('workload.podDetail.resReq') }} {{ podRes.cpuReq || '—' }}m</span><span v-if="podRes.cpuLim">· {{ t('workload.podDetail.resLim') }} {{ podRes.cpuLim }}m</span>
                   </div>
                 </div>
                 <div class="p-md">
@@ -1561,7 +1561,7 @@ function podStatusBorder(s) {
                   </div>
                   <AreaLineChart :series="windowed(podMemSeries)" color="secondary" unit="Mi" :ref-lines="podMemRefLines" :sample-interval-sec="5" :height="72" />
                   <div class="flex items-center gap-xs mt-xs text-[10px] text-on-surface-variant/60">
-                    <span>req {{ podRes.memReq || '—' }}Mi</span><span v-if="podRes.memLim">· lim {{ podRes.memLim }}Mi</span>
+                    <span>{{ t('workload.podDetail.resReq') }} {{ podRes.memReq || '—' }}Mi</span><span v-if="podRes.memLim">· {{ t('workload.podDetail.resLim') }} {{ podRes.memLim }}Mi</span>
                   </div>
                 </div>
               </div>
@@ -1762,7 +1762,7 @@ function podStatusBorder(s) {
     <div v-if="activeTab === 'revisions'">
       <DataTable :headers="revHeaders" :rows="revisions" row-key="rev">
         <template #rev="{ row }">
-          <span class="text-body-sm font-bold" :class="row.current ? 'text-primary' : ''">Rev {{ row.rev }}</span><span v-if="row.current" class="ml-xs text-xs text-primary">●</span>
+          <span class="text-body-sm font-bold" :class="row.current ? 'text-primary' : ''">{{ t('workload.revisionsTab.rev') }} {{ row.rev }}</span><span v-if="row.current" class="ml-xs text-xs text-primary">●</span>
         </template>
         <template #image="{ row }"><span class="font-mono text-xs block truncate max-w-[200px]" :title="row.image">{{ row.image }}</span></template>
         <template #replicas="{ row }"><span class="text-xs">{{ row.readyReplicas }}/{{ row.desiredReplicas }}</span></template>
@@ -1900,13 +1900,13 @@ function podStatusBorder(s) {
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.pullPolicy') }}</label><select v-model="editForm.imagePullPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option>IfNotPresent</option><option>Always</option><option>Never</option></select></div>
             <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.command') }}</label><input v-model="editForm.command" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.commandPlaceholder')" /></div>
             <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.args') }}<span class="ml-xs font-normal text-on-surface-variant/70">{{ $t('workload.edit.argsHint') }}</span></label><textarea v-model="editForm.args" rows="2" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-y" :placeholder="$t('workload.edit.argsPlaceholder')" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Working Dir</label><input v-model="editForm.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.workingDir') }}</label><input v-model="editForm.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app" /></div>
           </div>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-xs">
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">CPU Req</label><ResourceInput v-model="editForm.cpuReq" kind="cpu" placeholder="250" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">CPU Lim</label><ResourceInput v-model="editForm.cpuLim" kind="cpu" placeholder="500" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Req</label><ResourceInput v-model="editForm.memReq" kind="memory" placeholder="256" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Mem Lim</label><ResourceInput v-model="editForm.memLim" kind="memory" placeholder="512" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.cpuReq') }}</label><ResourceInput v-model="editForm.cpuReq" kind="cpu" placeholder="250" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.cpuLim') }}</label><ResourceInput v-model="editForm.cpuLim" kind="cpu" placeholder="500" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.memReq') }}</label><ResourceInput v-model="editForm.memReq" kind="memory" placeholder="256" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.memLim') }}</label><ResourceInput v-model="editForm.memLim" kind="memory" placeholder="512" /></div>
           </div>
           <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.initContainers') }}</span><button @click="editForm.initContainers.push(makeSubContainer())" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addInit') }}</button></div>
           <div v-for="(c, idx) in editForm.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">
@@ -1933,10 +1933,10 @@ function podStatusBorder(s) {
               <textarea v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
             </div>
             <div class="grid grid-cols-2 gap-xs">
-              <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
-              <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
-              <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
-              <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
+              <ResourceInput v-model="c.cpuRequest" kind="cpu" :placeholder="t('deploy.cpuReqPlaceholder')" />
+              <ResourceInput v-model="c.cpuLimit" kind="cpu" :placeholder="t('deploy.cpuLimPlaceholder')" />
+              <ResourceInput v-model="c.memoryRequest" kind="memory" :placeholder="t('deploy.memReqPlaceholder')" />
+              <ResourceInput v-model="c.memoryLimit" kind="memory" :placeholder="t('deploy.memLimPlaceholder')" />
             </div>
             <button @click="editForm.initContainers.splice(idx, 1)" class="mt-xs self-start text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
@@ -1964,10 +1964,10 @@ function podStatusBorder(s) {
               <textarea v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
             </div>
             <div class="grid grid-cols-2 gap-xs">
-              <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
-              <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
-              <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
-              <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
+              <ResourceInput v-model="c.cpuRequest" kind="cpu" :placeholder="t('deploy.cpuReqPlaceholder')" />
+              <ResourceInput v-model="c.cpuLimit" kind="cpu" :placeholder="t('deploy.cpuLimPlaceholder')" />
+              <ResourceInput v-model="c.memoryRequest" kind="memory" :placeholder="t('deploy.memReqPlaceholder')" />
+              <ResourceInput v-model="c.memoryLimit" kind="memory" :placeholder="t('deploy.memLimPlaceholder')" />
             </div>
             <button @click="editForm.extraContainers.splice(idx, 1)" class="mt-xs self-start text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
           </div>
@@ -2002,14 +2002,14 @@ function podStatusBorder(s) {
               <select v-if="editForm[probe.k].enabled" v-model="editForm[probe.k].type" class="ml-auto bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"><option value="http">HTTP</option><option value="tcp">TCP</option><option value="exec">Exec</option></select>
             </div>
             <div v-if="editForm[probe.k].enabled" class="grid grid-cols-1 sm:grid-cols-3 gap-xs">
-              <div v-if="editForm[probe.k].type === 'http'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">HTTP Path</label><input v-model="editForm[probe.k].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/health" /></div>
-              <div v-if="editForm[probe.k].type !== 'exec'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Port</label><input v-model.number="editForm[probe.k].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="8080" /></div>
-              <div v-if="editForm[probe.k].type === 'exec'" class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">Exec Command</label><input v-model="editForm[probe.k].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c healthy" /></div>
-              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Initial Delay</label><input v-model.number="editForm[probe.k].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
-              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Period</label><input v-model.number="editForm[probe.k].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
-              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Timeout</label><input v-model.number="editForm[probe.k].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
-              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Failure</label><input v-model.number="editForm[probe.k].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
-              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Success</label><input v-model.number="editForm[probe.k].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div v-if="editForm[probe.k].type === 'http'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.httpPath') }}</label><input v-model="editForm[probe.k].httpPath" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/health" /></div>
+              <div v-if="editForm[probe.k].type !== 'exec'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.port') }}</label><input v-model.number="editForm[probe.k].port" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="8080" /></div>
+              <div v-if="editForm[probe.k].type === 'exec'" class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.execCommand') }}</label><input v-model="editForm[probe.k].execCommand" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c healthy" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.initialDelay') }}</label><input v-model.number="editForm[probe.k].initialDelaySeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.period') }}</label><input v-model.number="editForm[probe.k].periodSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.timeout') }}</label><input v-model.number="editForm[probe.k].timeoutSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.failure') }}</label><input v-model.number="editForm[probe.k].failureThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+              <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.success') }}</label><input v-model.number="editForm[probe.k].successThreshold" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
             </div>
           </div>
         </section>
@@ -2040,8 +2040,8 @@ function podStatusBorder(s) {
             <div class="col-span-3"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.capabilitiesDrop') }}</label><input v-model="editForm.securityContext.dropCaps" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.capabilitiesDropPlaceholder')" /></div>
           </div>
           <div class="grid grid-cols-2 gap-xs">
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Lifecycle postStart</label><input v-model="editForm.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c init (exec)" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">Lifecycle preStop</label><input v-model="editForm.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c stop (exec)" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.lifecycle') }} postStart</label><input v-model="editForm.lifecycle.postStart" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c init (exec)" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.lifecycle') }} preStop</label><input v-model="editForm.lifecycle.preStop" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/bin/sh -c stop (exec)" /></div>
           </div>
         </section>
 

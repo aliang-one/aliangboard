@@ -122,8 +122,8 @@ watch(activeTab, t => { if (t === 'files' && !fInited.value) browsePvc('/') })
           <h1 class="text-display-lg text-on-surface min-w-0 max-sm:truncate" :title="pvc.name">{{ pvc.name }}</h1>
           <div class="flex items-center gap-md mt-xs flex-wrap">
             <StatusChip :status="pvc.status" />
-            <span class="text-body-sm text-on-surface-variant">Capacity: <span class="font-mono text-primary font-semibold">{{ pvc.capacity }}</span></span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ pvc.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('storage.thCapacity') }}: <span class="font-mono text-primary font-semibold">{{ pvc.capacity }}</span></span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ pvc.age }}</span>
           </div>
         </div>
       </div>

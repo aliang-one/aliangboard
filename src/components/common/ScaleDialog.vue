@@ -40,7 +40,7 @@ function decrement() { if (replicas.value > 0) replicas.value-- }
           <span class="material-symbols-outlined text-primary">timeline</span>
         </div>
         <div>
-          <h3 class="text-headline-sm font-bold">Scale Replicas</h3>
+          <h3 class="text-headline-sm font-bold">{{ t('workload.modals.scaleTitle') }}</h3>
           <p class="text-body-sm text-on-surface-variant font-mono">{{ workloadName }}</p>
         </div>
       </div>
@@ -51,7 +51,7 @@ function decrement() { if (replicas.value > 0) replicas.value-- }
         </button>
         <div class="text-center">
           <input v-model.number="replicas" type="number" min="0" class="w-20 text-center text-headline-md font-bold bg-transparent outline-none text-primary" />
-          <p class="text-body-sm text-on-surface-variant">replicas</p>
+          <p class="text-body-sm text-on-surface-variant">{{ t('workload.edit.replicas') }}</p>
         </div>
         <button @click="increment" class="w-10 h-10 rounded-full bg-surface-container border border-outline-variant flex items-center justify-center text-on-surface hover:bg-surface-container-high transition-colors">
           <span class="material-symbols-outlined">add</span>
@@ -66,7 +66,7 @@ function decrement() { if (replicas.value > 0) replicas.value-- }
       </div>
 
       <div class="flex justify-end gap-sm">
-        <button @click="emit('close')" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+        <button @click="emit('close')" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
         <button @click="handleScale" :disabled="loading || replicas === currentReplicas" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 active:scale-95 transition-all flex items-center gap-sm disabled:opacity-40">
           <span v-if="loading" class="material-symbols-outlined animate-spin text-lg">progress_activity</span>
           <span v-else class="material-symbols-outlined text-lg">check_circle</span>

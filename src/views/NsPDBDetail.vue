@@ -96,7 +96,7 @@ async function handleDelete() {
             <span class="px-2.5 py-0.5 rounded-full text-label-caps font-medium border bg-primary-container/10 text-primary border-primary/20">
               <span class="material-symbols-outlined text-xs align-middle mr-1">shield</span>PodDisruptionBudget
             </span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ pdb.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ pdb.age }}</span>
           </div>
         </div>
       </div>

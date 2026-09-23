@@ -87,7 +87,7 @@ function onConfirm() {
           <label for="ced-name" class="text-xs text-on-surface-variant block mb-xs">{{ t('deploy.containerName') }}</label>
           <input id="ced-name" data-testid="ced-name-input" v-model="draft.name" @blur="markTouched('name')"
             class="w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20"
-            :class="showErr('name') ? 'border-error' : 'border-outline-variant'" placeholder="init name" />
+            :class="showErr('name') ? 'border-error' : 'border-outline-variant'" :placeholder="t('deploy.initNamePlaceholder')" />
           <p v-if="showErr('name')" data-testid="ced-name-error" class="text-xs text-error mt-xs">{{ t(showErr('name').msgKey, showErr('name').params) }}</p>
           <p v-else-if="!draft.name" data-testid="ced-auto-name-preview" class="text-xs text-on-surface-variant mt-xs">
             {{ autoName.conflict ? t('deploy.containerFv.autoNameDedupeNote', { name: autoName.base }) : t('deploy.containerFv.autoNamePreview', { name: autoName.base }) }}
@@ -97,7 +97,7 @@ function onConfirm() {
           <label for="ced-image" class="text-xs text-on-surface-variant block mb-xs">{{ t('deploy.imageUrl') }}</label>
           <input id="ced-image" data-testid="ced-image-input" v-model="draft.image" @blur="markTouched('image')"
             class="w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20"
-            :class="showErr('image') ? 'border-error' : 'border-outline-variant'" placeholder="image" />
+            :class="showErr('image') ? 'border-error' : 'border-outline-variant'" :placeholder="t('deploy.imagePlaceholder')" />
           <p v-if="showErr('image')" data-testid="ced-image-error" class="text-xs text-error mt-xs">{{ t(showErr('image').msgKey, showErr('image').params) }}</p>
         </div>
         <div v-if="kind === 'sidecar'" class="flex flex-col gap-xs">

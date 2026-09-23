@@ -159,7 +159,7 @@ async function saveEdit() {
           <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="text-body-sm text-on-surface-variant font-mono break-all">{{ ic.controller }}</span>
             <span v-if="ic.isDefault" class="px-2.5 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded-full font-medium">DEFAULT</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ ic.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ ic.age }}</span>
           </div>
         </div>
       </div>

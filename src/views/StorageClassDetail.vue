@@ -90,7 +90,7 @@ async function handleDelete() {
           <div class="flex items-center gap-md mt-xs flex-wrap">
             <span v-if="sc.default" class="px-2.5 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded-full font-medium">DEFAULT</span>
             <span class="text-body-sm text-on-surface-variant font-mono break-all">{{ sc.provisioner }}</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ sc.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ sc.age }}</span>
           </div>
         </div>
       </div>
@@ -119,10 +119,10 @@ async function handleDelete() {
     <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
       <div class="lg:col-span-8">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">StorageClass Details</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('storageclass.detailsTitle') }}</h3>
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">PROVISIONER</p><p class="font-mono text-code-sm text-on-surface break-all">{{ sc.provisioner }}</p></div>
-            <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">RECLAIM POLICY</p><p class="text-body-md text-on-surface">{{ sc.reclaimPolicy }}</p></div>
+            <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">{{ t('storage.thReclaim') }}</p><p class="text-body-md text-on-surface">{{ sc.reclaimPolicy }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">DEFAULT</p><p class="text-body-md text-on-surface">{{ sc.default ? 'Yes' : 'No' }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">AGE</p><p class="text-body-md text-on-surface">{{ sc.age }}</p></div>
           </div>
@@ -136,7 +136,7 @@ async function handleDelete() {
       </div>
       <div class="lg:col-span-4">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Bound PVCs ({{ boundPVCs.length }})</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('storageclass.boundPvcs', { n: boundPVCs.length }) }}</h3>
           <div v-if="boundPVCs.length" class="flex flex-col gap-sm">
             <button v-for="p in boundPVCs" :key="p.name" @click="router.push({ name: 'NsPVCDetail', params: { namespace: p.namespace, name: p.name } })"
               class="flex items-center justify-between px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors">
@@ -144,7 +144,7 @@ async function handleDelete() {
               <span class="text-body-sm text-on-surface-variant">{{ p.namespace }} · {{ p.capacity }}</span>
             </button>
           </div>
-          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">No PVCs bound</p>
+          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">{{ t('storageclass.noBoundPvcs') }}</p>
         </div>
       </div>
     </div>
@@ -162,7 +162,7 @@ async function handleDelete() {
         </label>
         <div>
           <div class="flex items-center justify-between mb-xs">
-            <label class="text-label-caps text-on-surface-variant">Labels</label>
+            <label class="text-label-caps text-on-surface-variant">{{ t('common.labels') }}</label>
             <button @click="addLabelRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
           </div>
           <div v-for="(row, i) in editForm.labels" :key="'l'+i" class="flex gap-xs mb-xs">
@@ -174,7 +174,7 @@ async function handleDelete() {
         </div>
         <div>
           <div class="flex items-center justify-between mb-xs">
-            <label class="text-label-caps text-on-surface-variant">Annotations</label>
+            <label class="text-label-caps text-on-surface-variant">{{ t('common.annotations') }}</label>
             <button @click="addAnnRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
           </div>
           <div v-for="(row, i) in editForm.annotations" :key="'a'+i" class="flex gap-xs mb-xs">
@@ -203,7 +203,7 @@ async function handleDelete() {
   </section>
   <section v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">StorageClass Not Found</h2>
-    <button @click="router.push('/storage')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Storage</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'StorageClass' }) }}</h2>
+    <button @click="router.push('/storage')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: t('storage.title') }) }}</button>
   </section>
 </template>

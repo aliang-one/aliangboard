@@ -240,7 +240,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
       <div class="flex items-center gap-sm shrink-0">
         <span v-if="status === 'open'" class="flex items-center gap-xs">
           <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
-          <span class="text-body-sm text-primary">Live</span>
+          <span class="text-body-sm text-primary">{{ t('common.watchLive') }}</span>
         </span>
         <span v-else-if="status !== 'idle'" class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
         <button @click="connect" :title="t('terminal.reconnectTitle')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
@@ -263,7 +263,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
       <button @click="connect" :disabled="status === 'connecting'"
         class="px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold hover:opacity-90 flex items-center gap-sm disabled:opacity-50">
         <span class="material-symbols-outlined">terminal</span>
-        Connect to Terminal
+        {{ t('terminal.connect') }}
       </button>
     </div>
 

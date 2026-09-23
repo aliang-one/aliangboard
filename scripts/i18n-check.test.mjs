@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { scanSource, parity, extractKeyRefs, missingKeys, danglingKeyLiterals, duplicateKeys, valueIssues } from './i18n-check.mjs'
+import { scanSource, parity, extractKeyRefs, missingKeys, danglingKeyLiterals, duplicateKeys, valueIssues, untranslatedValues } from './i18n-check.mjs'
 
 test('scanSource 报告模板/脚本中文，排除注释与 console', () => {
   const hits = scanSource('src/__tests__/fixtures/i18n/sample.vue') // [{ file, line, text }]
@@ -104,4 +104,29 @@ test('valueIssues 干净键值返回空（含单侧空=有意省略）', () => {
 test('valueIssues 对真实 locale 文件返回空（回归）', () => {
   const v = valueIssues()
   assert.equal(v.length, 0)
+})
+
+test('untranslatedValues 检出 zh==en 且含英文的漏译键', () => {
+  const zh = { a: { save: 'Save', name: '名称' }, b: { count: '{n} items' } }
+  const en = { a: { save: 'Save', name: 'Name' }, b: { count: '{n} items' } }
+  const v = untranslatedValues(zh, en)
+  const keys = v.map(x => x.key)
+  assert.ok(keys.includes('a.save'), 'zh==en 纯英文应红灯')
+  assert.ok(keys.includes('b.count'), '含占位符的漏译同样红灯')
+  assert.ok(!keys.includes('a.name'), '已译(zh!=en)不应报')
+})
+
+
+test('untranslatedValues 豁免名单生效：K8s 原生种类名(zh==en)不报', () => {
+  // workload.podList.pods 在 UNTRANSLATED_ALLOW(K8s 原生种类刻意双语同文)
+  const both = { workload: { podList: { pods: 'Pods' }, template: 'Template' } }
+  const v = untranslatedValues(both, JSON.parse(JSON.stringify(both)))
+  const keys = v.map(x => x.key)
+  assert.ok(!keys.includes('workload.podList.pods'), '豁免名单内的键不应报')
+  assert.ok(keys.includes('workload.template'), '名单外的键必须报(证明豁免路径真被走到)')
+})
+
+test('untranslatedValues 对真实 locale 文件返回空(回归:issue#10 修复态固化)', () => {
+  const v = untranslatedValues()
+  assert.deepEqual(v, [], '真实 locale 不应再有漏译: ' + JSON.stringify(v.slice(0, 5)))
 })

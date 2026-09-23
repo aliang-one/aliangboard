@@ -69,7 +69,11 @@
     "noDefaultPriorityClassHint": "No globalDefault PriorityClass in this cluster — pods without an explicit priority get priority 0.",
     "noDefaultStorageClassHint": "No default StorageClass in this cluster — select one explicitly.",
     "setAsDefault": "Set as default",
-    "unsetDefault": "Unset default"
+    "unsetDefault": "Unset default",
+    "key": "Key",
+    "value": "Value",
+    "labels": "Labels",
+    "annotations": "Annotations"
   },
   "api": {
     "requestFailed": "Request failed: HTTP {status}",
@@ -726,7 +730,9 @@
       "found": "New version available",
       "view": "View releases",
       "dismiss": "Dismiss"
-    }
+    },
+    "lastUpdated": "Last Updated",
+    "podsUnit": "pods"
   },
   "clusters": {
     "title": "Cluster Management",
@@ -819,7 +825,11 @@
     "synced": "Nodes synced",
     "syncFailed": "Sync failed",
     "noNodesTitle": "No nodes found",
-    "noNodesDesc": "No nodes in the cluster, or filtered by search."
+    "noNodesDesc": "No nodes in the cluster, or filtered by search.",
+    "diskChip": "Disk",
+    "memChip": "Mem",
+    "taintCount": "{n} taint(s)",
+    "taints": "Taints"
   },
   "ns": {
     "pdbDetail": {
@@ -934,7 +944,8 @@
       "addAnnotationTitle": "Add Annotation",
       "annotationKey": "Annotation Key",
       "addLabelTitle": "Add Label",
-      "labelKey": "Label Key"
+      "labelKey": "Label Key",
+      "valuePlaceholder": "config value..."
     },
     "configmaps": {
       "title": "ConfigMaps",
@@ -1594,7 +1605,8 @@
       "intTrafficLabel": "Internal Traffic",
       "deleteTitle": "Delete Service",
       "deleteConfirm": "Are you sure you want to delete service {name}?",
-      "deleteWarning": "This will disrupt traffic to the backend pods. This action cannot be undone."
+      "deleteWarning": "This will disrupt traffic to the backend pods. This action cannot be undone.",
+      "targetPlaceholder": "target"
     },
     "endpoints": {
       "title": "Endpoints",
@@ -1635,7 +1647,9 @@
       "updating": "Updating",
       "warning": "Warning",
       "failed": "Failed",
-      "fastPolling": "Deploying · 3s refresh"
+      "fastPolling": "Deploying · 3s refresh",
+      "created": "Created",
+      "backend": "Backend"
     },
     "pdb": {
       "title": "PodDisruptionBudgets",
@@ -1725,7 +1739,9 @@
       "memoryTargetLabel": "Memory Target (%)",
       "deleteModalTitle": "Delete HPA",
       "deleteConfirm": "Are you sure you want to delete HPA {name}?",
-      "deleteWarning": "The target workload will no longer be autoscaled. This action cannot be undone."
+      "deleteWarning": "The target workload will no longer be autoscaled. This action cannot be undone.",
+      "resource": "Resource",
+      "utilization": "Utilization"
     },
     "limitRanges": {
       "title": "LimitRanges",
@@ -1829,7 +1845,8 @@
       "addAnnotationTitle": "Add Annotation",
       "annotationKey": "Annotation Key",
       "addLabelTitle": "Add Label",
-      "labelKey": "Label Key"
+      "labelKey": "Label Key",
+      "valuePlaceholder": "secret value..."
     },
     "roleDetail": {
       "roleDetails": "Role Details",
@@ -1928,6 +1945,9 @@
       "minLimits": "Min Limits",
       "descMinLimits": "Minimum resource limits that can be set on containers",
       "deleteWarning": "Removing a LimitRange removes default resource constraints for containers. This action cannot be undone."
+    },
+    "limitRange": {
+      "container": "Container"
     }
   },
   "deploy": {
@@ -2211,7 +2231,17 @@
     "volumeDefaultModeInvalid": "Volume #{n} defaultMode must be 3-4 octal digits (e.g. 0400)",
     "volumeMountPathDuplicate": "Volume #{n} conflicts with another mount's path (must be unique per container)",
     "volumeNameDuplicate": "Volume #{n} duplicates another entry's volume name; the latter's source will not take effect",
-    "volumeOrphanMount": "Volume #{n} has a mount path but no source, producing invalid YAML that references a nonexistent volume"
+    "volumeOrphanMount": "Volume #{n} has a mount path but no source, producing invalid YAML that references a nonexistent volume",
+    "portPlaceholder": "Port (e.g. 8080)",
+    "initNamePlaceholder": "init name",
+    "sidecarNamePlaceholder": "sidecar name",
+    "imagePlaceholder": "image",
+    "cpuReqPlaceholder": "cpu req",
+    "cpuLimPlaceholder": "cpu lim",
+    "memReqPlaceholder": "mem req",
+    "memLimPlaceholder": "mem lim",
+    "labelKeyPlaceholder": "label key (e.g. disktype)",
+    "labelValuePlaceholder": "value (e.g. ssd)"
   },
   "workload": {
     "notFound": "Workload Not Found",
@@ -2284,7 +2314,8 @@
       "nodeSelector": "Node Selector",
       "add": "Add",
       "tolerations": "Tolerations",
-      "type": "Type"
+      "type": "Type",
+      "lifecycle": "Lifecycle"
     },
     "template": "Template",
     "delete": "Delete",
@@ -2437,7 +2468,9 @@
       "exportRealYaml": "Export real YAML (kubectl get -o yaml)",
       "logLoadFailed": "Log read failed",
       "logStreamFailed": "Log stream interrupted",
-      "loadYamlFailed": "Load failed: {error}"
+      "loadYamlFailed": "Load failed: {error}",
+      "resReq": "req",
+      "resLim": "lim"
     },
     "bottomBar": {
       "labels": "Labels",
@@ -3200,7 +3233,8 @@
       "exOpenAILabel": "OpenAI:",
       "temperatureLabel": "temperature (blank = model default)",
       "maxTokensLabel": "max tokens (blank = model default)",
-      "paramsHint": "Optional params; when blank, the request omits these fields."
+      "paramsHint": "Optional params; when blank, the request omits these fields.",
+      "apiKey": "API Key"
     },
     "aiBehavior": {
       "title": "AI Behavior Config",
@@ -3305,7 +3339,11 @@
       "sshAccessTitle": "Grant this key the ability to call SSH tools via MCP (server visibility still gated by per-server \"expose to AI\")",
       "sshAccessHint": "Once granted, external AI clients can reach exposed servers via MCP; read-only/limited commands follow each server approval policy",
       "sshAccessOn": "SSH granted (click to revoke)",
-      "sshAccessOff": "SSH not granted (click to grant)"
+      "sshAccessOff": "SSH not granted (click to grant)",
+      "active": "Active",
+      "prefixLabel": "prefix",
+      "tierLabel": "tier",
+      "ownerLabel": "owner"
     },
     "users": {
       "title": "User Management",
@@ -3437,7 +3475,8 @@
       "thAge": "AGE",
       "noInstances": "No instances for this CRD",
       "noMatchSearch": "No matching CRD",
-      "noCrds": "No registered CRDs in current cluster"
+      "noCrds": "No registered CRDs in current cluster",
+      "fullName": "FULL NAME"
     },
     "ingressClasses": {
       "title": "IngressClasses",
@@ -3521,7 +3560,8 @@
       "deleteTitle": "Delete PriorityClass",
       "deleteConfirm": "Are you sure you want to delete PriorityClass <span class=\"text-on-surface font-semibold font-mono\">{name}</span>?",
       "deleteWarning": "This priority class will be removed. Pods referencing it will lose the corresponding priority. This action cannot be undone.",
-      "delete": "Delete"
+      "delete": "Delete",
+      "detailsTitle": "PriorityClass Details"
     },
     "runtimeClasses": {
       "title": "RuntimeClasses",
@@ -4004,7 +4044,9 @@
       "recapClearConfirm": "Clear the project memory? AI will no longer carry this context (summary watermark resets; it rebuilds from new chats).",
       "recapSaved": "Project memory updated",
       "recapClearDone": "Project memory cleared",
-      "recapSaveFailed": "Failed to save project memory, please retry"
+      "recapSaveFailed": "Failed to save project memory, please retry",
+      "jobIdLabel": "jobId",
+      "pathLabel": "Path"
     },
     "shell": {
       "title": "Workbench",
@@ -4323,7 +4365,8 @@
     "ephemeralHint": "Image has no tmux — this terminal won't survive refresh",
     "statusReconnecting": "Reconnecting…",
     "reconnecting": "Connection lost, reconnecting… (attempt {n})",
-    "reconnected": "Reconnected"
+    "reconnected": "Reconnected",
+    "connect": "Connect to Terminal"
   },
   "logPopup": {
     "title": "Logs · {pod}/{container}",
@@ -4335,7 +4378,10 @@
     "setDefaultLabel": "Set as default StorageClass",
     "annotationHint": "System annotation <code>storageclass.kubernetes.io/is-default-class</code> is controlled by the default toggle, not listed here.",
     "deleteModalTitle": "Delete StorageClass",
-    "deleteConfirm": "Confirm delete StorageClass <span class=\"text-on-surface font-semibold\">{name}</span>? This operation cannot be undone."
+    "deleteConfirm": "Confirm delete StorageClass <span class=\"text-on-surface font-semibold\">{name}</span>? This operation cannot be undone.",
+    "detailsTitle": "StorageClass Details",
+    "boundPvcs": "Bound PVCs ({n})",
+    "noBoundPvcs": "No PVCs bound"
   },
   "certs": {
     "title": "Cluster Certificates",
@@ -4391,7 +4437,8 @@
   "pv": {
     "editModalTitle": "Edit PersistentVolume (mutable fields only)",
     "deleteModalTitle": "Delete PersistentVolume",
-    "deleteConfirm": "Confirm delete PV <span class=\"text-on-surface font-semibold\">{name}</span>? This operation cannot be undone."
+    "deleteConfirm": "Confirm delete PV <span class=\"text-on-surface font-semibold\">{name}</span>? This operation cannot be undone.",
+    "detailsTitle": "PersistentVolume Details"
   },
   "clusterHealth": {
     "reasonApiUnreachable": "API unreachable or not connected",
@@ -4889,5 +4936,19 @@
     "runs": "Runs",
     "lastError": "Last error",
     "empty": "No registered state"
+  },
+  "clusterRoleDetail": {
+    "policyRules": "Policy Rules",
+    "noRules": "No rules",
+    "bindings": "Bindings ({n})",
+    "subjects": "Subjects",
+    "noSubjects": "No subjects",
+    "roleReference": "Role Reference",
+    "rulesCount": "{rules} rules · {bindings} bindings",
+    "subjectsCount": "{n} subject(s)",
+    "noBindings": "No bindings"
+  },
+  "runtimeClassDetail": {
+    "toleration": "toleration"
   }
 }

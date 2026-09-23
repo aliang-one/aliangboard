@@ -267,7 +267,7 @@ function saveEditLabel() {
               <div class="px-sm py-1.5 bg-surface-container-low flex items-center gap-xs">
                 <span class="material-symbols-outlined text-primary text-base">language</span>
                 <span class="font-mono text-code-sm text-primary font-semibold truncate">{{ group.host }}</span>
-                <span class="ml-auto text-[10px] text-on-surface-variant shrink-0">{{ group.paths.length }} path</span>
+                <span class="ml-auto text-[10px] text-on-surface-variant shrink-0">{{ t('ns.ingressDetail.pathCount', { n: group.paths.length }) }}</span>
               </div>
               <div class="divide-y divide-outline-variant/20">
                 <div v-for="(p, i) in group.paths" :key="i" class="px-sm py-1.5 flex items-center gap-sm flex-wrap">

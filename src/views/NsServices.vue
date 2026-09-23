@@ -333,7 +333,7 @@ async function handleDelete() {
           <div v-for="(p, idx) in createForm.ports" :key="idx" class="flex gap-xs items-center flex-wrap">
             <input v-model="p.port" type="number" class="w-20 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="port" />
             <span class="text-on-surface-variant text-body-sm">→</span>
-            <PortSelect v-model="p.targetPort" :options="nsContainerPorts" placeholder="target" :empty-hint="t('ns.services.targetPortHint')" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
+            <PortSelect v-model="p.targetPort" :options="nsContainerPorts" :placeholder="t('ns.services.targetPlaceholder')" :empty-hint="t('ns.services.targetPortHint')" input-class="w-24 bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" />
             <select v-model="p.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-sm py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary">
               <option>TCP</option><option>UDP</option><option>SCTP</option>
             </select>

@@ -210,7 +210,7 @@ defineExpose({ refit, replayed, connectIfIdle, connect, status })
       <div class="flex items-center gap-sm shrink-0">
         <span v-if="status === 'open'" class="flex items-center gap-xs">
           <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
-          <span class="text-body-sm text-primary">Live</span>
+          <span class="text-body-sm text-primary">{{ t('common.watchLive') }}</span>
         </span>
         <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'reconnecting' ? t('terminal.statusReconnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
         <button data-test="btnReconnect" @click="connect" :title="t('ssh.reconnect')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">

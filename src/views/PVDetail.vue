@@ -89,8 +89,8 @@ async function handleDelete() {
           <h1 class="text-display-lg text-on-surface max-sm:truncate" :title="pv.name">{{ pv.name }}</h1>
           <div class="flex items-center gap-md mt-xs flex-wrap">
             <StatusChip :status="pv.status" />
-            <span class="text-body-sm text-on-surface-variant">Capacity: <span class="font-mono text-primary font-semibold">{{ pv.capacity }}</span></span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ pv.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('storage.thCapacity') }}: <span class="font-mono text-primary font-semibold">{{ pv.capacity }}</span></span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ pv.age }}</span>
           </div>
         </div>
       </div>
@@ -113,12 +113,12 @@ async function handleDelete() {
     <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
       <div class="lg:col-span-8">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">PersistentVolume Details</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('pv.detailsTitle') }}</h3>
           <div class="grid grid-cols-2 gap-md">
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">STATUS</p><StatusChip :status="pv.status" size="sm" /></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">CAPACITY</p><p class="font-mono text-code-sm text-primary font-semibold">{{ pv.capacity }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">ACCESS MODE</p><p class="text-body-md text-on-surface" :title="accessModeLabels[pv.accessModes]">{{ pv.accessModes }} · {{ accessModeLabels[pv.accessModes] || pv.accessModes }}</p></div>
-            <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">RECLAIM POLICY</p><p class="text-body-md text-on-surface">{{ pv.reclaimPolicy }}</p></div>
+            <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">{{ t('storage.thReclaim') }}</p><p class="text-body-md text-on-surface">{{ pv.reclaimPolicy }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">STORAGECLASS</p><p class="text-body-md text-on-surface">{{ pv.storageClass || '—' }}</p></div>
             <div class="p-md rounded-lg bg-surface-container-low"><p class="text-label-caps text-on-surface-variant mb-xs">CLAIM</p><p class="font-mono text-code-sm" :class="pv.claim ? 'text-primary' : 'text-on-surface-variant'">{{ pv.claim || 'Available' }}</p></div>
           </div>
@@ -168,7 +168,7 @@ async function handleDelete() {
         </div>
         <div>
           <div class="flex items-center justify-between mb-xs">
-            <label class="text-label-caps text-on-surface-variant">Labels</label>
+            <label class="text-label-caps text-on-surface-variant">{{ t('common.labels') }}</label>
             <button @click="addLabelRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
           </div>
           <div v-for="(row, i) in editForm.labels" :key="'l'+i" class="flex gap-xs mb-xs">
@@ -180,7 +180,7 @@ async function handleDelete() {
         </div>
         <div>
           <div class="flex items-center justify-between mb-xs">
-            <label class="text-label-caps text-on-surface-variant">Annotations</label>
+            <label class="text-label-caps text-on-surface-variant">{{ t('common.annotations') }}</label>
             <button @click="addAnnRow" type="button" class="text-body-sm text-primary font-medium hover:underline">+ {{ t('common.add') }}</button>
           </div>
           <div v-for="(row, i) in editForm.annotations" :key="'a'+i" class="flex gap-xs mb-xs">
@@ -208,7 +208,7 @@ async function handleDelete() {
   </section>
   <section v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">PersistentVolume Not Found</h2>
-    <button @click="router.push('/storage')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to Storage</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'PersistentVolume' }) }}</h2>
+    <button @click="router.push('/storage')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: t('storage.title') }) }}</button>
   </section>
 </template>

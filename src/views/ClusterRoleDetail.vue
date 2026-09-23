@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useLiveYaml } from '@/composables/useLiveYaml'
@@ -8,6 +9,7 @@ import { useResourceDetail, useResourceList } from '@/composables/useK8sQuery'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useClusterStore()
@@ -49,7 +51,7 @@ const bindings = computed(() => (clusterRoleBindingsQuery.data.value || []).filt
           <h1 class="text-display-lg text-on-surface max-sm:truncate" :title="role.name">{{ role.name }}</h1>
           <div class="flex items-center gap-md mt-xs flex-wrap">
             <span class="px-2.5 py-0.5 bg-primary-container/20 text-primary text-label-caps rounded-full font-medium">CLUSTER-WIDE</span>
-            <span class="text-body-sm text-on-surface-variant">{{ role.rules?.length || 0 }} rules · {{ bindings.length }} bindings</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('clusterRoleDetail.rulesCount', { rules: role.rules?.length || 0, bindings: bindings.length }) }}</span>
           </div>
         </div>
       </div>
@@ -66,7 +68,7 @@ const bindings = computed(() => (clusterRoleBindingsQuery.data.value || []).filt
     <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-12 gap-lg">
       <div class="lg:col-span-8">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-lg">Policy Rules</h3>
+          <h3 class="text-headline-sm mb-lg">{{ t('clusterRoleDetail.policyRules') }}</h3>
           <div v-if="role.rules?.length" class="flex flex-col gap-sm">
             <div v-for="(r, i) in role.rules" :key="i" class="p-md bg-surface-container-low rounded-lg">
               <div class="flex flex-wrap gap-xs mb-xs">
@@ -80,20 +82,20 @@ const bindings = computed(() => (clusterRoleBindingsQuery.data.value || []).filt
               </div>
             </div>
           </div>
-          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">No rules</p>
+          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">{{ t('clusterRoleDetail.noRules') }}</p>
         </div>
       </div>
       <div class="lg:col-span-4">
         <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-card">
-          <h3 class="text-headline-sm mb-md">Bindings ({{ bindings.length }})</h3>
+          <h3 class="text-headline-sm mb-md">{{ t('clusterRoleDetail.bindings', { n: bindings.length }) }}</h3>
           <div v-if="bindings.length" class="flex flex-col gap-sm">
             <button v-for="b in bindings" :key="b.name" @click="router.push({ name: 'ClusterRoleBindingDetail', params: { name: b.name } })"
               class="flex items-center justify-between gap-sm px-md py-sm bg-surface-container-low rounded-lg hover:bg-primary-container/10 transition-colors min-w-0 max-sm:min-h-[40px]">
               <span class="font-mono text-code-sm text-primary min-w-0 truncate" :title="b.name">{{ b.name }}</span>
-              <span class="text-body-sm text-on-surface-variant shrink-0">{{ b.subjects?.length || 0 }} subjects</span>
+              <span class="text-body-sm text-on-surface-variant shrink-0">{{ t('clusterRoleDetail.subjectsCount', { n: b.subjects?.length || 0 }) }}</span>
             </button>
           </div>
-          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">No bindings</p>
+          <p v-else class="text-body-sm text-on-surface-variant py-md text-center">{{ t('clusterRoleDetail.noBindings') }}</p>
         </div>
       </div>
     </div>
@@ -104,7 +106,7 @@ const bindings = computed(() => (clusterRoleBindingsQuery.data.value || []).filt
   </section>
   <section v-else class="animate-fade-in text-center py-xxl">
     <span class="material-symbols-outlined text-5xl text-surface-container-high">search_off</span>
-    <h2 class="text-headline-md text-on-surface mt-md">ClusterRole Not Found</h2>
-    <button @click="router.push('/rbac')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">Back to RBAC</button>
+    <h2 class="text-headline-md text-on-surface mt-md">{{ t('common.notFound', { name: 'ClusterRole' }) }}</h2>
+    <button @click="router.push('/rbac')" class="mt-lg px-lg py-sm bg-primary text-on-primary rounded-lg font-semibold">{{ t('common.backTo', { name: 'RBAC' }) }}</button>
   </section>
 </template>

@@ -266,7 +266,7 @@ async function handleCreateInst(yaml) {
               </span>
             </div>
             <div class="p-sm rounded-lg bg-surface-container-low">
-              <p class="text-xs text-on-surface-variant mb-xs">FULL NAME</p>
+              <p class="text-xs text-on-surface-variant mb-xs">{{ t('admin.crdList.fullName') }}</p>
               <p class="font-mono text-xs text-on-surface break-all">{{ crd.name }}</p>
             </div>
           </div>
@@ -296,7 +296,7 @@ async function handleCreateInst(yaml) {
               <span class="font-mono text-code-sm text-primary font-semibold">{{ instances.length }}</span>
             </div>
             <div class="flex justify-between items-center py-xs">
-              <span class="text-xs text-on-surface-variant">Scope</span>
+              <span class="text-xs text-on-surface-variant">{{ t('rbac.thScope') }}</span>
               <span class="text-body-sm text-on-surface">{{ crd.scope }}</span>
             </div>
           </div>

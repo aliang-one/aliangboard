@@ -147,7 +147,7 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
             <StatusChip :status="n.status" size="sm" />
           </div>
           <div class="flex items-center gap-xs text-xs text-on-surface-variant mb-0.5"><span class="w-10">CPU</span><ProgressBar :value="n.cpu || 0" class="flex-1" /></div>
-          <div class="flex items-center gap-xs text-xs text-on-surface-variant"><span class="w-10">Mem</span><ProgressBar :value="n.memory || 0" class="flex-1" /></div>
+          <div class="flex items-center gap-xs text-xs text-on-surface-variant"><span class="w-10">{{ t('common.memory') }}</span><ProgressBar :value="n.memory || 0" class="flex-1" /></div>
         </button>
       </div>
       <p v-if="!nodeList.length" class="text-center text-on-surface-variant text-body-sm py-md">{{ t('monitoring.noNodes') }}</p>

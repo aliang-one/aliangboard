@@ -117,7 +117,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           </div>
         </div>
         <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm max-lg:hidden">
-          <span>Last Updated: {{ lastUpdated }}</span>
+          <span>{{ $t('layout.lastUpdated') }} {{ lastUpdated }}</span>
           <span class="px-sm py-xs bg-surface-container rounded-sm border border-outline-variant">{{ store.cluster.version }}</span>
         </div>
       </footer>

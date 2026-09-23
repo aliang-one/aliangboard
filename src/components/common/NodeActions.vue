@@ -64,7 +64,7 @@ const config = computed(() => ({
       </div>
 
       <div class="flex justify-end gap-sm">
-        <button @click="emit('close')" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">Cancel</button>
+        <button @click="emit('close')" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ t('common.cancel') }}</button>
         <button @click="execute" :disabled="!isConfirmed || loading" class="px-md py-sm rounded-lg text-body-md font-semibold transition-all flex items-center gap-sm disabled:opacity-40" :class="action === 'uncordon' ? 'bg-primary text-on-primary' : 'bg-tertiary-container text-on-tertiary'">
           <span v-if="loading" class="material-symbols-outlined animate-spin text-lg">progress_activity</span>
           <span v-else class="material-symbols-outlined text-lg">{{ action === 'drain' ? 'output' : action === 'cordon' ? 'lock' : 'lock_open' }}</span>

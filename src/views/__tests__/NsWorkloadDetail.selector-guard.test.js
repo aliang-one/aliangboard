@@ -139,7 +139,7 @@ test('saveMeta:镜像值与模板一致(模板不变)→ 正常保存,不误拦'
 
 test('saveTemplate:手编模板改 Service 绑定标签值 → 拦截不 apply', async () => {
   const w = mountDetail(); await flushPromises()
-  await w.findAll('button').find(b => b.text() === 'Template').trigger('click'); await flushPromises()
+  await w.findAll('button').find(b => b.text() === i18n.global.t('workload.template')).trigger('click'); await flushPromises()
   // 收窄到当前打开的 Modal 根(fixed inset-0):wrapper(attachTo)与 teleport 内容都在 body,
   // 且 Material Symbols 连字文本会混入按钮 textContent(YamlEditor 编辑钮 = 'edit 编辑')
   const modalRoot = [...document.body.querySelectorAll('.fixed.inset-0')].at(-1)
@@ -152,7 +152,7 @@ test('saveTemplate:手编模板改 Service 绑定标签值 → 拦截不 apply',
   // 输入即 emit update:modelValue → 视图 templateYaml 已持新 YAML
   // (YamlEditor 既有怪癖:prop 回流会重置 isEditing,故不走行内「应用更改」,走弹窗 Apply 按钮 = 真实用户路径)
   setInput(textarea, textarea.value.replace('team: red', 'team: blue')); await flushPromises()
-  await clickModalBtn('Apply') // workload.diff.apply → saveTemplate(templateYaml)
+  await clickModalBtn(i18n.global.t('workload.diff.apply')) // workload.diff.apply → saveTemplate(templateYaml)
   expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('demo-svc'))
 })
 

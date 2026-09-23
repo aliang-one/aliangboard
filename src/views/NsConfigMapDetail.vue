@@ -425,7 +425,7 @@ function saveEditLabel() {
       </div>
       <div>
         <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.cmDetail.value') }}</label>
-        <textarea v-model="newValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-24 resize-y focus:ring-2 focus:ring-primary" placeholder="config value..."></textarea>
+        <textarea v-model="newValue" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono h-24 resize-y focus:ring-2 focus:ring-primary" :placeholder="t('ns.cmDetail.valuePlaceholder')"></textarea>
       </div>
     </div>
     <template #actions>

@@ -60,7 +60,7 @@ async function handleDelete() {
           <h1 class="text-display-lg text-on-surface">{{ rc.name }}</h1>
           <div class="flex items-center gap-md mt-xs">
             <span class="text-body-sm text-on-surface-variant font-mono">{{ rc.handler }}</span>
-            <span class="text-body-sm text-on-surface-variant">Age: {{ rc.age }}</span>
+            <span class="text-body-sm text-on-surface-variant">{{ t('common.age') }}: {{ rc.age }}</span>
           </div>
         </div>
       </div>
@@ -97,7 +97,7 @@ async function handleDelete() {
           <div class="bg-surface-container-low rounded-lg p-md font-mono text-code-sm">
             <div v-for="[k, v] in schedulingNodeSelector" :key="k" class="flex"><span class="text-primary">{{ k }}:</span><span class="ml-sm text-on-surface break-all">{{ v }}</span></div>
             <div v-for="(tol, i) in schedulingTolerations" :key="'tol' + i" class="flex">
-              <span class="text-primary">toleration:</span>
+              <span class="text-primary">{{ t('runtimeClassDetail.toleration') }}</span>
               <span class="ml-sm text-on-surface break-all">{{ [tol.key, tol.operator, tol.value].filter(Boolean).join(' ') }}</span>
             </div>
           </div>

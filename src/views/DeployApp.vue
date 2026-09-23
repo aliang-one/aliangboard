@@ -1032,7 +1032,7 @@ async function handleDeploy() {
                 <div class="mb-sm">
                   <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label>
                   <select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-                    <option value="">None</option>
+                    <option value="">{{ $t('common.none') }}</option>
                     <option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option>
                   </select>
                 </div>
@@ -1110,7 +1110,7 @@ async function handleDeploy() {
               </div>
               <!-- 端口行:搬运旧 v-for 行,原样 -->
               <div v-for="(port, idx) in form.ports" :key="idx" class="flex gap-sm items-center mb-sm flex-wrap">
-                <input v-model="port.containerPort" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" placeholder="Port (e.g. 8080)" />
+                <input v-model="port.containerPort" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="$t('deploy.portPlaceholder')" />
                 <select v-model="port.protocol" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm max-sm:min-h-[40px]">
                   <option>TCP</option><option>UDP</option>
                 </select>
@@ -1154,7 +1154,7 @@ async function handleDeploy() {
                   </button>
                 </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
-                  <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="init name" />
+                  <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('deploy.initNamePlaceholder')" />
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
@@ -1162,10 +1162,10 @@ async function handleDeploy() {
                   <textarea data-testid="init-args-input" v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
-                  <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
-                  <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
-                  <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
-                  <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
+                  <ResourceInput v-model="c.cpuRequest" kind="cpu" :placeholder="$t('deploy.cpuReqPlaceholder')" />
+                  <ResourceInput v-model="c.cpuLimit" kind="cpu" :placeholder="$t('deploy.cpuLimPlaceholder')" />
+                  <ResourceInput v-model="c.memoryRequest" kind="memory" :placeholder="$t('deploy.memReqPlaceholder')" />
+                  <ResourceInput v-model="c.memoryLimit" kind="memory" :placeholder="$t('deploy.memLimPlaceholder')" />
                 </div>
                 <button @click="removeInitContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
               </div>
@@ -1198,7 +1198,7 @@ async function handleDeploy() {
                   </button>
                 </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
-                  <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="sidecar name" />
+                  <input v-model="c.name" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('deploy.sidecarNamePlaceholder')" />
                   <input v-model="c.image" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="image" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm mb-xs">
@@ -1206,10 +1206,10 @@ async function handleDeploy() {
                   <textarea data-testid="sidecar-args-input" v-model="c.args" rows="2" class="bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-xs font-mono resize-y" :placeholder="$t('deploy.argsHint')" />
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
-                  <ResourceInput v-model="c.cpuRequest" kind="cpu" placeholder="cpu req" />
-                  <ResourceInput v-model="c.cpuLimit" kind="cpu" placeholder="cpu lim" />
-                  <ResourceInput v-model="c.memoryRequest" kind="memory" placeholder="mem req" />
-                  <ResourceInput v-model="c.memoryLimit" kind="memory" placeholder="mem lim" />
+                  <ResourceInput v-model="c.cpuRequest" kind="cpu" :placeholder="$t('deploy.cpuReqPlaceholder')" />
+                  <ResourceInput v-model="c.cpuLimit" kind="cpu" :placeholder="$t('deploy.cpuLimPlaceholder')" />
+                  <ResourceInput v-model="c.memoryRequest" kind="memory" :placeholder="$t('deploy.memReqPlaceholder')" />
+                  <ResourceInput v-model="c.memoryLimit" kind="memory" :placeholder="$t('deploy.memLimPlaceholder')" />
                 </div>
                 <button @click="removeExtraContainer(idx)" class="mt-sm text-xs text-error hover:underline">{{ $t('deploy.removeContainer') }}</button>
               </div>
@@ -1244,7 +1244,7 @@ async function handleDeploy() {
             <div class="mb-md">
               <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.serviceAccountLabel') }}</label>
               <select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
-                <option value="">Default</option>
+                <option value="">{{ $t('deploy.default') }}</option>
                 <option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option>
               </select>
             </div>
@@ -1375,8 +1375,8 @@ async function handleDeploy() {
         <h4 class="text-body-sm font-semibold mb-xs">{{ $t('deploy.nodeSelector') }}</h4>
         <div class="flex flex-col gap-sm mb-md">
           <div v-for="(ns, idx) in form.nodeSelectors" :key="idx" class="flex gap-sm items-center flex-wrap">
-            <input v-model="ns.key" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="label key (e.g. disktype)" />
-            <input v-model="ns.value" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="value (e.g. ssd)" />
+            <input v-model="ns.key" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('deploy.labelKeyPlaceholder')" />
+            <input v-model="ns.value" class="flex-1 min-w-[100px] bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('deploy.labelValuePlaceholder')" />
             <button @click="removeNodeSelector(idx)" class="relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] p-sm text-on-surface-variant hover:text-error rounded-lg"><span class="material-symbols-outlined text-base">delete</span></button>
           </div>
           <button @click="addNodeSelector" class="self-start flex items-center gap-sm px-md py-xs text-primary font-medium text-xs hover:bg-primary-container/10 rounded-lg max-sm:min-h-[40px]">
@@ -1414,7 +1414,7 @@ async function handleDeploy() {
               :disabled="!canUseClusterDefault(availablePriorityClassObjects, 'globalDefault')">
               {{ canUseClusterDefault(availablePriorityClassObjects, 'globalDefault') ? $t('common.clusterDefaultOption', { name: resolveClusterDefaultName(availablePriorityClassObjects, 'globalDefault') }) : $t('common.clusterDefaultUnset') }}
             </option>
-            <option value="">None</option>
+            <option value="">{{ $t('common.none') }}</option>
             <option v-for="pc in availablePriorityClasses" :key="pc" :value="pc">{{ pc }}</option>
           </select>
           <p v-if="availablePriorityClassObjects.length && !canUseClusterDefault(availablePriorityClassObjects, 'globalDefault')" data-testid="priority-cluster-default-hint" class="text-xs text-on-surface-variant mt-xs">{{ $t('common.noDefaultPriorityClassHint') }}</p>
@@ -1423,8 +1423,8 @@ async function handleDeploy() {
         <!-- 服务账号 -->
         <h4 class="text-body-sm font-semibold mt-md mb-xs">{{ $t('deploy.serviceAccountTitle') }}</h4>
         <div class="grid grid-cols-2 gap-sm mb-md">
-          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.serviceAccountTitle') }}</label><select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">Default</option><option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option></select></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecret') }}</label><select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">None</option><option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option></select></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.serviceAccountTitle') }}</label><select v-model="form.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">{{ $t('deploy.default') }}</option><option v-for="sa in availableServiceAccounts" :key="sa" :value="sa">{{ sa }}</option></select></div>
+          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecret') }}</label><select v-model="form.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm"><option value="">{{ $t('common.none') }}</option><option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option></select></div>
         </div>
 
         <!-- Pod 安全上下文 -->
@@ -1618,7 +1618,7 @@ async function handleDeploy() {
           <div class="p-md rounded-lg border border-outline-variant bg-surface-container-low text-center">
             <span class="material-symbols-outlined text-secondary text-base">layers</span>
             <p class="text-body-sm font-bold mt-xs">{{ form.replicas }}</p>
-            <p class="text-xs text-on-surface-variant">Replicas</p>
+            <p class="text-xs text-on-surface-variant">{{ $t('deploy.replicas') }}</p>
           </div>
           <div class="p-md rounded-lg border border-outline-variant bg-surface-container-low text-center">
             <span class="material-symbols-outlined text-tertiary text-base">hub</span>

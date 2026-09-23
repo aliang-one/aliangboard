@@ -116,7 +116,7 @@ async function testConn() {
             <p class="font-mono break-all">{{ status?.model || '—' }}</p>
             <span class="px-1.5 py-0.5 rounded text-body-xs font-semibold" :class="SOURCE_STYLE[status?.modelSource]">{{ $t(SOURCE_LABEL_KEY[status?.modelSource]) }}</span>
           </div>
-          <div><p class="text-on-surface-variant text-body-xs mb-xs">API Key</p>
+          <div><p class="text-on-surface-variant text-body-xs mb-xs">{{ $t('admin.llm.apiKey') }}</p>
             <p class="flex items-center gap-xs">
               <span class="w-1.5 h-1.5 rounded-full inline-block" :class="status?.hasApiKey ? 'bg-status-running' : 'bg-error'"></span>
               {{ apiKeyLabel }}
@@ -141,7 +141,7 @@ async function testConn() {
           <input v-model="form.maxTokens" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8192" />
         </div>
         <p class="text-body-xs text-on-surface-variant">{{ $t('admin.llm.paramsHint') }}</p>
-        <div><label class="text-body-xs text-on-surface-variant block mb-xs">API Key</label>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.llm.apiKey') }}</label>
           <input v-model="form.apiKey" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('admin.llm.apiKeyPlaceholder')" />
           <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('admin.llm.apiKeyHint') }}</p>
         </div>

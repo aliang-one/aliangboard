@@ -229,7 +229,7 @@ function goSCDetail(row) {
         <template #reclaimPolicy="{ row }"><span class="px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant border border-outline-variant">{{ row.reclaimPolicy }}</span></template>
         <template #default="{ row }">
           <span v-if="row.default" class="flex items-center gap-xs text-primary">
-            <span class="material-symbols-outlined text-lg">check_circle</span> Yes
+            <span class="material-symbols-outlined text-lg">check_circle</span> {{ t('common.yes') }}
           </span>
           <span v-else class="text-on-surface-variant">—</span>
         </template>

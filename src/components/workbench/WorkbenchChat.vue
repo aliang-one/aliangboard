@@ -1618,7 +1618,7 @@ function useHint(h) { input.value = h }
         <!-- approval-flow-01:wb_ssh_job_write 应答——server(+jobId 若在场)目标行 + 将写入 stdin 的文本;
              终审修复:jobId 段仅在场时渲染(LLM 违 schema 漏发 jobId 不再把整块应答展示挤没) -->
         <template v-if="approvalJobText">
-          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span><template v-if="pendingApproval.args?.jobId != null"> · jobId: <span class="font-mono text-on-surface">{{ pendingApproval.args?.jobId }}</span></template></p>
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.targetLabel') }}: <span class="font-mono text-on-surface">{{ approvalTarget || '—' }}</span><template v-if="pendingApproval.args?.jobId != null"> · {{ t('workbench.chat.jobIdLabel') }}: <span class="font-mono text-on-surface">{{ pendingApproval.args?.jobId }}</span></template></p>
           <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.approvalJobText') }}</p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalJobText }}</pre>
         </template>
@@ -1647,7 +1647,7 @@ function useHint(h) { input.value = h }
           </template>
         </template>
         <template v-else-if="pendingApproval.args?.path">
-          <p class="text-body-sm text-on-surface-variant">Path: <span class="font-mono text-on-surface">{{ pendingApproval.args.path }}</span></p>
+          <p class="text-body-sm text-on-surface-variant">{{ t('workbench.chat.pathLabel') }}: <span class="font-mono text-on-surface">{{ pendingApproval.args.path }}</span></p>
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>
         </template>
         <pre v-else-if="pendingApproval.args?.content" class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ pendingApproval.args.content }}</pre>

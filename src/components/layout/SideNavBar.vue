@@ -381,7 +381,7 @@ function nsStatusColor(status) {
             >
               <span class="w-2 h-2 rounded-full shrink-0" :class="nsStatusColor(ns.status)"></span>
               <span class="ns-row__name">{{ ns.name }}</span>
-              <span class="ns-row__pods">{{ ns.pods }} pods</span>
+              <span class="ns-row__pods">{{ ns.pods }} {{ $t('layout.podsUnit') }}</span>
             </div>
             <p v-if="!filteredNamespaces.length" class="text-body-sm text-on-surface-variant text-center py-md">{{ $t('nav.noMatchingNamespaces') }}</p>
           </div>
@@ -395,7 +395,7 @@ function nsStatusColor(status) {
         <div :key="navMode">
           <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
           <div v-if="isNsMode" data-test="ns-nav-section" class="animate-fade-in mb-md">
-            <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate ns-cap">NAMESPACE: {{ currentNs }}</p>
+            <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate ns-cap">{{ $t('common.namespace') }}: {{ currentNs }}</p>
             <div v-for="group in nsNavGroups" :key="group.label || group.labelKey" class="mb-xs">
               <div class="flex items-center gap-xs px-md pt-sm pb-xs group-head">
                 <span class="material-symbols-outlined text-xs text-on-surface-variant opacity-50">{{ group.icon }}</span>
