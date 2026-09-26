@@ -8,8 +8,12 @@ import { setActivePinia, createPinia } from 'pinia'
 
 const state = vi.hoisted(() => ({}))
 
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: k => k }) }))
-// vue-i18n 全 mock 会使 store→client→http→i18n 链拿到残缺模块,client 必须一并局部 mock
+// vue-i18n 全 mock:store→auth→preferences→i18n 链(2026-09-26 openOrFocus 收编引入)会在模块
+// 加载期调 createI18n,mock 必须补上该导出,否则套件级崩溃;client 链同理由一并局部 mock。
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({ t: k => k }),
+  createI18n: () => ({ global: { t: k => k, locale: 'zh' } }),
+}))
 vi.mock('@/api/client', () => ({ sshApi: { killSession: vi.fn(() => Promise.resolve({ ok: true })) } }))
 vi.mock('@/components/ssh/SshTerminal.vue', () => ({
   default: {

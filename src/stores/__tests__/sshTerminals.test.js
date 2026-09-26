@@ -12,6 +12,7 @@
 import { test, expect, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useSshTerminalStore } from '../sshTerminals'
+import { useAuthStore } from '../auth'
 import { sshApi } from '@/api/client'
 import { POPUP_ALIVE_KEY, POPUP_CLOSED_KEY, GONE_GRACE_MS } from '@/utils/popupSync'
 
@@ -20,14 +21,81 @@ const _open = window.open
 const fresh = () => { localStorage.removeItem(LS_KEY); setActivePinia(createPinia()) }
 const firePopup = (key, payload) => window.dispatchEvent(new StorageEvent('storage', { key, newValue: JSON.stringify({ ...payload, at: 1, n: 't' }) }))
 
-test('openOrFocus:首次开新窗,再次聚焦同一窗(不多开)', () => {
+// 收编用例共用:种当前用户 + mock 网关会话快照(2026-09-26 跨 origin 事故:localStorage 按
+// origin 隔离,另一域名本地记录为空,「终端」按钮只会开新 shell——修复后先收编本人托管会话)
+const seedAuth = (username = 'liang') => { const auth = useAuthStore(); auth.user = { id: '1', username, role: 'admin' } }
+const seedSessions = list => vi.spyOn(sshApi, 'listSessions').mockResolvedValue({ sessions: list })
+
+test('openOrFocus:首次开新窗,再次聚焦同一窗(不多开)', async () => {
   fresh()
-  const store = useSshTerminalStore()
-  const w1 = store.openOrFocus({ id: 'sv1', name: 'web' })
-  expect(store.windows.length).toBe(1)
-  const w2 = store.openOrFocus({ id: 'sv1', name: 'web' })
-  expect(store.windows.length).toBe(1)
-  expect(w2.id).toBe(w1.id)
+  seedAuth()
+  seedSessions([])   // 网关无本人会话 → 保持旧语义开新
+  try {
+    const store = useSshTerminalStore()
+    const w1 = await store.openOrFocus({ id: 'sv1', name: 'web' })
+    expect(store.windows.length).toBe(1)
+    const w2 = await store.openOrFocus({ id: 'sv1', name: 'web' })
+    expect(store.windows.length).toBe(1)
+    expect(w2.id).toBe(w1.id)
+  } finally { vi.restoreAllMocks() }
+})
+
+test('openOrFocus 无本地窗:收编网关本人同服务器托管会话(同 sid,不开新 shell)——跨 origin/清存储恢复', async () => {
+  fresh()
+  seedAuth()
+  seedSessions([{ sid: 'ssh-hosted-1', serverId: 'sv1', userId: 'liang', status: 'ATTACHED', idleMs: 100 }])
+  try {
+    const store = useSshTerminalStore()
+    const w = await store.openOrFocus({ id: 'sv1', name: 'web' })
+    expect(w.id).toBe('ssh-hosted-1')                    // 收编托管 sid,而非新 sid
+    expect(store.windows.map(x => x.id)).toEqual(['ssh-hosted-1'])
+    expect(w.status).toBe('open')                        // 行按钮语义:聚焦浮窗
+    const saved = JSON.parse(localStorage.getItem(LS_KEY))
+    expect(saved.map(r => r.id)).toEqual(['ssh-hosted-1'])   // 已持久化(刷新/他页可见)
+  } finally { vi.restoreAllMocks() }
+})
+
+test('openOrFocus 收编:多会话全收(最近活跃聚焦、余者最小化),他人会话与死态不收', async () => {
+  fresh()
+  seedAuth()
+  seedSessions([
+    { sid: 'ssh-old', serverId: 'sv1', userId: 'liang', status: 'ATTACHED', idleMs: 9000 },
+    { sid: 'ssh-fresh', serverId: 'sv1', userId: 'liang', status: 'DETACHED', idleMs: 100 },
+    { sid: 'ssh-other', serverId: 'sv1', userId: '别人', status: 'ATTACHED', idleMs: 1 },
+    { sid: 'ssh-dead', serverId: 'sv1', userId: 'liang', status: 'LOST', idleMs: 1 },
+    { sid: 'ssh-else', serverId: 'sv2', userId: 'liang', status: 'ATTACHED', idleMs: 1 },
+  ])
+  try {
+    const store = useSshTerminalStore()
+    const w = await store.openOrFocus({ id: 'sv1', name: 'web' })
+    expect(w.id).toBe('ssh-fresh')                       // idleMs 最小 = 最近活跃者聚焦
+    const ids = store.windows.map(x => x.id).sort()
+    expect(ids).toEqual(['ssh-fresh', 'ssh-old'])        // 同服务器全收;他人/LOST/他服务器不收
+    expect(store.windows.find(x => x.id === 'ssh-old').status).toBe('minimized')
+  } finally { vi.restoreAllMocks() }
+})
+
+test('openOrFocus 无本人会话守卫:auth 未水合(user=null)不收编,防止捡到他人会话', async () => {
+  fresh()
+  const auth = useAuthStore(); auth.user = null
+  seedSessions([{ sid: 'ssh-hosted-1', serverId: 'sv1', userId: 'liang', status: 'ATTACHED', idleMs: 1 }])
+  try {
+    const store = useSshTerminalStore()
+    const w = await store.openOrFocus({ id: 'sv1', name: 'web' })
+    expect(w.id).not.toBe('ssh-hosted-1')                // 身份未知 → 开新,不冒领
+  } finally { vi.restoreAllMocks() }
+})
+
+test('openOrFocus 收编降级:listSessions 失败(非 admin 403/网络)→ 保持旧语义开新窗', async () => {
+  fresh()
+  seedAuth()
+  vi.spyOn(sshApi, 'listSessions').mockRejectedValue(new Error('403'))
+  try {
+    const store = useSshTerminalStore()
+    const w = await store.openOrFocus({ id: 'sv1', name: 'web' })
+    expect(w.id).toMatch(/^ssh-/)
+    expect(store.windows.length).toBe(1)
+  } finally { vi.restoreAllMocks() }
 })
 
 test('openNew:同服务器多开——每次新窗新 sid,groups 聚合 count=2', () => {
@@ -104,14 +172,14 @@ test('openExternal:状态转 external 且不入浮动宿主(attachedWindows 排�
   } finally { window.open = _open }
 })
 
-test('重入 openOrFocus 遇 external:聚焦弹窗,不在本页复活浮窗', () => {
+test('重入 openOrFocus 遇 external:聚焦弹窗,不在本页复活浮窗', async () => {
   fresh()
   window.open = vi.fn(() => ({ closed: false, focus: () => {} }))
   try {
     const store = useSshTerminalStore()
-    const w = store.openOrFocus({ id: 'sv1', name: 'web' })
+    const w = await store.openOrFocus({ id: 'sv1', name: 'web' })
     store.openExternal(w.id)
-    store.openOrFocus({ id: 'sv1', name: 'web' })
+    await store.openOrFocus({ id: 'sv1', name: 'web' })
     expect(store.windows.length).toBe(1)
     expect(w.status).toBe('external')
   } finally { window.open = _open }

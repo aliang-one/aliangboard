@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { createWindowZAllocator } from '@/styles/zScale'
 import { sshApi } from '@/api/client'
 import { onPopupSync } from '@/utils/popupSync'
+import { useAuthStore } from './auth'   // openOrFocus 收编时判「本人会话」(函数内运行时调用,不进模块初始化链)
 
 // SSH 终端浮窗(全局宿主 AppLayout,2026-08-29 任务栏化改造;2026-09-01 弹窗状态对账):
 // - 多开:同服务器可开多个终端,每窗独立 sid(网关侧同一条池化连接多路 shell 通道)。
@@ -156,14 +157,43 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
     return w
   }
 
-  // 服务器行按钮:无窗开新;有窗聚焦置顶(不多开,防误触)。external → 聚焦弹窗标签页,
-  // 绝不在本页复活浮窗(同 sid 双消费)。
-  function openOrFocus(server) {
+  // 服务器行按钮:无窗先收编、无编开新;有窗聚焦置顶(不多开,防误触)。external → 聚焦弹窗
+  // 标签页,绝不在本页复活浮窗(同 sid 双消费)。
+  // 收编(2026-09-26 跨 origin 事故):窗口记录在 localStorage,浏览器按 origin 隔离——
+  // 换域名/换浏览器/清存储后本地记录为空,旧版直接开新 shell,网关里本人的托管会话(带全部
+  // 状态)却成了没人认领的孤儿,「窗口关闭重开续跑」的托管承诺被击穿。无本地窗时先问网关:
+  // 本人同服务器的活会话全部收编(最近活跃者聚焦、余者最小化,同 sid 点开即回放续跑);
+  // 非 admin(403)/网络失败/身份未水合 → 保持旧语义开新。墓碑/最近关闭的 sid 不复活。
+  async function openOrFocus(server) {
     const existing = windows.value.find(w => w.serverId === server.id)
     if (existing) {
       if (existing.status === 'external') focusExternal(existing.id)
       else focusWindow(existing.id)
       return existing
+    }
+    const me = useAuthStore().user?.username
+    if (me) {
+      try {
+        const { sessions = [] } = await sshApi.listSessions()
+        const mine = sessions
+          .filter(s => s.serverId === server.id && s.userId === me
+            && s.status !== 'CLOSED' && s.status !== 'LOST' && s.status !== 'CLOSING')
+          .sort((a, b) => (a.idleMs ?? 0) - (b.idleMs ?? 0))
+        const adoptable = mine.filter(s => !isTombstoned(s.sid) && !isRecentlyClosed(s.sid))
+        if (adoptable.length) {
+          let focused = null
+          for (const s of adoptable) {
+            let w = windows.value.find(x => x.id === s.sid)
+            if (!w) {
+              w = { id: s.sid, serverId: server.id, name: server.name, label: '', status: 'minimized', zIndex: 0 }
+              windows.value.push(w)
+            }
+            if (!focused) { w.status = 'open'; w.zIndex = takeZ(); focused = w }   // 首个=idleMs 最小=最近活跃
+          }
+          persist()
+          return focused
+        }
+      } catch { /* 非 admin 403 / 网络失败:退回开新(与收编前行为一致) */ }
     }
     return addWindow(server)
   }
