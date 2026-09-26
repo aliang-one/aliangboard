@@ -2723,7 +2723,7 @@ const handleSshTerminal = createSshTerminalHandler({
   wsSend,
   lookupServer: serverId => db.prepare('SELECT id FROM ssh_servers WHERE id=?').get(serverId),
   replayMaxBytes: SSH_REPLAY_MAX_BYTES,
-  CH: { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT },
+  CH: { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT, PING: CH_PING, PONG: CH_PONG },
 })
 // WebSocket 升级：/api/ssh/terminal(平台 token) + /api/exec(集群 session)
 const wsServer = new WebSocketServer({ noServer: true })

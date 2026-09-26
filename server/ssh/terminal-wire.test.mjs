@@ -279,6 +279,23 @@ test('客户端心跳:type 7 ping → 原样回 type 8 pong,并 touch(客户端�
   assert.equal(touched, 1)
 })
 
+// —— types 覆盖回落(2026-09-26 事故)——
+// 生产 SSH handler 传 types 只带 stdin/resize/replay,缺键把 ping/pong undefined 化:
+// 客户端 15s 应用层 ping 全部无人应答 → >30s 无 pong 看门狗 45s 必杀 → 自动重连 → 再 45s 死
+// (ingress 实测每条 WS 存活恒 ~45s)。覆盖语义改为「缺键回落协议默认」,杜绝整类漏带。
+test('types 部分覆盖:缺 ping/pong 键时回落默认,心跳不得被覆盖哑火', () => {
+  const sent = []
+  const send = (ws, type, payload) => sent.push([type, payload])
+  const session = fakeSession({ channel: { write() {}, setWindow() {} } })
+  const ws = fakeWs()
+  attach(session, ws)
+  attachSocketToSession(ws, session, { send, types: { stdin: 1, resize: 2, replay: 6 } })
+  ws.emit('message', Buffer.from([7, 0x61]))
+  const pong = sent.find(([t]) => t === 8)
+  assert.ok(pong, '缺省键回落:pong 仍回')
+  assert.equal(pong[1].toString('utf8'), 'a')
+})
+
 // —— 回放等价性(2026-09-18):snapshotTail 路径必须与旧全量 snapshot 路径逐字节一致 ——
 // 满环(>replayMaxBytes+16KB slack)高碎片下,两条路径都走 clampReplay 对齐;数学上尾部
 // 窗口 ≥ 预算 ⇒ 对齐起点在全量坐标里重合 ⇒ 截点相同。此测试钉死该等价性,防未来走样。

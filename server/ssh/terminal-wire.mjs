@@ -39,7 +39,11 @@ export function clampReplay(snap, maxBytes) {
 // 实测最高 186ms 且每次 attach 都付;slack 让下方 clampReplay 仍有行对齐空间(语义与旧
 // 全量路径逐字节一致,等价性由 terminal-wire.test.mjs 钉住)。ring 无 snapshotTail(旧 mock)退回 snapshot。
 export function attachSocketToSession(ws, session, { connId = ws, send, touch = () => {}, onDetach = () => {},
-  replayMaxBytes = 0, types = { stdin: 1, resize: 2, replay: 6, ping: 7, pong: 8 } } = {}) {
+  replayMaxBytes = 0, types } = {}) {
+  // types 覆盖回落(2026-09-26 事故):调用方只覆盖部分键时,缺键不得把协议键 undefined 化——
+  // SSH handler 曾只带 stdin/resize/replay,ping/pong 被哑火 → 客户端 15s ping 全无 pong →
+  // 前端 >30s 看门狗 45s 必杀 → 重连再死循环(ingress 实测每条 WS 恒活 ~45s)。覆盖只允许增改。
+  types = { stdin: 1, resize: 2, replay: 6, ping: 7, pong: 8, ...types }
   const ring = session.ring
   const full = replayMaxBytes > 0
     ? (ring.snapshotTail ? ring.snapshotTail(replayMaxBytes + 16384) : ring.snapshot())

@@ -5,7 +5,7 @@ import { markAlive, createCloseSentinel, attachSocketToSession } from './termina
 
 export function createSshTerminalHandler(deps) {
   const { service, sshPool, writeAudit, wsSend, lookupServer, CH } = deps
-  const { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT } = CH
+  const { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT, PING: CH_PING, PONG: CH_PONG } = CH
 
   const handler = async (ws, ps, url) => {
     markAlive(ws)   // WS 存活探测打标(半开 TCP 不发 close,靠 ping/pong 发现死连接)
@@ -96,7 +96,9 @@ export function createSshTerminalHandler(deps) {
         touch: () => service.touch(tid),
         onDetach: () => service.detach(tid, ws, 'ws-close'),
         replayMaxBytes: deps.replayMaxBytes || 0,
-        types: { stdin: CH_STDIN, resize: CH_RESIZE, replay: CH_REPLAY },
+        // 心跳键必须带上(2026-09-26 事故):此处曾只传 stdin/resize/replay,把 wire 默认的
+        // ping/pong 覆盖成 undefined → 客户端 ping 无人应答 → 前端看门狗 45s 连环误杀重连。
+        types: { stdin: CH_STDIN, resize: CH_RESIZE, replay: CH_REPLAY, ping: CH_PING, pong: CH_PONG },
       })
       sentinel.dispose()   // 此后 close/error 由 attachSocketToSession 的 drop 全权负责
     } catch (e) {

@@ -8,7 +8,7 @@ import { EventEmitter } from 'node:events'
 import { createTerminalService } from './terminal-service.mjs'
 import { createSshTerminalHandler } from './terminal-handler.mjs'
 
-const CH = { ERROR: 4, STDIN: 1, RESIZE: 2, REPLAY: 6, STDOUT: 1 }
+const CH = { ERROR: 4, STDIN: 1, RESIZE: 2, REPLAY: 6, STDOUT: 1, PING: 7, PONG: 8 }
 const URL_FOR = tid => new URL(`ws://gw/?serverId=s1&sid=${tid}&cols=80&rows=24`)
 const tick = () => new Promise(r => setImmediate(r))
 
@@ -127,6 +127,20 @@ test('阻断#4 补充:CREATING 窗口期的第二连接排队等 ready,不开 sh
   svc.readyForOwner('t9').resolve()                      // 属主侧 ready(真实流程=shell 起来后 resolve)
   await pLate
   assert.equal(service.get('t9').connIds.size, 1, 'ready 后迟到者附着成功')
+})
+
+test('心跳接线(2026-09-26 事故):客户端 type 7 ping 经 handler 原样回 type 8 pong——漏接则看门狗 45s 连环误杀', async () => {
+  const { service, pool, handler } = makeHarness()
+  const ws = makeWs()
+  const p = handler(ws, PS, URL_FOR('t1'))
+  await tick()
+  pool.grant(0)
+  await p
+  ws.emit('message', Buffer.from([7, 0x61, 0x62]))       // 客户端看门狗 15s 心跳
+  const pong = ws.frames.find(f => f.type === 8)
+  assert.ok(pong, 'pong 已回(无 pong = 前端 >30s 看门狗必杀,每条连接活 ~45s)')
+  assert.equal(pong.payload.toString('utf8'), 'ab', 'payload 原样回显')
+  assert.ok(ws.frames.every(f => f.type !== CH.ERROR), '无错误帧')
 })
 
 test('评审#2:CREATING 强杀窗口——迟到的 shell 回调关闭新通道,绝不绑上残尸', async () => {
