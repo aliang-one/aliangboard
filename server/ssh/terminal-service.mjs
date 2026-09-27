@@ -95,7 +95,7 @@ export function createTerminalService({
 
   function newTerminal({ id, owner, serverId, backend = 'ephemeral', title = '' }) {
     const t = {
-      id, owner, serverId, backend, title,
+      id, owner, serverId, backend, title, label: '',
       status: 'CREATING', lastError: null, statusVersion: 0,
       connIds: new Map(), waiterSockets: new Set(), primary: null,
       channel: null, release: null, ring: createRingBuffer(ringMaxBytes),
@@ -317,12 +317,22 @@ export function createTerminalService({
   }
 
   // 观测端点/任务栏对账数据源(保持旧 registry.list 字段形状:sid/serverId/userId/browserCount/idleMs + status)
+  // label 随会话下发(2026-09-27 跨 origin 名字连续性):任务栏孤儿 chip/收编方用它还原显示名,
+  // 不再退到裸 serverId UUID。
   function list() {
     return [...map.values()].map(t => ({
       sid: t.id, serverId: t.serverId, userId: t.owner, status: t.status,
       browserCount: t.connIds.size, idleMs: Math.max(0, now() - t.lastActiveAt),
       createdAt: t.createdAt, backend: t.backend, lastError: t.lastError,
+      label: t.label || '',
     }))
+  }
+  // 会话标签(与前端 renameWindow 同语义:trim 落库;空串=清回默认)。归属校验在路由层。
+  function setLabel(tid, label) {
+    const t = map.get(tid)
+    if (!t) return null
+    t.label = String(label ?? '').trim().slice(0, 64)
+    return { ok: true }
   }
   function listByServer(serverId) { return list().filter(r => r.serverId === serverId) }
   function killSession(tid, reason = 'manual-kill') {
@@ -330,5 +340,5 @@ export function createTerminalService({
     return r.ok ? { ok: true } : null
   }
 
-  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, bindRelease, attach, detach, abandon, markLost, markBackendFailed, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot, list, listByServer, killSession }
+  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, bindRelease, attach, detach, abandon, markLost, markBackendFailed, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot, list, listByServer, killSession, setLabel }
 }

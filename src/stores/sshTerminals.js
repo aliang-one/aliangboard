@@ -185,7 +185,8 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
           for (const s of adoptable) {
             let w = windows.value.find(x => x.id === s.sid)
             if (!w) {
-              w = { id: s.sid, serverId: server.id, name: server.name, label: '', status: 'minimized', zIndex: 0 }
+              // label 取网关快照(另一 origin 上改过名也能还原);name 用行上的服务器名
+              w = { id: s.sid, serverId: server.id, name: server.name || s.serverName, label: s.label || '', status: 'minimized', zIndex: 0 }
               windows.value.push(w)
             }
             if (!focused) { w.status = 'open'; w.zIndex = takeZ(); focused = w }   // 首个=idleMs 最小=最近活跃
@@ -234,11 +235,12 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   }
   // 孤儿会话重附(2026-09-06):网关有会话而本地记录已丢(清过存储/换浏览器/旧版墓碑摘除),
   // 按对账快照重建窗口记录并以弹窗重开——同 sid 重连,网关回放环形缓冲,历史找回。
-  function reattachOrphan({ id, serverId, name }) {
+  // label(2026-09-27):快照里带的会话标签一并还原(另一 origin 上改过名不再变 UUID/丢名)。
+  function reattachOrphan({ id, serverId, name, label = '' }) {
     clearTombstone(id)   // 撤销旧版删除残留的墓碑,否则 persist/装载会再次滤掉重附窗口
     let w = windows.value.find(x => x.id === id)
     if (!w) {
-      w = { id, serverId, name: name || serverId, label: '', status: 'minimized', zIndex: 0 }
+      w = { id, serverId, name: name || serverId, label, status: 'minimized', zIndex: 0 }
       windows.value.push(w)
       persist()
     }
@@ -302,12 +304,15 @@ export const useSshTerminalStore = defineStore('sshTerminals', () => {
   }
   popupSyncTargets.add(onPopupSignal)
   const minimizeWindow = id => { const w = windows.value.find(w => w.id === id); if (w) w.status = 'minimized' }
-  // 会话标签(2026-09-08):同服多会话区分——label 空 = 显示回退服务器名;trim 后落盘
+  // 会话标签(2026-09-08):同服多会话区分——label 空 = 显示回退服务器名;trim 后落盘。
+  // 2026-09-27:同时写回网关(会话上)——另一 origin/浏览器收编/孤儿 chip 凭 listSessions 快照
+  // 还原显示名,「换域名后名字变 UUID」即 label 只存本地所致。best-effort:失败不阻本地改名。
   const renameWindow = (id, label) => {
     const w = windows.value.find(w => w.id === id)
     if (!w) return
     w.label = String(label ?? '').trim()
     persist()
+    sshApi.setSessionLabel(id, w.label).catch(() => {})
   }
   const restoreWindow = id => { const w = windows.value.find(w => w.id === id); if (w) { w.status = 'open'; w.zIndex = takeZ() } }
   function focusWindow(id) { const w = windows.value.find(w => w.id === id); if (w) w.zIndex = takeZ() }

@@ -55,6 +55,22 @@ test('openOrFocus 无本地窗:收编网关本人同服务器托管会话(同 si
   } finally { vi.restoreAllMocks() }
 })
 
+test('openOrFocus 收编还原会话标签(另一 origin 改过名不再丢)/ renameWindow 写回网关', async () => {
+  fresh()
+  seedAuth()
+  seedSessions([{ sid: 'ssh-hosted-1', serverId: 'sv1', userId: 'liang', status: 'ATTACHED', idleMs: 1, label: '编译任务' }])
+  const setLabel = vi.spyOn(sshApi, 'setSessionLabel').mockResolvedValue({ ok: true })
+  try {
+    const store = useSshTerminalStore()
+    const w = await store.openOrFocus({ id: 'sv1', name: 'web' })
+    expect(w.label).toBe('编译任务')                      // 快照 label 随收编还原
+
+    store.renameWindow('ssh-hosted-1', '  新名字  ')
+    expect(w.label).toBe('新名字')                        // trim 后本地生效
+    expect(setLabel).toHaveBeenCalledWith('ssh-hosted-1', '新名字')   // 且写回网关(跨 origin 可见)
+  } finally { vi.restoreAllMocks() }
+})
+
 test('openOrFocus 收编:多会话全收(最近活跃聚焦、余者最小化),他人会话与死态不收', async () => {
   fresh()
   seedAuth()

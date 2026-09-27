@@ -128,11 +128,16 @@ async function killOrphan(chip) {
 }
 // 孤儿重附(2026-09-06):网关有会话而本地记录已丢——重建记录+弹窗重开同 sid,
 // 网关回放环形缓冲,历史找回;不再「点 chip 即杀」(误触不可逆)。
+// 2026-09-27:serverName/label 来自会话快照——另一 origin 上开过/改过名的会话,
+// 重附后显示名不再退化为裸 serverId UUID。
 function reattachOrphan(chip) {
-  sshStore.reattachOrphan({ id: chip.id, serverId: chip.name, name: chip.name })
+  sshStore.reattachOrphan({ id: chip.id, serverId: chip.serverId, name: chip.serverName, label: chip.label })
   orphans.value = orphans.value.filter(x => x.sid !== chip.id)
 }
-const orphanChips = computed(() => orphans.value.map(s => ({ kind: 'orphan', id: s.sid, name: s.serverId, user: s.userId, count: 1 })))
+const orphanChips = computed(() => orphans.value.map(s => ({
+  kind: 'orphan', id: s.sid, serverId: s.serverId, serverName: s.serverName || s.serverId,
+  label: s.label || '', name: s.label || s.serverName || s.serverId, user: s.userId, count: 1,
+})))
 
 // —— 三类 chip 拍平(折叠按此顺序从尾部吃;orphan 置首=警示最晚被折)——
 const podChips = computed(() => termStore.terminals.map(t => ({ kind: 'pod', id: t.id, name: t.name, status: t.status, namespace: t.namespace, podName: t.podName, container: t.container })))

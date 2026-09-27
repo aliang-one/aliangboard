@@ -1981,6 +1981,8 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
   closeSshServerSessions: id => terminalService.closeByServer(id, 'server-deleted'),
   listSshSessions: () => terminalService.list(),
   killSshSession: sid => terminalService.killSession(sid, 'manual-kill'),
+  getSshTerminal: sid => terminalService.get(sid),
+  setSshSessionLabel: (sid, label) => terminalService.setLabel(sid, label),
 })
   if (await sshRoutes.handle(req, res, url)) return
   const myKeyRoutes = createMyKeyRoutes({

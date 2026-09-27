@@ -424,3 +424,17 @@ test('ring snapshotTail:超大/非法 maxBytes 等价 snapshot();空环返回空
   assert.equal(tail.length, 100)
   assert.ok([...tail].every(b => b === 7))
 })
+
+// —— 会话标签(2026-09-27 跨 origin 名字连续性)——
+test('setLabel:list() 随行下发 label;trim+64 截断;未知 tid 返 null;默认空串', () => {
+  const svc = createTerminalService({ now: () => 1000 })
+  svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  assert.equal(svc.list()[0].label, '')
+  assert.equal(svc.setLabel('t1', '  编译任务  ').ok, true)
+  assert.equal(svc.list()[0].label, '编译任务')                    // trim 落库
+  svc.setLabel('t1', 'x'.repeat(100))
+  assert.equal(svc.list()[0].label.length, 64)                     // 超长截断
+  assert.equal(svc.setLabel('no-such', 'y'), null)                  // 未知 tid
+  svc.setLabel('t1', '')
+  assert.equal(svc.list()[0].label, '')                             // 空串=清回默认
+})

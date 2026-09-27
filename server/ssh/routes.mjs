@@ -14,6 +14,8 @@ import { renderServerLedger } from './ledger.mjs'
 
 export function createSshRoutes(deps) {
   const { db, sendJson, readBody, requirePlatform, requireAdmin, writeAudit, cryptKey, sshTestConnection, sshPool, getSshfileLimitBytes, getSetting, setSetting, evictSshServer, closeSshServerSessions, listSshSessions, killSshSession,
+    // 会话标签(2026-09-27 跨 origin 名字连续性):PUT /api/ssh/sessions/:sid/label 用
+    getSshTerminal, setSshSessionLabel,
     // 文件三件套 exec 超时(默认 60s——rm -rf 大树);测试注入小值
     sshFileOpTimeoutMs = 60000 } = deps
 
@@ -210,10 +212,32 @@ export function createSshRoutes(deps) {
       // GET /api/ssh/sessions — 存活终端会话观测(admin):网关侧真值,任务栏对账/「不可见会话」排查数据源。
       // 只回活态(2026-09-05 审计#2):CLOSED/LOST 若照列,任务栏对账把残尸当活会话——
       // kill 幂等无效果、30s 对账后又「复活」,永不可清除;路由语义本就是「存活观测」。
+      // serverName/label 随行(2026-09-27):另一 origin/浏览器的任务栏凭快照即可还原显示名,
+      // 不再退到裸 serverId UUID(「名字变成随机串」的根因)。
       if (url.pathname === '/api/ssh/sessions' && req.method === 'GET') {
         const ps = requireAdmin(req, res); if (!ps) return true
-        const sessions = (listSshSessions?.() || []).filter(s => s.status !== 'CLOSED' && s.status !== 'LOST')
+        const names = new Map()
+        try {
+          for (const r of db.prepare('SELECT id, name FROM ssh_servers').all()) names.set(r.id, r.name)
+        } catch { /* 表缺失等:名字缺失不阻断观测 */ }
+        const sessions = (listSshSessions?.() || [])
+          .filter(s => s.status !== 'CLOSED' && s.status !== 'LOST')
+          .map(s => ({ ...s, serverName: names.get(s.serverId) || s.serverId }))
         sendJson(res, 200, { sessions })
+        return true
+      }
+      // PUT /api/ssh/sessions/:sid/label — 会话属主给自己会话起标签(跨 origin 名字连续性的写侧)。
+      // 外层门=ROUTE_AUTH /api/ssh/ admin 前缀;内层属主校验:他人会话不可改。
+      if (url.pathname.startsWith('/api/ssh/sessions/') && url.pathname.endsWith('/label') && req.method === 'PUT') {
+        const ps = requirePlatform(req, res); if (!ps) return true
+        const sid = decodeURIComponent(url.pathname.slice('/api/ssh/sessions/'.length, -'/label'.length))
+        const t = getSshTerminal?.(sid)
+        if (!t) { sendJson(res, 404, { message: msg(req, 'ssh.sessionNotFound') }); return true }
+        if (t.owner !== ps.username) { sendJson(res, 403, { message: msg(req, 'ssh.sessionNotYours') }); return true }
+        const body = await readBody(req).catch(() => ({}))
+        setSshSessionLabel?.(sid, body?.label)
+        audit('rename', 'ssh_session', 'ok', { owner: ps.username, summary: `sid=${sid}` })
+        sendJson(res, 200, { ok: true })
         return true
       }
       // DELETE /api/ssh/sessions/:sid — 手动终止存活会话(与 idle 清道夫同款清理:关 channel+还池句柄)

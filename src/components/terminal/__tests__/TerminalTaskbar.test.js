@@ -250,3 +250,33 @@ test('会话菜单行显示 label(有标签时);✏️ 改名 → PromptDialog �
   expect(ssh.windows.find(w => w.id === a.id).label).toBe('')          // 只改了目标行
   expect(JSON.parse(localStorage.getItem('aliangboard.ssh.windows')).find(r => r.id === b.id).label).toBe('数据库维护')
 })
+
+// —— 跨 origin 名字连续性(2026-09-27)——
+test('孤儿 chip 显示快照里的 label/serverName(不再裸 serverId);重附把它们带给窗口记录', async () => {
+  vi.spyOn(sshApi, 'listSessions').mockResolvedValue({
+    sessions: [
+      { sid: 'ssh-a', serverId: 'sv-uuid-a', serverName: 'web-1', label: '编译任务', userId: 'liang', browserCount: 1, idleMs: 1 },
+      { sid: 'ssh-b', serverId: 'sv-uuid-b', serverName: 'db-1', label: '', userId: 'liang', browserCount: 1, idleMs: 2 },
+      { sid: 'ssh-c', serverId: 'sv-uuid-c', userId: 'liang', browserCount: 1, idleMs: 3 },   // 无 serverName → 回退 serverId
+    ],
+  })
+  const realOpen = window.open
+  window.open = vi.fn(() => ({ closed: false, focus: () => {} }))
+  try {
+    const bar = mountBar()
+    await flushPromises()
+    const chips = bar.findAll('[data-test="orphan-chip"]')
+    expect(chips.length).toBe(3)
+    expect(chips[0].text()).toContain('编译任务')          // label 优先
+    expect(chips[1].text()).toContain('db-1')              // 无 label → serverName
+    expect(chips[2].text()).toContain('sv-uuid-c')         // 无 serverName → serverId 兜底
+
+    const reattach = vi.spyOn(useSshTerminalStore(), 'reattachOrphan')
+    await chips[0].trigger('click')
+    expect(reattach).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'ssh-a', serverId: 'sv-uuid-a', name: 'web-1', label: '编译任务',
+    }))
+    const ssh = useSshTerminalStore()
+    expect(ssh.windows.find(w => w.id === 'ssh-a').label).toBe('编译任务')   // 记录带标签(弹窗标题/chip 随之)
+  } finally { window.open = realOpen }
+})

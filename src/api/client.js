@@ -240,6 +240,8 @@ export const sshApi = {
   listSessions: () => platformHttp.request('/api/ssh/sessions'),
   // keepalive:弹窗页「关闭窗口」钮点击后随即 window.close(),让 kill 请求在标签页卸载后仍送达网关
   killSession: sid => platformHttp.request(`/api/ssh/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE', keepalive: true }),
+  // 会话标签写回网关(2026-09-27):label 存在会话上,另一 origin/浏览器的任务栏快照可还原显示名
+  setSessionLabel: (sid, label) => platformHttp.request(`/api/ssh/sessions/${encodeURIComponent(sid)}/label`, { method: 'PUT', body: JSON.stringify({ label }) }),
 }
 
 // SSH 服务器文件浏览(Task 13 REST;形状与 podFileApi 对齐,走 platformHttp)。
