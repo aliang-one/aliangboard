@@ -146,10 +146,10 @@ test('addSecret: beforeSave 编码 data → YAML 含 stringData 明文（generat
   const yaml = applyYaml.mock.calls[0][0]
   expect(yaml).toContain('kind: Secret')
   // generateYAML 内部 decodeBase64(beforeSave 编码后的值) → 还原为明文 stringData
-  expect(yaml).toContain('password:')
+  expect(yaml).toContain('password: plaintext')
 })
 
-test('updateSecret: beforeSave 对 updates.data 编码 + generateYAML 走 stringData 路径', async () => {
+test('updateSecret: beforeSave 对 updates.data 编码恰好一次 → stringData 是明文（issue#15 双重编码回归）', async () => {
   const store = getStore()
   // 缓存中的 data 已是编码态（真实场景：mapSecret 的输出）
   stubCache('secrets', { name: 'my-sec', namespace: 'default', data: { password: 'cGxhaW50ZXh0' } })
@@ -159,6 +159,20 @@ test('updateSecret: beforeSave 对 updates.data 编码 + generateYAML 走 string
   expect(yaml).toContain('kind: Secret')
   // generateYAML secret 分支输出 stringData（非 data），证明走了 beforeSave → encodeSecretData → generateYAML decode 链路
   expect(yaml).toContain('stringData:')
+  // 载荷必须是明文本身：apiserver 会再编码一次。'newpass' 被编码两次时此处会看到
+  // 'bmV3cGFzcw=='（b64¹），集群里最终落 b64²，reveal/消费者拿到 b64¹ —— issue#15「保存后变加密值」
+  expect(yaml).toContain('password: newpass')
+})
+
+test('updateSecret 仅改 labels/annotations: 缓存 data 不得被再编码 → stringData 仍是原明文', async () => {
+  const store = getStore()
+  stubCache('secrets', { name: 'my-sec', namespace: 'default', data: { password: 'cGxhaW50ZXh0' } })
+  await store.updateSecret('my-sec', 'default', { annotations: { note: 'x' } })
+  expect(applyYaml).toHaveBeenCalledTimes(1)
+  const yaml = applyYaml.mock.calls[0][0]
+  // 缓存 data（b64¹）被 yamlOf 再跑一次 beforeSave 时,这里会出现 'cGxhaW50ZXh0'（b64¹ 裸串）
+  expect(yaml).toContain('password: plaintext')
+  expect(yaml).toContain('note: x')
 })
 
 // ========================================================================

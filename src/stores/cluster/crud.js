@@ -128,7 +128,10 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
       } else {
         if (!cur) { invalidateResource(plural); return { ok: false, skipped: true } }
         const merged = { ...cur, ...(beforeSave ? beforeSave(updates) : updates) }
-        r = await remoteUpdate(yamlOf(merged), kind)
+        // merged 已过 beforeSave（编码态；与 add() 的明文入参不同空间）——远端清单必须直呼底层
+        // 生成器，走 yamlOf 会再跑一次 beforeSave → secrets 全量 data 双重编码（issue#15：
+        // 集群落 b64²，reveal/消费者拿到 b64¹「保存后变加密值」）。50f9c34c 同型不变式回归。
+        r = await remoteUpdate(customYaml ? customYaml(merged) : genFn(genType, merged), kind)
       }
       if (r.ok && sideEffects?.onUpdate) sideEffects.onUpdate(name, ns)
       invalidateResource(plural)
