@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { defineComponent, ref } from 'vue'
 import { i18n } from '@/i18n'
 import IngressPerfField from '../IngressPerfField.vue'
 
@@ -99,5 +100,38 @@ describe('IngressPerfField: hpxTime / csvInt / options / area', () => {
     const w = mountFld({ key: 'server-snippet', labelKey: 'ingressPerf.serverSnippet', ph: '# raw nginx server snippet', area: true })
     expect(w.find('textarea').exists()).toBe(true)
     expect(w.text()).toContain('admission')
+  })
+})
+
+// ---- 回声(echo)回归锁 ----
+// 背景:number-unit 分支 emitVal 每键击 emit num+unit 拼串 → v-model 父回写 →
+// watch(props.modelValue) 的 sync 把【自己的回声】当外部重填——中间态(如 '4.')
+// 被回灌重写,小数点当场被吃掉(与 ResourceInput 同源)。修复 = 回声守卫。
+describe('IngressPerfField: v-model 回声守卫(number-unit)', () => {
+  const fld = { key: 'proxy-buffer-size', labelKey: 'ingressPerf.responseBufferSize', ph: '4k', vt: 'size' }
+  function mountTwoWay(initial = '') {
+    const Host = defineComponent({
+      components: { IngressPerfField },
+      setup: () => ({ v: ref(initial), fld }),
+      template: '<IngressPerfField :fld="fld" v-model="v" />',
+    })
+    const wrapper = mount(Host, { global: { plugins: [i18n] } })
+    return { wrapper, input: wrapper.find('input[type="number"]'), getVal: () => wrapper.vm.v }
+  }
+  it('双向接线键入中间态 "4." 不被回声重写', async () => {
+    const { input, getVal } = mountTwoWay('4')
+    await input.setValue('4')   // → emit '4m'
+    await input.setValue('4.')  // 中间态:emit 规范串 '4m' 回流
+    // 修复前:回声 sync 把 num 重写为 '4',输入框丢小数点
+    expect(input.element.value).toBe('4.')
+    await input.setValue('42')
+    expect(getVal()).toBe('42m')
+    expect(input.element.value).toBe('42')
+  })
+  it('外部重填(非回声)仍同步拆合(守卫不误伤)', async () => {
+    const w = mountFld(fld, '10m')
+    await w.setProps({ modelValue: '8k' })
+    expect(w.find('input[type="number"]').element.value).toBe('8')
+    expect(w.find('select').element.value).toBe('k')
   })
 })

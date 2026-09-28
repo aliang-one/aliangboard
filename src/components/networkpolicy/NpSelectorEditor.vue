@@ -22,7 +22,18 @@ function syncFromProps() {
     values: (e.values || []).join(', '),
   }))
 }
-watch(() => props.modelValue, syncFromProps, { immediate: true, deep: true })
+
+// 回声守卫:v-model 双向接线(如 NetworkPolicyEditor 的 spec.podSelector)里,自己刚
+// emit 的对象会经父组件原样回流——那不是外部变化,不得 syncFromProps 整体重建行数组:
+// emitUp 过滤空 key 行,回声重建会把键入中的行(清空 key 的行/新增的空行)当场删除。
+function sameSelector(a, b) {
+  return a && b && JSON.stringify(a) === JSON.stringify(b)
+}
+let lastEmitted = null
+watch(() => props.modelValue, (v) => {
+  if (v === lastEmitted || sameSelector(v, lastEmitted)) return
+  syncFromProps()
+}, { immediate: true, deep: true })
 
 function emitUp() {
   const matchLabels = {}
@@ -36,7 +47,9 @@ function emitUp() {
       operator: e.operator || 'In',
       values: (e.values || '').split(',').map(s => s.trim()).filter(Boolean),
     }))
-  emit('update:modelValue', { matchLabels, matchExpressions })
+  const out = { matchLabels, matchExpressions }
+  lastEmitted = out
+  emit('update:modelValue', out)
 }
 
 function addLabel() { labels.value.push({ key: '', value: '' }) }

@@ -38,10 +38,20 @@ function sync(v) {
   }
 }
 sync(props.modelValue)
-// 外部重填(编辑回显)时同步数字框/单位
-watch(() => props.modelValue, v => sync(v))
+// 外部重填(编辑回显)时同步数字框/单位。
+// 回声守卫:v-model 双向接线里,自己刚 emit 的规范串会经父组件原样回流——那不是外部
+// 重填,不得 sync(中间态 '4.' 的回灌重写会吃掉小数点,与 ResourceInput 同源)。
+let lastEmitted = null
+watch(() => props.modelValue, v => { if (v === lastEmitted) return; sync(v) })
 
-function emitVal() { emit('update:modelValue', num.value ? num.value + (isUnit.value ? (unit.value || vt.value.defUnit) : '') : '') }
+function emitVal() {
+  const out = num.value ? num.value + (isUnit.value ? (unit.value || vt.value.defUnit) : '') : ''
+  lastEmitted = out
+  emit('update:modelValue', out)
+}
+// 纯受控接线(v-model 刻意不用):v-model 对 type=number 的自动 cast 会把中间态
+// (如 '4.')归一,叠加回声重渲染把 DOM 归一——与 ResourceInput 同源同修。
+function onInput(e) { num.value = e.target.value; emitVal() }
 
 const inputCls = 'w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary'
 const unitCls = 'bg-surface-container-low border border-l-0 border-outline-variant rounded-r-lg px-sm text-xs text-on-surface-variant'
@@ -54,13 +64,13 @@ const unitCls = 'bg-surface-container-low border border-l-0 border-outline-varia
       <option v-for="o in fld.options" :key="o" :value="o">{{ o || t('ns.ingress.defaultOpt') }}</option>
     </select>
     <div v-else-if="isUnit" class="flex items-stretch">
-      <input type="number" :min="fld.min ?? 0" v-model="num" @input="emitVal" :class="inputCls + ' rounded-r-none'" :placeholder="fld.ph" />
+      <input type="number" :min="fld.min ?? 0" :value="num" @input="onInput" :class="inputCls + ' rounded-r-none'" :placeholder="fld.ph" />
       <select v-model="unit" @change="emitVal" :data-testid="'unit-' + fld.key" :class="unitCls + ' font-mono'">
         <option v-for="u in units" :key="u" :value="u">{{ u }}</option>
       </select>
     </div>
     <div v-else-if="vt.input === 'number'" class="flex items-stretch">
-      <input type="number" :min="fld.min" :max="fld.max" v-model="num" @input="emitVal" :class="inputCls + (fld.unitKey && t(fld.unitKey) ? ' rounded-r-none' : '')" :placeholder="fld.ph" />
+      <input type="number" :min="fld.min" :max="fld.max" :value="num" @input="onInput" :class="inputCls + (fld.unitKey && t(fld.unitKey) ? ' rounded-r-none' : '')" :placeholder="fld.ph" />
       <span v-if="fld.unitKey && t(fld.unitKey)" :class="unitCls + ' flex items-center'">{{ t(fld.unitKey) }}</span>
     </div>
     <input v-else v-model="raw" :class="inputCls" :placeholder="fld.ph" />

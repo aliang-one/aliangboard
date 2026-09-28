@@ -23,12 +23,21 @@ function sync(v) {
   unit.value = p.unit
 }
 sync(props.modelValue)
-// 外部重填(openEdit 重新读 spec.resources)时同步数字框/下拉
-watch(() => props.modelValue, v => sync(v))
+// 外部重填(openEdit 重新读 spec.resources)时同步数字框/下拉。
+// 回声守卫:v-model 双向接线里,自己刚 emit 的规范串会经父组件原样回流——那不是外部
+// 重填,不得 sync(formatQuantity 会把中间态规范化,回灌会吃掉 '0.' 的小数点/重写 '05')。
+let lastEmitted = null
+watch(() => props.modelValue, v => { if (v === lastEmitted) return; sync(v) })
 
 function emitVal() {
-  emit('update:modelValue', formatQuantity(num.value, unit.value, props.kind))
+  const out = formatQuantity(num.value, unit.value, props.kind)
+  lastEmitted = out
+  emit('update:modelValue', out)
 }
+// 纯受控接线(v-model 刻意不用):v-model 对 type=number 的自动 cast(looseToNumber)
+// 会把中间态 '0.' 归一为 0,'0.' 的小数点在 v-model 层就丢;再叠加回声重渲染把
+// DOM 归一('05'→'5'),小数核无法顺序键入。:value 直绑 num(原始串),emit 侧再规范化。
+function onInput(e) { num.value = e.target.value; emitVal() }
 // cores 允许小数;其余单位(m/Ki/Mi/Gi/Ti)整数
 const step = computed(() => (props.kind === 'cpu' && unit.value === '') ? 'any' : '1')
 </script>
@@ -37,7 +46,7 @@ const step = computed(() => (props.kind === 'cpu' && unit.value === '') ? 'any' 
   <div class="flex items-stretch">
     <input
       type="number" min="0" :step="step"
-      v-model="num" @input="emitVal"
+      :value="num" @input="onInput"
       class="flex-1 min-w-0 bg-surface-container-low border border-outline-variant rounded-l-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
       :placeholder="placeholder"
     />
