@@ -17,19 +17,29 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'save', 'discard', 'edit-start'])
 
 const editableContent = ref(props.modelValue)
+// 编辑会话基线:startEdit 时的快照,hasChanges 的比较锚点 + Discard 的回滚目标。
+// 不直接比 props.modelValue:双向(v-model)消费方里父值随每次键入回流,永远追平草稿,
+// hasChanges 会被恒置 false(Action Bar 永不出现)。
+const editBase = ref(props.modelValue)
 const hasChanges = ref(false)
 const isEditing = ref(false)
 
-// 外部 modelValue 变化 → 同步 + 回到查看模式
+// 外部 modelValue 变化 → 同步 + 回到查看模式。
+// 回声守卫:双向(v-model / :model-value+@update)消费方里,组件自己 emit 的值会经父组件
+// 原样回流 —— 那不是外部变化,绝不能打断进行中的编辑(否则键入第一字即被踢出编辑态)。
+// 草稿保护:编辑中有未保存改动时,外部(如 live refetch)变化不覆盖用户草稿,交给 save/discard 收束。
 watch(() => props.modelValue, (val) => {
+  if (val === editableContent.value) return // 自身 emit 的回声:忽略
+  if (isEditing.value && hasChanges.value) return
   editableContent.value = val
+  editBase.value = val
   hasChanges.value = false
   isEditing.value = false
 })
 
 // editableContent 变化（编辑时）→ 更新 hasChanges + emit
 watch(editableContent, (val) => {
-  hasChanges.value = val !== props.modelValue
+  hasChanges.value = val !== editBase.value
   emit('update:modelValue', val)
 })
 
@@ -38,6 +48,7 @@ async function copy() {
 }
 
 function startEdit() {
+  editBase.value = props.modelValue
   editableContent.value = props.modelValue
   isEditing.value = true
   emit('edit-start')
@@ -45,12 +56,15 @@ function startEdit() {
 
 function handleSave() {
   emit('save', editableContent.value)
+  editBase.value = editableContent.value
   hasChanges.value = false
   isEditing.value = false
 }
 
 function handleDiscard() {
-  editableContent.value = props.modelValue
+  editableContent.value = editBase.value
+  // 双向消费方:父值已随键入漂移,须一并回滚到基线(单向消费方忽略此 emit,无害)
+  emit('update:modelValue', editBase.value)
   hasChanges.value = false
   isEditing.value = false
   emit('discard')
