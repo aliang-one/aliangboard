@@ -1,6 +1,7 @@
 // 资源 fetcher（K8s API → mapXxx）。从 cluster.js 抽出的纯数据拉取函数。
 import { api } from '@/api/client'
 import { recordListRv } from '@/composables/watchRegistry'
+import { WORKLOAD_API } from '@/logic/workloadMeta'
 import { i18n } from '@/i18n'
 import { cpuToMilli, memToKi } from '@/composables/useResourceFormat'
 import {
@@ -50,23 +51,32 @@ export async function fetchWorkloadRevisions(type, name, ns) {
   return buildRevisions(deploy, owned)
 }
 
-// 工作负载列表(deploy+sts+ds 三类合一)。瘦身:不再拉 replicasets/回滚历史——
-// 历史仅 NsWorkloadDetail 回滚页需要,走 fetchWorkloadRevisions 按需拉(spec §5.2 第一刀)。
+// 工作负载列表(apps 三类 + batch 双类合一,2026-09-28 issue#16:Job/CronJob 首次入列)。
+// 瘦身:不再拉 replicasets/回滚历史——历史仅 NsWorkloadDetail 回滚页需要,走
+// fetchWorkloadRevisions 按需拉(spec §5.2 第一刀)。
+// 端点表由 WORKLOAD_API 单源派生(fetch/watch/CRUD 同一张表)。
+// 失败语义(对抗审查 P2 修正):403(权限缺位,判定 error.status)只静默降级该类,其余类
+// 照常返回——RBAC 收窄用户不全局失败;非 403(网络/5xx 瞬态)整体 reject,保留 Vue Query
+// 旧语义(error 态保旧数据 + retry),不得静默蒸发一整个 kind 或空成功覆盖缓存。
+const WORKLOAD_LIST_ENDPOINTS = Object.entries(WORKLOAD_API)
+  .map(([kind, [gv, plural]]) => [kind, `/apis/${gv}/${plural}`])
 export async function fetchWorkloads() {
-  const [dep, sts, ds] = await Promise.all([
-    api.k8s('/apis/apps/v1/deployments?limit=1000'),
-    api.k8s('/apis/apps/v1/statefulsets?limit=1000'),
-    api.k8s('/apis/apps/v1/daemonsets?limit=1000'),
-  ])
-  // watch RV 登记簿写入:三类各登记自己的 list RV,供 7 流 watch 重连续接(拆分前先加,Task 5 再瘦身)
-  recordListRv('/apis/apps/v1/deployments', dep?.metadata?.resourceVersion)
-  recordListRv('/apis/apps/v1/statefulsets', sts?.metadata?.resourceVersion)
-  recordListRv('/apis/apps/v1/daemonsets', ds?.metadata?.resourceVersion)
-  return [
-    ...((dep?.items || []).map(i => mapWorkload(i, 'Deployment'))),
-    ...((sts?.items || []).map(i => mapWorkload(i, 'StatefulSet'))),
-    ...((ds?.items || []).map(i => mapWorkload(i, 'DaemonSet'))),
-  ]
+  const settled = await Promise.allSettled(WORKLOAD_LIST_ENDPOINTS.map(([, path]) => api.k8s(`${path}?limit=1000`)))
+  const out = []
+  let transientErr = null
+  settled.forEach((r, i) => {
+    const [kind, path] = WORKLOAD_LIST_ENDPOINTS[i]
+    if (r.status !== 'fulfilled') {
+      if (r.reason?.status !== 403 && !transientErr) transientErr = r.reason ?? new Error(String(r.reason))
+      return
+    }
+    if (!r.value) return
+    // watch RV 登记簿写入:各 kind 登记自己的 list RV,供 workloads watch 族重连续接
+    recordListRv(path, r.value?.metadata?.resourceVersion)
+    out.push(...((r.value.items || []).map(item => mapWorkload(item, kind))))
+  })
+  if (transientErr) throw transientErr
+  return out
 }
 
 // ns 级 ReplicaSet(拓扑 RS 层):watch 不覆盖 RS,新鲜度靠查询 pollInterval 兜底(B2 单轨)。

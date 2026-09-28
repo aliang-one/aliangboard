@@ -1,5 +1,5 @@
 // cluster store · Watch 域(Plan 5 第二波,2026-08-28):workload 族多路复用 watch(网关 /api/k8s-watch
-// 单 NDJSON 流聚合 7 路,根治浏览器同源 6 连接上限)+ 旧单资源 watch 入口 + 状态机暴露。
+// 单 NDJSON 流聚合 9 路(2026-09-28 issue#16:+jobs/cronjobs),根治浏览器同源 6 连接上限)+ 旧单资源 watch 入口 + 状态机暴露。
 // 自 cluster.js 逐字搬迁;依赖显式注入;store 公开名不变。
 import { reactive } from 'vue'
 import { k8sStream, k8sChannel, api } from '@/api/client'
@@ -8,23 +8,31 @@ import { applyWatchEvent } from '@/composables/useK8sQuery'
 import { createWatchController } from '@/composables/useClusterWatch'
 import { recordListRv, getListRv, clearWatchRegistry } from '@/composables/watchRegistry'
 import { mapWorkload, mapService, mapIngress, mapPod, mapEvent } from '@/composables/useResourceMappers'
+import { WORKLOAD_API } from '@/logic/workloadMeta'
 
 export function createWatchDomain({ currentCluster, podWatchLive, eventWatchLive }) {
   // === Workload 族 Watch：多路复用单通道(网关 /api/k8s-watch)增量写 Vue Query canonical key ===
-  // spec §5.3:deployments/statefulsets/daemonsets 三流 merge 进同一 'workloads' key;
+  // spec §5.3:apps 三类 + batch 双类(issue#16,2026-09-28)五流 merge 进同一 'workloads' key;
   // 断线由 createWatchController 退避重连/410 relist/降级轮询接管。
   // 下面的 controllerFor 直连流仅供旧手动开关(startPodWatch 等)使用,family 主路走 familyChannel。
+  // 网关 WATCH_RESOURCES(k8s-watch-mux.mjs)与本表 keys 一一对应——两侧同步扩。
+  const workloadWatchConfigs = Object.entries(WORKLOAD_API).map(([kind, [gv, plural]]) => ({
+    key: plural, queryKey: 'workloads', watchPath: `/apis/${gv}/${plural}`, mapFn: i => mapWorkload(i, kind),
+  }))
   const WATCH_CONFIGS = [
     { key: 'pods', queryKey: 'pods', watchPath: '/api/v1/pods', mapFn: mapPod },
     { key: 'events', queryKey: 'events', watchPath: '/api/v1/events', mapFn: mapEvent },
-    { key: 'deployments', queryKey: 'workloads', watchPath: '/apis/apps/v1/deployments', mapFn: i => mapWorkload(i, 'Deployment') },
-    { key: 'statefulsets', queryKey: 'workloads', watchPath: '/apis/apps/v1/statefulsets', mapFn: i => mapWorkload(i, 'StatefulSet') },
-    { key: 'daemonsets', queryKey: 'workloads', watchPath: '/apis/apps/v1/daemonsets', mapFn: i => mapWorkload(i, 'DaemonSet') },
+    ...workloadWatchConfigs,
     { key: 'services', queryKey: 'services', watchPath: '/api/v1/services', mapFn: mapService },
     { key: 'ingresses', queryKey: 'ingresses', watchPath: '/apis/networking.k8s.io/v1/ingresses', mapFn: mapIngress },
   ]
   const watchStates = reactive(Object.fromEntries(WATCH_CONFIGS.map(c => [c.key, 'off'])))
   const watchControllers = new Map()
+  // 会话级粘性剔除(对抗审查 P1):上游 401/403 = 权限缺位,重连永远同结果。被拒资源
+  // 从 family 通道 resource 集摘除后立即重连,其余资源照常 live——「batch 403 只降级
+  // 该类」在 watch 面与列表面(fetchWorkloads allSettled)对齐。非 403(网络/5xx)不剔除。
+  const droppedWatchKeys = new Set()
+  const activeConfigs = () => WATCH_CONFIGS.filter(c => !droppedWatchKeys.has(c.key))
 
   function relistQueryKey(queryKey) {
     return queryClient.refetchQueries({ predicate: q => Array.isArray(q.queryKey) && q.queryKey[0] === 'cluster' && q.queryKey[2] === queryKey })
@@ -60,7 +68,7 @@ export function createWatchDomain({ currentCluster, podWatchLive, eventWatchLive
     return ctl
   }
 
-  // === 多路复用单通道:7 watch 归 1 连接(根治浏览器 HTTP/1.1 同源 6 连接上限饿死) ===
+  // === 多路复用单通道:9 watch 归 1 连接(根治浏览器 HTTP/1.1 同源 6 连接上限饿死) ===
   // 网关 /api/k8s-watch 聚合 7 路上游为单条 NDJSON;每行 {r,t,o} 或 {r,err}。
   // 任一路 {r,err}(含 RV 失效 410)时网关整条关闭 → 这里 relist 该资源拿新 RV 再重连。
   let familyChannelHandle = null
@@ -78,11 +86,17 @@ export function createWatchDomain({ currentCluster, podWatchLive, eventWatchLive
       // 注意:k8sChannel 的 abort 是静默的(不会回调 onClose),控制器必须被显式通知,
       // 否则 err 行后永不重连。410 走 onError({status:410}) 的不计失败 relist 路径
       // (RV 过期是正常生命周期,计失败会在 churn 下误降级);其余 err 走 onClose 计失败退避。
+      // 401/403(权限缺位,永久性):粘性剔除该资源,并复用 410 的「不计失败立即重连」
+      // 路径——重连的 resources= 已不含被拒资源;若计失败退避只会把幸存资源也拖进抖动。
       if (!cfg) return
       familyChannelEnded = true
+      if (evt.err === 401 || evt.err === 403) {
+        droppedWatchKeys.add(cfg.key)
+        watchStates[cfg.key] = 'off'
+      }
       relistQueryKey(cfg.queryKey)          // fire-and-forget:refetch 刷新注册表 RV,重连即可续接
       familyChannelHandle?.abort()
-      if (evt.err === 410) familyChannelNotify?.onError?.({ status: 410 })
+      if (evt.err === 410 || evt.err === 401 || evt.err === 403) familyChannelNotify?.onError?.({ status: 410 })
       else familyChannelNotify?.onClose?.()
       return
     }
@@ -96,10 +110,11 @@ export function createWatchDomain({ currentCluster, podWatchLive, eventWatchLive
     connect: ({ onOpen, onError, onClose }) => {
       familyChannelEnded = false
       familyChannelNotify = { onError, onClose }
-      const rvParams = WATCH_CONFIGS
+      const configs = activeConfigs()
+      const rvParams = configs
         .map(c => { const rv = getListRv(c.watchPath); return rv ? `&rv_${c.key}=${encodeURIComponent(rv)}` : '' })
         .join('')
-      familyChannelHandle = k8sChannel(`/api/k8s-watch?resources=${WATCH_CONFIGS.map(c => c.key).join(',')}${rvParams}`, {
+      familyChannelHandle = k8sChannel(`/api/k8s-watch?resources=${configs.map(c => c.key).join(',')}${rvParams}`, {
         onOpen,
         onError,
         onClose,
@@ -107,11 +122,11 @@ export function createWatchDomain({ currentCluster, podWatchLive, eventWatchLive
       })
       return familyChannelHandle
     },
-    // HTTP 410(整条通道层)→ 全家族 relist
-    relist: () => Promise.all([...new Set(WATCH_CONFIGS.map(c => c.queryKey))].map(relistQueryKey)),
-    // mux 下 7 资源同生共死:状态联动写全 7 key + pods/events live refs
+    // HTTP 410(整条通道层)→ 全家族 relist(仅幸存资源)
+    relist: () => Promise.all([...new Set(activeConfigs().map(c => c.queryKey))].map(relistQueryKey)),
+    // mux 下幸存资源同生共死:状态联动写 active key(被剔除的保持 off)+ pods/events live refs
     onState: s => {
-      for (const cfg of WATCH_CONFIGS) {
+      for (const cfg of activeConfigs()) {
         watchStates[cfg.key] = s
         if (cfg.key === 'pods') podWatchLive.value = s === 'live'
         if (cfg.key === 'events') eventWatchLive.value = s === 'live'
@@ -133,10 +148,12 @@ export function createWatchDomain({ currentCluster, podWatchLive, eventWatchLive
     familyChannelHandle = null
     for (const ctl of watchControllers.values()) ctl.stop()
     clearWatchRegistry()
+    droppedWatchKeys.clear() // 停止即重置粘性剔除(重启 watch 重新探测权限;也防跨用例泄漏)
   }
-  // canonical queryKey 聚合态:全 live 才 live;任一 degraded 即 degraded
+  // canonical queryKey 聚合态:全 live 才 live;任一 degraded 即 degraded。
+  // 聚合只算幸存(active)流——被剔除资源不得拖住整个 queryKey 的 live 判定。
   function watchStateOf(queryKey) {
-    const ss = WATCH_CONFIGS.filter(c => c.queryKey === queryKey).map(c => watchStates[c.key])
+    const ss = activeConfigs().filter(c => c.queryKey === queryKey).map(c => watchStates[c.key])
     if (!ss.length || ss.every(s => s === 'off')) return 'off'
     if (ss.some(s => s === 'degraded')) return 'degraded'
     if (ss.some(s => s === 'reconnecting')) return 'reconnecting'

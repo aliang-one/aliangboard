@@ -13,6 +13,7 @@ import { readMeta } from '@/composables/useBusinessMeta'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
+import { WORKLOAD_TYPES, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
 import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
 
 const router = useRouter()
@@ -45,7 +46,9 @@ const statusFilter = ref('All Statuses')
 
 const filters = [
   { key: 'namespace', label: 'Namespace', options: ['All Namespaces', ...allNamespaces.value.map(n => n.name)] },
-  { key: 'type', label: 'Workload Type', options: ['All Types', 'Deployment', 'Pod', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob'] },
+  // 类型词表单源(workloadMeta):恒等于 fetchWorkloads 产出的 kind 全集——'Pod' 死选项已除
+  // (workloads 数据源从不含 Pod 行,旧选项永远空结果)
+  { key: 'type', label: 'Workload Type', options: ['All Types', ...WORKLOAD_TYPES] },
   { key: 'status', label: 'Status', options: ['All Statuses', 'Running', 'Pending', 'Failed', 'Succeeded'] },
 ]
 
@@ -164,10 +167,11 @@ const nodeHealthPct = computed(() => {
       </template>
       <template #replicas="{ row }">
         <div class="flex items-center gap-sm">
-          <span class="font-mono text-code-sm font-bold" :class="parseReplicas(row.replicas).percent === 100 ? 'text-on-surface' : 'text-error'">
+          <!-- CronJob 无「期望副本」语义(ACTIVE 计数),进度条对它是假信号——纯文本(与 NsWorkloads 同判) -->
+          <span class="font-mono text-code-sm font-bold" :class="row.type !== 'CronJob' && parseReplicas(row.replicas).percent === 100 ? 'text-on-surface' : (row.type !== 'CronJob' && parseReplicas(row.replicas).percent === 0 ? 'text-error' : 'text-tertiary-container')">
             {{ row.replicas }}
           </span>
-          <div class="w-16 bg-outline-variant/30 h-1.5 rounded-full overflow-hidden">
+          <div v-if="row.type !== 'CronJob'" class="w-16 bg-outline-variant/30 h-1.5 rounded-full overflow-hidden">
             <div
               class="h-full rounded-full"
               :class="parseReplicas(row.replicas).percent === 100 ? 'bg-primary' : parseReplicas(row.replicas).percent === 0 ? 'bg-error' : 'bg-tertiary-container'"
@@ -184,7 +188,7 @@ const nodeHealthPct = computed(() => {
           <button @click.stop="goDetail(row)" class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg transition-all" :title="t('workloads.logs')">
             <span class="material-symbols-outlined text-lg">receipt_long</span>
           </button>
-          <button @click.stop="restartWorkload(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all" :title="t('common.restart')">
+          <button v-if="WORKLOAD_ROLLOUT_TYPES.includes(row.type)" @click.stop="restartWorkload(row)" class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all" :title="t('common.restart')">
             <span class="material-symbols-outlined text-lg">restart_alt</span>
           </button>
         </div>

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { isWorkloadNotReady } from '@/logic/workloadMeta'
 import { useRouter } from 'vue-router'
 import { useResourceList } from '@/composables/useK8sQuery'
 import AreaLineChart from '@/components/common/AreaLineChart.vue'
@@ -75,7 +76,7 @@ const recentEvents = computed(() => {
 })
 // 告警面板
 const highCpuNodes = computed(() => nodeList.value.filter(n => n.cpu != null && n.cpu >= 80))
-const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status !== 'Running'))
+const notReadyWorkloads = computed(() => workloadList.value.filter(isWorkloadNotReady))
 </script>
 
 <template>
@@ -214,7 +215,7 @@ const notReadyWorkloads = computed(() => workloadList.value.filter(w => w.status
           </div>
           <div v-if="notReadyWorkloads.length">
             <p class="text-xs text-on-surface-variant mb-xs">{{ t('monitoring.notReadyWorkloads') }}（{{ notReadyWorkloads.length }}）</p>
-            <button v-for="w in notReadyWorkloads.slice(0, 5)" :key="w.namespace + '/' + w.name" @click="router.push({ name: 'WorkloadDetail', params: { type: w.type, name: w.name } })" class="w-full flex items-center justify-between px-sm py-1 bg-error/5 rounded hover:bg-error/10">
+            <button v-for="w in notReadyWorkloads.slice(0, 5)" :key="w.namespace + '/' + w.name" @click="router.push({ name: 'NsWorkloadDetail', params: { namespace: w.namespace, type: String(w.type).toLowerCase(), name: w.name } })" class="w-full flex items-center justify-between px-sm py-1 bg-error/5 rounded hover:bg-error/10">
               <span class="font-mono text-body-sm text-on-surface truncate">{{ w.name }}</span><span class="text-xs text-on-surface-variant">{{ w.type }} · {{ w.replicas }}</span>
             </button>
           </div>

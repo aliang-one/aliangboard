@@ -3,11 +3,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WATCH_RESOURCES, parseResources, tagLine, createMuxStream } from './k8s-watch-mux.mjs'
 
-test('WATCH_RESOURCES 覆盖 7 类资源且路径正确', () => {
-  assert.equal(Object.keys(WATCH_RESOURCES).length, 7)
+test('WATCH_RESOURCES 覆盖 9 类资源且路径正确(2026-09-28 issue#16:batch 双类入 watch)', () => {
+  assert.equal(Object.keys(WATCH_RESOURCES).length, 9)
   assert.equal(WATCH_RESOURCES.pods, '/api/v1/pods')
   assert.equal(WATCH_RESOURCES.deployments, '/apis/apps/v1/deployments')
   assert.equal(WATCH_RESOURCES.ingresses, '/apis/networking.k8s.io/v1/ingresses')
+  assert.equal(WATCH_RESOURCES.jobs, '/apis/batch/v1/jobs')
+  assert.equal(WATCH_RESOURCES.cronjobs, '/apis/batch/v1/cronjobs')
 })
 
 test('parseResources: 多资源 + rv 提取', () => {

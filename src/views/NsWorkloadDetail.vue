@@ -18,7 +18,7 @@ import { readMeta, imageTag } from '@/composables/useBusinessMeta'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, applyLabelPatch, consumersBrokenBy, podTemplateLabels } from '@/logic/workloadMeta'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, applyLabelPatch, consumersBrokenBy, podTemplateLabels, WORKLOAD_KIND_FROM_ROUTE, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
 import { podsByPrefixFallback, volumesAndPullSecretsFromPodSpec } from '@/logic/topology'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
 import { validateContainerFields } from '@/logic/containerValidation'
@@ -85,8 +85,12 @@ const podsQuery = useResourceList({
   fetcher: () => store.fetchPods(),
   options: { refetchInterval: pollInterval },
 })
+// type 判别(对抗审查 P1):同 ns 同名跨 kind(Deployment x + CronJob x,K8s 合法)时
+// name+ns-only 会渲染错对象。路由 :type 在手则以它为准;无 type(旧 mock/测试)退兼容。
+const routeKind = computed(() => WORKLOAD_KIND_FROM_ROUTE[String(route.params.type || '').toLowerCase()] || null)
 const workload = computed(() => (workloadsQuery.data.value || []).find(
   w => w.name === route.params.name && w.namespace === route.params.namespace
+    && (!routeKind.value || w.type === routeKind.value)
 ))
 const { fastMode } = useDeployFastPoll(() => (workload.value?.raw ? [workload.value.raw] : []))
 // watch 门控:live/reconnecting 态轮询归零(watch 推缓存);降级/off 才按 fast/slow 兜底。
@@ -298,6 +302,7 @@ const showEditModal = ref(false)
 const editForm = ref({})
 
 const isScalable = computed(() => ['Deployment', 'StatefulSet'].includes(workload.value?.type))
+const isJob = computed(() => workload.value?.type === 'Job')
 const replicasLabel = computed(() => {
   const t = workload.value?.type
   if (t === 'DaemonSet') return 'SCHEDULED'
@@ -306,7 +311,7 @@ const replicasLabel = computed(() => {
   return 'REPLICAS'
 })
 const isCronJob = computed(() => workload.value?.type === 'CronJob')
-const isRolloutType = computed(() => ['Deployment', 'StatefulSet', 'DaemonSet'].includes(workload.value?.type))
+const isRolloutType = computed(() => WORKLOAD_ROLLOUT_TYPES.includes(workload.value?.type))
 // 发布历史独立 query:列表已瘦身(fetchWorkloads 不再携带 revisions),按需拉(spec §5.2 第一刀)
 const TYPE_MAP = { deployment: 'Deployment', statefulset: 'StatefulSet', daemonset: 'DaemonSet' }
 const queryClient = useQueryClient()
@@ -346,6 +351,31 @@ const rollout = computed(() => {
   }
   const st = wl.raw.status || {}
   const spec = wl.raw.spec || {}
+  // batch 家族状态卡(2026-09-28 issue#16):Job=完成度语义(succeeded/completions),
+  // CronJob=调度语义(暂停/运行/空闲)——旧态两类都落 apps 副本规则恒显假进度(updating 0/1)。
+  if (wl.type === 'Job') {
+    const completions = spec.completions ?? 1
+    const succeeded = st.succeeded ?? 0
+    const active = st.active ?? 0
+    const failedCond = (st.conditions || []).find(c => c.type === 'Failed' && c.status === 'True')
+    const completeCond = (st.conditions || []).find(c => c.type === 'Complete' && c.status === 'True')
+    const level = completeCond || succeeded >= completions ? 'healthy' : failedCond ? 'failed' : (active > 0 || succeeded > 0) ? 'updating' : 'warning'
+    const reason = level === 'healthy' ? t('workload.rollout.jobComplete', { done: succeeded, total: completions })
+      : level === 'failed' ? (failedCond?.message || t('workload.rollout.jobFailed'))
+      : level === 'updating' ? t('workload.rollout.jobRunning', { done: succeeded, total: completions })
+      : t('workload.rollout.jobPending')
+    return {
+      desired: completions, updated: succeeded, ready: succeeded, total: active + succeeded, oldCount: 0, level, reason,
+      newW: Math.round((succeeded / Math.max(completions, 1)) * 100), oldW: 0, meta: STATUS_META[level],
+    }
+  }
+  if (wl.type === 'CronJob') {
+    const active = Array.isArray(st.active) ? st.active.length : (st.active ?? 0)
+    const suspended = Boolean(spec.suspend)
+    const level = suspended ? 'warning' : active > 0 ? 'updating' : 'healthy'
+    const reason = suspended ? t('workload.rollout.suspended') : active > 0 ? t('workload.rollout.cronActive', { n: active }) : t('workload.rollout.cronIdle')
+    return { desired: active, updated: active, ready: active, total: active, oldCount: 0, level, reason, newW: active > 0 ? 100 : 0, oldW: 0, meta: STATUS_META[level] }
+  }
   const isDaemon = wl.type === 'DaemonSet'
   const desired = spec.replicas ?? (isDaemon ? st.desiredNumberScheduled : 1)
   const updated = st.updatedReplicas ?? (isDaemon ? st.updatedNumberScheduled : 0) ?? 0
@@ -379,7 +409,7 @@ function confirmRollback(rev) { rollbackTarget.value = rev; showRollbackModal.va
 async function handleRollback() {
   if (rollbackTarget.value == null) return
   try {
-    await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value?.rev)
+    await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value?.rev, routeKind.value || undefined)
     revisionsQuery.refetch()
     showRollbackModal.value = false
     rollbackTarget.value = null
@@ -436,12 +466,19 @@ const tierOptions = TIER_OPTIONS
 function tierLabel(o) { return o.parentLabelKey ? `${t(o.parentLabelKey)} / ${t(o.labelKey)}` : t(o.labelKey) }
 
 async function handleDelete() {
-  await store.deleteWorkload(route.params.name, route.params.namespace)
+  // 返回 false=store 已报错(权限/不存在),留守详情页;undefined 兼容旧签名 mock(仍跳转)
+  const ok = await store.deleteWorkload(route.params.name, route.params.namespace, routeKind.value || undefined)
+  if (ok === false) return
   router.push({ name: 'NsWorkloads', params: { namespace: route.params.namespace } })
 }
 const showRestartModal = ref(false)
 function askRestart() { showRestartModal.value = true }
-function handleRestart() { showRestartModal.value = false; store.restartWorkload(route.params.name, route.params.namespace); refreshSoon() }
+async function handleRestart() {
+  showRestartModal.value = false
+  try { await store.restartWorkload(route.params.name, route.params.namespace, routeKind.value || undefined) }
+  catch (e) { notify('error', e.message || t('workload.notify.updateFailed')) }
+  refreshSoon()
+}
 
 // 刷新：重新拉取工作负载/Pod/事件（部署中状态不会自动变，需手动或删除 Pod 触发）
 const refreshing = ref(false)
@@ -495,6 +532,7 @@ async function triggerCron() {
   try {
     const res = await cronJobApi.trigger({ namespace: route.params.namespace, name: route.params.name })
     notify('success', t('workload.notify.triggeredJob', { name: res.job || route.params.name }))
+    refreshSoon() // 触发的 Job 与 CronJob active 变化不等轮询(watch 非 live 时 30-60s)
   } catch (e) { notify('error', e.message || t('workload.notify.triggerFailed')) }
   finally { triggering.value = false }
 }
@@ -503,7 +541,7 @@ function openScale() {
   scaleReplicas.value = parseInt(workload.value.replicas?.split('/')[1] || '1')
   showScaleModal.value = true
 }
-function handleScale() { store.scaleWorkload(route.params.name, route.params.namespace, scaleReplicas.value); showScaleModal.value = false }
+function handleScale() { store.scaleWorkload(route.params.name, route.params.namespace, scaleReplicas.value, routeKind.value || undefined); showScaleModal.value = false }
 // 快速伸缩 ±1：直接 scaleWorkload（可缩到 0；非 scalable 类型不显示）
 const scaling = ref(false)
 async function quickScale(delta) {
@@ -511,7 +549,7 @@ async function quickScale(delta) {
   const next = Math.max(0, (cur || 0) + delta)
   if (next === cur) return
   scaling.value = true
-  try { await store.scaleWorkload(route.params.name, route.params.namespace, next) }
+  try { await store.scaleWorkload(route.params.name, route.params.namespace, next, routeKind.value || undefined) }
   catch (e) { notify('error', e.message || t('workload.notify.scaleFailed')) }
   finally { scaling.value = false }
 }
@@ -580,10 +618,11 @@ async function saveImageTag() {
   f.repo = String(f.repo || '').replace(/\s+/g, '')
   f.newTag = String(f.newTag || '').replace(/\s+/g, '')
   if (!f.newTag) { notify('error', t('workload.notify.tagEmpty')); return }
+  if (isJob.value) { notify('error', t('workload.edit.jobImmutableHint')); return } // 对抗审查 P2:Job 模板不可变,不得假成功
   const newImage = f.newTag ? `${f.repo}:${f.newTag}` : f.repo
   try {
     // 走 updateWorkload image patch
-    store.updateWorkload(route.params.name, route.params.namespace, { image: newImage })
+    store.updateWorkload(route.params.name, route.params.namespace, { image: newImage }, routeKind.value || undefined)
     // 也走 applyWorkloadTemplate 确保 template image 更新
     if (isRolloutType.value && workload.value?.raw?.spec?.template) {
       const tpl = JSON.parse(JSON.stringify(workload.value.raw.spec.template))
@@ -701,8 +740,9 @@ const METRIC_WINDOWS = [
 const metricsWindow = ref('5m')
 const podMetricsNames = computed(() => (selectedPod.value ? [selectedPod.value.name] : []))
 const { cpuSeries: podCpuSeries, memSeries: podMemSeries, current: podMetricsNow, available: podMetricsAvailable, start: startPodMetrics } = useMetricsHistory(nsRef, podMetricsNames, { max: 180, interval: 5000 })
-// 按需装载：Job/CronJob 不在批量 hydrate 的 workloadList 里，直接进入详情页时拉取补齐
-const KIND_FROM_TYPE = { deployment: 'Deployment', statefulset: 'StatefulSet', daemonset: 'DaemonSet', job: 'Job', cronjob: 'CronJob' }
+// 按需装载:batch 已入批量列表(2026-09-28 issue#16),此通道退居二线——列表 refetch 竞态窗口期
+// /直接链接进入时补齐(WORKLOAD_KIND_FROM_ROUTE 单源含 5 类)
+const KIND_FROM_TYPE = WORKLOAD_KIND_FROM_ROUTE
 async function ensureWorkload() {
   if (workload.value) return
   const kind = KIND_FROM_TYPE[route.params.type]
@@ -711,8 +751,8 @@ async function ensureWorkload() {
   catch { /* 找不到则静默，页面 v-if=workload 自然显示空 */ }
 }
 watch(() => [route.params.type, route.params.name, route.params.namespace], () => ensureWorkload())
-// workloads 查询 30s refetch 用服务端列表（deployments/sts/ds，不含 Job/CronJob）覆盖缓存 →
-// 补齐的单体会消失 → 详情翻白。workload 翻 undefined 时重补一次（404 时静默，无循环）。
+// workloads 查询 refetch 用服务端列表(五类)覆盖缓存 → 补齐的单体会消失 → 详情翻白。
+// workload 翻 undefined 时重补一次（404 时静默，无循环）。
 watch(workload, w => { if (!w) ensureWorkload() })
 onMounted(() => { startMetrics(); startPodMetrics(); ensureWorkload(); startAutoRefresh() })
 // 注意：模板会把 ref 自动解包成数组再传入，所以参数是数组本身（不是 ref）
@@ -863,6 +903,7 @@ function openEdit() {
     imageTag: imgTag(workload.value.image) || 'latest',
     replicas: workload.value.replicas?.split('/')[1] || '1',
     schedule: workload.value.schedule || '',
+    suspend: Boolean(workload.value.suspend),
     labels: { ...workload.value.labels },
     tier: workload.value.tier || 'default',
     // 主容器
@@ -987,15 +1028,27 @@ async function saveEdit() {
   for (const [k, v] of Object.entries(f.labels || {})) if (typeof v === 'string') f.labels[k] = v.trim()
   const labels = { ...(f.labels || {}) }
   const image = f.imageTag ? `${f.imageRepo}:${f.imageTag}` : f.imageRepo
-  // Deployment 级（labels / replicas / 更新策略 / 历史上限）→ updateWorkload
+  // kind 级（labels / replicas / schedule / 更新策略 / 历史上限）→ updateWorkload
+  // 2026-09-28 issue#16:batch 入编——CronJob 真保存(schedule/suspend/镜像走 jobTemplate);
+  // strategy/revisionHistoryLimit 收敛为 Deployment 专属(旧实现无条件塞给全部类型)。
+  if (isCronJob.value && !String(f.schedule || '').trim()) {
+    notify('error', t('workload.notify.scheduleEmpty')) // 对抗审查 P3:清空静默回滚 = 假保存残余
+    return
+  }
   const updates = { tier: f.tier, labels }
   if (isScalable.value) updates.replicas = `${f.replicas}/${f.replicas}`
-  if (isCronJob.value) updates.schedule = f.schedule
-  updates.strategy = f.strategy || 'RollingUpdate'
-  updates.maxSurge = f.maxSurge
-  updates.maxUnavailable = f.maxUnavailable
-  updates.revisionHistoryLimit = f.revisionHistoryLimit
-  store.updateWorkload(route.params.name, route.params.namespace, updates)
+  if (isCronJob.value) {
+    updates.schedule = f.schedule
+    updates.suspend = Boolean(f.suspend)
+    updates.image = image
+  }
+  if (workload.value?.type === 'Deployment') {
+    updates.strategy = f.strategy || 'RollingUpdate'
+    updates.maxSurge = f.maxSurge
+    updates.maxUnavailable = f.maxUnavailable
+    updates.revisionHistoryLimit = f.revisionHistoryLimit
+  }
+  store.updateWorkload(route.params.name, route.params.namespace, updates, routeKind.value || undefined)
   // Pod 模板（深：容器/卷/调度/多容器）→ applyWorkloadTemplate
   if (isRolloutType.value) {
     const rawTpl = workload.value?.raw?.spec?.template
@@ -1259,6 +1312,8 @@ function podStatusBorder(s) {
           <p v-if="meta.description" class="text-body-sm text-on-surface-variant mt-xs">{{ meta.description }}</p>
           <div class="flex items-center gap-xs mt-xs flex-wrap">
             <span class="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-md font-medium">{{ workload.type }}</span>
+            <span v-if="isCronJob && workload.schedule" class="px-2 py-0.5 bg-surface-container rounded text-xs font-mono text-on-surface-variant" :title="$t('workload.edit.schedule')">{{ workload.schedule }}</span>
+            <span v-if="isCronJob && workload.suspend" class="px-2 py-0.5 bg-tertiary-container/40 text-on-surface-variant text-xs rounded-md font-medium">{{ $t('workload.suspendedChip') }}</span>
             <StatusChip :status="workload.status" size="sm" />
             <span class="text-xs text-on-surface-variant">{{ workload.namespace }}</span>
             <span v-if="meta.owner" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-surface-container rounded text-xs text-on-surface-variant"><span class="material-symbols-outlined text-xs">group</span>{{ meta.owner }}</span>
@@ -1272,7 +1327,8 @@ function podStatusBorder(s) {
           <span class="material-symbols-outlined text-base" :class="refreshing ? 'animate-spin' : ''">refresh</span><span class="hidden lg:inline">{{ $t('workload.refresh') }}</span>
         </button>
         <button v-if="isScalable" @click="openScale" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.scale') }}</button>
-        <button @click="askRestart" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.restart') }}</button>
+        <button v-if="isRolloutType" @click="askRestart" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.restart') }}</button>
+        <button v-if="isCronJob" @click="triggerCron" :disabled="!canMutate || triggering" :title="!canMutate ? $t('workload.noUpdatePerm') : $t('workload.triggerTitle')" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"><span v-if="triggering" class="material-symbols-outlined text-base animate-spin">progress_activity</span><span v-else class="material-symbols-outlined text-base">play_arrow</span>{{ $t('workload.trigger') }}</button>
         <button @click="openMetaEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-primary/40 text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.metadata') }}</button>
         <button @click="openEdit" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-semibold bg-primary text-on-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('common.edit') }}</button>
         <button v-if="isRolloutType" @click="openTemplateEditor" :disabled="!canMutate" :title="!canMutate ? $t('workload.noUpdatePerm') : ''" class="max-sm:min-h-[40px] px-3 py-1.5 text-body-sm font-medium border border-outline-variant text-on-surface rounded-lg hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed">{{ $t('workload.template') }}</button>
@@ -1344,7 +1400,7 @@ function podStatusBorder(s) {
             </div>
           </div>
           <!-- 改版本（镜像 tag） -->
-          <button v-if="canMutate" @click="openImageTagEditor" class="shrink-0 flex items-center gap-xs px-md py-1.5 rounded-lg border border-outline-variant text-on-surface hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors" :title="$t('workload.rollout.changeTagTitle')">
+          <button v-if="canMutate && !isJob" @click="openImageTagEditor" class="shrink-0 flex items-center gap-xs px-md py-1.5 rounded-lg border border-outline-variant text-on-surface hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors" :title="$t('workload.rollout.changeTagTitle')">
             <span class="material-symbols-outlined text-base">swap_horiz</span><span class="text-body-sm font-medium">{{ $t('workload.rollout.changeTag') }}</span>
           </button>
         </div>
@@ -1365,7 +1421,7 @@ function podStatusBorder(s) {
           <p class="text-headline-sm font-bold text-on-surface mt-0.5">{{ workload.age }}</p>
         </div>
         <div class="rounded-xl bg-surface-container-lowest border border-outline-variant px-md py-2.5 xl:col-span-2">
-          <div class="flex items-center justify-between"><p class="text-xs text-on-surface-variant">{{ $t('workload.summary.image') }}</p><button v-if="canMutate" @click="openImageTagEditor" class="text-xs text-primary hover:underline flex items-center gap-0.5"><span class="material-symbols-outlined text-sm">swap_horiz</span>{{ $t('workload.rollout.changeTag') }}</button></div>
+          <div class="flex items-center justify-between"><p class="text-xs text-on-surface-variant">{{ $t('workload.summary.image') }}</p><button v-if="canMutate && !isJob" @click="openImageTagEditor" class="text-xs text-primary hover:underline flex items-center gap-0.5"><span class="material-symbols-outlined text-sm">swap_horiz</span>{{ $t('workload.rollout.changeTag') }}</button></div>
           <p class="font-mono text-code-sm truncate mt-0.5"><span class="text-on-surface-variant">{{ imgBase(workload.image) }}</span><span class="text-primary font-semibold">:{{ imgTag(workload.image) || 'latest' }}</span></p>
           <div v-if="metricsAvailable" class="flex items-center gap-md mt-1 text-xs text-on-surface-variant">
             <span class="flex items-center gap-0.5"><span class="material-symbols-outlined text-sm text-primary">memory</span><b class="text-primary font-mono">{{ metricsNow.cpu }}</b>m</span>
@@ -1869,15 +1925,22 @@ function podStatusBorder(s) {
           <div class="col-span-2 grid grid-cols-[1fr_180px] gap-sm">
             <div>
               <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.imageRepo') }}</label>
-              <input v-model="editForm.imageRepo" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="library/nginx" />
+              <input v-model="editForm.imageRepo" :disabled="isJob" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors disabled:opacity-60 disabled:cursor-not-allowed" placeholder="library/nginx" />
             </div>
             <div>
               <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.imageTag') }}</label>
-              <input v-model="editForm.imageTag" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="v1.0.0" />
+              <input v-model="editForm.imageTag" :disabled="isJob" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors disabled:opacity-60 disabled:cursor-not-allowed" placeholder="v1.0.0" />
             </div>
           </div>
+          <p v-if="isJob" class="col-span-2 text-xs text-on-surface-variant/70">{{ $t('workload.edit.jobImmutableHint') }}</p>
           <div v-if="isScalable"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.replicas') }}</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
-          <div v-if="isCronJob"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.schedule') }}</label><input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="*/5 * * * *" /></div>
+          <div v-if="isCronJob" class="grid grid-cols-[1fr_auto] gap-sm items-end">
+            <div>
+              <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.schedule') }}</label>
+              <input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="*/5 * * * *" />
+            </div>
+            <label class="flex items-center gap-xs pb-sm text-xs font-medium text-on-surface-variant cursor-pointer select-none"><input type="checkbox" v-model="editForm.suspend" class="accent-primary w-4 h-4" />{{ $t('workload.edit.suspend') }}</label>
+          </div>
           <div class="col-span-2"><p class="text-xs text-on-surface-variant/60">{{ $t('workload.edit.imagePreview') }}<span class="font-mono text-primary">{{ editForm.imageRepo }}:{{ editForm.imageTag || '?' }}</span></p></div>
         </div>
         <div class="mt-md pt-md border-t border-outline-variant/40">

@@ -2252,6 +2252,9 @@
     "refreshTitle": "Refresh (re-fetch workloads/Pods/events)",
     "scale": "Scale",
     "restart": "Restart",
+    "trigger": "Trigger",
+    "triggerTitle": "Trigger once (kubectl create job --from)",
+    "suspendedChip": "Suspended",
     "metadata": "Metadata",
     "edit": {
       "basicConfig": "Basic Configuration",
@@ -2259,6 +2262,8 @@
       "imageTag": "Tag",
       "replicas": "Replicas",
       "schedule": "Schedule",
+      "suspend": "Suspend scheduling",
+      "jobImmutableHint": "Job pod template is immutable after creation; only labels/tier are editable",
       "imagePreview": "New image preview: ",
       "tier": "Tier",
       "containers": "Containers",
@@ -2350,7 +2355,14 @@
       "replicasReadyRatio": "{ready}/{desired} replicas ready",
       "replicaCreateFailed": "Replica creation failed, check events",
       "desiredZero": "Desired replicas is 0 (scaled down)",
-      "newVersionProgress": "New version {updated}/{desired} becoming ready"
+      "newVersionProgress": "New version {updated}/{desired} becoming ready",
+      "suspended": "Scheduling suspended",
+      "cronActive": "{n} job(s) running",
+      "cronIdle": "Idle, waiting for next schedule",
+      "jobComplete": "Completed ({done}/{total})",
+      "jobFailed": "Failed",
+      "jobRunning": "Running ({done}/{total} complete)",
+      "jobPending": "Waiting to start"
     },
     "summary": {
       "readyPods": "Ready Pods",
@@ -2642,6 +2654,7 @@
       "deletePodFailed": "Failed to delete Pod",
       "triggeredJob": "Triggered Job: {name}",
       "triggerFailed": "Trigger failed",
+      "scheduleEmpty": "Schedule cannot be empty",
       "scaleFailed": "Scale failed",
       "noTags": "No available tags for this repo",
       "fetchFailed": "Fetch failed",

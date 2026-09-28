@@ -2252,6 +2252,9 @@
     "refreshTitle": "刷新（重新拉取工作负载/Pod/事件）",
     "scale": "扩缩容",
     "restart": "重启",
+    "trigger": "手动触发",
+    "triggerTitle": "手动触发一次（kubectl create job --from）",
+    "suspendedChip": "已暂停",
     "metadata": "元数据",
     "edit": {
       "basicConfig": "基本配置",
@@ -2259,6 +2262,8 @@
       "imageTag": "版本 Tag",
       "replicas": "副本数",
       "schedule": "调度计划",
+      "suspend": "暂停调度",
+      "jobImmutableHint": "Job 的 Pod 模板创建后不可变，仅可编辑标签/分层",
       "imagePreview": "新镜像预览：",
       "tier": "分层",
       "containers": "容器",
@@ -2350,7 +2355,14 @@
       "replicasReadyRatio": "{ready}/{desired} 副本就绪",
       "replicaCreateFailed": "副本创建失败，请查看事件",
       "desiredZero": "期望副本数为 0（已缩容）",
-      "newVersionProgress": "新版本 {updated}/{desired} 就绪中"
+      "newVersionProgress": "新版本 {updated}/{desired} 就绪中",
+      "suspended": "已暂停调度",
+      "cronActive": "{n} 个 Job 运行中",
+      "cronIdle": "空闲，等待下次调度",
+      "jobComplete": "已完成（{done}/{total}）",
+      "jobFailed": "已失败",
+      "jobRunning": "运行中（{done}/{total} 完成）",
+      "jobPending": "等待调度"
     },
     "summary": {
       "readyPods": "就绪 Pod",
@@ -2642,6 +2654,7 @@
       "deletePodFailed": "删除 Pod 失败",
       "triggeredJob": "已触发 Job：{name}",
       "triggerFailed": "触发失败",
+      "scheduleEmpty": "调度计划不能为空",
       "scaleFailed": "伸缩失败",
       "noTags": "该仓库暂无可用 tag",
       "fetchFailed": "拉取失败",

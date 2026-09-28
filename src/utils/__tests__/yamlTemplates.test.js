@@ -2,12 +2,23 @@ import { test, expect } from 'vitest'
 import { load as yamlLoad } from 'js-yaml'
 import { yamlTemplates, CLUSTER_SCOPED_KINDS } from '@/utils/yamlTemplates'
 
-test('共 16 个 kind 模板,键即 K8s kind 名', () => {
+test('共 18 个 kind 模板,键即 K8s kind 名(2026-09-28 issue#16:+Job/CronJob)', () => {
   expect(Object.keys(yamlTemplates).sort()).toEqual([
-    'ClusterRole', 'ClusterRoleBinding', 'ConfigMap', 'Deployment', 'HorizontalPodAutoscaler',
-    'Ingress', 'LimitRange', 'Namespace', 'PersistentVolumeClaim', 'PodDisruptionBudget',
+    'ClusterRole', 'ClusterRoleBinding', 'ConfigMap', 'CronJob', 'Deployment', 'HorizontalPodAutoscaler',
+    'Ingress', 'Job', 'LimitRange', 'Namespace', 'PersistentVolumeClaim', 'PodDisruptionBudget',
     'ResourceQuota', 'Role', 'RoleBinding', 'Secret', 'Service', 'ServiceAccount',
   ])
+})
+
+test('Job/CronJob 模板:batch/v1、Job 走 spec.template、CronJob 走 schedule+jobTemplate(issue#16)', () => {
+  const job = yamlLoad(yamlTemplates.Job('demo-ns'))
+  expect(job.apiVersion).toBe('batch/v1')
+  expect(job.spec.template.spec.containers[0].image).toBeTruthy()
+  expect(job.spec.template.spec.restartPolicy).toBeTruthy()
+  const cron = yamlLoad(yamlTemplates.CronJob('demo-ns'))
+  expect(cron.apiVersion).toBe('batch/v1')
+  expect(cron.spec.schedule).toBeTruthy()
+  expect(cron.spec.jobTemplate.spec.template.spec.containers[0].image).toBeTruthy()
 })
 
 test('CLUSTER_SCOPED_KINDS 恰含 3 个集群级 kind', () => {

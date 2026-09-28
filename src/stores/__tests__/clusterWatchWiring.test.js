@@ -38,13 +38,13 @@ afterEach(() => {
 })
 
 describe('cluster store 多路复用通道接线', () => {
-  it('默认开:startWorkloadFamilyWatch 只建 1 条 k8sChannel,URL 含 7 资源;零直连 k8sStream', () => {
+  it('默认开:startWorkloadFamilyWatch 只建 1 条 k8sChannel,URL 含 9 资源(+jobs/cronjobs,issue#16);零直连 k8sStream', () => {
     const store = useClusterStore()
     store.startWorkloadFamilyWatch()
     store.startWorkloadFamilyWatch()                    // 幂等:不重复建通道
     expect(channelMocks.length).toBe(1)
     expect(streamMocks.length).toBe(0)
-    expect(channelMocks[0].path).toBe('/api/k8s-watch?resources=pods,events,deployments,statefulsets,daemonsets,services,ingresses')
+    expect(channelMocks[0].path).toBe('/api/k8s-watch?resources=pods,events,deployments,statefulsets,daemonsets,jobs,cronjobs,services,ingresses')
   })
 
   it('kill-switch(watchFamily=0):不建通道,watchStateOf=off 回落轮询', () => {

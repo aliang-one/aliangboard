@@ -8,6 +8,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { useQueryClient } from '@tanstack/vue-query'
 import { exportYaml } from '@/api/client'
 import { readMeta } from '@/composables/useBusinessMeta'
+import { WORKLOAD_TYPES, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
 import StatusChip from '@/components/common/StatusChip.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -46,7 +47,8 @@ const typeFilter = ref('All')
 const statusFilter = ref('All')
 const searchQuery = ref('')
 
-const typeOptions = ['All', 'Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob']
+// 筛选词表单源(workloadMeta):fetchWorkloads 数据面产出的 kind 全集——杜绝「选项在、数据无」死 UI
+const typeOptions = ['All', ...WORKLOAD_TYPES]
 const statusOptions = ['All', 'Running', 'Pending', 'Failed', 'Succeeded']
 
 const filtered = computed(() => {
@@ -72,7 +74,9 @@ watch([typeFilter, statusFilter, searchQuery], () => { currentPage.value = 1 })
 function replicaPercent(replicas) {
   const parts = replicas.split('/')
   if (parts.length !== 2) return 0
-  return Math.round((parseInt(parts[0]) / parseInt(parts[1])) * 100)
+  // CronJob idle 0/0:分母 0 不做除法(NaN 宽度会击穿进度条);该类型本就不渲染进度条,双保险
+  const total = parseInt(parts[1]) || 0
+  return total > 0 ? Math.round((parseInt(parts[0]) / total) * 100) : 0
 }
 
 function goDetail(row) {
@@ -87,12 +91,14 @@ function exportWorkload(row) {
   exportYaml(`/apis/${g[0]}/v1/namespaces/${route.params.namespace}/${g[1]}/${encodeURIComponent(row.name)}`, `${row.name}.yaml`)
 }
 
-// 行操作菜单
+// 行操作菜单(restart 仅 apps 三类:batch 无滚动重启语义,旧态点了静默失败)
 function menuItems(row) {
   return [
     { label: t('ns.workloads.viewDetail'), icon: 'open_in_new', action: () => goDetail(row) },
     { label: t('ns.workloads.exportYaml'), icon: 'download', action: () => exportWorkload(row) },
-    { label: t('ns.workloads.restart'), icon: 'refresh', action: () => store.restartWorkload(row.name, route.params.namespace) },
+    ...(WORKLOAD_ROLLOUT_TYPES.includes(row.type)
+      ? [{ label: t('ns.workloads.restart'), icon: 'refresh', action: () => store.restartWorkload(row.name, route.params.namespace) }]
+      : []),
     { label: t('ns.workloads.delete'), icon: 'delete', danger: true, action: () => confirmDelete(row) },
   ]
 }
@@ -106,7 +112,7 @@ function confirmDelete(row) {
 }
 async function handleDelete() {
   if (deleteTarget.value) {
-    await store.deleteWorkload(deleteTarget.value.name, route.params.namespace)
+    await store.deleteWorkload(deleteTarget.value.name, route.params.namespace, deleteTarget.value.type)
     queryClient.invalidateQueries({ queryKey: workloadsKey })
   }
   showDeleteModal.value = false
@@ -158,9 +164,9 @@ async function handleDelete() {
         <span class="text-body-sm text-on-surface-variant truncate min-w-0">{{ t('ns.workloads.daemonSets') }}</span>
         <span class="text-body-md font-bold text-on-surface ml-auto shrink-0">{{ dsCount }}</span>
       </div>
-      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" @click="typeFilter = typeFilter === 'Job' ? 'All' : 'Job'">
+      <div class="rounded-xl overflow-hidden bg-surface-container-lowest border px-sm py-1.5 flex items-center gap-sm cursor-pointer hover:border-primary transition-colors" :class="typeFilter === 'Job' || typeFilter === 'CronJob' ? 'border-primary bg-primary/5' : 'border-outline-variant'" :title="t('ns.workloads.jobs')" @click="typeFilter = typeFilter === 'All' ? 'Job' : typeFilter === 'Job' ? 'CronJob' : 'All'">
         <span class="material-symbols-outlined text-on-surface-variant text-base shrink-0">schedule</span>
-        <span class="text-body-sm text-on-surface-variant truncate min-w-0">{{ t('ns.workloads.jobs') }}</span>
+        <span class="text-body-sm text-on-surface-variant truncate min-w-0">{{ t('ns.workloads.jobs') }}<span v-if="typeFilter === 'Job' || typeFilter === 'CronJob'" class="ml-xs font-mono text-xs text-primary">{{ typeFilter }}</span></span>
         <span class="text-body-md font-bold text-on-surface ml-auto shrink-0">{{ jobCount }}</span>
       </div>
     </div>
@@ -195,10 +201,11 @@ async function handleDelete() {
       <template #status="{ row }"><StatusChip :status="row.status" size="sm" /></template>
       <template #replicas="{ row }">
         <div class="flex items-center gap-sm">
-          <div class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
+          <!-- CronJob 无「期望副本」语义(ACTIVE 计数),进度条对它是假信号——纯文本 -->
+          <div v-if="row.type !== 'CronJob'" class="w-14 bg-outline-variant/20 h-1.5 rounded-full overflow-hidden">
             <div class="h-full rounded-full" :class="replicaPercent(row.replicas) === 100 ? 'bg-primary' : replicaPercent(row.replicas) === 0 ? 'bg-error' : 'bg-tertiary-container'" :style="{ width: replicaPercent(row.replicas) + '%' }"></div>
           </div>
-          <span class="font-mono text-code-sm font-bold" :class="replicaPercent(row.replicas) === 100 ? 'text-primary' : 'text-tertiary-container'">{{ row.replicas }}</span>
+          <span class="font-mono text-code-sm font-bold" :class="row.type !== 'CronJob' && replicaPercent(row.replicas) === 100 ? 'text-primary' : 'text-tertiary-container'">{{ row.replicas }}</span>
         </div>
       </template>
       <template #image="{ row }"><span class="block truncate font-mono text-code-sm text-on-surface-variant" :title="row.image">{{ row.image }}</span></template>

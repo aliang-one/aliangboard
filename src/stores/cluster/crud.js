@@ -13,6 +13,7 @@ import { queryClient } from '@/queryClient'
 import { encodeSecretData } from '@/composables/useResourceMappers'
 import { invalidateResource } from './invalidate'
 import { fetchConfigMap, fetchSecret, fetchService, fetchIngress, fetchIngressClass, fetchNetworkPolicy, fetchPDB, fetchLimitRange, fetchResourceQuota, fetchHPA, fetchPV, fetchPVC, fetchStorageClass, fetchRoleBinding, fetchRuntimeClass, fetchPriorityClass, fetchClusterRoleBinding, fetchServiceAccount, fetchIngressClasses, fetchStorageClasses, fetchPriorityClasses } from '@/composables/useFetchers'
+import { WORKLOAD_API, WORKLOAD_PROBE_ORDER } from '@/logic/workloadMeta'
 
 // HPA 定点 patch(strategic-merge):仅更新可编辑字段(minReplicas/maxReplicas/metrics),
 // 保留 spec.behavior / scaleTargetRef 等其余字段 —— 避免全量 SSA prune。
@@ -356,64 +357,90 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
     }
   }
 
-  async function deleteWorkload(name, ns) {
-    const wl = await getWorkloadForEdit(name, ns)
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl?.type]
-    if (!plural) { notify('error', i18n.global.t('store.deleteNotSupported', { type: wl?.type || i18n.global.t('store.thisWorkload') })); return }
+  // typeHint(可选):调用方已知的 kind(路由 :type/行 type)。K8s 允许同 ns 同名跨 kind
+  // (Deployment x + CronJob x)——不带 type 时命中缓存首个(apps 在前),可能删/改错对象
+  // (对抗审查 P1)。所有视图调用点应尽量传入;不传保持旧行为兼容。
+  async function deleteWorkload(name, ns, typeHint) {
+    const wl = await getWorkloadForEdit(name, ns, typeHint)
+    const entry = wl && WORKLOAD_API[wl.type]
+    if (!entry) { notify('error', i18n.global.t('store.deleteNotSupported', { type: wl?.type || i18n.global.t('store.thisWorkload') })); return false }
+    const [gv, plural] = entry
     try {
-      await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      await api.k8s(`/apis/${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, { method: 'DELETE' })
       invalidateResource('workloads')
+      return true
     } catch (e) {
-      // 与旧 remoteDelete 一致：失败只提示不抛（handleDelete 仍会跳列表页）
+      // 失败只提示不抛；返回 false 供调用方决定是否跳列表页（NsWorkloadDetail 据此留守）
       notify('error', i18n.global.t('store.deleteFailedWithLabel', { label: i18n.global.t('store.workload'), msg: e.message || i18n.global.t('store.permissionDeniedOrNotFound') }))
+      return false
     }
   }
 
   // 从 Vue Query 缓存或 API 取单个工作负载（all-real-data 真相源；替代旧 workloadList.findIndex）
-  async function getWorkloadForEdit(name, ns) {
+  async function getWorkloadForEdit(name, ns, typeHint) {
     const cid = currentCluster.value || 'cluster'
     const cached = queryClient.getQueryData(['cluster', cid, 'workloads']) || []
-    const hit = cached.find(w => w.name === name && w.namespace === ns)
+    const hit = cached.find(w => w.name === name && w.namespace === ns && (!typeHint || w.type === typeHint))
     if (hit) return hit
-    // 缓存未命中：逐类型探测 API（Deployment/StatefulSet/DaemonSet）
-    for (const type of ['Deployment', 'StatefulSet', 'DaemonSet']) {
+    // 缓存未命中：给定 type 只探该类型;否则逐类型探测(apps 三类在前 + batch 双类,
+    // 2026-09-28 issue#16 起 batch 可达)
+    const order = typeHint ? [typeHint] : WORKLOAD_PROBE_ORDER
+    for (const type of order) {
       try { return await fetchWorkload(type, name, ns) } catch { /* 继续下一个类型 */ }
     }
     return null
   }
 
-  async function updateWorkload(name, ns, updates) {
-    const cur = await getWorkloadForEdit(name, ns)
+  async function updateWorkload(name, ns, updates, typeHint) {
+    const cur = await getWorkloadForEdit(name, ns, typeHint)
     if (!cur) { invalidateResource('workloads'); return }
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[cur.type]
-    // 定点 merge-patch：仅改动字段，避免 regenerate 丢失深模板（env/probes/卷）。Job/CronJob 等不支持定点编辑。
-    if (plural) {
-      const patch = {}
-      // labels：合并 tier→layer.aliangboard.io，保留既有 labels（merge-patch 全量回写，故取并集）
-      if (updates.labels || updates.tier != null) {
-        const labels = { ...(updates.labels || cur.labels || {}) }
-        if (updates.tier != null) labels['layer.aliangboard.io'] = updates.tier
-        patch.metadata = { labels }
+    const entry = WORKLOAD_API[cur.type]
+    // 定点 merge-patch：仅改动字段，避免 regenerate 丢失深模板（env/probes/卷）。
+    // 2026-09-28 issue#16:batch 双类入编——CronJob 走 schedule/suspend/jobTemplate 面;
+    // Job spec 不可变(K8s 拒改 template),仅 metadata 级(labels/tier)可编辑。
+    if (!entry) { invalidateResource('workloads'); return }
+    const [gv, plural] = entry
+    const isCronJob = cur.type === 'CronJob'
+    const isJob = cur.type === 'Job'
+    const patch = {}
+    // labels：合并 tier→layer.aliangboard.io，保留既有 labels（merge-patch 全量回写，故取并集）
+    if (updates.labels || updates.tier != null) {
+      const labels = { ...(updates.labels || cur.labels || {}) }
+      if (updates.tier != null) labels['layer.aliangboard.io'] = updates.tier
+      patch.metadata = { labels }
+    }
+    // 平台编辑自动 tag（managed-by + last-edited）
+    const _edittag = aliangTag()
+    patch.metadata = patch.metadata || {}
+    patch.metadata.labels = { ...(patch.metadata.labels || {}), ..._edittag.labels }
+    patch.metadata.annotations = _edittag.annotations
+    const spec = {}
+    // 副本:仅 Deployment/StatefulSet 有 spec.replicas(DaemonSet 由调度器定,batch 无此语义)
+    if (updates.replicas != null && (cur.type === 'Deployment' || cur.type === 'StatefulSet')) {
+      const r = Number(String(updates.replicas).split('/')[0])
+      if (!Number.isNaN(r)) spec.replicas = r
+    }
+    // 镜像:Deployment/STS/DS 写 spec.template;CronJob 写 spec.jobTemplate.spec.template;
+    // Job 的 spec.template 不可变,跳过(编辑面已禁用镜像输入)。
+    if (updates.image && !isJob) {
+      const tpl = isCronJob
+        ? (cur.raw?.spec?.jobTemplate?.spec?.template || { spec: { containers: [{ name: cur.name, image: cur.image }] } })
+        : (cur.raw?.spec?.template || { spec: { containers: [{ name: cur.name, image: cur.image }] } })
+      if (tpl.spec?.containers?.[0]) {
+        const tpl2 = JSON.parse(JSON.stringify(tpl))
+        tpl2.spec.containers[0].image = updates.image
+        if (isCronJob) spec.jobTemplate = { spec: { template: tpl2 } }
+        else spec.template = tpl2
       }
-      // 平台编辑自动 tag（managed-by + last-edited）
-      const _edittag = aliangTag()
-      patch.metadata = patch.metadata || {}
-      patch.metadata.labels = { ...(patch.metadata.labels || {}), ..._edittag.labels }
-      patch.metadata.annotations = _edittag.annotations
-      const spec = {}
-      if (updates.replicas != null) {
-        const r = Number(String(updates.replicas).split('/')[0])
-        if (!Number.isNaN(r)) spec.replicas = r
-      }
-      if (updates.image) {
-        const tpl = cur.raw?.spec?.template || { spec: { containers: [{ name: cur.name, image: cur.image }] } }
-        if (tpl.spec?.containers?.[0]) {
-          const tpl2 = JSON.parse(JSON.stringify(tpl))
-          tpl2.spec.containers[0].image = updates.image
-          spec.template = tpl2
-        }
-      }
-      // 更新策略 + 历史版本上限（Deployment 级 spec，不在 pod 模板）
+    }
+    // CronJob 专属调度面
+    if (isCronJob) {
+      if (updates.schedule != null && updates.schedule !== '') spec.schedule = String(updates.schedule).trim()
+      if (updates.suspend != null) spec.suspend = Boolean(updates.suspend)
+    }
+    // 更新策略 + 历史版本上限:Deployment 专属 spec(STS/DS 用 updateStrategy 语义不同;
+    // 旧实现无条件塞给全部类型,2026-09-28 收敛)
+    if (cur.type === 'Deployment') {
       if (updates.strategy) {
         spec.strategy = { type: updates.strategy }
         if (updates.strategy === 'RollingUpdate') {
@@ -424,10 +451,10 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
         }
       }
       if (updates.revisionHistoryLimit != null && updates.revisionHistoryLimit !== '') spec.revisionHistoryLimit = Number(updates.revisionHistoryLimit)
-      if (Object.keys(spec).length) patch.spec = spec
-      if (Object.keys(patch).length) {
-        await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.workload'))
-      }
+    }
+    if (Object.keys(spec).length) patch.spec = spec
+    if (Object.keys(patch).length) {
+      await remotePatch(`/apis/${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.workload'))
     }
     invalidateResource('workloads')
   }

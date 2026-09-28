@@ -28,6 +28,39 @@ spec:
           ports:
             - containerPort: 80
 `,
+  // 2026-09-28 issue#16:batch 双类起步模板(此前「从 YAML 创建」选 Job/CronJob 会静默回退
+  // Deployment 模板)。Job 必带 restartPolicy(batch 默认 Never,apiserver 拒绝 OnFailure 缺省)。
+  Job: ns => `apiVersion: batch/v1
+kind: Job
+metadata:
+  name: my-job
+  namespace: ${ns}
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: my-job
+          image: busybox:latest
+          command: ["echo", "hello"]
+`,
+  CronJob: ns => `apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: my-cronjob
+  namespace: ${ns}
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: my-cronjob
+              image: busybox:latest
+              command: ["echo", "hello"]
+`,
   Service: ns => `apiVersion: v1
 kind: Service
 metadata:

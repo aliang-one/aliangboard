@@ -5,12 +5,15 @@
 // index.mjs 注入 fetchUpstream/write/end —— 凭据与 URL 构建复用既有流式透传分支。
 
 // 资源 → 上游 watch 路径 白名单（集群级全量 watch，ns 过滤由 K8s 服务端 fieldSelector 由前端追加）
+// 2026-09-28 issue#16:jobs/cronjobs 入 watch(workloads 家族 9 路)——前端 WATCH_CONFIGS 同步扩展。
 export const WATCH_RESOURCES = {
   pods: '/api/v1/pods',
   events: '/api/v1/events',
   deployments: '/apis/apps/v1/deployments',
   statefulsets: '/apis/apps/v1/statefulsets',
   daemonsets: '/apis/apps/v1/daemonsets',
+  jobs: '/apis/batch/v1/jobs',
+  cronjobs: '/apis/batch/v1/cronjobs',
   services: '/api/v1/services',
   ingresses: '/apis/networking.k8s.io/v1/ingresses',
 }

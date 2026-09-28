@@ -16,6 +16,36 @@ export function selectorMatchLabels(raw) {
   return m && typeof m === 'object' && !Array.isArray(m) ? m : {}
 }
 
+// === 工作负载 kind → [groupVersion, plural] 单源(2026-09-28 issue#16:batch 家族入列) ===
+// fetchWorkloads(列表)/watch(WATCH_CONFIGS)/crud(delete/update/探测)/fetchWorkload 共用,
+// 杜绝各处手写映射漏 batch(死 UI 与「假保存」的共同根因:list 有 batch 选项而数据源没有、
+// delete/update 的 plural 表不含 batch → 静默 no-op)。新 kind 只改这里。
+export const WORKLOAD_API = {
+  Deployment: ['apps/v1', 'deployments'],
+  StatefulSet: ['apps/v1', 'statefulsets'],
+  DaemonSet: ['apps/v1', 'daemonsets'],
+  Job: ['batch/v1', 'jobs'],
+  CronJob: ['batch/v1', 'cronjobs'],
+}
+export const WORKLOAD_TYPES = Object.keys(WORKLOAD_API)
+// 路由 :type 参数(小写) → kind
+export const WORKLOAD_KIND_FROM_ROUTE = Object.fromEntries(WORKLOAD_TYPES.map(k => [k.toLowerCase(), k]))
+// CRUD/探测顺序:apps 三类在前(覆盖面最大,探测最少跳数)
+export const WORKLOAD_PROBE_ORDER = ['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob']
+// 滚动重启/深模板编辑/Revisions 面的适用类型(batch 无这些语义)
+export const WORKLOAD_ROLLOUT_TYPES = ['Deployment', 'StatefulSet', 'DaemonSet']
+
+// 监控告警谓词单源(对抗审查 P1:MonitoringCenter 曾用 status!=='Running' 一刀切,
+// batch 入列后每个正常完成的 Job/空闲 CronJob 都会被永久标红)。
+// apps 三类:非 Running(=Degraded/Pending)即异常;Job:仅 Failed 异常(Succeeded 是健康终态,
+// Pending 短暂属正常);CronJob:状态词表(Running/Succeeded/Pending)无异常态,恒不入告警。
+export function isWorkloadNotReady(w) {
+  if (!w) return false
+  if (WORKLOAD_ROLLOUT_TYPES.includes(w.type)) return w.status !== 'Running'
+  if (w.type === 'Job') return w.status === 'Failed'
+  return false
+}
+
 // 自定义标签行里第一个撞 selector 键的行(行 key 已 trim;无撞键 → null)
 export function findSelectorLabelConflict(rows, selector) {
   const keys = new Set(Object.keys(selector || {}))

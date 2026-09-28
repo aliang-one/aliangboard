@@ -27,6 +27,7 @@ export { hpaPatchFn } from './cluster/crud'
 import { invalidateResource, invalidateAllClusterQueries } from './cluster/invalidate'
 import { recordListRv, getListRv, clearWatchRegistry } from '@/composables/watchRegistry'
 import { deriveClusterCounts } from '@/logic/clusterCounts'
+import { WORKLOAD_API, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
 import { pushSample, restoreSamples, persistPayload } from '@/logic/metricsWindow'
 
 import { i18n } from '@/i18n'
@@ -135,14 +136,14 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   // 按需拉取单个工作负载并 upsert 进 workloads Query 缓存。
-  // Job/CronJob 不在 fetchWorkloads 批量列表里（deployments/sts/ds）；从 Pod 详情跳转或直接链接进入
-  // NsWorkloadDetail 时由 ensureWorkload 调此补齐——P2-B 前写孤儿 workloadList（无读者）→ 详情恒空白。
+  // 2026-09-28 issue#16 起 batch 双类已在 fetchWorkloads 批量列表里,本函数退居二线:
+  // 列表 refetch 竞态窗口期/直接链接进入时的补齐通道(P2-B 前写孤儿 workloadList 无读者)。
   // 缓存里已有同名条目时跳过：避免单体 upsert 覆盖批量列表条目（历史 attachRolloutHistory 时代防 revisions 丢失;现仅防字段面回退）。
   async function fetchWorkload(type, name, ns) {
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }[type]
-    if (!plural) throw new Error(i18n.global.t('store.unsupportedWorkloadType', { type }))
-    const gv = type === 'Job' || type === 'CronJob' ? '/apis/batch/v1' : '/apis/apps/v1'
-    const data = await api.k8s(`${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`)
+    const entry = WORKLOAD_API[type]
+    if (!entry) throw new Error(i18n.global.t('store.unsupportedWorkloadType', { type }))
+    const [gv, plural] = entry
+    const data = await api.k8s(`/apis/${gv}/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`)
     const wl = mapWorkload(data, type)
     const _cid = currentCluster.value || 'cluster'
     queryClient.setQueryData(['cluster', _cid, 'workloads'], old => {
@@ -237,13 +238,13 @@ export const useClusterStore = defineStore('cluster', () => {
     invalidateResource(res[2] === 'workload' ? 'workloads' : res[2] === 'service' ? 'services' : 'ingresses')
   }
 
-  async function applyWorkloadTemplate(name, ns, template) {
-    const wl = await getWorkloadForEdit(name, ns)
+  async function applyWorkloadTemplate(name, ns, template, typeHint) {
+    const wl = await getWorkloadForEdit(name, ns, typeHint)
     if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
-    if (!plural) throw new Error(`${i18n.global.t('store.deepEditNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
+    const entry = WORKLOAD_ROLLOUT_TYPES.includes(wl.type) ? WORKLOAD_API[wl.type] : null
+    if (!entry) throw new Error(`${i18n.global.t('store.deepEditNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
     const tag = aliangTag()
-    await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
+    await api.k8s(`/apis/${entry[0]}/namespaces/${encodeURIComponent(ns)}/${entry[1]}/${encodeURIComponent(name)}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/merge-patch+json' },
       body: JSON.stringify({ spec: { template }, metadata: { labels: tag.labels, annotations: tag.annotations } }),
@@ -254,12 +255,14 @@ export const useClusterStore = defineStore('cluster', () => {
   // 业务元数据编辑：一次 merge-patch 同时写 Deployment.metadata.labels/annotations + Pod 模板 labels（与创建一致）。
   // - labels/annotations：期望「全量 map」（视图已并入系统保留键的旧值）；removedLabels/removedAnnotations：需删除的键（merge-patch 用 null 删除）。
   // - templateLabels：期望的 Pod 模板 labels 全量（镜像业务/自定义标签，与创建落点一致）；null 则不触碰 Pod 模板。
-  // 乐观更新本地状态，远端失败回滚。仅 Deployment/StatefulSet/DaemonSet。
-  async function updateWorkloadMeta(name, ns, payload) {
-    const cur = await getWorkloadForEdit(name, ns)
+  // 乐观更新本地状态，远端失败回滚。apps 三类 + CronJob(模板面走 jobTemplate,2026-09-28
+  // issue#16 对抗审查 P2:此前 apps-only throw 且调用方不 await = batch 静默假保存);
+  // Job 的 spec.template 不可变 → 仅写 metadata,不触碰模板。
+  async function updateWorkloadMeta(name, ns, payload, typeHint) {
+    const cur = await getWorkloadForEdit(name, ns, typeHint)
     if (!cur) throw new Error(i18n.global.t('store.workloadNotFound'))
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[cur.type]
-    if (!plural) throw new Error(`${i18n.global.t('store.editMetadataNotSupported', { type: cur.type || i18n.global.t('store.thisWorkload') })}`)
+    const entry = WORKLOAD_API[cur.type]
+    if (!entry) throw new Error(`${i18n.global.t('store.editMetadataNotSupported', { type: cur.type || i18n.global.t('store.thisWorkload') })}`)
     const { labels = {}, annotations = {}, removedLabels = [], removedAnnotations = [], templateLabels = null } = payload || {}
     const tag = aliangTag() // managed-by + last-edited 自动 tag
     const outLabels = { ...labels, ...tag.labels }
@@ -267,9 +270,10 @@ export const useClusterStore = defineStore('cluster', () => {
     const outAnnotations = { ...annotations, ...tag.annotations }
     removedAnnotations.forEach(k => { outAnnotations[k] = null })
     const patch = { metadata: { labels: outLabels, annotations: outAnnotations } }
-    if (templateLabels) patch.spec = { template: { metadata: { labels: templateLabels } } }
+    if (templateLabels && cur.type === 'CronJob') patch.spec = { jobTemplate: { spec: { template: { metadata: { labels: templateLabels } } } } }
+    else if (templateLabels && cur.type !== 'Job') patch.spec = { template: { metadata: { labels: templateLabels } } }
 
-    await remotePatch(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.metadata'))
+    await remotePatch(`/apis/${entry[0]}/namespaces/${encodeURIComponent(ns)}/${entry[1]}/${encodeURIComponent(name)}`, patch, i18n.global.t('store.metadata'))
     invalidateResource('workloads')
   }
 
@@ -279,8 +283,8 @@ export const useClusterStore = defineStore('cluster', () => {
   // 误抛 scaleNotSupported，即概览页「+/- 调副本」偶尔提示「不支持调整」的真因）。
   // 成功：乐观 setQueryData（desired 立即跳变，ready 不虚增）+ invalidateResource（后台纠偏）。
   // 失败：invalidateResource 触发 refetch，真值覆盖乐观值，实现自动回滚。
-  async function scaleWorkload(name, ns, replicas) {
-    const wl = await getWorkloadForEdit(name, ns)
+  async function scaleWorkload(name, ns, replicas, typeHint) {
+    const wl = await getWorkloadForEdit(name, ns, typeHint)
     if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
     const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets' }[wl.type]
     if (!plural) throw new Error(`${i18n.global.t('store.scaleNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
@@ -288,7 +292,8 @@ export const useClusterStore = defineStore('cluster', () => {
     const cid = currentCluster.value || 'cluster'
     // 乐观：副本大数字（rollout.desired 读 raw.spec.replicas）+ 概览卡（workload.replicas 扁平串）立即跳变
     queryClient.setQueryData(['cluster', cid, 'workloads'], old => (old || []).map(w => {
-      if (w.name !== name || w.namespace !== ns) return w
+      // type 匹配:同 ns 同名跨 kind(Deployment x + StatefulSet x)时乐观更新不得串写(对抗审查 P1)
+      if (w.name !== name || w.namespace !== ns || w.type !== wl.type) return w
       const ready = Number(String(w.replicas || '0/0').split('/')[0]) || 0
       const raw = w.raw ? { ...w.raw, spec: { ...(w.raw.spec || {}), replicas: next } } : w.raw
       return { ...w, raw, replicas: `${Math.min(ready, next)}/${next}` }
@@ -308,12 +313,12 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // 重启（Deployment/StatefulSet/DaemonSet）：PATCH template 注解 restartedAt 触发滚动重启。
   // 与 scaleWorkload 同源走 getWorkloadForEdit——旧实现读空 workloadList → 误抛 restartNotSupported。
-  async function restartWorkload(name, ns) {
-    const wl = await getWorkloadForEdit(name, ns)
+  async function restartWorkload(name, ns, typeHint) {
+    const wl = await getWorkloadForEdit(name, ns, typeHint)
     if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
-    const plural = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets' }[wl.type]
-    if (!plural) throw new Error(`${i18n.global.t('store.restartNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
-    await api.k8s(`/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/${plural}/${encodeURIComponent(name)}`, {
+    const entry = WORKLOAD_ROLLOUT_TYPES.includes(wl.type) ? WORKLOAD_API[wl.type] : null
+    if (!entry) throw new Error(`${i18n.global.t('store.restartNotSupported', { type: wl.type || i18n.global.t('store.thisWorkload') })}`)
+    await api.k8s(`/apis/${entry[0]}/namespaces/${encodeURIComponent(ns)}/${entry[1]}/${encodeURIComponent(name)}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/merge-patch+json' },
       body: JSON.stringify({ spec: { template: { metadata: { annotations: { 'kubectl.kubernetes.io/restartedAt': new Date().toISOString() } } } } }),
@@ -325,8 +330,8 @@ export const useClusterStore = defineStore('cluster', () => {
   // 与 scaleWorkload 同源走 getWorkloadForEdit——旧实现读空 workloadList → 误抛 workloadNotFound。
   // 改源:revisions 不再读列表缓存对象(fetchWorkloads 已瘦身),按需 fetchWorkloadRevisions,
   // target._template 携带完整模板,兜底走镜像 PATCH。
-  async function rollbackWorkload(name, ns, revNumber) {
-    const wl = await getWorkloadForEdit(name, ns)
+  async function rollbackWorkload(name, ns, revNumber, typeHint) {
+    const wl = await getWorkloadForEdit(name, ns, typeHint)
     if (!wl) { invalidateResource('workloads'); throw new Error(i18n.global.t('store.workloadNotFound')) }
     const revs = await fetchWorkloadRevisions(wl.type, name, ns)
     // revNumber 兼容数字或 revision 对象(2026-09-03 事故:调用方传整对象 → 严格等恒 miss,

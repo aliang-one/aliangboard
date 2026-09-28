@@ -45,12 +45,14 @@ const nsEvents = computed(() => eventsQuery.data.value || [])
 
 async function handleDelete() {
   if (!workload.value) { notify('error', t('workloadDetail.deleteSuccess')); return }
-  try { await store.deleteWorkload(workload.value.name, workload.value.namespace); router.push('/workloads') }
-  catch (e) { notify('error', e.message || t('workloadDetail.deleteFailed')) }
+  // false=store 已报错(权限/不存在),留守本页(与 NsWorkloadDetail 同语义)
+  const ok = await store.deleteWorkload(workload.value.name, workload.value.namespace, workload.value.type)
+  if (ok === false) return
+  router.push('/workloads')
 }
 async function handleRestart() {
   if (!workload.value) { notify('error', t('workloadDetail.deleteSuccess')); return }
-  try { await store.restartWorkload(workload.value.name, workload.value.namespace); notify('success', t('workloadDetail.restartSuccess')) }
+  try { await store.restartWorkload(workload.value.name, workload.value.namespace, workload.value.type); notify('success', t('workloadDetail.restartSuccess')) }
   catch (e) { notify('error', e.message || t('workloadDetail.restartFailed')) }
 }
 </script>
@@ -76,7 +78,7 @@ async function handleRestart() {
           <span class="material-symbols-outlined text-error">delete</span>
           <span class="font-medium text-body-md">{{ t('workloadDetail.delete') }}</span>
         </button>
-        <button @click="handleRestart" class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
+        <button v-if="workload && ['Deployment', 'StatefulSet', 'DaemonSet'].includes(workload.type)" @click="handleRestart" class="flex items-center gap-2 px-md py-2 bg-primary text-on-primary rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all max-sm:min-h-[40px]">
           <span class="material-symbols-outlined">refresh</span>
           <span class="font-medium text-body-md">{{ t('workloadDetail.restart') }}</span>
         </button>
@@ -167,5 +169,12 @@ async function handleRestart() {
         </div>
       </div>
     </div>
+  </div>
+  <!-- 未命中兜底:本页只读缓存(无按需补拉),直接 URL 访问不存在/未装载的类型(旧含
+       job/cronjob)时整页空白——给出明确 NotFound + 返回入口 -->
+  <div v-else class="animate-fade-in flex flex-col items-center justify-center py-24 gap-md">
+    <span class="material-symbols-outlined text-5xl text-on-surface-variant/40">search_off</span>
+    <p class="text-body-md text-on-surface-variant">{{ t('workload.notFound') }}</p>
+    <button @click="router.push('/workloads')" class="px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container transition-colors">{{ t('workload.back') }}</button>
   </div>
 </template>

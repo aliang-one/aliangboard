@@ -94,27 +94,65 @@ export function mapPod(item, metric) {
   }
 }
 
+// batch 家族状态/完成度(2026-09-28 issue#16:Job/CronJob 首次入列)。
+// Job:Complete/Failed condition 为权威;active>0 视为运行;完成度 = succeeded/completions
+// (completions 未设的 parallel 语义按 1,列表进度条以完成份数为满格)。
+// CronJob:suspend 即暂停(琥珀);active>0 运行中(绿);空闲但曾成功 → Succeeded(绿,复用
+// statusFilter 既有词表);从未调度 → Pending。replicas = active/active:无「期望副本」语义,
+// 列表对该类型不渲染进度条,详情页 ACTIVE 标签直读文本。
+function batchWorkloadExtras(item, type) {
+  const st = item.status || {}
+  const cond = t => (st.conditions || []).some(c => c.type === t && c.status === 'True')
+  if (type === 'Job') {
+    const completions = item.spec?.completions ?? 1
+    const succeeded = st.succeeded ?? 0
+    const status = cond('Complete') || succeeded >= completions ? 'Succeeded'
+      : cond('Failed') ? 'Failed'
+      : (st.active ?? 0) > 0 || succeeded > 0 ? 'Running'
+      : 'Pending'
+    return { status, replicas: `${succeeded}/${completions}` }
+  }
+  // CronJob
+  const active = Array.isArray(st.active) ? st.active.length : (st.active ?? 0)
+  const status = item.spec?.suspend ? 'Pending'
+    : active > 0 ? 'Running'
+    : st.lastSuccessfulTime ? 'Succeeded'
+    : 'Pending'
+  return { status, replicas: `${active}/${active}`, schedule: item.spec?.schedule, suspend: Boolean(item.spec?.suspend) }
+}
+
 export function mapWorkload(item, type) {
-  const desired = item.spec?.replicas ?? (type === 'DaemonSet' ? item.status?.desiredNumberScheduled : 1)
-  const ready = item.status?.readyReplicas ?? item.status?.numberReady ?? item.status?.availableReplicas ?? 0
-  const image = item.spec?.template?.spec?.containers?.[0]?.image || ''
+  const batch = type === 'Job' || type === 'CronJob'
+  const desired = batch ? 0 : (item.spec?.replicas ?? (type === 'DaemonSet' ? item.status?.desiredNumberScheduled : 1))
+  const ready = batch ? 0 : (item.status?.readyReplicas ?? item.status?.numberReady ?? item.status?.availableReplicas ?? 0)
+  // CronJob 容器在 spec.jobTemplate.spec.template 下;Job 与 apps 三类走 spec.template
+  const image = (type === 'CronJob'
+    ? item.spec?.jobTemplate?.spec?.template?.spec?.containers?.[0]?.image
+    : item.spec?.template?.spec?.containers?.[0]?.image) || ''
   const labels = item.metadata?.labels || {}
   const annotations = item.metadata?.annotations || {}
   // tier 由 layer.aliangboard.io label（权威）+ 名称/镜像启发式统一推导，与 useLayering 完全一致
   const tier = classifyResource({ name: item.metadata?.name, image, labels, annotations, type, kind: type })
-  return {
+  const base = {
     name: item.metadata?.name,
     namespace: item.metadata?.namespace,
     type,
+    // uid 透传:applyWatchEvent/去重走 uidKey(优先 uid)。缺它时同 ns 同名跨 kind
+    // (Deployment x + CronJob x,K8s 合法)会撞 ns/name 兜底键——batch 入列放大此风险。
+    uid: item.metadata?.uid,
     tier,
-    status: ready >= desired ? 'Running' : ready > 0 ? 'Degraded' : 'Pending',
-    replicas: `${ready}/${desired}`,
     image,
     age: ageOf(item.metadata?.creationTimestamp),
     createdAt: item.metadata?.creationTimestamp,
     labels,
     annotations,
     raw: item,
+  }
+  if (batch) return { ...base, ...batchWorkloadExtras(item, type) }
+  return {
+    ...base,
+    status: ready >= desired ? 'Running' : ready > 0 ? 'Degraded' : 'Pending',
+    replicas: `${ready}/${desired}`,
   }
 }
 
