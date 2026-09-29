@@ -7,9 +7,16 @@ export function encodeBase64(str) {
   try { return btoa(unescape(encodeURIComponent(String(str ?? '')))) }
   catch { return String(str ?? '') }
 }
-export function decodeBase64(str) {
+// 解码失败返回 null(而非原样透传)——调用方可据此区分「明文」与「解不动的值」。
+// 二进制(非 UTF-8)secret 值解码必失败,generateYAML 须把它原样留在 data:(base64 态),
+// 否则会被 apiserver 二次编码(2026-09-29 系统审计:issue#15 的二进制子集)。
+export function tryDecodeBase64(str) {
   try { return decodeURIComponent(escape(atob(String(str ?? '')))) }
-  catch { return String(str ?? '') }
+  catch { return null }
+}
+export function decodeBase64(str) {
+  const d = tryDecodeBase64(str)
+  return d === null ? String(str ?? '') : d
 }
 export const encodeSecretData = (data) => {
   if (!data) return {}

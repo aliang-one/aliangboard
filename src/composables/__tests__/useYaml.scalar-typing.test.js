@@ -100,3 +100,38 @@ describe('generateYAML(ingress): 注解值经真 YAML 解析后必须是字符�
     expect(ann['nginx.ingress.kubernetes.io/proxy-send-timeout']).toBe('3600')
   })
 })
+
+// === 系统审计(2026-09-29):块标量 chomping/CRLF 保真 ===
+// 旧行为:所有含换行值一律 |- (strip)——结尾换行被剥、CRLF 折叠成 LF,
+// Secret/ConfigMap 任意结构化保存(含仅改 labels/annotations)都会静默改值。
+// 修复:按结尾换行数选 chomping 指示符(0→|- 剥;1→| clip;≥2→|+ 全保);
+// 含 \r 的值改走双引号转义(\r 在 YAML 明文/块标量里无法保真)。
+describe('yamlScalar: 多行值往返保真(chomping/CRLF)', () => {
+  it('结尾恰一个换行 → clip(|),往返不丢', () => {
+    const out = yamlScalar('line1\nline2\n')
+    expect(yamlLoad('k: ' + out).k).toBe('line1\nline2\n')
+  })
+  it('结尾多个换行 → keep(|+),全保留', () => {
+    const out = yamlScalar('a\n\n')
+    expect(yamlLoad('k: ' + out).k).toBe('a\n\n')
+  })
+  it('无结尾换行 → strip(|-),旧行为不变', () => {
+    expect(yamlScalar('a\nb')).toBe('|-\n      a\n      b')
+  })
+  it('CRLF 值 → 双引号转义,往返字节保真', () => {
+    const out = yamlScalar('line1\r\nline2\r\n')
+    expect(yamlLoad('k: ' + out).k).toBe('line1\r\nline2\r\n')
+  })
+  it('孤立 \\r(老 Mac 风格)→ 双引号转义,往返保真', () => {
+    const out = yamlScalar('a\rb')
+    expect(yamlLoad('k: ' + out).k).toBe('a\rb')
+  })
+  it('generateYAML(secret) 端到端:PEM 尾换行在 stringData 往返后保留', () => {
+    const pem = '-----BEGIN CERT-----\nabc\n-----END CERT-----\n'
+    const y = store.generateYAML('secret', {
+      name: 'tls1', namespace: 'default', type: 'kubernetes.io/tls',
+      data: { 'tls.crt': btoa(pem) },
+    })
+    expect(yamlLoad(y).stringData['tls.crt']).toBe(pem)
+  })
+})

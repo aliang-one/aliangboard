@@ -774,7 +774,8 @@ test('buildStorageClassYaml: 基本字段 + volumeBindingMode + 占位符原样�
   assert.ok(lines.includes('volumeBindingMode: Immediate'))
   assert.ok(lines.includes('allowVolumeExpansion: true'))
   assert.ok(lines.includes('parameters:'))
-  assert.ok(lines.includes('    server: <IP>'), '占位符必须原样保留')
+  // <IP> 占位符含 '<' 落 yamlScalar 引号分支(2026-09-29):值原样保留仅加引号,YAML 语义不变
+  assert.ok(lines.includes('    server: "<IP>"'), '占位符必须原样保留')
   assert.ok(lines.includes('    share: /data'))
 })
 
@@ -784,7 +785,9 @@ test('buildStorageClassYaml: 多参数(Ceph RBD 11 项)全输出', () => {
     volumeBindingMode: 'Immediate', allowVolumeExpansion: true,
     parameters: { clusterID: 'rook-ceph', pool: 'replicapool', imageFormat: '2', imageFeatures: 'layering' },
   })
-  for (const frag of ['    clusterID: rook-ceph', '    pool: replicapool', '    imageFormat: 2', '    imageFeatures: layering']) {
+  // imageFormat 数字形态值经 yamlScalar 引号包裹(2026-09-29 修复:裸 '2' 被网关 js-yaml
+  // 解析成 int → apiserver 拒收 map[string]string,Ceph RBD 预设建不出来)
+  for (const frag of ['    clusterID: rook-ceph', '    pool: replicapool', '    imageFormat: "2"', '    imageFeatures: layering']) {
     assert.ok(yaml.includes(frag), `missing param line: ${frag}`)
   }
 })

@@ -564,7 +564,7 @@ spec:`
     yaml += `
   selector:
     matchLabels:
-      app: ${f.name}
+      app: "${f.name}"
   template:`
   }
   let tpl = ''
@@ -704,7 +704,7 @@ spec:`
       if (isExternal) {
         yaml += `\n  type: ExternalName\n  externalName: ${f.externalName}`
       } else {
-        yaml += `\n  type: ${f.serviceType}\n  selector:\n    app: ${f.name}\n  ports:`
+        yaml += `\n  type: ${f.serviceType}\n  selector:\n    app: "${f.name}"\n  ports:`
         // 多端口必须全命名(K8s 拒无名多端口);与 store generateYAML 同一单源 helper
         ensureServicePortNames(validPorts).forEach(p => {
           let line = `\n    - port: ${p.port}`

@@ -25,7 +25,9 @@ export function buildSecretData(typeId, values) {
   if (typeId === 'kubernetes.io/basic-auth') return { username: values.username || '', password: values.password || '' }
   if (typeId === 'kubernetes.io/dockerconfigjson') {
     let auth = ''
-    try { auth = btoa(`${values.registryUser}:${values.registryPassword}`) } catch { auth = `${values.registryUser}:${values.registryPassword}` }
+    // UTF-8 安全编码(裸 btoa 是 Latin-1:非 Latin-1 密码会 throw → catch 退化成明文写进 auth,
+    // 非法 base64 凭据,镜像拉取必坏——2026-09-29 系统审计)
+    try { auth = btoa(unescape(encodeURIComponent(`${values.registryUser}:${values.registryPassword}`))) } catch { auth = `${values.registryUser}:${values.registryPassword}` }
     const cfg = { auths: { [values.registry]: { username: values.registryUser, password: values.registryPassword, email: values.registryEmail, auth } } }
     return { '.dockerconfigjson': JSON.stringify(cfg) }
   }

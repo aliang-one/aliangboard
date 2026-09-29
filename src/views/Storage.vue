@@ -120,10 +120,9 @@ function removeScParamRow(i) { createSCForm.value.parameters.splice(i, 1) }
 async function handleCreateSC() {
   const f = createSCForm.value
   if (!scCanCreate.value) return
-  const parameters = f.parameters
-    .map(r => (r.key || '').trim() ? `${r.key.trim()}=${r.value}` : '')
-    .filter(Boolean)
-    .join(',')
+  // rows 直传(与预览同路径):折叠成 'k=v,k=v' 再被 normalize 重拆会截断含逗号的值,
+  // 且字符串路径 trim 值两端空格——预览(rows)与实际提交(字符串)分叉(2026-09-29 审计)
+  const parameters = f.parameters.filter(r => (r.key || '').trim())
   // 创建即设默认也须走 sweep(防双默认):先以非默认创建,成功后再 promote(sweep→置默认)
   const r = await store.addStorageClass({
     name: f.name,

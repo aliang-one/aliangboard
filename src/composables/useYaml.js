@@ -29,7 +29,23 @@ function yaml11NonString(s) {
 }
 export function yamlScalar(v) {
   const s = String(v ?? '')
-  if (s.includes('\n')) return '|-\n' + s.split('\n').map(l => '      ' + l).join('\n')
+  // 含 \r 的值(Windows CRLF/老 Mac CR)在块标量/明文里都无法保真(YAML 折行/归一),
+  // 必须走双引号转义;\n、\r、\t、\\、" 均为合法 YAML 双引号转义序列。
+  const dq = '"' + s
+    .replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\t/g, '\\t') + '"'
+  if (s.includes('\r')) return dq
+  if (s.includes('\n')) {
+    // chomping 按结尾换行数选指示符(2026-09-29 审计:一律 |- 会静默剥掉结尾换行——
+    // PEM/配置文件惯例以 \n 结尾,任何结构化保存(含仅改 labels/annotations)都会改值):
+    // 0 个 → |-(strip,剥);恰 1 个 → |(clip,保 1);≥2 个 → |+(keep,全保)。
+    // 有结尾换行时 drop split 尾空串:末行断行由 EOF 虚拟断行承担(clip/keep 均保它),
+    // 否则 |+ 会多数出一个换行(js-yaml 把虚拟断行计入 keep)。
+    const trailing = (s.match(/\n+$/) || [''])[0].length
+    const indicator = trailing === 0 ? '|-' : trailing === 1 ? '|' : '|+'
+    const lines = trailing > 0 ? s.split('\n').slice(0, -1) : s.split('\n')
+    return indicator + '\n' + lines.map(l => '      ' + l).join('\n')
+  }
   if (s === '' || /^\s|\s$/.test(s) || /[:#{}\[\],&*?|<>=!%@`"']/.test(s) || yaml11NonString(s)) {
     return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
   }

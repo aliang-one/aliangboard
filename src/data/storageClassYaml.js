@@ -1,6 +1,7 @@
 // StorageClass YAML 构造纯函数。无 Vue 依赖,便于 scripts/test.mjs 直接 import。
 // cluster.js 的 generateYAML('storageclass') 委托本函数;Storage.vue 预览经 store.generateYAML 间接复用。
 import { normalizeParamsToMap } from './storageClassPresets.js'
+import { yamlScalar } from '../composables/useYaml.js'
 
 export function buildStorageClassYaml(resource = {}) {
   const name = resource.name || resource.metadata?.name || 'unnamed'
@@ -9,8 +10,10 @@ export function buildStorageClassYaml(resource = {}) {
   const volumeBindingMode = resource.volumeBindingMode || 'WaitForFirstConsumer'
   const params = normalizeParamsToMap(resource.parameters)
   const paramKeys = Object.keys(params)
+  // parameters 是 map[string]string:数字形态参数值(Longhorn '3'/Ceph '2')裸插会被
+  // YAML 解析成 int → apiserver 拒收,预设根本建不出来(2026-09-29 审计,同 08-16 注解事故型)。
   const paramsYaml = paramKeys.length
-    ? paramKeys.map(k => `    ${k}: ${params[k]}`).join('\n')
+    ? paramKeys.map(k => `    ${k}: ${yamlScalar(params[k])}`).join('\n')
     : '    {}'
 
   const lines = [

@@ -6,7 +6,7 @@ import { loadAll as yamlLoadAll } from 'js-yaml'
 import { api } from '@/api/client'
 import { i18n } from '@/i18n'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
-import { decodeBase64 } from '@/composables/useResourceMappers'
+import { tryDecodeBase64 } from '@/composables/useResourceMappers'
 import { buildStorageClassYaml } from '@/data/storageClassYaml'
 import { queryClient } from '@/queryClient'
 
@@ -51,7 +51,7 @@ export function createYamlDomain({ getCurrentNamespace }) {
       }).join('\n')
       const selObj = resource.selector || {}
       const selEntries = Object.keys(selObj).length
-        ? Object.entries(selObj).map(([k, v]) => `    ${k}: ${v}`).join('\n')
+        ? Object.entries(selObj).map(([k, v]) => `    ${k}: ${scalar(v)}`).join('\n')
         : (!isExtName ? `    app: ${yamlQ(name)}` : '')
       const selBlock = selEntries ? `\n  selector:\n${selEntries}` : ''
       const portsBlock = portSrc.length ? `\n  ports:\n${portsYaml}` : ''
@@ -144,7 +144,10 @@ ${dataEntries || '  {}'}`
     }
 
     if (type === 'secret') {
-      // 展示为 stringData（明文）以便直接编辑；回写时由 applyResourceYaml 重新 base64 编码
+      // 展示为 stringData（明文）以便直接编辑；回写时由 applyResourceYaml 重新 base64 编码。
+      // 二进制(非 UTF-8)键解码失败 → 原样留在 data:(base64 态,apiserver 不再编码),
+      // 与 stringData 并存(键不重叠)——否则 fallback 原样串会被 apiserver 二次编码
+      // (2026-09-29 系统审计:issue#15 二进制子集,1194b75b 未覆盖的残留面)。
       const fmtMap = obj => obj && Object.keys(obj).length
         ? Object.entries(obj).map(([k, v]) => `    ${k}: ${scalar(v)}`).join('\n')
         : ''
@@ -152,17 +155,29 @@ ${dataEntries || '  {}'}`
         fmtMap(resource.labels) && '  labels:\n' + fmtMap(resource.labels),
         fmtMap(resource.annotations) && '  annotations:\n' + fmtMap(resource.annotations),
       ].filter(Boolean).join('\n')
-      const dataEntries = resource.data
-        ? Object.entries(resource.data).map(([k, v]) => `  ${k}: ${scalar(decodeBase64(v))}`).join('\n')
+      const strEntries = []
+      const rawEntries = []
+      if (resource.data) {
+        for (const [k, v] of Object.entries(resource.data)) {
+          const d = tryDecodeBase64(v)
+          if (d === null) rawEntries.push([k, v])
+          else strEntries.push([k, d])
+        }
+      }
+      // data 值恒为 base64 字母表,但纯数字形态串(如 '1234' 恰为合法 b64 长度)会被
+      // YAML 解析成 int——统一 yamlQ 引号包裹,读回仍是字符串。
+      const dataBlock = rawEntries.length
+        ? `data:\n${rawEntries.map(([k, v]) => `  ${k}: ${yamlQ(v)}`).join('\n')}\n`
         : ''
+      const strData = strEntries.map(([k, v]) => `  ${k}: ${scalar(v)}`).join('\n')
       return `apiVersion: v1
 kind: Secret
 metadata:
   name: ${yamlQ(name)}
   namespace: ${yamlQ(ns)}${metaExtra ? '\n' + metaExtra : ''}
 type: ${resource.type || 'Opaque'}
-stringData:
-${dataEntries || '  {}'}`
+${dataBlock}stringData:
+${strData || '  {}'}`
     }
 
     if (type === 'pvc') {
@@ -306,7 +321,7 @@ ${podTemplate}`
         if (!entries.length) return `      - ${t}: {}`
         return `      - ${t}:
           matchLabels:
-${entries.map(([k, v]) => `            ${k}: ${v}`).join('\n')}`
+${entries.map(([k, v]) => `            ${k}: ${scalar(v)}`).join('\n')}`
       }
       const ingressRules = resource.ingressRules?.length
         ? resource.ingressRules.map(r => `    - from:\n${(r.from || []).map(peerYaml).join('\n')}`).join('\n')
@@ -322,7 +337,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-${Object.entries(resource.podSelector || {}).map(([k,v]) => `      ${k}: ${v}`).join('\n') || '      {}'}
+${Object.entries(resource.podSelector || {}).map(([k,v]) => `      ${k}: ${scalar(v)}`).join('\n') || '      {}'}
   policyTypes:
 ${resource.policyTypes?.map(t => `  - ${t}`).join('\n') || '  - Ingress\n  - Egress'}
   ingress:
@@ -424,8 +439,8 @@ metadata:
   namespace: ${yamlQ(ns)}
 subjects:
 ${resource.subjects?.map(s => `- kind: ${s.kind || 'User'}
-  name: ${s.name}
-  ${s.namespace ? `namespace: ${s.namespace}` : ''}`).join('\n') || '- kind: User\n  name: default'}
+  name: ${yamlQ(s.name)}
+  ${s.namespace ? `namespace: ${yamlQ(s.namespace)}` : ''}`).join('\n') || '- kind: User\n  name: default'}
 roleRef:
   kind: ${resource.roleKind || 'Role'}
   name: ${resource.roleName || name}
@@ -439,7 +454,7 @@ metadata:
   name: ${yamlQ(name)}
 subjects:
 ${resource.subjects?.map(s => `- kind: ${s.kind || 'User'}
-  name: ${s.name}${s.namespace ? `\n  namespace: ${s.namespace}` : ''}`).join('\n') || '- kind: User\n  name: default'}
+  name: ${yamlQ(s.name)}${s.namespace ? `\n  namespace: ${yamlQ(s.namespace)}` : ''}`).join('\n') || '- kind: User\n  name: default'}
 roleRef:
   kind: ${resource.roleKind || 'ClusterRole'}
   name: ${resource.roleName || name}
@@ -507,7 +522,7 @@ ${Object.entries(resource.conditions || {}).map(([k, v]) => `  - type: ${k}\n   
   function generateExtraYAML(type, resource) {
     if (!resource) return ''
     if (type === 'pdb') {
-      const sel = resource.selector ? Object.entries(resource.selector).map(([k, v]) => `      ${k}: ${v}`).join('\n') : '      {}'
+      const sel = resource.selector ? Object.entries(resource.selector).map(([k, v]) => `      ${k}: ${yamlScalar(v)}`).join('\n') : '      {}'
       return `apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
