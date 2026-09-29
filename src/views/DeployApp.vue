@@ -567,92 +567,93 @@ spec:`
       app: ${f.name}
   template:`
   }
-  yaml += `
+  let tpl = ''
+  tpl += `
     metadata:
       labels:
 ${Object.entries(labels).map(([k, v]) => `        ${k}: ${yamlScalar(v)}`).join('\n')}
     spec:`
-  if (f.serviceAccountName) yaml += `\n      serviceAccountName: ${f.serviceAccountName}`
-  if (f.priorityClassName) yaml += `\n      priorityClassName: ${f.priorityClassName}`
-  if (f.imagePullSecrets) yaml += `\n      imagePullSecrets:\n      - name: ${f.imagePullSecrets}`
+  if (f.serviceAccountName) tpl += `\n      serviceAccountName: ${f.serviceAccountName}`
+  if (f.priorityClassName) tpl += `\n      priorityClassName: ${f.priorityClassName}`
+  if (f.imagePullSecrets) tpl += `\n      imagePullSecrets:\n      - name: ${f.imagePullSecrets}`
   if (f.nodeSelectors.filter(n => n.key).length) {
-    yaml += `\n      nodeSelector:`
-    f.nodeSelectors.filter(n => n.key).forEach(n => { yaml += `\n        ${n.key}: "${n.value}"` })
+    tpl += `\n      nodeSelector:`
+    f.nodeSelectors.filter(n => n.key).forEach(n => { tpl += `\n        ${n.key}: "${n.value}"` })
   }
   if (f.tolerations.filter(t => t.key).length) {
-    yaml += `\n      tolerations:`
+    tpl += `\n      tolerations:`
     f.tolerations.filter(t => t.key).forEach(t => {
-      yaml += `\n      - key: "${t.key}"`
-      yaml += `\n        operator: ${t.operator}`
-      if (t.operator === 'Equal') yaml += `\n        value: "${t.value}"`
-      yaml += `\n        effect: ${t.effect}`
+      tpl += `\n      - key: "${t.key}"`
+      tpl += `\n        operator: ${t.operator}`
+      if (t.operator === 'Equal') tpl += `\n        value: "${t.value}"`
+      tpl += `\n        effect: ${t.effect}`
     })
   }
   // Pod 安全上下文（pod 级）
   const psc = f.podSecurityContext
   if (psc.runAsUser || psc.runAsGroup || psc.runAsNonRoot || psc.fsGroup || psc.seccompProfile) {
-    yaml += `\n      securityContext:`
-    if (psc.runAsUser) yaml += `\n        runAsUser: ${psc.runAsUser}`
-    if (psc.runAsGroup) yaml += `\n        runAsGroup: ${psc.runAsGroup}`
-    if (psc.runAsNonRoot) yaml += `\n        runAsNonRoot: true`
-    if (psc.fsGroup) yaml += `\n        fsGroup: ${psc.fsGroup}`
-    if (psc.seccompProfile) yaml += `\n        seccompProfile:\n          type: ${psc.seccompProfile}`
+    tpl += `\n      securityContext:`
+    if (psc.runAsUser) tpl += `\n        runAsUser: ${psc.runAsUser}`
+    if (psc.runAsGroup) tpl += `\n        runAsGroup: ${psc.runAsGroup}`
+    if (psc.runAsNonRoot) tpl += `\n        runAsNonRoot: true`
+    if (psc.fsGroup) tpl += `\n        fsGroup: ${psc.fsGroup}`
+    if (psc.seccompProfile) tpl += `\n        seccompProfile:\n          type: ${psc.seccompProfile}`
   }
   // DNS
-  if (f.dnsPolicy) yaml += `\n      dnsPolicy: ${f.dnsPolicy}`
+  if (f.dnsPolicy) tpl += `\n      dnsPolicy: ${f.dnsPolicy}`
   const dc = f.dnsConfig
   const dnsNs = dc.nameservers.filter(x => x)
   const dnsSr = dc.searches.filter(x => x)
   const dnsOps = dc.options.filter(o => o.name)
   if (dnsNs.length || dnsSr.length || dnsOps.length) {
-    yaml += `\n      dnsConfig:`
-    if (dnsNs.length) yaml += `\n        nameservers:\n${dnsNs.map(n => `        - ${n}`).join('\n')}`
-    if (dnsSr.length) yaml += `\n        searches:\n${dnsSr.map(s => `        - ${s}`).join('\n')}`
+    tpl += `\n      dnsConfig:`
+    if (dnsNs.length) tpl += `\n        nameservers:\n${dnsNs.map(n => `        - ${n}`).join('\n')}`
+    if (dnsSr.length) tpl += `\n        searches:\n${dnsSr.map(s => `        - ${s}`).join('\n')}`
     if (dnsOps.length) {
-      yaml += `\n        options:`
-      dnsOps.forEach(o => { yaml += `\n        - name: ${o.name}`; if (o.value) yaml += `\n          value: "${o.value}"` })
+      tpl += `\n        options:`
+      dnsOps.forEach(o => { tpl += `\n        - name: ${o.name}`; if (o.value) tpl += `\n          value: "${o.value}"` })
     }
   }
   // 主机别名
   const ha = f.hostAliases.filter(h => h.ip)
   if (ha.length) {
-    yaml += `\n      hostAliases:`
+    tpl += `\n      hostAliases:`
     ha.forEach(h => {
-      yaml += `\n      - ip: ${h.ip}`
+      tpl += `\n      - ip: ${h.ip}`
       const hosts = (h.hostnames || '').split(',').map(x => x.trim()).filter(Boolean)
-      if (hosts.length) yaml += `\n        hostnames:\n${hosts.map(x => `        - ${x}`).join('\n')}`
+      if (hosts.length) tpl += `\n        hostnames:\n${hosts.map(x => `        - ${x}`).join('\n')}`
     })
   }
   // 主机网络
-  if (f.hostNetwork) yaml += `\n      hostNetwork: true`
-  if (f.hostPID) yaml += `\n      hostPID: true`
-  if (f.hostIPC) yaml += `\n      hostIPC: true`
+  if (f.hostNetwork) tpl += `\n      hostNetwork: true`
+  if (f.hostPID) tpl += `\n      hostPID: true`
+  if (f.hostIPC) tpl += `\n      hostIPC: true`
   // Pod 亲和/反亲和
   const pa = f.podAffinity
   if (pa.enabled && pa.labelKey) {
     const aKey = pa.type === 'anti-affinity' ? 'podAntiAffinity' : 'podAffinity'
-    yaml += `\n      affinity:\n        ${aKey}:`
+    tpl += `\n      affinity:\n        ${aKey}:`
     if (pa.strength === 'required') {
-      yaml += `\n          requiredDuringSchedulingIgnoredDuringExecution:\n          - labelSelector:\n              matchLabels:\n                ${pa.labelKey}: "${pa.labelValue}"\n            topologyKey: ${pa.topologyKey || 'kubernetes.io/hostname'}`
+      tpl += `\n          requiredDuringSchedulingIgnoredDuringExecution:\n          - labelSelector:\n              matchLabels:\n                ${pa.labelKey}: "${pa.labelValue}"\n            topologyKey: ${pa.topologyKey || 'kubernetes.io/hostname'}`
     } else {
-      yaml += `\n          preferredDuringSchedulingIgnoredDuringExecution:\n          - weight: 100\n            podAffinityTerm:\n              topologyKey: ${pa.topologyKey || 'kubernetes.io/hostname'}\n              labelSelector:\n                matchLabels:\n                  ${pa.labelKey}: "${pa.labelValue}"`
+      tpl += `\n          preferredDuringSchedulingIgnoredDuringExecution:\n          - weight: 100\n            podAffinityTerm:\n              topologyKey: ${pa.topologyKey || 'kubernetes.io/hostname'}\n              labelSelector:\n                matchLabels:\n                  ${pa.labelKey}: "${pa.labelValue}"`
     }
   }
-  yaml += `
+  tpl += `
       containers:
       - name: ${f.containerName || f.name}
         image: ${f.image}
         imagePullPolicy: ${f.pullPolicy}`
 
-  if (splitCommandTokens(f.command).length) yaml += `\n        command: [${splitCommandTokens(f.command).map(c => JSON.stringify(c)).join(', ')}]`
-  if (splitArgLines(f.args).length) yaml += `\n        args: [${splitArgLines(f.args).map(c => JSON.stringify(c)).join(', ')}]`
-  if (f.workingDir) yaml += `\n        workingDir: ${f.workingDir}`
-  if (f.stdin) yaml += `\n        stdin: true`
-  if (f.tty) yaml += `\n        tty: true`
-  if (portsYaml) yaml += `\n        ports:\n${portsYaml}`
-  if (allEnvYaml) yaml += `\n        env:\n${allEnvYaml}`
-  if (envFromYaml) yaml += `\n        envFrom:\n${envFromYaml}`
-  yaml += `\n        resources:
+  if (splitCommandTokens(f.command).length) tpl += `\n        command: [${splitCommandTokens(f.command).map(c => JSON.stringify(c)).join(', ')}]`
+  if (splitArgLines(f.args).length) tpl += `\n        args: [${splitArgLines(f.args).map(c => JSON.stringify(c)).join(', ')}]`
+  if (f.workingDir) tpl += `\n        workingDir: ${f.workingDir}`
+  if (f.stdin) tpl += `\n        stdin: true`
+  if (f.tty) tpl += `\n        tty: true`
+  if (portsYaml) tpl += `\n        ports:\n${portsYaml}`
+  if (allEnvYaml) tpl += `\n        env:\n${allEnvYaml}`
+  if (envFromYaml) tpl += `\n        envFrom:\n${envFromYaml}`
+  tpl += `\n        resources:
           requests:
             cpu: ${f.cpuRequest}
             memory: ${f.memoryRequest}
@@ -661,26 +662,32 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${yamlScalar(v)}`).join(
             memory: ${f.memoryLimit}`
   // securityContext
   if (f.securityContext.enabled) {
-    yaml += `\n        securityContext:`
-    if (f.securityContext.privileged) yaml += `\n          privileged: true`
-    if (f.securityContext.runAsUser) yaml += `\n          runAsUser: ${f.securityContext.runAsUser}`
-    if (f.securityContext.runAsGroup) yaml += `\n          runAsGroup: ${f.securityContext.runAsGroup}`
-    if (f.securityContext.runAsNonPrivileged) yaml += `\n          runAsNonRoot: true`
-    if (f.securityContext.readOnlyRootFilesystem) yaml += `\n          readOnlyRootFilesystem: true`
-    if (f.securityContext.addCaps) yaml += `\n          capabilities:\n            add: [${f.securityContext.addCaps.split(',').map(c => `"${c.trim()}"`).join(', ')}]`
-    else if (f.securityContext.dropCaps) yaml += `\n          capabilities:\n            drop: [${f.securityContext.dropCaps.split(',').map(c => `"${c.trim()}"`).join(', ')}]`
+    tpl += `\n        securityContext:`
+    if (f.securityContext.privileged) tpl += `\n          privileged: true`
+    if (f.securityContext.runAsUser) tpl += `\n          runAsUser: ${f.securityContext.runAsUser}`
+    if (f.securityContext.runAsGroup) tpl += `\n          runAsGroup: ${f.securityContext.runAsGroup}`
+    if (f.securityContext.runAsNonPrivileged) tpl += `\n          runAsNonRoot: true`
+    if (f.securityContext.readOnlyRootFilesystem) tpl += `\n          readOnlyRootFilesystem: true`
+    if (f.securityContext.addCaps) tpl += `\n          capabilities:\n            add: [${f.securityContext.addCaps.split(',').map(c => `"${c.trim()}"`).join(', ')}]`
+    else if (f.securityContext.dropCaps) tpl += `\n          capabilities:\n            drop: [${f.securityContext.dropCaps.split(',').map(c => `"${c.trim()}"`).join(', ')}]`
   }
   // lifecycle
   if (f.lifecycle.postStart || f.lifecycle.preStop) {
-    yaml += `\n        lifecycle:`
-    if (splitCommandTokens(f.lifecycle.postStart).length) yaml += `\n          postStart:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.postStart).map(c => JSON.stringify(c)).join(', ')}]`
-    if (splitCommandTokens(f.lifecycle.preStop).length) yaml += `\n          preStop:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.preStop).map(c => JSON.stringify(c)).join(', ')}]`
+    tpl += `\n        lifecycle:`
+    if (splitCommandTokens(f.lifecycle.postStart).length) tpl += `\n          postStart:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.postStart).map(c => JSON.stringify(c)).join(', ')}]`
+    if (splitCommandTokens(f.lifecycle.preStop).length) tpl += `\n          preStop:\n            exec:\n              command: [${splitCommandTokens(f.lifecycle.preStop).map(c => JSON.stringify(c)).join(', ')}]`
   }
-  if (probesYaml) yaml += '\n' + probesYaml
-  if (mountLines('main')) yaml += '\n' + mountLines('main')
-  if (extraContainersYaml) yaml += '\n' + extraContainersYaml
-  if (initContainersYaml) yaml += `\n      initContainers:\n${initContainersYaml}`
-  if (volumesYaml) yaml += `\n      volumes:\n${volumesYaml}`
+  if (probesYaml) tpl += '\n' + probesYaml
+  if (mountLines('main')) tpl += '\n' + mountLines('main')
+  if (extraContainersYaml) tpl += '\n' + extraContainersYaml
+  if (initContainersYaml) tpl += `\n      initContainers:\n${initContainersYaml}`
+  if (volumesYaml) tpl += `\n      volumes:\n${volumesYaml}`
+
+  // 追加 pod 模板体:公共尾部按 apps/Job 的 spec.template(键 2sp、子键 4sp)生成;
+  // CronJob 的模板嵌在 jobTemplate.spec.template(键 6sp)下——整体 +4 缩进挂入,
+  // 否则 metadata/spec 脱嵌挂回 jobTemplate: 层形成重复键
+  // (生产事故 2026-09-29:向导建 CronJob 恒报 duplicated mapping key)。
+  yaml += isCron ? tpl.split('\n').map(l => (l ? '    ' + l : l)).join('\n') : tpl
 
   // Service
   if (f.createService) {
