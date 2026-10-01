@@ -1977,6 +1977,8 @@
     "activeDeadline": "Active Deadline (s)",
     "schedule": "Schedule (Cron expression)",
     "concurrencyPolicy": "Concurrency Policy",
+    "restartPolicy": "Restart Policy",
+    "restartPolicyHint": "Never = failure counts, retried per backoff limit; OnFailure = restarts the container in place",
     "successHistoryLimit": "Success History Limit",
     "failedHistoryLimit": "Failed History Limit",
     "businessMeta": "Business Metadata",

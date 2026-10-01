@@ -1977,6 +1977,8 @@
     "activeDeadline": "活跃截止(秒)",
     "schedule": "Schedule (Cron 表达式)",
     "concurrencyPolicy": "并发策略",
+    "restartPolicy": "失败重启策略",
+    "restartPolicyHint": "Never=失败计次,由退避上限重试;OnFailure=失败原容器原地重启",
     "successHistoryLimit": "成功历史保留",
     "failedHistoryLimit": "失败历史保留",
     "businessMeta": "业务元数据",

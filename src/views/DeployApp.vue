@@ -127,7 +127,7 @@ function makeForm() {
   priorityClassName: '',
   serviceAccountName: '',
   // Job 专属
-  jobConfig: { completions: 1, parallelism: 1, backoffLimit: 6, activeDeadlineSeconds: '' },
+  jobConfig: { completions: 1, parallelism: 1, backoffLimit: 6, activeDeadlineSeconds: '', restartPolicy: 'Never' },
   // CronJob 专属
   cronConfig: { schedule: '*/5 * * * *', concurrencyPolicy: 'Allow', suspend: false, successfulJobsHistoryLimit: 3, failedJobsHistoryLimit: 1 },
   // 镜像拉取凭证（pod 级）
@@ -154,6 +154,13 @@ const form = ref(makeForm())
 // Ingress 方言:按 className 自动探测;切换方言清空旧 adv 值(键对新方言无意义)
 const ingressDialect = computed(() => detectDialect(form.value.ingressClassName))
 watch(ingressDialect, () => { form.value.ingressAdv = {} })
+// batch 类型切换 → restartPolicy 归位类型默认(Job=Never / CronJob=OnFailure)。
+// K8s 硬约束:Job/CronJob pod 模板必须显式 restartPolicy ∈ {OnFailure, Never}(2026-10-01
+// 生产报障:缺省被 apiserver 拒「Required value」)。用户切换后可再改,构建器另有白名单兜底。
+watch(() => form.value.workloadType, t => {
+  if (t === 'Job') form.value.jobConfig.restartPolicy = 'Never'
+  else if (t === 'CronJob') form.value.jobConfig.restartPolicy = 'OnFailure'
+})
 
 // 「集群默认」退役(2026-09-01):曾默认 ingressClassName='' 指望集群默认类兜底,但集群经常没有
 // 任何 is-default-class 标记 → Ingress 落地无类,控制器不接。现在仅当未选时补选一个确定的类
@@ -573,6 +580,14 @@ spec:`
       labels:
 ${Object.entries(labels).map(([k, v]) => `        ${k}: ${yamlScalar(v)}`).join('\n')}
     spec:`
+  // batch pod 模板必须显式 restartPolicy(默认 Always 非法,apiserver 硬拒 2026-10-01 报障);
+  // 白名单守卫:表单脏值回落类型默认,防非法值直写清单
+  if (isBatch || isCron) {
+    const rp = f.jobConfig.restartPolicy === 'OnFailure' || f.jobConfig.restartPolicy === 'Never'
+      ? f.jobConfig.restartPolicy
+      : (isCron ? 'OnFailure' : 'Never')
+    tpl += `\n      restartPolicy: ${rp}`
+  }
   if (f.serviceAccountName) tpl += `\n      serviceAccountName: ${f.serviceAccountName}`
   if (f.priorityClassName) tpl += `\n      priorityClassName: ${f.priorityClassName}`
   if (f.imagePullSecrets) tpl += `\n      imagePullSecrets:\n      - name: ${f.imagePullSecrets}`
@@ -933,6 +948,13 @@ async function handleDeploy() {
             <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.parallelism') }}</label><input v-model.number="form.jobConfig.parallelism" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
             <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.backoffLimit') }}</label><input v-model.number="form.jobConfig.backoffLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
             <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.activeDeadline') }}</label><input v-model.number="form.jobConfig.activeDeadlineSeconds" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="$t('deploy.optionalPlaceholder')" /></div>
+            <div>
+              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.restartPolicy') }}</label>
+              <select v-model="form.jobConfig.restartPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+                <option>Never</option><option>OnFailure</option>
+              </select>
+              <p class="text-[10px] text-on-surface-variant/70 mt-0.5">{{ $t('deploy.restartPolicyHint') }}</p>
+            </div>
           </div>
           <!-- CronJob 专属配置 -->
           <div v-if="form.workloadType === 'CronJob'" class="md:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-sm p-md bg-tertiary-container/5 border border-tertiary-container/20 rounded-lg">
@@ -948,6 +970,13 @@ async function handleDeploy() {
             </div>
             <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.successHistoryLimit') }}</label><input v-model.number="form.cronConfig.successfulJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
             <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.failedHistoryLimit') }}</label><input v-model.number="form.cronConfig.failedJobsHistoryLimit" type="number" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" /></div>
+            <div>
+              <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.restartPolicy') }}</label>
+              <select v-model="form.jobConfig.restartPolicy" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm">
+                <option>OnFailure</option><option>Never</option>
+              </select>
+              <p class="text-[10px] text-on-surface-variant/70 mt-0.5">{{ $t('deploy.restartPolicyHint') }}</p>
+            </div>
           </div>
           <!-- 业务元数据（aliangboard.io/* 标签体系：写入后卡片/详情自动展示） -->
           <div class="md:col-span-2 mt-xs p-md rounded-lg border border-outline-variant/60 bg-surface-container-lowest">

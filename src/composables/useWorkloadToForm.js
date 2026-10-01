@@ -76,11 +76,11 @@ export function workloadToForm(obj, kind) {
   if (kind === 'Deployment' || kind === 'StatefulSet') {
     out.replicas = obj.spec?.replicas ?? 1
   } else if (kind === 'Job') {
-    out.jobConfig = { completions: obj.spec?.completions ?? 1, parallelism: obj.spec?.parallelism ?? 1, backoffLimit: obj.spec?.backoffLimit ?? 6, activeDeadlineSeconds: obj.spec?.activeDeadlineSeconds || '' }
+    out.jobConfig = { completions: obj.spec?.completions ?? 1, parallelism: obj.spec?.parallelism ?? 1, backoffLimit: obj.spec?.backoffLimit ?? 6, activeDeadlineSeconds: obj.spec?.activeDeadlineSeconds || '', restartPolicy: pod.restartPolicy || 'Never' }
   } else if (kind === 'CronJob') {
     out.cronConfig = { schedule: obj.spec?.schedule || '*/5 * * * *', concurrencyPolicy: obj.spec?.concurrencyPolicy || 'Allow', suspend: !!obj.spec?.suspend, successfulJobsHistoryLimit: obj.spec?.successfulJobsHistoryLimit ?? 3, failedJobsHistoryLimit: obj.spec?.failedJobsHistoryLimit ?? 1 }
     const jt = obj.spec?.jobTemplate?.spec
-    if (jt) out.jobConfig = { completions: jt.completions ?? 1, parallelism: jt.parallelism ?? 1, backoffLimit: jt.backoffLimit ?? 6, activeDeadlineSeconds: jt.activeDeadlineSeconds || '' }
+    if (jt) out.jobConfig = { completions: jt.completions ?? 1, parallelism: jt.parallelism ?? 1, backoffLimit: jt.backoffLimit ?? 6, activeDeadlineSeconds: jt.activeDeadlineSeconds || '', restartPolicy: pod.restartPolicy || 'OnFailure' }
   }
 
   if (containers[0]) Object.assign(out, mapMainContainer(containers[0]))
