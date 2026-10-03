@@ -1,5 +1,6 @@
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { load as yamlLoad } from 'js-yaml'
 
 // === CRUD 工厂测试（全真实数据模型：纯远端 + Vue Query 缓存）===
 // 断言：每类资源的 add/update/delete 调用正确的远端原语（api.applyYaml / api.k8s PATCH / api.k8s DELETE）
@@ -173,6 +174,52 @@ test('updateSecret 仅改 labels/annotations: 缓存 data 不得被再编码 →
   // 缓存 data（b64¹）被 yamlOf 再跑一次 beforeSave 时,这里会出现 'cGxhaW50ZXh0'（b64¹ 裸串）
   expect(yaml).toContain('password: plaintext')
   expect(yaml).toContain('note: x')
+})
+
+// ========================================================================
+// Secret: 二进制(非 UTF-8)键 × 视图结构化编辑(2026-10-03 审计残留)
+// NsSecretDetail.decodedData 用 decodeBase64,失败回退把仍是 b64 态的原串透传进 data;
+// beforeSave 若无差别全量编码,b64² 恰是 ASCII → generateYAML 逐键路由误判「可解码」→
+// stringData → apiserver 再编码 → 集群落 b64²(8f1af829 ② 只修了 labels-only 入参侧)。
+// 不变式:值与集群现值相同 → 字节不动。
+// ========================================================================
+
+test('updateSecret 增键: 未触碰的二进制键原样留 data:, 不得二次编码', async () => {
+  const store = getStore()
+  const binB64 = btoa(String.fromCharCode(0xff, 0xfe, 0x01, 0x02)) // 非 UTF-8 → tryDecode 必失败
+  stubCache('secrets', { name: 'my-sec', namespace: 'default', type: 'Opaque', data: { password: btoa('test123'), 'keystore.p12': binB64 } })
+  // NsSecretDetail.addKey 的真实组合(NsSecretDetail.vue decodedData): 文本键解码为明文,
+  // 二进制键 decodeBase64 失败回退原样透传 b64 + 用户新增文本键
+  const data = { password: 'test123', 'keystore.p12': binB64, newkey: 'hello' }
+  await store.updateSecret('my-sec', 'default', { data, keys: 3 })
+  expect(applyYaml).toHaveBeenCalledTimes(1)
+  const o = yamlLoad(applyYaml.mock.calls[0][0])
+  // 文本键(含新增): 明文走 stringData, apiserver 编一次 → 集群单编码
+  expect(o.stringData).toEqual({ password: 'test123', newkey: 'hello' })
+  // 二进制键: 原样 b64 留 data:, apiserver 不再编码 → 集群值不变。
+  // 双重编码时此处为 undefined(键被误路由进 stringData, 值是 b64¹ 串)
+  expect(o.data).toEqual({ 'keystore.p12': binB64 })
+})
+
+test('updateSecret 删键: 未触碰的二进制键原样留 data:, 被删文本键消失', async () => {
+  const store = getStore()
+  const binB64 = btoa(String.fromCharCode(0xff, 0xfe, 0x01, 0x02))
+  stubCache('secrets', { name: 'my-sec', namespace: 'default', type: 'Opaque', data: { password: btoa('test123'), 'keystore.p12': binB64 } })
+  // NsSecretDetail.deleteKey 的真实组合: 删掉文本键 password, 二进制键原样透传
+  await store.updateSecret('my-sec', 'default', { data: { 'keystore.p12': binB64 }, keys: 1 })
+  const o = yamlLoad(applyYaml.mock.calls[0][0])
+  expect(o.stringData).toEqual({}) // 无文本键 → 空块
+  expect(o.data).toEqual({ 'keystore.p12': binB64 })
+})
+
+test('updateSecret: 新值敲成与集群编码值完全相同的串 → 视为未变更, 字节不动(编码态歧义裁决)', async () => {
+  const store = getStore()
+  stubCache('secrets', { name: 'my-sec', namespace: 'default', type: 'Opaque', data: { password: 'czNjcmV0' } }) // b64('s3cret')
+  // 用户把新值敲成了当前编码值本身(例如从别处复制了 b64 串): 同值 ⇒ 集群字节不动
+  await store.updateSecret('my-sec', 'default', { data: { password: 'czNjcmV0' }, keys: 1 })
+  const o = yamlLoad(applyYaml.mock.calls[0][0])
+  expect(o.stringData).toEqual({ password: 's3cret' }) // 原明文不变, 用户输入不生效(no-op)
+  expect(o.data).toBeUndefined()
 })
 
 // ========================================================================

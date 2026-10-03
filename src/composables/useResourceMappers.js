@@ -18,10 +18,15 @@ export function decodeBase64(str) {
   const d = tryDecodeBase64(str)
   return d === null ? String(str ?? '') : d
 }
-export const encodeSecretData = (data) => {
+// base(可选,update 路径传集群现值):值与现值相同的键保持原字节不重编——「未变更即不动」。
+// 视图 decodedData 对二进制(非 UTF-8)键解码失败会原样透传 b64,无差别全量编码把它们变
+// b64²,而 b64² 是 ASCII、generateYAML 逐键路由必误判「可解码」→ stringData → apiserver
+// 再编码 → 集群落 b64²(2026-10-03 审计:8f1af829 ② 的残留面,增/删/改键均触发)。
+// base 缺省(add() 明文入参)时与旧版行为逐键一致。
+export const encodeSecretData = (data, base) => {
   if (!data) return {}
   const out = {}
-  for (const k in data) out[k] = encodeBase64(data[k])
+  for (const k in data) out[k] = base?.[k] !== undefined && base[k] === data[k] ? base[k] : encodeBase64(data[k])
   return out
 }
 

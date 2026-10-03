@@ -92,6 +92,7 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
   // makeCrud 为每类规整资源生成 add/update/delete 三函数：
   // - add: generateYAML → server-side apply → invalidateResource(刷 Vue Query)
   // - update: 从 Vue Query 缓存取当前对象（fromCache）→ merge → remoteUpdate/remotePatch
+  //   · beforeSave(updates, cur)：第二参为集群现值——secrets 用「值未变 → 字节不动」保二进制键
   //   · patchFn 资源(HPA)：定向 patch body，不 regenerate 全量 YAML
   //   · 缓存未命中：仅 invalidate（下次有缓存再编辑），不抛
   // - delete: api.k8s DELETE → invalidateResource
@@ -128,10 +129,12 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
         r = await remotePatch(itemApi(name, ns), patchFn(name, ns, updates, cur || {}), kind)
       } else {
         if (!cur) { invalidateResource(plural); return { ok: false, skipped: true } }
-        const merged = { ...cur, ...(beforeSave ? beforeSave(updates) : updates) }
+        const merged = { ...cur, ...(beforeSave ? beforeSave(updates, cur) : updates) }
         // merged 已过 beforeSave（编码态；与 add() 的明文入参不同空间）——远端清单必须直呼底层
         // 生成器，走 yamlOf 会再跑一次 beforeSave → secrets 全量 data 双重编码（issue#15：
         // 集群落 b64²，reveal/消费者拿到 b64¹「保存后变加密值」）。50f9c34c 同型不变式回归。
+        // beforeSave 第二参传 cur（集群现值）：secrets 据此「值未变 → 字节不动」，否则视图
+        // decodedData 对二进制键的原样透传会被再次编码（8f1af829 ② 的残留面，2026-10-03）。
         r = await remoteUpdate(customYaml ? customYaml(merged) : genFn(genType, merged), kind)
       }
       if (r.ok && sideEffects?.onUpdate) sideEffects.onUpdate(name, ns)
@@ -160,7 +163,7 @@ export function createCrudDomain({ aliangTag, currentCluster, namespaceList, fet
 
   const RESOURCE_SPECS = {
     configmaps: { kind: 'ConfigMap', group: '/api/v1', resource: 'configmaps', namespaced: true, genType: 'configmap', fetch: fetchConfigMap },
-    secrets: { kind: 'Secret', group: '/api/v1', resource: 'secrets', namespaced: true, genType: 'secret', beforeSave: s => (s.data ? { ...s, data: encodeSecretData(s.data) } : s), fetch: fetchSecret },
+    secrets: { kind: 'Secret', group: '/api/v1', resource: 'secrets', namespaced: true, genType: 'secret', beforeSave: (s, cur) => (s.data ? { ...s, data: encodeSecretData(s.data, cur?.data) } : s), fetch: fetchSecret },
     pvcs: { kind: 'PVC', group: '/api/v1', resource: 'persistentvolumeclaims', namespaced: true, genType: 'pvc', fetch: fetchPVC },
     services: { kind: 'Service', group: '/api/v1', resource: 'services', namespaced: true, genType: 'service', fetch: fetchService, sideEffects: {
       onAdd: svc => { const ns = namespaceList.value.find(n => n.name === svc.namespace); if (ns) ns.services = (ns.services || 0) + 1 },
