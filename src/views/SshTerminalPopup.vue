@@ -12,7 +12,7 @@ import { useI18n } from 'vue-i18n'
 import SshTerminal from '@/components/ssh/SshTerminal.vue'
 import { startPopupHeartbeat } from '@/utils/popupSync'
 import { sshApi } from '@/api/client'
-import { genSid } from '@/stores/sshTerminals'
+import { genSid, useSshTerminalStore } from '@/stores/sshTerminals'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -23,6 +23,7 @@ const name = computed(() => route.query.name || serverId.value || 'SSH')
 // 仅本会话属主首建时生效;后续 F5 重连同 sid 再带 = 服务端 no-op。
 const startCwd = computed(() => String(route.query.cwd || ''))
 const termRef = ref(null)   // SshTerminal 暴露的 lastCwd(旁路 cwd 帧维护)是「+」的数据源
+const sshStore = useSshTerminalStore()
 // sid 缺失守卫(2026-08-29 审计):绝不允许空 sid 建连——旧网关会随机补位造孤儿会话,
 // 新网关也会硬拒绝。URL 无 sid(手输/收藏/历史恢复)直接给错误态。
 const sidMissing = computed(() => !sid.value)
@@ -34,10 +35,16 @@ document.title = t('ssh.popupTitle', { name: name.value })
 const stopHeartbeat = sidMissing.value ? null : startPopupHeartbeat('ssh', sid.value, { serverId: serverId.value, name: name.value })
 onUnmounted(() => { if (stopHeartbeat) stopHeartbeat() })
 
-// 显式关闭:杀会话(keepalive 使请求在标签页卸载后仍送达;404=清道夫已收走照样静默)
-// 后立即关标签页。window.close 须在用户手势的同步调用栈里,故 kill 不 await。
+// 显式关闭(2026-10-04 补完跨页摘记录):三件事——①同步直调 killSession(keepalive 使请求
+// 在标签页卸载后仍送达;store 内的 best-effort 是微任务,window.close 的同步关窗竞态下可能
+// 永不发出,故此处保底,重复 kill 幂等);②store.closeWindow 摘全端记录(跨页墓碑 + merge-on-write
+// persist → 主页面 storage 对账摘 chip——此前缺这步,弹窗关了任务栏 chip 永挂,点开才知已死);
+// ③关标签页。window.close 须在用户手势的同步调用栈里,故全部不 await。
 function closeWindow() {
-  if (!sidMissing.value) { try { sshApi.killSession(sid.value).catch(() => {}) } catch { /* noop */ } }
+  if (!sidMissing.value) {
+    try { sshApi.killSession(sid.value).catch(() => {}) } catch { /* noop */ }
+    try { sshStore.closeWindow(sid.value) } catch { /* store 异常不阻关窗 */ }
+  }
   window.close()
 }
 

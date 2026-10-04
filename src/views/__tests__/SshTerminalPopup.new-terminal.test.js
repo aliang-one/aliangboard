@@ -11,7 +11,10 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ query: state.query }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: k => k }) }))
 // vue-i18n 全 mock 会使 client→http→i18n 链拿到残缺模块,client 一并局部 mock
 vi.mock('@/api/client', () => ({ sshApi: { killSession: vi.fn(() => Promise.resolve({ ok: true })) } }))
-vi.mock('@/stores/sshTerminals', () => ({ genSid: vi.fn(() => 'ssh-fixed-new') }))
+vi.mock('@/stores/sshTerminals', () => ({
+  genSid: vi.fn(() => 'ssh-fixed-new'),
+  useSshTerminalStore: vi.fn(() => ({ closeWindow: vi.fn() })),
+}))
 
 // stub:透传 props 供断言;点击模拟「+」;expose lastCwd 供弹窗读取
 vi.mock('@/components/ssh/SshTerminal.vue', () => ({
