@@ -122,7 +122,14 @@ function batchWorkloadExtras(item, type) {
       : cond('Failed') ? 'Failed'
       : (st.active ?? 0) > 0 || succeeded > 0 ? 'Running'
       : 'Pending'
-    return { status, replicas: `${succeeded}/${completions}` }
+    // ownerUid = controller 归属(CronJob 触发的 Job):详情页运行记录 tab 按此过滤;
+    // startTime/completionTime 供运行时长(2026-10-04 调度卡+运行记录)
+    return {
+      status, replicas: `${succeeded}/${completions}`,
+      startTime: st.startTime ?? null,
+      completionTime: st.completionTime ?? null,
+      ownerUid: (item.metadata?.ownerReferences || []).find(o => o.controller)?.uid || null,
+    }
   }
   // CronJob
   const active = Array.isArray(st.active) ? st.active.length : (st.active ?? 0)
@@ -130,7 +137,13 @@ function batchWorkloadExtras(item, type) {
     : active > 0 ? 'Running'
     : st.lastSuccessfulTime ? 'Succeeded'
     : 'Pending'
-  return { status, replicas: `${active}/${active}`, schedule: item.spec?.schedule, suspend: Boolean(item.spec?.suspend) }
+  return {
+    status, replicas: `${active}/${active}`, schedule: item.spec?.schedule, suspend: Boolean(item.spec?.suspend),
+    timeZone: item.spec?.timeZone ?? '',
+    concurrencyPolicy: item.spec?.concurrencyPolicy || 'Allow',
+    lastScheduleTime: st.lastScheduleTime ?? null,
+    lastSuccessfulTime: st.lastSuccessfulTime ?? null,
+  }
 }
 
 export function mapWorkload(item, type) {

@@ -44,6 +44,9 @@ import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { openLogTab } from '@/composables/useLogViewer'
 import { backfillVolumes } from '@/logic/volumeBackfill'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
+import CronScheduleCard from '@/components/common/CronScheduleCard.vue'
+import CronRunsTab from '@/components/common/CronRunsTab.vue'
+import { describeStructure, formatCronSchedule } from '@/utils/cron'
 import { useIsPhone } from '@/composables/useBreakpoint'
 import { Z } from '@/styles/zScale'
 
@@ -279,6 +282,7 @@ const TAB_LABEL_KEYS = {
   network: 'workload.tabs.network',
   pods: 'workload.tabs.pods',
   revisions: 'workload.tabs.revisions',
+  runs: 'workload.tabs.runs',
   yaml: 'workload.tabs.yaml',
   events: 'workload.tabs.events',
 }
@@ -312,6 +316,27 @@ const replicasLabel = computed(() => {
 })
 const isCronJob = computed(() => workload.value?.type === 'CronJob')
 const isRolloutType = computed(() => WORKLOAD_ROLLOUT_TYPES.includes(workload.value?.type))
+// tab 序(2026-10-04):CronJob 专属「运行记录」(对称 Deployment 的 revisions);其余 kind 维持原序
+const tabs = computed(() => {
+  if (isCronJob.value) return ['overview', 'topology', 'network', 'pods', 'runs', 'yaml', 'events']
+  if (isRolloutType.value) return ['overview', 'topology', 'network', 'pods', 'revisions', 'yaml', 'events']
+  return ['overview', 'topology', 'network', 'pods', 'yaml', 'events']
+})
+// 运行记录:该 CronJob 触发的 Jobs(ownerReferences controller uid 归属过滤)。
+// 与列表页同 key(workloadsQuery)→ watch 增量/失效天然联动,无需独立查询。
+const cronRuns = computed(() => {
+  const wl = workload.value
+  if (!wl || wl.type !== 'CronJob') return []
+  const uid = wl.uid || wl.raw?.metadata?.uid
+  if (!uid) return []
+  return (workloadsQuery.data.value || []).filter(w => w.type === 'Job' && w.namespace === route.params.namespace
+    && (w.raw?.metadata?.ownerReferences || []).some(o => o.controller && o.uid === uid))
+})
+// header chip 悬停文案:人性化描述(complex/不可解析回退原文)
+const cronHuman = computed(() => {
+  const d = describeStructure(workload.value?.schedule || '')
+  return d && d.kind !== 'complex' ? formatCronSchedule(d, t) : (workload.value?.schedule || '')
+})
 // 发布历史独立 query:列表已瘦身(fetchWorkloads 不再携带 revisions),按需拉(spec §5.2 第一刀)
 const TYPE_MAP = { deployment: 'Deployment', statefulset: 'StatefulSet', daemonset: 'DaemonSet' }
 const queryClient = useQueryClient()
@@ -1312,7 +1337,7 @@ function podStatusBorder(s) {
           <p v-if="meta.description" class="text-body-sm text-on-surface-variant mt-xs">{{ meta.description }}</p>
           <div class="flex items-center gap-xs mt-xs flex-wrap">
             <span class="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-md font-medium">{{ workload.type }}</span>
-            <span v-if="isCronJob && workload.schedule" class="px-2 py-0.5 bg-surface-container rounded text-xs font-mono text-on-surface-variant" :title="$t('workload.edit.schedule')">{{ workload.schedule }}</span>
+            <span v-if="isCronJob && workload.schedule" class="px-2 py-0.5 bg-surface-container rounded text-xs font-mono text-on-surface-variant" :title="cronHuman">{{ workload.schedule }}</span>
             <span v-if="isCronJob && workload.suspend" class="px-2 py-0.5 bg-tertiary-container/40 text-on-surface-variant text-xs rounded-md font-medium">{{ $t('workload.suspendedChip') }}</span>
             <StatusChip :status="workload.status" size="sm" />
             <span class="text-xs text-on-surface-variant">{{ workload.namespace }}</span>
@@ -1338,7 +1363,7 @@ function podStatusBorder(s) {
 
     <!-- ====== Tabs ====== -->
     <div class="flex items-center gap-xs overflow-x-auto border-b border-outline-variant mb-md">
-      <button v-for="tab in (isRolloutType ? ['overview', 'topology', 'network', 'pods', 'revisions', 'yaml', 'events'] : ['overview', 'topology', 'network', 'pods', 'yaml', 'events'])" :key="tab" @click="activeTab = tab"
+      <button v-for="tab in tabs" :key="tab" @click="activeTab = tab"
         class="px-lg py-2 text-body-sm font-medium transition-colors relative shrink-0 whitespace-nowrap"
         :class="activeTab === tab ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'">
         {{ $t(TAB_LABEL_KEYS[tab]) }}
@@ -1405,6 +1430,12 @@ function podStatusBorder(s) {
           </button>
         </div>
       </div>
+
+      <!-- 调度卡(CronJob 专属,2026-10-04):表达式人性化 + 接下来 3 次预计 + 时区/并发/上次调度 -->
+      <CronScheduleCard v-if="isCronJob"
+        :schedule="workload.schedule || ''" :suspended="!!workload.suspend"
+        :time-zone="workload.timeZone || ''" :concurrency-policy="workload.concurrencyPolicy || 'Allow'"
+        :last-schedule-time="workload.lastScheduleTime || ''" :last-successful-time="workload.lastSuccessfulTime || ''" />
 
       <!-- 顶部摘要条 -->
       <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-sm">
@@ -1829,6 +1860,12 @@ function podStatusBorder(s) {
             {{ $t('workload.revisionsTab.rollback') }}</button>
         </template>
       </DataTable>
+    </div>
+
+    <!-- ====== Runs Tab（CronJob 运行记录,ownerUid 归属过滤）====== -->
+    <div v-if="activeTab === 'runs' && isCronJob">
+      <CronRunsTab :rows="cronRuns" :loading="!!workloadsQuery.isPending.value"
+        @open="job => router.push({ name: 'NsWorkloadDetail', params: { namespace: route.params.namespace, type: 'job', name: job.name } })" />
     </div>
 
     <!-- ====== YAML Tab（直接由列表已返回的 workload.raw 生成，无额外请求）====== -->

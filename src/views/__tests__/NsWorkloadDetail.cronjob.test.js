@@ -54,12 +54,46 @@ const jobWorkload = {
   },
 }
 
+// 运行记录 tab(2026-10-04):属主过滤的两侧 fixture + Deployment 对照
+const cronWithUid = { ...cronWorkload, uid: 'cron-uid-1', raw: { ...cronWorkload.raw, metadata: { ...cronWorkload.raw.metadata, uid: 'cron-uid-1' } } }
+const ownedJob = {
+  name: 'backup-28490', namespace: 'default', type: 'Job', status: 'Succeeded', replicas: '1/1',
+  image: 'busybox:1.36', labels: {}, annotations: {}, tier: 'default',
+  createdAt: new Date(Date.now() - 60e3).toISOString(),
+  startTime: new Date(Date.now() - 60e3).toISOString(), completionTime: new Date(Date.now() - 30e3).toISOString(),
+  ownerUid: 'cron-uid-1',
+  raw: {
+    metadata: {
+      name: 'backup-28490', namespace: 'default',
+      ownerReferences: [{ kind: 'CronJob', name: 'backup', uid: 'cron-uid-1', controller: true }],
+      labels: {}, annotations: {},
+    },
+    spec: { template: { spec: { containers: [{ name: 'backup', image: 'busybox:1.36' }] } } },
+    status: { succeeded: 1, conditions: [{ type: 'Complete', status: 'True' }] },
+  },
+}
+const foreignJob = {
+  ...ownedJob,
+  name: 'other-999', ownerUid: 'cron-uid-other',
+  raw: { ...ownedJob.raw, metadata: { ...ownedJob.raw.metadata, name: 'other-999', ownerReferences: [{ kind: 'CronJob', name: 'other', uid: 'cron-uid-other', controller: true }] } },
+}
+const deployWorkload = {
+  name: 'web', namespace: 'default', type: 'Deployment', status: 'Running', replicas: '2/2',
+  image: 'nginx:1.21', labels: {}, annotations: {}, tier: 'default',
+  raw: {
+    metadata: { name: 'web', namespace: 'default', labels: {}, annotations: {} },
+    spec: { replicas: 2, template: { metadata: { labels: { app: 'web' } }, spec: { containers: [{ name: 'web', image: 'nginx:1.21' }] } } },
+    status: { readyReplicas: 2 },
+  },
+}
+
 function seedStore(wl, overrides = {}) {
   Object.assign(storeMocks, {
     watchStateOf: () => 'off',
     currentCluster: 'demo', setNamespace: () => {}, checkAccessServer: vi.fn(async () => ({ ok: true, allowed: true })),
     fetchWorkloads: vi.fn(async () => [wl]), fetchPods: vi.fn(async () => []),
     fetchPVCs: vi.fn(async () => []), fetchConfigMaps: vi.fn(async () => []), fetchSecrets: vi.fn(async () => []),
+    fetchWorkloadRevisions: vi.fn(async () => []),
     restartWorkload: vi.fn(async () => {}), scaleWorkload: vi.fn(async () => {}),
     updateWorkload: vi.fn(async () => {}), deleteWorkload: vi.fn(async () => true),
     invalidateAllClusterQueries: vi.fn(async () => {}),
@@ -222,5 +256,59 @@ test('Job rollout 卡:完成态显示完成文案(旧态恒 0/1 Pending)', async
   seedStore(jobWorkload)
   const w = await mountDetail()
   expect(w.text()).toContain(i18n.global.t('workload.rollout.jobComplete', { done: 1, total: 1 }))
+  w.unmount(); document.body.innerHTML = ''
+})
+
+// ===== 运行记录 tab + 调度卡(2026-10-04)=====
+
+test('CronJob:tab 栏含「运行记录」,点开只见属主 Job(他属 Job 不见)', async () => {
+  seedStore(cronWithUid, { fetchWorkloads: vi.fn(async () => [cronWithUid, ownedJob, foreignJob]) })
+  const w = await mountDetail()
+  const runsTab = w.findAll('button').find(b => b.text() === i18n.global.t('workload.tabs.runs'))
+  expect(runsTab).toBeTruthy()
+  await runsTab.trigger('click')
+  await flushPromises()
+  expect(w.text()).toContain('backup-28490')
+  expect(w.text()).not.toContain('other-999')
+  w.unmount(); document.body.innerHTML = ''
+})
+
+test('CronJob 概览:调度卡渲染(人性化描述 + 接下来 N 次)', async () => {
+  seedStore(cronWithUid)
+  const w = await mountDetail()
+  expect(w.find('[data-testid="cron-schedule-card"]').exists()).toBe(true)
+  expect(w.text()).toContain('每 5 分钟执行一次')
+  expect(w.text()).toContain(i18n.global.t('workload.cron.nextRuns', { n: 3 }))
+  w.unmount(); document.body.innerHTML = ''
+})
+
+test('CronJob 运行记录:行点击跳该 Job 详情页(type=job)', async () => {
+  seedStore(cronWithUid, { fetchWorkloads: vi.fn(async () => [cronWithUid, ownedJob]) })
+  const w = await mountDetail()
+  const runsTab = w.findAll('button').find(b => b.text() === i18n.global.t('workload.tabs.runs'))
+  await runsTab.trigger('click')
+  await flushPromises()
+  await w.findAll('[data-testid="run-name"]')[0].trigger('click')
+  expect(routerPush).toHaveBeenCalledWith(expect.objectContaining({
+    name: 'NsWorkloadDetail', params: { namespace: 'default', type: 'job', name: 'backup-28490' },
+  }))
+  w.unmount(); document.body.innerHTML = ''
+})
+
+test('Deployment:无「运行记录」tab、无调度卡;有「版本」tab(revisions 对称性不回归)', async () => {
+  routeState.params = { name: 'web', namespace: 'default', type: 'deployment' }
+  seedStore(deployWorkload)
+  const w = await mountDetail()
+  expect(w.findAll('button').find(b => b.text() === i18n.global.t('workload.tabs.runs'))).toBeUndefined()
+  expect(w.findAll('button').find(b => b.text() === i18n.global.t('workload.tabs.revisions'))).toBeTruthy()
+  expect(w.find('[data-testid="cron-schedule-card"]').exists()).toBe(false)
+  w.unmount(); document.body.innerHTML = ''
+})
+
+test('Job:无「运行记录」tab(只有 CronJob 有)', async () => {
+  routeState.params = { name: 'migrate', namespace: 'default', type: 'job' }
+  seedStore(jobWorkload)
+  const w = await mountDetail()
+  expect(w.findAll('button').find(b => b.text() === i18n.global.t('workload.tabs.runs'))).toBeUndefined()
   w.unmount(); document.body.innerHTML = ''
 })
