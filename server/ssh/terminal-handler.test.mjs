@@ -8,8 +8,8 @@ import { EventEmitter } from 'node:events'
 import { createTerminalService } from './terminal-service.mjs'
 import { createSshTerminalHandler } from './terminal-handler.mjs'
 
-const CH = { ERROR: 4, STDIN: 1, RESIZE: 2, REPLAY: 6, STDOUT: 1, PING: 7, PONG: 8 }
-const URL_FOR = tid => new URL(`ws://gw/?serverId=s1&sid=${tid}&cols=80&rows=24`)
+const CH = { ERROR: 4, STDIN: 1, RESIZE: 2, REPLAY: 6, STDOUT: 1, PING: 7, PONG: 8, CWD: 9 }
+const URL_FOR = (tid, extra = '') => new URL(`ws://gw/?serverId=s1&sid=${tid}&cols=80&rows=24${extra}`)
 const tick = () => new Promise(r => setImmediate(r))
 
 function makeWs() {
@@ -26,7 +26,8 @@ function makeChannel(label) {
   ch.label = label
   ch.closed = false
   ch.close = () => { ch.closed = true }
-  ch.write = () => {}
+  ch.writes = []
+  ch.write = d => ch.writes.push(d)
   ch.setWindow = () => {}
   ch.stderr = new EventEmitter()
   return ch
@@ -161,4 +162,65 @@ test('评审#2:CREATING 强杀窗口——迟到的 shell 回调关闭新通道,
   assert.equal(sh.channel.closed, true, '迟到通道被守卫立即关闭(否则永不关闭直至池连接死亡)')
   assert.equal(service.get('t1').channel, null, '残尸身上不得绑定活通道')
   assert.equal(sh.release.called, true, 'release 仍只调一次(评审#1 幂等)')
+})
+
+// —— cwd 旁路 + 起始目录注入(2026-10-04 终端标签页「+」新建终端)——
+test('cwd 注入:URL 带 cwd → 属主首建 shell 后写一行 cd(引号转义);无 cwd 不写', async () => {
+  const { pool, handler } = makeHarness()
+  const ws = makeWs()
+  const p = handler(ws, PS, URL_FOR('t1', `&cwd=${encodeURIComponent("/srv/my'app")}`))
+  await tick()
+  pool.grant(0)
+  await p
+  assert.deepEqual(pool.shells[0].channel.writes, [`cd -- '/srv/my'\\''app'\n`])
+
+  const ws2 = makeWs()
+  const p2 = handler(ws2, PS, URL_FOR('t2'))
+  await tick()
+  pool.grant(0)
+  await p2
+  assert.equal(pool.shells[1].channel.writes.length, 0, '无 cwd 参数:不注入')
+  assert.ok(ws2.frames.every(f => f.type !== CH.ERROR))
+})
+
+test('cwd 注入:非法 cwd(藏换行/相对路径)sanitize 拒收 → 按无 cwd 处理,建连照常', async () => {
+  const { pool, handler } = makeHarness()
+  for (const [i, bad] of ['/var\nrm -rf', 'relative/path'].entries()) {
+    const ws = makeWs()
+    const p = handler(ws, PS, URL_FOR(`tx${i}`, `&cwd=${encodeURIComponent(bad)}`))
+    await tick()
+    pool.grant(0)                                                          // 每轮独立 tid:恒为唯一 waiter
+    await p
+    assert.equal(pool.shells.at(-1).channel.writes.length, 0, `非法 cwd(${JSON.stringify(bad)})不注入`)
+    assert.ok(ws.frames.every(f => f.type !== CH.ERROR), '拒收不报错,照常建连')
+  }
+})
+
+test('cwd 旁路:stdout 出现 OSC 7 → service.cwd 更新并广播 type 9 帧;同值不重复发', async () => {
+  const { service, pool, handler } = makeHarness()
+  const ws = makeWs()
+  const p = handler(ws, PS, URL_FOR('t1'))
+  await tick()
+  pool.grant(0)
+  await p
+  const ch = pool.shells[0].channel
+  ch.emit('data', Buffer.from('user@h:/srv/app$ \x1b]7;file://h/srv/app\x07'))
+  assert.equal(service.get('t1').cwd, '/srv/app', 'service 已存 cwd')
+  assert.ok(ws.frames.some(f => f.type === CH.CWD && f.payload.toString('utf8') === '/srv/app'), '附着 ws 收到 cwd 帧')
+  const framesBefore = ws.frames.length
+  ch.emit('data', Buffer.from('echo hi\r\n\x1b]7;file://h/srv/app\x07'))   // 同值再来
+  assert.equal(ws.frames.length, framesBefore + 1, '同值只多一帧 stdout,无重复 cwd 帧')
+})
+
+test('cwd 补发:已带 cwd 的会话,新 ws attach 即收一帧 9(F5 重连后立即可用,不等下个 prompt)', async () => {
+  const { pool, handler } = makeHarness()
+  const ws = makeWs()
+  const p = handler(ws, PS, URL_FOR('t1'))
+  await tick()
+  pool.grant(0)
+  await p
+  pool.shells[0].channel.emit('data', Buffer.from('\x1b]7;file://h/srv/app\x07'))
+  const ws2 = makeWs()
+  await handler(ws2, PS, URL_FOR('t1'))                                   // 会话已存在:直接 attach
+  assert.ok(ws2.frames.some(f => f.type === CH.CWD && f.payload.toString('utf8') === '/srv/app'), 'attach 即补发')
 })

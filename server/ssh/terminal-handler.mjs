@@ -2,10 +2,11 @@
 // TerminalService——生命周期/计数/资源全部走 service,handler 只做协议与接线)。
 // `sid` query 参数名沿用(P1 契约:字段名旧,语义新 = terminalId)。
 import { markAlive, createCloseSentinel, attachSocketToSession } from './terminal-wire.mjs'
+import { createCwdScanner, sanitizeCwd, buildCdCommand } from './cwd-scan.mjs'
 
 export function createSshTerminalHandler(deps) {
   const { service, sshPool, writeAudit, wsSend, lookupServer, CH } = deps
-  const { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT, PING: CH_PING, PONG: CH_PONG } = CH
+  const { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT, PING: CH_PING, PONG: CH_PONG, CWD: CH_CWD } = CH
 
   const handler = async (ws, ps, url) => {
     markAlive(ws)   // WS 存活探测打标(半开 TCP 不发 close,靠 ping/pong 发现死连接)
@@ -17,6 +18,9 @@ export function createSshTerminalHandler(deps) {
     const tid = url.searchParams.get('sid')
     const cols = Math.min(Math.max(parseInt(url.searchParams.get('cols')) || 80, 20), 500)
     const rows = Math.min(Math.max(parseInt(url.searchParams.get('rows')) || 24, 5), 300)
+    // 起始目录(2026-10-04 标签页「+」新建终端):URL 不可信,sanitize 拒控制字符/相对路径;
+    // 仅属主首建 shell 时生效(既有会话重连带 cwd = 无害 no-op)
+    const startCwd = sanitizeCwd(url.searchParams.get('cwd'))
     if (!serverId || !tid) { wsSend(ws, CH_ERROR, 'missing serverId or sid'); return ws.close() }
     try {
       const row = lookupServer(serverId)
@@ -54,7 +58,16 @@ export function createSshTerminalHandler(deps) {
               return
             }
             service.bindChannel(tid, channel)
-            channel.on('data', d => { service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend) })
+            // 起始目录注入:cd 命令走 pty 正常回显/执行(比 exec 重建 shell 少一层登录环境差异);
+            // 目录已删/无权限则 cd 报错停在登录目录,无害降级
+            if (startCwd) { try { channel.write(buildCdCommand(startCwd) + '\n') } catch { /* 通道未就绪:跳过 */ } }
+            // cwd 旁路扫描(标题序列零注入):变化才落 service + 广播,「+」按钮的数据源
+            const scanner = createCwdScanner()
+            channel.on('data', d => {
+              service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend)
+              const next = scanner.push(d)
+              if (next) { service.setCwd(tid, next); service.broadcast(tid, CH_CWD, next, wsSend) }
+            })
             channel.stderr?.on?.('data', d => { service.touch(tid); service.markOutput(tid, d); service.broadcast(tid, CH_STDOUT, d, wsSend) })
             channel.on('close', () => {
               // 复审三 P1:channel close 事件可能晚到——期间同 tid 已被重连者重建新会话时,
@@ -90,6 +103,9 @@ export function createSshTerminalHandler(deps) {
 
       // 回放前先把共享 pty 调到本客户端尺寸:SIGWINCH 让 TUI 立即按新尺寸重绘
       try { session.channel?.setWindow?.(rows, cols) } catch { /* channel 未就绪 */ }
+      // cwd 补发(2026-10-04):F5 重连后回放快照不含 cwd 帧,不等下个 prompt 立即补一帧,
+      // 前端「+」按钮拿当前目录零等待
+      if (session.cwd) { try { wsSend(ws, CH_CWD, session.cwd) } catch { /* noop */ } }
       attachSocketToSession(ws, session, {
         send: wsSend,
         connId: ws,

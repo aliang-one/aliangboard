@@ -4952,6 +4952,7 @@
     "connectingHint": "Connecting to SSH server \"{name}\"…",
     "replayedBadge": "Replayed",
     "reconnect": "Reconnect",
+    "newTerminalTitle": "New terminal (inherits current directory)",
     "fileTitle": "Files · {name}",
     "upload": "Upload",
     "download": "Download",

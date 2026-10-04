@@ -1036,6 +1036,7 @@ function buildKubeConfig(KubeConfig, session) {
 const CH_STDIN = 1, CH_RESIZE = 2
 const CH_STDOUT = 1, CH_STDERR = 2, CH_EXIT = 3, CH_ERROR = 4, CH_MODE = 5, CH_REPLAY = 6   // 6 = ssh 终端重连快照(直播前发)
 const CH_PING = 7, CH_PONG = 8   // 应用层心跳(2026-09-18,终端两通道共用):客户端 15s ping → 服务端原样回 pong
+const CH_CWD = 9                 // ssh 终端 cwd 旁路(2026-10-04 标签页「+」新建终端):标题序列扫描到目录变化时下发
 
 // 把 exec 的 stdout/stderr 字节流写入浏览器 WS（带通道前缀）；
 // 兼具「可缩放」语义（rows/columns + resize 事件）以触发 client-node 自动转发终端尺寸。
@@ -2725,7 +2726,7 @@ const handleSshTerminal = createSshTerminalHandler({
   wsSend,
   lookupServer: serverId => db.prepare('SELECT id FROM ssh_servers WHERE id=?').get(serverId),
   replayMaxBytes: SSH_REPLAY_MAX_BYTES,
-  CH: { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT, PING: CH_PING, PONG: CH_PONG },
+  CH: { ERROR: CH_ERROR, STDIN: CH_STDIN, RESIZE: CH_RESIZE, REPLAY: CH_REPLAY, STDOUT: CH_STDOUT, PING: CH_PING, PONG: CH_PONG, CWD: CH_CWD },
 })
 // WebSocket 升级：/api/ssh/terminal(平台 token) + /api/exec(集群 session)
 const wsServer = new WebSocketServer({ noServer: true })

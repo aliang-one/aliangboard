@@ -22,6 +22,8 @@ const props = defineProps({
   serverName: { type: String, default: '' },
   sid: { type: String, required: true },           // 恒定 sid:网关按 sid 保活/回放
   autoConnect: { type: Boolean, default: false },   // 浮窗模式:挂载即连
+  // 起始目录(2026-10-04「+」新建终端):仅属主首建 shell 时网关注入 cd;重连同 sid 带=无害 no-op
+  cwd: { type: String, default: '' },
   // 单行头部收编(2026-09-08,取代 closable):false = 装饰圆点 | 'window' = 浮窗
   // (●●● 变真窗口钮 + 头部即拖拽把手 + open_in_new 迁入) | 'page' = 独立标签页(仅红点=关窗)
   chrome: { type: [Boolean, String], default: false },
@@ -29,15 +31,17 @@ const props = defineProps({
 })
 // 窗口控制由父级处置(浮窗红=sshStore.closeWindow 杀会话+摘记录;弹窗红=杀会话+关标签页;
 // 组件保持哑,不直接碰 store)
-const emit = defineEmits(['win-close', 'win-minimize', 'win-maximize', 'open-external'])
+const emit = defineEmits(['win-close', 'win-minimize', 'win-maximize', 'open-external', 'new-terminal'])
 const isChrome = computed(() => props.chrome === 'window' || props.chrome === 'page')
 const isWindowChrome = computed(() => props.chrome === 'window')
+const isPageChrome = computed(() => props.chrome === 'page')
 
 const root = ref(null)
 // idle 未连接 | connecting 连接中 | open 会话进行中 | reconnecting 断线自动重连中 | closed 会话结束 | error 出错
 const status = ref('idle')
 const statusMsg = ref('')
 const replayed = ref(false)   // 收到过回放帧(同 sid 重连) → 头部徽标
+const lastCwd = ref('')       // 旁路 cwd 帧(type 9)维护的最新目录——弹窗页「+」新建终端的数据源
 
 let term = null, fit = null, stream = null, ro = null
 let gen = 0                   // 连接代际:重连时旧流回调作废,避免重复 handleEnd
@@ -103,7 +107,9 @@ function openStream() {
     sid: props.sid,
     cols: term.cols,
     rows: term.rows,
+    cwd: props.cwd || undefined,
     onStdout: d => { if (term) term.write(d) },
+    onCwd: v => { if (v) lastCwd.value = v },
     onReplay: d => { if (term) term.write(d); replayed.value = true },
     onOpen: () => {
       if (my !== gen) return
@@ -174,7 +180,7 @@ function refit() { try { fit?.fit() } catch { /* noop */ } }
 function connectIfIdle() {
   if (status.value === 'idle' || status.value === 'closed' || status.value === 'error') connect()
 }
-defineExpose({ refit, replayed, connectIfIdle, connect, status })
+defineExpose({ refit, replayed, lastCwd, connectIfIdle, connect, status })
 </script>
 
 <template>
@@ -213,6 +219,12 @@ defineExpose({ refit, replayed, connectIfIdle, connect, status })
           <span class="text-body-sm text-primary">{{ t('common.watchLive') }}</span>
         </span>
         <span v-else class="text-body-sm text-on-surface-variant">{{ status === 'connecting' ? t('terminal.statusConnecting') : status === 'reconnecting' ? t('terminal.statusReconnecting') : status === 'error' ? 'Error' : 'Disconnected' }}</span>
+        <!-- 「+」新建终端(2026-10-04):仅独立标签页——浮窗已有 open_in_new + 任务栏「+」,不重复。
+             组件哑:emit 给宿主(弹窗页=window.open 新标签页,继承当前服务器+目录) -->
+        <button v-if="isPageChrome" data-test="btnNewTerminal" @click="emit('new-terminal')" :title="t('ssh.newTerminalTitle')"
+          class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+          <span class="material-symbols-outlined text-lg">add</span>
+        </button>
         <button data-test="btnReconnect" @click="connect" :title="t('ssh.reconnect')" class="p-xs text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
           <span class="material-symbols-outlined text-lg">refresh</span>
         </button>

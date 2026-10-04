@@ -570,12 +570,15 @@ export function execStream({ namespace, pod, container = '', command = '/bin/sh'
 }
 
 // SSH 终端双向通道:浏览器 WS ↔ 网关保活会话(浏览器断开不杀 shell,~10min 保活窗口)。
-// 帧同 exec + 下行 6=回放(重连同 sid 时网关先发快照再续直播);上行 1=stdin、2=resize。鉴权走平台 token。
-export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdout, onReplay, onError, onClose, onOpen } = {}) {
+// 帧同 exec + 下行 6=回放(重连同 sid 时网关先发快照再续直播)、9=cwd(标题序列旁路,「+」新建
+// 终端的数据源);上行 1=stdin、2=resize。cwd=起始目录(仅属主首建生效,重连同 sid 带=无害
+// no-op)。鉴权走平台 token。
+export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, cwd, onStdout, onReplay, onError, onClose, onOpen, onCwd } = {}) {
   const token = getPlatformToken()
   const proto = globalThis.location?.protocol === 'https:' ? 'wss' : 'ws'
   const host = globalThis.location?.host || '127.0.0.1:8787'
   const params = new URLSearchParams({ serverId, sid, cols: String(cols), rows: String(rows) })
+  if (cwd) params.set('cwd', cwd)
   if (token) params.set('session', token)
   const ws = new WebSocket(`${proto}://${host}/api/ssh/terminal?${params}`)
   ws.binaryType = 'arraybuffer'
@@ -598,6 +601,7 @@ export function sshTerminalStream({ serverId, sid, cols = 80, rows = 24, onStdou
     if (type === 1) onStdout?.(payload)
     else if (type === 4) onError?.(utf8.decode(payload))
     else if (type === 6) onReplay?.(payload)
+    else if (type === 9) onCwd?.(utf8.decode(payload))
     else if (type === 8) lastPongAt = Date.now()   // 服务端心跳应答
   }
   // 传输错误≠终态(2026-09-08 复查 P0):浏览器对异常断开的既定事件序是 error→close,若 error
