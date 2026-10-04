@@ -438,3 +438,14 @@ test('setLabel:list() 随行下发 label;trim+64 截断;未知 tid 返 null;默�
   svc.setLabel('t1', '')
   assert.equal(svc.list()[0].label, '')                             // 空串=清回默认
 })
+
+// —— cwd 旁路(2026-10-04 终端标签页「+」新建终端):handler 喂 scanner,service 只存取 ——
+test('setCwd:存取 + list() 随行下发;未知 tid no-op;默认 null', () => {
+  const svc = createTerminalService({ now: () => 1000 })
+  svc.getOrCreate('t1', () => svc.newTerminal({ id: 't1', owner: 'u', serverId: 'sv' }))
+  assert.equal(svc.list()[0].cwd, null)
+  svc.setCwd('t1', '/srv/app')
+  assert.equal(svc.list()[0].cwd, '/srv/app')
+  svc.setCwd('no-such', '/x')                                        // 未知 tid 不抛
+  assert.equal(svc.list()[0].cwd, '/srv/app')
+})

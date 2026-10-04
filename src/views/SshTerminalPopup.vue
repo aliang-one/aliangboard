@@ -6,18 +6,23 @@
 // 关闭语义(2026-09-04 收敛,2026-09-08 单行头部收编:外部顶条退役,红点承接):
 // 终端头部红点是该标签页唯一杀会话入口——点击 = 杀网关会话 + 关标签页;
 // F5/标签页丢弃(pagehide)只发墓碑摘本地记录,绝不杀会话(多开保护)。
-import { computed, onUnmounted } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import SshTerminal from '@/components/ssh/SshTerminal.vue'
 import { startPopupHeartbeat } from '@/utils/popupSync'
 import { sshApi } from '@/api/client'
+import { genSid } from '@/stores/sshTerminals'
 
 const { t } = useI18n()
 const route = useRoute()
 const serverId = computed(() => route.query.serverId || '')
 const sid = computed(() => route.query.sid || '')
 const name = computed(() => route.query.name || serverId.value || 'SSH')
+// 起始目录(2026-10-04「+」新建终端):URL query 带来,透传 SshTerminal → WS → 网关注入 cd。
+// 仅本会话属主首建时生效;后续 F5 重连同 sid 再带 = 服务端 no-op。
+const startCwd = computed(() => String(route.query.cwd || ''))
+const termRef = ref(null)   // SshTerminal 暴露的 lastCwd(旁路 cwd 帧维护)是「+」的数据源
 // sid 缺失守卫(2026-08-29 审计):绝不允许空 sid 建连——旧网关会随机补位造孤儿会话,
 // 新网关也会硬拒绝。URL 无 sid(手输/收藏/历史恢复)直接给错误态。
 const sidMissing = computed(() => !sid.value)
@@ -35,6 +40,17 @@ function closeWindow() {
   if (!sidMissing.value) { try { sshApi.killSession(sid.value).catch(() => {}) } catch { /* noop */ } }
   window.close()
 }
+
+// 「+」新建终端(2026-10-04):同服务器新开一个标签页;起始目录取 SshTerminal 旁路维护的
+// lastCwd(远端 shell 上报过标题才有;拿不到就不带 cwd,新终端落在默认登录目录,不报错)。
+// 窗口名=新 sid(确定性):与 store.openExternal 同语义,再点「+」各开各的、互不顶号。
+function openNewTerminal() {
+  const newSid = genSid()
+  const params = new URLSearchParams({ serverId: serverId.value, sid: newSid, name: name.value })
+  const cwd = termRef.value?.lastCwd || ''
+  if (cwd) params.set('cwd', cwd)
+  window.open(`${window.location.origin}/ssh-terminal-popup?${params}`, newSid)
+}
 </script>
 
 <template>
@@ -46,7 +62,7 @@ function closeWindow() {
           <p class="mt-sm text-body-md text-on-surface-variant">{{ t('ssh.popupMissingSid') }}</p>
         </div>
       </div>
-      <SshTerminal v-else :server-id="serverId" :server-name="name" :sid="sid" :auto-connect="true" chrome="page" @win-close="closeWindow" />
+      <SshTerminal v-else ref="termRef" :server-id="serverId" :server-name="name" :sid="sid" :auto-connect="true" :cwd="startCwd" chrome="page" @win-close="closeWindow" @new-terminal="openNewTerminal" />
     </div>
   </div>
 </template>

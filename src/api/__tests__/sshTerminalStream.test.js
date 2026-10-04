@@ -57,6 +57,21 @@ describe('sshTerminalStream', () => {
     wsInstance.emit('open')
     expect(opened).toBe(true)
   })
+
+  // —— cwd 通道(2026-10-04 标签页「+」新建终端):上行 cwd 起始目录 query + 下行 type 9 cwd 帧 ——
+  it('传 cwd 时进 URL query(起始目录,服务端属主首建时注入 cd);不传则 query 里无 cwd', () => {
+    sshTerminalStream({ serverId: 'sv1', sid: 'sid-1', cwd: '/srv/app' })
+    expect(wsInstance.url).toContain(`cwd=${encodeURIComponent('/srv/app')}`)
+    sshTerminalStream({ serverId: 'sv1', sid: 'sid-2' })
+    expect(wsInstance.url).not.toContain('cwd=')
+  })
+
+  it('cwd 帧(type 9)触发 onCwd(utf8 解码)', () => {
+    const cwds = []
+    sshTerminalStream({ serverId: 'sv1', sid: 'sid-1', onCwd: v => cwds.push(v) })
+    wsInstance.emit('message', { data: new Uint8Array([9, ...new TextEncoder().encode('/srv/app')]).buffer })
+    expect(cwds).toEqual(['/srv/app'])
+  })
 })
 
 // —— 客户端心跳看门狗(2026-09-18):路径静默中断的冻结窗从服务端 liveness 的 60-90s 压到 ≤30s ——

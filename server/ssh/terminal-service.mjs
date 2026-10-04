@@ -103,6 +103,7 @@ export function createTerminalService({
       createdAt: now(), lastActiveAt: now(), lastOutputAt: 0,
       detachedSince: null, backendIdleSince: null, endedAt: null,
       lastAttachAt: 0, lastDetachAt: 0, attachCount: 0,
+      cwd: null,   // 旁路扫描到的当前目录(2026-10-04 标签页「+」新建终端;null=远端未上报)
     }
     // ready 即刻存在:等待者 attach 可先于 owner 的 readyForOwner 到达,不允许 await undefined
     t.ready = new Promise((resolve, reject) => { t.resolveReady = resolve; t.rejectReady = reject })
@@ -184,6 +185,8 @@ export function createTerminalService({
   }
 
   function touch(tid) { const t = map.get(tid); if (t) t.lastActiveAt = now() }
+  // cwd 旁路(2026-10-04):handler 喂 cwd-scan scanner 后调这里存;值已由 scanner 校验形态
+  function setCwd(tid, cwd) { const t = map.get(tid); if (t && cwd) t.cwd = cwd }
   function markOutput(tid, chunk) { const t = map.get(tid); if (t && t.ring) { t.ring.push(chunk); t.lastOutputAt = now() } }
   function broadcast(tid, type, payload, send = (socket, ty, pl) => socket.send?.(ty, pl)) {
     const t = map.get(tid); if (!t) return
@@ -324,7 +327,7 @@ export function createTerminalService({
       sid: t.id, serverId: t.serverId, userId: t.owner, status: t.status,
       browserCount: t.connIds.size, idleMs: Math.max(0, now() - t.lastActiveAt),
       createdAt: t.createdAt, backend: t.backend, lastError: t.lastError,
-      label: t.label || '',
+      label: t.label || '', cwd: t.cwd || null,
     }))
   }
   // 会话标签(与前端 renameWindow 同语义:trim 落库;空串=清回默认)。归属校验在路由层。
@@ -340,5 +343,5 @@ export function createTerminalService({
     return r.ok ? { ok: true } : null
   }
 
-  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, bindRelease, attach, detach, abandon, markLost, markBackendFailed, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot, list, listByServer, killSession, setLabel }
+  return { map, newTerminal, getOrCreate, get, readyForOwner, bindChannel, bindRelease, attach, detach, abandon, markLost, markBackendFailed, claimClose, close, closeByServer, touch, markOutput, broadcast, attachments, sweep, reconcileOnBoot, list, listByServer, killSession, setLabel, setCwd }
 }

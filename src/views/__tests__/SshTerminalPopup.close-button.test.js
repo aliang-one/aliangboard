@@ -9,8 +9,10 @@ const state = vi.hoisted(() => ({ query: { serverId: 'sv1', sid: 'ssh-abc', name
 
 vi.mock('vue-router', () => ({ useRoute: () => ({ query: state.query }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: k => k }) }))
-// vue-i18n 全 mock 会使 client→http→i18n 链拿到残缺模块,client 必须一并局部 mock
+// vue-i18n 全 mock 会使 client→http→i18n 链拿到残缺模块,client 必须一并局部 mock;
+// 2026-10-04 popup 增 import genSid(@/stores/sshTerminals) → store 链同样会被残缺 mock 炸,一并局部 mock
 vi.mock('@/api/client', () => ({ sshApi: { killSession: vi.fn(() => Promise.resolve({ ok: true })) } }))
+vi.mock('@/stores/sshTerminals', () => ({ genSid: vi.fn(() => 'ssh-x') }))
 vi.mock('@/components/ssh/SshTerminal.vue', () => ({
   default: {
     name: 'SshTerminal',

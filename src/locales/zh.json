@@ -4908,6 +4908,7 @@
     "connectingHint": "正在连接 SSH 服务器「{name}」…",
     "replayedBadge": "已回放",
     "reconnect": "重连",
+    "newTerminalTitle": "新建终端(继承当前目录)",
     "fileTitle": "文件 · {name}",
     "upload": "上传",
     "download": "下载",

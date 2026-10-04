@@ -44,7 +44,8 @@ onPopupSync(sig => { for (const fn of popupSyncTargets) fn(sig) })
 
 // sid 三级降级:randomUUID 仅安全上下文(HTTPS/localhost),局域网 HTTP 下是
 // undefined(2026-08-28 真机事故)→ getRandomValues 拼 UUID → 时间戳兜底。
-function genSid() {
+// 导出(2026-10-04):弹窗页「+」新建终端同源生成——sid 永不复用是跨页共识,单一事实源。
+export function genSid() {
   const c = globalThis.crypto
   if (c?.randomUUID) return `ssh-${c.randomUUID()}`
   if (c?.getRandomValues) {
