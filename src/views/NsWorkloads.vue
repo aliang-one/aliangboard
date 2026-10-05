@@ -8,7 +8,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { useQueryClient } from '@tanstack/vue-query'
 import { exportYaml } from '@/api/client'
 import { readMeta } from '@/composables/useBusinessMeta'
-import { WORKLOAD_TYPES, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
+import { WORKLOAD_TYPES, WORKLOAD_ROLLOUT_TYPES, isCronOwnedJob } from '@/logic/workloadMeta'
 import StatusChip from '@/components/common/StatusChip.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Breadcrumbs from '@/components/common/Breadcrumbs.vue'
@@ -41,7 +41,8 @@ const workloadsQuery = useResourceList({
   fetcher: () => store.fetchWorkloads(),
   options: { refetchInterval: wlInterval, refetchOnWindowFocus: false },
 })
-const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace))
+// CronJob 拉起的运行实例(test-cvd55 之类)不在列表占行——正式家在 CronJob 详情「运行记录」tab
+const nsWorkloads = computed(() => (workloadsQuery.data.value || []).filter(w => w.namespace === route.params.namespace && !isCronOwnedJob(w)))
 
 const typeFilter = ref('All')
 const statusFilter = ref('All')

@@ -4,7 +4,7 @@
 // Pod 模板 labels → selector ⊄ template → K8s 422「selector does not match template labels」。
 // 防线:①自定义列表隐藏 selector 键 ②保存前拦截撞键行 ③模板镜像对 selector 键强制原值透传。
 import { describe, test, expect } from 'vitest'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch, consumersBrokenBy } from '../workloadMeta.js'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, identitySelector, servicesBrokenBy, applyLabelPatch, consumersBrokenBy, isCronOwnedJob } from '../workloadMeta.js'
 
 const KUBOARD_DEPLOY = {
   spec: {
@@ -200,5 +200,29 @@ describe('consumersBrokenBy:这次 labels 变更会拆掉的消费者(编辑面�
   test('consumers 缺失 / old 缺失 → 空数组(不炸;old 缺失=无当前匹配,无从拆起)', () => {
     expect(consumersBrokenBy({ app: 'web' }, { app: 'x' }, null)).toEqual([])
     expect(consumersBrokenBy(null, { app: 'x' }, consumers)).toEqual([])
+  })
+})
+
+// isCronOwnedJob(2026-10-05):CronJob 属主控制的 Job = 调度/手动触发产生的「运行实例」,
+// 工作负载列表默认隐藏(正式家 = CronJob 详情「运行记录」tab);独立 Job 不受影响。
+const cronOwnedJob = ownerReferences => ({
+  type: 'Job', name: 'test-cvd55',
+  raw: { metadata: { name: 'test-cvd55', ...(ownerReferences ? { ownerReferences } : {}) } },
+})
+describe('isCronOwnedJob:CronJob 拉起的运行实例判定(列表隐藏面)', () => {
+  test('CronJob controller 属主 → true;独立 Job(无/空 ownerReferences)→ false', () => {
+    expect(isCronOwnedJob(cronOwnedJob([{ kind: 'CronJob', name: 'test', uid: 'u1', controller: true }]))).toBe(true)
+    expect(isCronOwnedJob(cronOwnedJob(undefined))).toBe(false)
+    expect(isCronOwnedJob(cronOwnedJob([]))).toBe(false)
+  })
+  test('非 controller 属主或非 CronJob 属主 → false(只认 CronJob 亲子)', () => {
+    expect(isCronOwnedJob(cronOwnedJob([{ kind: 'CronJob', name: 'x', uid: 'u', controller: false }]))).toBe(false)
+    expect(isCronOwnedJob(cronOwnedJob([{ kind: 'Frontend', name: 'x', uid: 'u', controller: true }]))).toBe(false)
+  })
+  test('CronJob 本尊 / 其他 kind / 无 raw / null → false(只针对 Job 行)', () => {
+    expect(isCronOwnedJob({ type: 'CronJob', raw: { metadata: { ownerReferences: [] } } })).toBe(false)
+    expect(isCronOwnedJob({ type: 'Deployment', raw: {} })).toBe(false)
+    expect(isCronOwnedJob({ type: 'Job' })).toBe(false)
+    expect(isCronOwnedJob(null)).toBe(false)
   })
 })

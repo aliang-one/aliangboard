@@ -46,6 +46,14 @@ export function isWorkloadNotReady(w) {
   return false
 }
 
+// CronJob 属主控制的 Job(调度/手动触发产生的运行实例,test-cvd55 之类)。工作负载列表
+// (ns 级 + 全局)默认隐藏——它们的正式家是 CronJob 详情「运行记录」tab(2026-10-05 用户
+// 反馈列表噪音);独立 Job(kubectl/向导手建,无 CronJob controller 属主)不受影响。
+export function isCronOwnedJob(w) {
+  if (!w || w.type !== 'Job') return false
+  return (w.raw?.metadata?.ownerReferences || []).some(o => o.controller && o.kind === 'CronJob')
+}
+
 // 自定义标签行里第一个撞 selector 键的行(行 key 已 trim;无撞键 → null)
 export function findSelectorLabelConflict(rows, selector) {
   const keys = new Set(Object.keys(selector || {}))

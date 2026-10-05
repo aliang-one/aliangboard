@@ -13,7 +13,7 @@ import { readMeta } from '@/composables/useBusinessMeta'
 import { notify } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import CreateWithYamlButton from '@/components/common/CreateWithYamlButton.vue'
-import { WORKLOAD_TYPES, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
+import { WORKLOAD_TYPES, WORKLOAD_ROLLOUT_TYPES, isCronOwnedJob } from '@/logic/workloadMeta'
 import CopyWorkloadDialog from '@/components/common/CopyWorkloadDialog.vue'
 
 const router = useRouter()
@@ -33,7 +33,8 @@ const workloadsQuery = useResourceList({
   fetcher: () => store.fetchWorkloads(),
   options: { refetchInterval: wlInterval, refetchOnWindowFocus: false },
 })
-const workloadList = computed(() => workloadsQuery.data.value || [])
+// CronJob 拉起的运行实例不在全局列表占行(与 ns 级视图同一谓词单源,见 workloadMeta)
+const workloadList = computed(() => (workloadsQuery.data.value || []).filter(w => !isCronOwnedJob(w)))
 
 // 进页即触发 metrics 拉取 + 集群汇总刷新,让顶部 CPU%/podCount 显示真实值(computeClusterMetrics 从缓存派生)
 onMounted(() => { store.refreshMetrics().catch(() => {}) })
