@@ -16,9 +16,9 @@ import { envRowsToSpec, envFromRowsToSpec, envRefErrors, duplicateEnvNames, ENV_
 import { splitCommandTokens, splitArgLines } from '@/utils/containerTokens'
 import { sanitizeImageToName } from '@/utils/containerNames'
 import { dump as yamlDump } from 'js-yaml'
-import { buildSubContainerSpec, mountsForTarget, makeSubContainer, advancedCount, isSubContainerEmpty } from '@/logic/subContainer'
+import { buildSubContainerSpec, mountsForTarget, makeSubContainer, advancedCount, isSubContainerEmpty, mergeResources } from '@/logic/subContainer'
 import { validateVolumeMounts, buildMountCtx, firstError, toMountSpec, toVolumeDefYaml, MOUNT_GATE_KEYS } from '@/logic/volumeMountValidation'
-import { validateContainerFields } from '@/logic/containerValidation'
+import { validateContainerFields, compareQuantity } from '@/logic/containerValidation'
 import ContainerEditorDialog from '@/components/common/ContainerEditorDialog.vue'
 import { yamlScalar, ensureServicePortNames } from '@/composables/useYaml'
 import { TIER_OPTIONS } from '@/composables/useLayering'
@@ -86,6 +86,8 @@ function makeForm() {
   cpuLimit: '500m',
   memoryRequest: '256Mi',
   memoryLimit: '512Mi',
+  // 复制链携带的第三资源键(GPU/ephemeral-storage/claims),previewYAML 侧合并输出
+  extraResources: null,
   envRows: [],
   envFromRows: [],
   // 健康探针（容器策略）
@@ -396,6 +398,9 @@ function applyTemplate(t) {
   form.value.cpuLimit = t.cpuLim
   form.value.memoryRequest = t.memReq
   form.value.memoryLimit = t.memLim
+  // 快速模板整套替换容器画像:复制链携带的第三资源键(GPU/ephemeral-storage)一并清,
+  // 不随模板静默并入新负载(资源预设 applyPreset 只调四键,刻意保留第三键)。
+  form.value.extraResources = null
   form.value.servicePorts = [{ name: t.portName || 'http', port: String(t.port), targetPort: String(t.port), nodePort: '', protocol: 'TCP' }]
   form.value.tier = t.tier
   if (t.env) form.value.envRows = t.env.map(e => ({ name: e.key, type: 'value', value: e.value }))
@@ -668,13 +673,14 @@ ${Object.entries(labels).map(([k, v]) => `        ${k}: ${yamlScalar(v)}`).join(
   if (portsYaml) tpl += `\n        ports:\n${portsYaml}`
   if (allEnvYaml) tpl += `\n        env:\n${allEnvYaml}`
   if (envFromYaml) tpl += `\n        envFrom:\n${envFromYaml}`
-  tpl += `\n        resources:
-          requests:
-            cpu: ${f.cpuRequest}
-            memory: ${f.memoryRequest}
-          limits:
-            cpu: ${f.cpuLimit}
-            memory: ${f.memoryLimit}`
+  // resources:mergeResources 单源合并(表单四键权威 + 复制链第三键),条件产出——
+  // 全空不再产出 `cpu:` 空值;dump 引号启发式保证 quantity 恒为字符串(cores 裸数 '2'
+  // 曾被裸插值成 YAML number 下发)。
+  const mainRes = mergeResources(f.extraResources || null, f)
+  if (mainRes) {
+    tpl += `\n        resources:
+${yamlDump(mainRes, DUMP_OPTS).trimEnd().split('\n').map(l => '          ' + l).join('\n')}`
+  }
   // securityContext
   if (f.securityContext.enabled) {
     tpl += `\n        securityContext:`
@@ -765,6 +771,9 @@ function validate() {
   if (!f.name || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(f.name)) errs.push({ step: 0, msg: t('deploy.nameInvalid') })
   if (!f.namespace) errs.push({ step: 0, msg: t('deploy.namespaceRequired') })
   if (!f.image) errs.push({ step: 1, msg: t('deploy.imageRequired') })
+  // 主容器资源校验与 init/sidecar 同规则(2026-10-11 审计 #6:曾只查子容器,主容器 req>lim 直漏 apiserver 422)
+  if (compareQuantity(f.cpuRequest, f.cpuLimit, 'cpu') === 1) errs.push({ step: 1, msg: t('deploy.containerFv.cpuOverLimit', { req: f.cpuRequest, lim: f.cpuLimit }) })
+  if (compareQuantity(f.memoryRequest, f.memoryLimit, 'memory') === 1) errs.push({ step: 1, msg: t('deploy.containerFv.memoryOverLimit', { req: f.memoryRequest, lim: f.memoryLimit }) })
   // 存储门禁:与 step2 同一份单源审计(回跳改表后的兜底;{n} 文案与门禁一致)
   const audit = mountAudit.value
   audit.byEntry.forEach((issues, i) => {
@@ -1090,10 +1099,10 @@ async function handleDeploy() {
                   <button v-for="p in resourcePresets" :key="p.label" @click="applyPreset(p)" class="px-sm py-xs text-xs font-medium rounded-full border border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors">{{ p.label }} {{ p.cpuLim }}/{{ p.memLim }}</button>
                 </div>
                 <div class="grid grid-cols-2 gap-sm">
-                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuRequest') }}</label><ResourceInput v-model="form.cpuRequest" kind="cpu" placeholder="250" /></div>
-                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuLimit') }}</label><ResourceInput v-model="form.cpuLimit" kind="cpu" placeholder="500" /></div>
-                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryRequest') }}</label><ResourceInput v-model="form.memoryRequest" kind="memory" placeholder="256" /></div>
-                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryLimit') }}</label><ResourceInput v-model="form.memoryLimit" kind="memory" placeholder="512" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuRequest') }}</label><ResourceInput v-model="form.cpuRequest" kind="cpu" placeholder="250m" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.cpuLimit') }}</label><ResourceInput v-model="form.cpuLimit" kind="cpu" placeholder="500m" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryRequest') }}</label><ResourceInput v-model="form.memoryRequest" kind="memory" placeholder="256Mi" /></div>
+                  <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('deploy.memoryLimit') }}</label><ResourceInput v-model="form.memoryLimit" kind="memory" placeholder="512Mi" /></div>
                 </div>
               </div>
             </div>
