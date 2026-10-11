@@ -20,8 +20,8 @@ import { podHealth, podConditions, condChip, podNameDisplay, podContainers } fro
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
 import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, applyLabelPatch, consumersBrokenBy, podTemplateLabels, WORKLOAD_KIND_FROM_ROUTE, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
 import { podsByPrefixFallback, volumesAndPullSecretsFromPodSpec } from '@/logic/topology'
-import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount } from '@/logic/subContainer'
-import { validateContainerFields } from '@/logic/containerValidation'
+import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount, mergeResources } from '@/logic/subContainer'
+import { validateContainerFields, compareQuantity } from '@/logic/containerValidation'
 import { envRowsFromSpec, envFromRowsFromSpec, envRowsToSpec, envFromRowsToSpec, envRefErrors, ENV_FIELD_LABEL_KEYS } from '@/logic/envRefs'
 import { validateVolumeMounts, buildMountCtx, toVolumeDef, MOUNT_GATE_KEYS, EDIT_MOUNT_KEYS, EDIT_SOURCE_KEY } from '@/logic/volumeMountValidation'
 import { dump as yamlDump } from 'js-yaml'
@@ -974,15 +974,6 @@ function openEdit() {
 
 // ---- 正向映射辅助（表单 → k8s 对象；空值置 null 以便 merge-patch 删除）----
 function splitCsv(s) { return String(s || '').split(',').map(x => x.trim()).filter(Boolean) }
-function buildResources(cpuReq, cpuLim, memReq, memLim) {
-  const req = {}, lim = {}
-  if (cpuReq) req.cpu = cpuReq; if (memReq) req.memory = memReq
-  if (cpuLim) lim.cpu = cpuLim; if (memLim) lim.memory = memLim
-  const r = {}
-  if (Object.keys(req).length) r.requests = req
-  if (Object.keys(lim).length) r.limits = lim
-  return Object.keys(r).length ? r : null
-}
 function buildProbe(p) {
   if (!p || !p.enabled) return null
   const o = { initialDelaySeconds: Number(p.initialDelaySeconds) || 0, periodSeconds: Number(p.periodSeconds) || 10, timeoutSeconds: Number(p.timeoutSeconds) || 1, failureThreshold: Number(p.failureThreshold) || 3, successThreshold: Number(p.successThreshold) || 1 }
@@ -1017,7 +1008,10 @@ function validateEdit() {
   })
   // 子容器校验接入单源(containerValidation):空行判定统一 isSubContainerEmpty——
   // 仅配了高级字段(无 image)的行也须校验(与创建面一致),不再「image 空即跳过」。
-  const mainName = workload.value?.name || ''
+  // 主容器名用真实容器名(外来 workload 容器名≠负载名;曾用负载名查重——同名 sidecar
+  // 漏拦后还会在 saveEdit 按名叠加上主容器 base 克隆,审查修复)。
+  const tplSpec0 = workload.value?.raw?.spec?.template?.spec || {}
+  const mainName = tplSpec0.containers?.[0]?.name || workload.value?.name || ''
   const subOthers = (kind, selfIdx) => {
     const initNames = (f.initContainers || []).map(c => c.name).filter(Boolean)
     const sideNames = (f.extraContainers || []).map(c => c.name).filter(Boolean)
@@ -1033,6 +1027,9 @@ function validateEdit() {
   })
   pushSubErrs(f.initContainers || [], 'init', 'workload.edit.initContainers')
   pushSubErrs(f.extraContainers || [], 'sidecar', 'workload.edit.sidecarContainers')
+  // 主容器资源校验与子容器同规则(2026-10-11 审计 #8:曾只查 init/sidecar,主容器 req>lim 漏到 apiserver 422)
+  if (compareQuantity(f.cpuReq, f.cpuLim, 'cpu') === 1) errs.push(t('deploy.containerFv.cpuOverLimit', { req: f.cpuReq, lim: f.cpuLim }))
+  if (compareQuantity(f.memReq, f.memLim, 'memory') === 1) errs.push(t('deploy.containerFv.memoryOverLimit', { req: f.memReq, lim: f.memLim }))
   ;(f.ports || []).forEach((p, i) => { if (!p.containerPort) errs.push(t('workload.validation.portMissing', { idx: i + 1 })) })
   for (const e of envRefErrors(f.envRows || [])) {
     const fields = e.missing.map(m => t(ENV_FIELD_LABEL_KEYS[m])).join(' / ')
@@ -1049,7 +1046,9 @@ async function saveEdit() {
   const stripImg = v => String(v || '').replace(/\s+/g, '')
   f.imageRepo = stripImg(f.imageRepo)
   if (f.imageTag) f.imageTag = stripImg(f.imageTag)
-  for (const c of [...(f.containers || []), ...(f.initContainers || [])]) if (c?.image) c.image = stripImg(c.image)
+  // 2026-10-11 审计 #9:f.containers 系死引用(editForm 只有 extraContainers/initContainers),
+  // sidecar 镜像空格清洗曾整类漏网 → 422。改挂 extraContainers。
+  for (const c of [...(f.extraContainers || []), ...(f.initContainers || [])]) if (c?.image) c.image = stripImg(c.image)
   for (const [k, v] of Object.entries(f.labels || {})) if (typeof v === 'string') f.labels[k] = v.trim()
   const labels = { ...(f.labels || {}) }
   const image = f.imageTag ? `${f.imageRepo}:${f.imageTag}` : f.imageRepo
@@ -1078,6 +1077,11 @@ async function saveEdit() {
   if (isRolloutType.value) {
     const rawTpl = workload.value?.raw?.spec?.template
     if (rawTpl) {
+      // 原 pod spec 的容器按名索引:子容器重建时作 opts.base 叠加——表单未建模字段
+      // (terminationMessagePath/resizePolicy/resources 第三键等)保真,不再被白名单重建静默删(2026-10-11 审计 #10/B1)。
+      const origPod = rawTpl.spec || {}
+      const origByName = new Map()
+      for (const c of [...(origPod.containers || []), ...(origPod.initContainers || [])]) if (c?.name) origByName.set(c.name, c)
       const tpl = JSON.parse(JSON.stringify(rawTpl))
       const spec = tpl.spec || (tpl.spec = {})
       if (!spec.containers?.length) spec.containers = [{ name: route.params.name }]
@@ -1088,7 +1092,10 @@ async function saveEdit() {
       c0.command = cmd.length ? cmd : null
       c0.args = args.length ? args : null
       c0.workingDir = f.workingDir || null
-      c0.resources = buildResources(f.cpuReq, f.cpuLim, f.memReq, f.memLim)
+      // resources 单源 mergeResources:以克隆出的原 resources 为 base——表单四键权威,
+      // 第三键(ephemeral-storage/nvidia.com/gpu/claims)原样保留(2026-10-11 审计 B1:
+      // 曾白名单重建整组下发,静默删 GPU/磁盘上限且 apiserver 不报错)。
+      c0.resources = mergeResources(c0.resources || null, { cpuRequest: f.cpuReq, cpuLimit: f.cpuLim, memoryRequest: f.memReq, memoryLimit: f.memLim })
       const ports = (f.ports || []).filter(p => p.containerPort).map(p => ({ containerPort: Number(p.containerPort), protocol: p.protocol || 'TCP' }))
       c0.ports = ports.length ? ports : null
       const env = envRowsToSpec(f.envRows)
@@ -1109,13 +1116,16 @@ async function saveEdit() {
       // 普通 sidecar 进 containers;原生 sidecar(sidecar 且 nativeSidecar)进 initContainers 尾部;
       // 挂载 target 按「原数组索引」定位(native 行占用 extraContainers 索引,不可按过滤后序枚举)。
       const sidecars = f.extraContainers || []
+      // base 溯源按 origName(回填行,改名后仍指原件):新建行 origName='' 不带 base——
+      // 重用已删容器名也不复活其第三资源键/未建模字段(审查修复)。
+      const baseOf = c => (c.origName ? origByName.get(c.origName) : undefined)
       spec.containers = [c0, ...sidecars.map((c, idx) => (!c.image || c.nativeSidecar) ? null :
-        buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true })).filter(Boolean)]
+        buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true, base: baseOf(c) })).filter(Boolean)]
       const rebuiltInits = [
         ...(f.initContainers || []).map((c, idx) => c.image ?
-          buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `init:${idx}`), nullAbsent: true }) : null),
+          buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `init:${idx}`), nullAbsent: true, base: baseOf(c) }) : null),
         ...sidecars.map((c, idx) => (c.image && c.nativeSidecar) ?
-          buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true }) : null),
+          buildSubContainerSpec(c, { mounts: mountsForTarget(f.volumeMounts, `sidecar:${idx}`), nullAbsent: true, base: baseOf(c) }) : null),
       ].filter(Boolean)
       spec.initContainers = rebuiltInits.length ? rebuiltInits : null
       // 卷(单源 toVolumeDef:按 name 去重、items/defaultMode/hostPathType 条件输出,来源缺失静默丢——门禁已拦)
@@ -2003,10 +2013,10 @@ function podStatusBorder(s) {
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.workingDir') }}</label><input v-model="editForm.workingDir" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="/app" /></div>
           </div>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-xs">
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.cpuReq') }}</label><ResourceInput v-model="editForm.cpuReq" kind="cpu" placeholder="250" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.cpuLim') }}</label><ResourceInput v-model="editForm.cpuLim" kind="cpu" placeholder="500" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.memReq') }}</label><ResourceInput v-model="editForm.memReq" kind="memory" placeholder="256" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.memLim') }}</label><ResourceInput v-model="editForm.memLim" kind="memory" placeholder="512" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.cpuReq') }}</label><ResourceInput v-model="editForm.cpuReq" kind="cpu" placeholder="250m" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.cpuLim') }}</label><ResourceInput v-model="editForm.cpuLim" kind="cpu" placeholder="500m" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.memReq') }}</label><ResourceInput v-model="editForm.memReq" kind="memory" placeholder="256Mi" /></div>
+            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ t('workload.edit.memLim') }}</label><ResourceInput v-model="editForm.memLim" kind="memory" placeholder="512Mi" /></div>
           </div>
           <div class="flex items-center justify-between pt-sm border-t border-outline-variant/40"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.initContainers') }}</span><button @click="editForm.initContainers.push(makeSubContainer())" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.addInit') }}</button></div>
           <div v-for="(c, idx) in editForm.initContainers" :key="'ic'+idx" class="border border-outline-variant rounded-lg p-sm flex flex-col gap-xs">

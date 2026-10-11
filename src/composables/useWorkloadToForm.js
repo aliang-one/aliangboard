@@ -5,7 +5,7 @@
 // command/args 的文本切分约定见 src/utils/containerTokens.js:command 空格 join,args 每条一行。
 import { joinCommandTokens, joinArgLines } from '../utils/containerTokens.js'
 import { SYSTEM_ANNOTATIONS } from '../utils/systemMeta.js'
-import { mapSubContainer } from '../logic/subContainer.js'
+import { mapSubContainer, pickExtraResources } from '../logic/subContainer.js'
 import { backfillVolumes, splitContainers } from '../logic/volumeBackfill.js'
 import { envRowsFromSpec, envFromRowsFromSpec } from '../logic/envRefs.js'
 
@@ -38,10 +38,14 @@ function mapMainContainer(c) {
     command: joinCommandTokens(c?.command),
     args: joinArgLines(c?.args),
     workingDir: c?.workingDir || '',
-    cpuRequest: r.requests?.cpu || '250m',
-    cpuLimit: r.limits?.cpu || '500m',
-    memoryRequest: r.requests?.memory || '256Mi',
-    memoryLimit: r.limits?.memory || '512Mi',
+    // 复制=忠实克隆(与 mapSubContainer 不变式一致):缺省回 '',不注入默认值——
+    // 曾 || '250m' 系使无上限容器复制后凭空挂 512Mi 直接 OOMKill(2026-10-11 审计 #4)。
+    cpuRequest: r.requests?.cpu || '',
+    cpuLimit: r.limits?.cpu || '',
+    memoryRequest: r.requests?.memory || '',
+    memoryLimit: r.limits?.memory || '',
+    // 第三资源键携带(GPU/ephemeral-storage/claims),向导 mergeResources 侧合并回输出(审计 B2)
+    extraResources: pickExtraResources(c?.resources),
     envRows: envRowsFromSpec(c?.env),
     envFromRows: envFromRowsFromSpec(c?.envFrom),
     ports: (c?.ports || []).map(p => ({ containerPort: p?.containerPort != null ? String(p.containerPort) : '', protocol: p?.protocol || 'TCP' })),
