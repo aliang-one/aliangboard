@@ -3,28 +3,27 @@
 // 两条编辑入口(原地小卡片/弹窗)规则永远一致。
 // 契约:env 行空行整体跳过(envRefErrors 内建,与 YAML 生成一致);
 // 本函数假定容器存在 → image 必填无条件检查。
-import { parseQuantity } from '../composables/useResourceQuantity.js'
+import { toBaseValue } from '../composables/useResourceQuantity.js'
 import { splitCommandTokens } from '../utils/containerTokens.js'
 import { envRefErrors, duplicateEnvNames } from './envRefs.js'
 
 const DNS1123 = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
-const CPU_FACTOR = { '': 1000, m: 1 }                     // cores → 毫核
-const MEM_FACTOR = { Ki: 1, Mi: 1024, Gi: 1024 ** 2, Ti: 1024 ** 3 } // → Ki
 
-// 规范串 → 归一数值;空/解析失败 → null(不参与比较)
+// 规范串 → 归一数值(cpu=毫核/memory=Ki,完整 K8s 文法:十进制 SI/二进制/科学计数);
+// 空/解析失败 → null(不参与比较)。2026-10-11:曾沿用 parseQuantity 的 UI 单位表回退,
+// compareQuantity('100u','250m') 误判超限(真值 0.1m≤250m)——假阳性阻断合法保存、
+// 假阴性漏成 apiserver 422。
 export function quantityValue(str, kind) {
-  const { num, unit } = parseQuantity(str, kind)
-  if (num === '') return null
-  const factor = (kind === 'cpu' ? CPU_FACTOR : MEM_FACTOR)[unit]
-  if (factor == null) return null
-  return Number(num) * factor
+  return toBaseValue(str, kind)
 }
 
-// a<b → -1;a>b → 1;相等 → 0;任一侧无效 → null
+// a<b → -1;a>b → 1;相等 → 0;任一侧无效 → null。
+// 浮点容差:0.1 cores×1000=100.00000000000001 类尾迹不得把等值判成超限。
 export function compareQuantity(a, b, kind) {
   const va = quantityValue(a, kind), vb = quantityValue(b, kind)
   if (va == null || vb == null) return null
-  return va < vb ? -1 : va > vb ? 1 : 0
+  const eps = 1e-9 * Math.max(1, Math.abs(va), Math.abs(vb))
+  return va < vb - eps ? -1 : va > vb + eps ? 1 : 0
 }
 
 // 字段校验。c: 8 字符串字段容器对象;otherNames: 除本容器外的名字集合

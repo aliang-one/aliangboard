@@ -1,16 +1,14 @@
 import { ref, onUnmounted } from 'vue'
 import { api } from '@/api/client'
+import { toBaseValue } from '@/composables/useResourceQuantity'
 
-// K8s quantity → 毫核（CPU）/ Mi（内存）
+// K8s quantity → 毫核（CPU）/ Mi（内存）。文法解析单源 toBaseValue(完整后缀+科学计数):
+// 指数形态('1E9')曾按裸前缀处理,参考线画在 ~9.5e11 Mi(10^9 倍错,审查修复)。
 export function toMilli(q) {
   if (q == null) return 0
   if (typeof q === 'number') return q
-  const s = String(q)
-  let m
-  if (s.endsWith('n')) m = Number(s.slice(0, -1)) / 1e6          // nanocores → m
-  else if (s.endsWith('u')) m = Number(s.slice(0, -1)) / 1e3     // microcores → m
-  else if (s.endsWith('m')) m = Number(s.slice(0, -1)) || 0      // millicores
-  else { const n = parseFloat(s); m = isNaN(n) ? 0 : n * 1000 }  // cores → m
+  const v = toBaseValue(String(q), 'cpu')
+  const m = v == null ? 0 : v
   // 标准整数毫核(1000m=1 核),对齐 kubectl top:非零用量至少显示 1m,避免 0.02m 被 round 抹成 0m
   return m > 0 ? Math.max(1, Math.round(m)) : 0
 }
@@ -18,11 +16,11 @@ export function toMi(q) {
   if (q == null) return 0
   if (typeof q === 'number') return q
   const s = String(q)
-  const m = s.match(/^([\d.]+)([KMGTPE]i)?/)
-  if (!m) return parseInt(s) || 0
-  const n = parseFloat(m[1]); const u = m[2]
-  const f = { Ki: 1 / 1024, Mi: 1, Gi: 1024, Ti: 1024 * 1024, Pi: 1024 ** 3, Ei: 1024 ** 4 }
-  return Math.round(n * (f[u] || 1))
+  const v = toBaseValue(s, 'memory')
+  // 非法串退 parseInt 兜底(与旧实现一致);裸数字=字节(曾误当 Mi)
+  const mi = v == null ? (parseInt(s) || 0) / 2 ** 20 : v / 1024
+  // 与 toMilli 同款:非零值至少 1Mi,避免亚 Mi 值被 round 抹成 0 参考线消失
+  return mi > 0 ? Math.max(1, Math.round(mi)) : 0
 }
 
 // 工作负载实时指标：每 interval 拉一次 metrics.k8s.io 的 namespace pod 指标，
