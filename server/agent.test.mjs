@@ -905,7 +905,7 @@ test('chat 429 带 retryAfterMs → 实际等待 ≥ 服务端下限(jitter 不�
     return final('ok')
   }
   const waits = []
-  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [100], sleepFn: async ms => { waits.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] })
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [100], waitSliceMs: 999999, sleepFn: async ms => { waits.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] })
   assert.equal(out.content, 'ok')
   assert.equal(calls, 2)
   assert.ok(waits.length >= 1, '至少等待过一次')
@@ -922,19 +922,184 @@ test('累计等待(名义值)超预算 → 停止重试、定性失败', async (
   assert.equal(calls, 2, '首笔 5000ms 在 6000 预算内;第二笔将超预算 → 不再重试')
 })
 
-test('梯中转确定性 4xx → 提前终止,不空等剩余梯', async () => {
+test('梯中转确定性 4xx → 先给一次不等待的免费重试,再犯即定性(F1 瞬时 400 在案)', async () => {
   let calls = 0
   const chat = async () => {
     calls++
     if (calls === 1) { const e = new Error('LLM HTTP 503: unstable'); e.status = 503; throw e }
-    if (calls === 2) { const e = new Error('LLM HTTP 400: messages 参数非法'); e.status = 400; throw e }
+    if (calls <= 3) { const e = new Error('LLM HTTP 400: messages 参数非法'); e.status = 400; throw e }
     return final('不该走到')
   }
+  const sleeps = []
   await assert.rejects(
-    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0, 0], sleepFn: async () => {} }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [5, 0, 0], waitSliceMs: 999999, sleepFn: async ms => { sleeps.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] }),
     /messages 参数非法/,
   )
-  assert.equal(calls, 2, '503→400:确定性错误立即定性,不再烧剩余梯')
+  assert.equal(calls, 3, '503→400(免费重试)→400:定性抛出')
+  assert.equal(sleeps.length, 1, '确定性错误只消耗首档等待(5ms),免费重试不再等待')
+})
+
+test('梯中转 400 但免费重试成功 → 轮次救活(瞬时 400 不再一击致命)', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    if (calls === 1) { const e = new Error('LLM HTTP 503: unstable'); e.status = 503; throw e }
+    if (calls === 2) { const e = new Error('LLM HTTP 400: 瞬时路由错'); e.status = 400; throw e }
+    return final('救活的终答')
+  }
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0], sleepFn: async () => {} }).run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, '救活的终答')
+  assert.equal(calls, 3)
+})
+
+test('梯中转超时类(IdleTimeoutError)→ 同款一次免费重试,再犯即定性', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    if (calls === 1) { const e = new Error('LLM HTTP 503: unstable'); e.status = 503; throw e }
+    const e = new Error('LLM 流式空闲超时(180s 无数据)'); e.name = 'IdleTimeoutError'; throw e
+  }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0], sleepFn: async () => {} }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /空闲超时/,
+  )
+  assert.equal(calls, 3, '超时类与 4xx 同款:一次免费重试后定性')
+})
+
+test('梯等待分片查取消:等待中段 shouldAbort 变真 → 立即中止,不睡满整档', async () => {
+  let calls = 0
+  const chat = async () => { calls++; const e = new Error('LLM HTTP 503: unstable'); e.status = 503; throw e }
+  let abortChecks = 0
+  const shouldAbort = async () => ++abortChecks >= 3 // #1=run 轮前检查点、#2=梯内首片前 → 各 false;#3=首片睡完后 true
+  const sleeps = []
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [30000], shouldAbort, waitSliceMs: 400, sleepFn: async ms => { sleeps.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /已取消/,
+  )
+  assert.equal(calls, 1, '取消发生在重试等待期,不再发起重试')
+  assert.ok(sleeps.length === 1 && sleeps[0] <= 400, `只睡了首个分片(${sleeps.join(',')}ms),未睡满 30s 整档`)
+})
+
+test('env LLM_RETRY_BUDGET_MS 非法值("0"/"-1")→ 落缺省预算,不静默关掉重试', async () => {
+  const prev = process.env.LLM_RETRY_BUDGET_MS
+  try {
+    for (const v of ['0', '-1']) {
+      process.env.LLM_RETRY_BUDGET_MS = v
+      let calls = 0
+      const chat = async () => { calls++; const e = new Error('LLM HTTP 503: x'); e.status = 503; throw e }
+      await assert.rejects(
+        () => createAgent({ chat, execTool: async () => 'x', retryDelays: [1000, 1000], sleepFn: async () => {} }).run({ history: [{ role: 'user', content: 'hi' }] }),
+        /503/,
+      )
+      assert.equal(calls, 3, `LLM_RETRY_BUDGET_MS=${v}:须按缺省预算走完整梯(0→缺省、-1 不得变成「零重试」)`)
+    }
+  } finally { prev === undefined ? delete process.env.LLM_RETRY_BUDGET_MS : (process.env.LLM_RETRY_BUDGET_MS = prev) }
+})
+
+test('env LLM_RETRY_BUDGET_MS 合法值生效:预算 1500 截断梯(1000+1000>1500 → 2 次尝试)', async () => {
+  const prev = process.env.LLM_RETRY_BUDGET_MS
+  try {
+    process.env.LLM_RETRY_BUDGET_MS = '1500'
+    let calls = 0
+    const chat = async () => { calls++; const e = new Error('LLM HTTP 503: x'); e.status = 503; throw e }
+    await assert.rejects(
+      () => createAgent({ chat, execTool: async () => 'x', retryDelays: [1000, 1000], sleepFn: async () => {} }).run({ history: [{ role: 'user', content: 'hi' }] }),
+      /503/,
+    )
+    assert.equal(calls, 2, '预算 1500:首档 1000 在内,第二档将超 → 截断')
+  } finally { prev === undefined ? delete process.env.LLM_RETRY_BUDGET_MS : (process.env.LLM_RETRY_BUDGET_MS = prev) }
+})
+
+test('retryBudgetMs=0(参数)→ 依字面 honored:零预算连首档都不睡', async () => {
+  let calls = 0
+  const chat = async () => { calls++; const e = new Error('LLM HTTP 503: x'); e.status = 503; throw e }
+  const sleeps = []
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [1000], retryBudgetMs: 0, sleepFn: async ms => { sleeps.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /503/,
+  )
+  assert.equal(calls, 1, 'budget=0:account 1000 > 0 → 首档即截断(不得静默回落 120s 缺省)')
+  assert.equal(sleeps.length, 0)
+})
+
+test('Retry-After 下限计入预算:下限 90s > 预算 60s → 首档即 break、零睡眠快速失败', async () => {
+  let calls = 0
+  const chat = async () => { calls++; const e = new Error('LLM HTTP 429: rate limited'); e.status = 429; e.retryAfterMs = 90000; throw e }
+  const sleeps = []
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [1000], retryBudgetMs: 60000, sleepFn: async ms => { sleeps.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /429/,
+  )
+  assert.equal(calls, 1)
+  assert.equal(sleeps.length, 0, '大下限直接撞预算:不睡、快速定性')
+})
+
+test('逐错更新下限:第 2 个错误的 Retry-After(30s)支配第 2 次等待', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    if (calls === 1) { const e = new Error('LLM HTTP 429: a'); e.status = 429; e.retryAfterMs = 5000; throw e }
+    if (calls === 2) { const e = new Error('LLM HTTP 429: b'); e.status = 429; e.retryAfterMs = 30000; throw e }
+    return final('ok')
+  }
+  const sleeps = []
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [10000, 10000], waitSliceMs: 999999, sleepFn: async ms => { sleeps.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, 'ok')
+  assert.equal(sleeps.length, 2)
+  assert.ok(sleeps[0] >= 5000 && sleeps[0] <= 15000, `第 1 次等待 ${sleeps[0]}ms ∈ [5000, 15000](下限 5000 + jitter 梯值)`)
+  assert.equal(sleeps[1], 30000, '第 2 次等待 = 下限 30000(jitter 不压低)')
+})
+
+test('retryAfterMs=0/NaN 防御:退化为纯 jitter 等待(不炸、不零退避风暴)', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    if (calls <= 2) { const e = new Error('LLM HTTP 429: x'); e.status = 429; e.retryAfterMs = calls === 1 ? 0 : NaN; throw e }
+    return final('ok')
+  }
+  const sleeps = []
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [1000, 1000], waitSliceMs: 999999, sleepFn: async ms => { sleeps.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, 'ok')
+  for (const w of sleeps) assert.ok(w >= 500 && w <= 1500, `等待 ${w}ms 应为纯 jitter(500-1500)`)
+})
+
+test('重试轮已吐 delta 后失败 → 立即抛出不再重试(前端已拼接内容不重复)', async () => {
+  let calls = 0
+  const chat = async (messages, tools, opts = {}) => {
+    calls++
+    if (calls === 1) { const e = new Error('LLM HTTP 503: unstable'); e.status = 503; throw e }
+    opts.onDelta?.('重试轮已流出')
+    throw new Error('midstream dead')
+  }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0], sleepFn: async () => {} }).run({ history: [{ role: 'user', content: 'hi' }], onDelta: () => {} }),
+    /midstream dead/,
+  )
+  assert.equal(calls, 2, '重试轮吐过 delta:不再发起下一次重试')
+})
+
+test('env LLM_RETRY_DELAYS_MS="0, 2000, abc" → 修剪为 [0,2000] 生效(空白容错/非法项丢弃)', async () => {
+  const prev = process.env.LLM_RETRY_DELAYS_MS
+  try {
+    process.env.LLM_RETRY_DELAYS_MS = '0, 2000, abc'
+    let calls = 0
+    const chat = async () => { calls++; const e = new Error('LLM HTTP 503: x'); e.status = 503; throw e }
+    const sleeps = []
+    await assert.rejects(
+      () => createAgent({ chat, execTool: async () => 'x', waitSliceMs: 999999, sleepFn: async ms => { sleeps.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] }),
+      /503/,
+    )
+    assert.equal(calls, 3, '梯 = [0, 2000]:3 次尝试')
+    assert.equal(sleeps.length, 1, 'd=0 档不产生睡眠调用;仅第 2 档睡一次')
+    assert.ok(sleeps[0] >= 1000 && sleeps[0] <= 3000, `第 2 档 jitter(2000)∈[1000,3000],实得 ${sleeps[0]}`)
+  } finally { prev === undefined ? delete process.env.LLM_RETRY_DELAYS_MS : (process.env.LLM_RETRY_DELAYS_MS = prev) }
+})
+
+test('预算缺省契约:DEFAULT_RETRY_BUDGET_MS=120s 且 ≥ 默认梯名义总额(57s 留余量)', async () => {
+  const agentModule = await import('./agent.mjs')
+  assert.equal(agentModule.DEFAULT_RETRY_BUDGET_MS, 120000)
+  const total = agentModule.DEFAULT_RETRY_DELAYS.reduce((a, b) => a + b, 0)
+  assert.ok(agentModule.DEFAULT_RETRY_BUDGET_MS >= total, `预算 ${agentModule.DEFAULT_RETRY_BUDGET_MS} 须容纳默认梯总额 ${total}`)
 })
 
 test('默认退避梯契约:六次尝试、名义总额 57s(env LLM_RETRY_DELAYS_MS 可调)', async () => {

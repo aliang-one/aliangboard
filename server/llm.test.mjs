@@ -539,3 +539,11 @@ test('chatStream: 429 带 Retry-After → 同款附挂(流式 !ok 路径)', asyn
     e => e.status === 429 && e.retryAfterMs === 7000,
   )
 })
+
+test('chat: 非 JSON 错误体(nginx HTML 页)+ Retry-After → 非 JSON 错误同样附挂', async () => {
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ ok: false, status: 503, text: '<html>nginx 503</html>', headers: { get: k => (k === 'retry-after' ? '20' : null) } }) })
+  await assert.rejects(
+    () => c.chat({ messages: [] }),
+    e => e.status === 503 && e.retryAfterMs === 20000 && /非 JSON/.test(e.message),
+  )
+})

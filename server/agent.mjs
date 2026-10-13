@@ -19,6 +19,17 @@ function parseRetryDelaysEnv() {
   const list = raw.split(',').map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n >= 0)
   return list.length ? list : null
 }
+// env LLM_RETRY_BUDGET_MS(正毫秒)。与 delays 同款显式校验而非 `||` 链(R2 审查#1):
+// "0" 在 || 链里静默落缺省(运维以为调参死了),"-1" 是 truthy 反而把预算变 -1 →
+// 首档即截断 = 静默关掉全部重试(反直觉反转)。非法值告警一次后落缺省。
+function parseRetryBudgetEnv() {
+  const raw = process.env.LLM_RETRY_BUDGET_MS
+  if (!raw) return null
+  const n = Number(raw)
+  if (Number.isFinite(n) && n > 0) return n
+  console.warn(`[agent] LLM_RETRY_BUDGET_MS="${raw}" 无效(须为正毫秒数),已忽略,用缺省 ${DEFAULT_RETRY_BUDGET_MS}ms`)
+  return null
+}
 
 // 工具执行失败的观察串(喂回 LLM):优先 detail(PERMISSION_DENIED 的具体原因,如 ns 越界),
 // 让 LLM/用户能诊断为何失败而非只看到裸 "PERMISSION_DENIED: policy"。纯函数,便于单测。
@@ -154,7 +165,7 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
   return { messages: out, truncated: true }
 }
 
-export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, shouldAbort, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS, retryDelays, retryBudgetMs, sleepFn }) {
+export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, shouldAbort, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS, retryDelays, retryBudgetMs, sleepFn, waitSliceMs = 1000 }) {
   // chat: async (messages, toolDefs) => assistantMessage {role, content, tool_calls?}
   // toolDefs: LLM 工具定义(OpenAI tools 格式)
   // execTool: async (name, args) => 结果(string 或对象,转字符串喂回 LLM)
@@ -192,12 +203,19 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
   //     → 单次立即重试(多重退避会把单轮挂到数十分钟)。
   // 预算上限:梯按「名义值」累计(max(梯值, Retry-After 下限)),超预算(默认 120s)即定性
   // 失败——防长梯/大 Retry-After 把单轮挂死;jitter 的实际睡眠与记账解耦,超幅有界(≤0.5×梯值)。
-  // 梯中转为确定性 4xx/超时类 → 立即定性抛出:这两类不会自愈,空等剩余梯只是拖时间。
-  // retryDelays/retryBudgetMs/sleepFn 为测试缝(注入 [0,0] 与假 sleep 跳过真实等待);
+  // 梯中转为确定性 4xx/超时类 → 先给一次**不等待的免费重试**(与初始同类错误「单次立即重试」
+  // 对齐——F1:sub2api/litellm 瞬时 400 在案),再犯即定性抛出:这两类不会自愈,继续梯等待
+  // 只是拖时间。免费重试失败也定性(e3 原样上抛,不再续梯)。
+  // 等待可中断(R2 审查#2):梯睡眠是裸 setTimeout 时,120s 的 Retry-After 下限能睡过用户的
+  // 「停止」与密钥换绑(run 循环的 shouldAbort 检查点只在轮间/工具前)——按 ≤waitSliceMs
+  // 分片睡眠、片间查 shouldAbort,取消延迟从「整笔等待」降到 ≤1s。shouldAbort 缺省时零行为差异。
+  // retryDelays/retryBudgetMs/sleepFn/waitSliceMs 为测试缝(注入 [0,0] 与假 sleep 跳过真实等待);
   // 生产缺省 DEFAULT_RETRY_DELAYS,env LLM_RETRY_DELAYS_MS("1000,3000,...")/
   // LLM_RETRY_BUDGET_MS 可调(与 LLM_TIMEOUT_MS 同风格,免发版调参)。
   const RETRY_DELAYS = retryDelays || parseRetryDelaysEnv() || DEFAULT_RETRY_DELAYS
-  const RETRY_BUDGET = retryBudgetMs || Number(process.env.LLM_RETRY_BUDGET_MS) || DEFAULT_RETRY_BUDGET_MS
+  const RETRY_BUDGET = Number.isFinite(retryBudgetMs) && retryBudgetMs >= 0
+    ? retryBudgetMs
+    : (parseRetryBudgetEnv() ?? DEFAULT_RETRY_BUDGET_MS)
   const errKind = (e) => {
     if (e?.name === 'CancelledError' || e?.name === 'InvalidatedError') return 'cancel'
     // AbortSignal.timeout(非流式 chat 总限)也产 TimeoutError——归超时类(单次),否则 3×120s
@@ -209,6 +227,17 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
     return 'network'
   }
   const sleep = sleepFn || (ms => new Promise(r => setTimeout(r, ms)))
+  // 分片可中断等待:每片前查 shouldAbort;末片后再查一次(覆盖「最后一小片睡完才取消」)。
+  async function sleepInterruptible(ms) {
+    let left = ms
+    while (left > 0) {
+      if (shouldAbort && await shouldAbort()) throw new Error('对话已取消,中止重试等待')
+      const chunk = Math.min(waitSliceMs, left)
+      await sleep(chunk)
+      left -= chunk
+    }
+    if (shouldAbort && await shouldAbort()) throw new Error('对话已取消,中止重试等待')
+  }
   async function chatWithRetry(messages, tools, opts = {}) {
     let sawDelta = false
     const wrapped = {}
@@ -223,19 +252,28 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       if (kind === 'transient' || kind === 'network' || kind === 'rate') {
         let last = e
         let spent = 0
+        let freebieUsed = false
         for (const d of RETRY_DELAYS) {
           // Retry-After 是服务端下限;jitter 只扰梯值,实际等待 = max(jitter(梯), 下限)
           const floor = Number(last?.retryAfterMs) || 0
           const account = Math.max(d, floor)
           if (spent + account > RETRY_BUDGET) break
           spent += account
-          await sleep(Math.max(Math.round(d * (0.5 + Math.random())), floor))
+          await sleepInterruptible(Math.max(Math.round(d * (0.5 + Math.random())), floor))
           try { return await chat(messages, tools, wrapped) } catch (e2) {
             if (sawDelta) throw e2
             const k2 = errKind(e2)
             if (k2 === 'cancel') throw e2
-            // 梯中转确定性错误(client/timeout):不会自愈,立即定性、不空等剩余梯
-            if (k2 === 'client' || k2 === 'timeout') throw e2
+            if (k2 === 'client' || k2 === 'timeout') {
+              // 梯中确定性错误:一次不等待的免费重试(瞬时 400 在案),再犯即定性
+              if (freebieUsed) throw e2
+              freebieUsed = true
+              try { return await chat(messages, tools, wrapped) } catch (e3) {
+                if (sawDelta) throw e3
+                if (errKind(e3) === 'cancel') throw e3
+                throw e3
+              }
+            }
             last = e2
           }
         }
