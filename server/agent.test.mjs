@@ -501,7 +501,7 @@ test('chat 首次失败(未吐 delta)→ 自动重试一次并成功', async () 
     if (++calls === 1) throw new Error('LLM HTTP 502: Upstream service temporarily unavailable')
     return final('重试后的终答')
   }
-  const out = await createAgent({ chat, execTool: async () => 'x' }).run({ history: [{ role: 'user', content: 'hi' }] })
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0] }).run({ history: [{ role: 'user', content: 'hi' }] })
   assert.equal(out.content, '重试后的终答')
   assert.equal(calls, 2, '失败一次,恰好重试一次')
 })
@@ -513,7 +513,7 @@ test('chat 中间轮首 delta 前失败 → 同样重试(tool 轮救活)', async
     if (calls === 2) return toolCall('1', 'list_resources', { kind: 'pods' })
     return final('ok')
   }
-  const out = await createAgent({ chat, execTool: async () => 'x' }).run({ history: [{ role: 'user', content: 'hi' }] })
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0] }).run({ history: [{ role: 'user', content: 'hi' }] })
   assert.equal(out.content, 'ok')
   assert.equal(calls, 3)
 })
@@ -874,4 +874,70 @@ test('chat 4xx(status=400)→ 恰好重试一次', async () => {
     /messages 参数非法/,
   )
   assert.equal(calls, 2, '4xx 保持单次立即重试')
+})
+
+// ── R2(2026-10-13)重试韧性:持续限流时代的梯扩容 ──
+// 背景(2026-10-13 三源实证,wb-chat-5xx-rootcause):sub2api 共享账号被高频邻居顶到上游
+// 限流,503/429 时段分钟级;旧梯 [300,1500]×3 总窗 ~2-4s 必灭,用户对话动辄红框。
+// 契约:
+//   429 与 5xx/网络同梯退避(旧「429 单次立即重试」裁决被现实推翻——429 已是主导故障形态);
+//   Retry-After(llm 层附挂 e.retryAfterMs)是服务端下限,jitter 只作用梯值、不得压低下限;
+//   累计等待有预算上限(默认 120s,按名义值记账),防长梯/大 Retry-After 挂死单轮;
+//   梯中转确定性 4xx/超时 → 立即定性抛出,不空等剩余梯。
+
+test('chat 429(限流)→ 与 5xx 同梯退避:连败六次、第七次成功', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    if (calls <= 6) { const e = new Error('LLM HTTP 429: 您的账户已达到速率限制'); e.status = 429; throw e }
+    return final('限流间隙挤进去的终答')
+  }
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0, 0, 0, 0, 0] }).run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, '限流间隙挤进去的终答')
+  assert.equal(calls, 7, '429 进退避梯:初始 + 6 次重试')
+})
+
+test('chat 429 带 retryAfterMs → 实际等待 ≥ 服务端下限(jitter 不压低 Retry-After)', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    if (calls === 1) { const e = new Error('LLM HTTP 429: rate limited'); e.status = 429; e.retryAfterMs = 8000; throw e }
+    return final('ok')
+  }
+  const waits = []
+  const out = await createAgent({ chat, execTool: async () => 'x', retryDelays: [100], sleepFn: async ms => { waits.push(ms) } }).run({ history: [{ role: 'user', content: 'hi' }] })
+  assert.equal(out.content, 'ok')
+  assert.equal(calls, 2)
+  assert.ok(waits.length >= 1, '至少等待过一次')
+  for (const w of waits) assert.ok(w >= 8000, `实际等待 ${w}ms 低于 Retry-After 下限 8000ms`)
+})
+
+test('累计等待(名义值)超预算 → 停止重试、定性失败', async () => {
+  let calls = 0
+  const chat = async () => { calls++; const e = new Error(`LLM HTTP 503: Service temporarily unavailable #${calls}`); e.status = 503; throw e }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [5000, 5000, 5000], retryBudgetMs: 6000, sleepFn: async () => {} }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /#2/,
+  )
+  assert.equal(calls, 2, '首笔 5000ms 在 6000 预算内;第二笔将超预算 → 不再重试')
+})
+
+test('梯中转确定性 4xx → 提前终止,不空等剩余梯', async () => {
+  let calls = 0
+  const chat = async () => {
+    calls++
+    if (calls === 1) { const e = new Error('LLM HTTP 503: unstable'); e.status = 503; throw e }
+    if (calls === 2) { const e = new Error('LLM HTTP 400: messages 参数非法'); e.status = 400; throw e }
+    return final('不该走到')
+  }
+  await assert.rejects(
+    () => createAgent({ chat, execTool: async () => 'x', retryDelays: [0, 0, 0], sleepFn: async () => {} }).run({ history: [{ role: 'user', content: 'hi' }] }),
+    /messages 参数非法/,
+  )
+  assert.equal(calls, 2, '503→400:确定性错误立即定性,不再烧剩余梯')
+})
+
+test('默认退避梯契约:六次尝试、名义总额 57s(env LLM_RETRY_DELAYS_MS 可调)', async () => {
+  const agentModule = await import('./agent.mjs')
+  assert.deepEqual(agentModule.DEFAULT_RETRY_DELAYS, [1000, 3000, 8000, 15000, 30000])
 })

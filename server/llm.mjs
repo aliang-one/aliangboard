@@ -21,6 +21,15 @@ const LINE_END = /\r\n|\r|\n/
 // 参数注入短值(与 timeoutMs/idleMs 同为工厂参数 seam,零 env 依赖)。
 export const STREAM_TOTAL_MS = 10 * 60 * 1000
 
+// R2(2026-10-13):HTTP 错误响应的 Retry-After(秒)→ 毫秒,附挂到抛出的错误对象
+// (e.retryAfterMs)供 agent 退避梯取用——限流时段服务端明示「等多久」,自造退避不如听服务端。
+// 只认秒数形态(RFC 允许 HTTP-date,但主流 LLM 网关发秒数;HTTP-date → undefined 走自造梯);
+// 缺席/非数字/≤0 → undefined;封顶 120s(离谱大值不配挂死单轮,预算层另有上限)。
+function retryAfterMsOf(res) {
+  const v = Number(res?.headers?.get?.('retry-after'))
+  return Number.isFinite(v) && v > 0 ? Math.min(Math.round(v * 1000), 120000) : undefined
+}
+
 // 请求边界消毒(2026-09-08 审计:1214「messages 参数非法」根因):agent 循环把上一轮 assistant
 // 返回值原样 push 回 messages——流式 finalize 挂的 reasoning/finishReason(内部字段,供
 // cutByLength/持久化)与非流式 {...msg} 直展透传的 provider 原生 reasoning_content,都会随
@@ -72,8 +81,8 @@ export function createLlmClient({
     })
     const text = await res.text()
     let json
-    try { json = JSON.parse(text) } catch { const e = new Error(`LLM 返回非 JSON(HTTP ${res.status}): ${text.slice(0, 200)}`); e.status = res.status; throw e }
-    if (!res.ok) { const e = new Error(`LLM HTTP ${res.status}: ${json.error?.message || json.message || text.slice(0, 200)}`); e.status = res.status; throw e }
+    try { json = JSON.parse(text) } catch { const e = new Error(`LLM 返回非 JSON(HTTP ${res.status}): ${text.slice(0, 200)}`); e.status = res.status; e.retryAfterMs = retryAfterMsOf(res); throw e }
+    if (!res.ok) { const e = new Error(`LLM HTTP ${res.status}: ${json.error?.message || json.message || text.slice(0, 200)}`); e.status = res.status; e.retryAfterMs = retryAfterMsOf(res); throw e }
     const choice = json.choices?.[0]
     const msg = choice?.message
     if (!msg) throw new Error('LLM 响应缺 choices[0].message')
@@ -116,7 +125,8 @@ export function createLlmClient({
       let msg = text.slice(0, 200)
       try { const j = JSON.parse(text); msg = j.error?.message || j.message || msg } catch {}
       const err = new Error(`LLM HTTP ${res.status}: ${msg}`)
-      err.status = res.status // agent 侧重试按类别分流(2026-09-09 审计 F1):5xx 退避重试/4xx 单次
+      err.status = res.status // agent 侧重试按类别分流(2026-09-09 审计 F1;2026-10-13 R2:429 亦进梯)
+      err.retryAfterMs = retryAfterMsOf(res)
       throw err
     }
     if (!res.body) throw new Error('LLM 响应无 body(不支持流式)')
