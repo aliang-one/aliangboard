@@ -9,7 +9,12 @@ function mockFetch(response, capture = {}) {
     const body = init.body ? JSON.parse(init.body) : {}
     capture.body = body
     if (response.throw) throw new Error(response.throw)
-    return { ok: response.ok !== false, status: response.status || 200, text: async () => typeof response.text === 'string' ? response.text : JSON.stringify(response.text) }
+    return {
+      ok: response.ok !== false,
+      status: response.status || 200,
+      ...(response.headers ? { headers: response.headers } : {}),
+      text: async () => typeof response.text === 'string' ? response.text : JSON.stringify(response.text),
+    }
   }
 }
 
@@ -500,4 +505,45 @@ test('chatStream: 请求体 messages 经消毒(resume 回喂 paused 脏数组同
     { role: 'assistant', content: '', tool_calls: [{ id: 't1', type: 'function', function: { name: 'n', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 't1', content: 'r' },
   ], '请求体不含 reasoning_content/finishReason')
+})
+
+// ── R2(2026-10-13):HTTP 错误附挂 Retry-After(agent 侧退避的服务端下限)──
+// 背景:sub2api/上游限流时段回 429/503;agent 退避梯需知道「服务端说要等多久」。
+// 契约:响应头 retry-after(秒)→ e.retryAfterMs(毫秒);缺席/非秒数(HTTP-date 等)→
+// undefined;离谱大值封顶 120s。chat 与 chatStream 两条 !ok 路径同款附挂。
+
+test('chat: 429 带 Retry-After 头 → 错误附 retryAfterMs(毫秒)', async () => {
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ ok: false, status: 429, text: { error: { message: '您的账户已达到速率限制' } }, headers: { get: k => (k === 'retry-after' ? '7' : null) } }) })
+  await assert.rejects(
+    () => c.chat({ messages: [] }),
+    e => e.status === 429 && e.retryAfterMs === 7000,
+  )
+})
+
+test('chat: Retry-After 缺席 / 非秒数 → retryAfterMs undefined(不误伤旧路径)', async () => {
+  const noHeader = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ ok: false, status: 503, text: { error: { message: 'Service temporarily unavailable' } } }) })
+  await assert.rejects(() => noHeader.chat({ messages: [] }), e => e.status === 503 && e.retryAfterMs === undefined)
+  const httpDate = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ ok: false, status: 503, text: { error: { message: 'x' } }, headers: { get: k => (k === 'retry-after' ? 'Wed, 21 Oct 2026 07:28:00 GMT' : null) } }) })
+  await assert.rejects(() => httpDate.chat({ messages: [] }), e => e.retryAfterMs === undefined)
+})
+
+test('chat: Retry-After 离谱大值(9999s)→ 封顶 120s', async () => {
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ ok: false, status: 429, text: { error: { message: 'x' } }, headers: { get: k => (k === 'retry-after' ? '9999' : null) } }) })
+  await assert.rejects(() => c.chat({ messages: [] }), e => e.retryAfterMs === 120000)
+})
+
+test('chatStream: 429 带 Retry-After → 同款附挂(流式 !ok 路径)', async () => {
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ ok: false, status: 429, text: { error: { message: 'rate limited' } }, headers: { get: k => (k === 'retry-after' ? '7' : null) } }) })
+  await assert.rejects(
+    () => c.chatStream({ messages: [] }, {}),
+    e => e.status === 429 && e.retryAfterMs === 7000,
+  )
+})
+
+test('chat: 非 JSON 错误体(nginx HTML 页)+ Retry-After → 非 JSON 错误同样附挂', async () => {
+  const c = createLlmClient({ baseURL: 'https://x', model: 'm', fetch: mockFetch({ ok: false, status: 503, text: '<html>nginx 503</html>', headers: { get: k => (k === 'retry-after' ? '20' : null) } }) })
+  await assert.rejects(
+    () => c.chat({ messages: [] }),
+    e => e.status === 503 && e.retryAfterMs === 20000 && /非 JSON/.test(e.message),
+  )
 })
