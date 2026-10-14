@@ -12,7 +12,7 @@ import { createPinia } from 'pinia'
 
 const api = vi.hoisted(() => ({
   conversations: {
-    create: vi.fn(), append: vi.fn(), get: vi.fn(),
+    create: vi.fn(), append: vi.fn(), get: vi.fn(), steer: vi.fn(),
     approve: vi.fn(), deny: vi.fn(), cancel: vi.fn(), regenerate: vi.fn(),
   },
   search: vi.fn(),
@@ -328,34 +328,36 @@ test('SSE status:cancelled → convStatus 透传,状态栏显示已取消(跨实
   expect(w.text()).toContain('已停止')   // thinking turn 对齐取消态(applyStreamEvent)
 })
 
-// contracts-01(续):cancelled 不入 SSE 终态处理 → sending 不清,drainQueue 的 sending 守卫
-// 恒拦——排队消息永不自动出队。契约:cancelled 与 done/failed 同款终态处理,排队消息出队续发。
-test('SSE status:cancelled → 排队消息自动出队续发(跨实例取消后队列不死)', async () => {
+// contracts-01(2026-10-13 steer 版):cancelled 不入 SSE 终态处理 → sending 不清。steer 架构下
+// 运行中补充已实时落库(不再前端排队),cancelled 终态只需正确收尾——补充消息上屏不消失、
+// 无任何「出队」副作用(旧队列机制已退役为 legacy 兼容层)。
+test('SSE status:cancelled → steer 补充已落库不死,终态正确收尾(跨实例取消)', async () => {
   api.conversations.get.mockResolvedValue({
     id: 'conv-1', status: 'running', content: '', trace: '[]', steps: 1, recap: '',
     messages: [{ id: 'm1', role: 'user', content: '第一问', createdAt: 1 }],
   })
+  api.conversations.steer.mockResolvedValue({ messageId: 'sm-c' })
   api.conversations.append.mockResolvedValue({ references: [] })
   const w = await mountChat({ conversationId: 'conv-1', activeConversationId: 'conv-1' })
   await flushPromises()
   const es = FakeEventSource.instances.at(-1)
   expect(es).toBeTruthy()
 
-  // 运行中追加:入队上屏 chip,不触 append
-  await w.find('textarea').setValue('排队消息')
+  // 运行中补充:走 steer(落库+上屏),不触 append
+  await w.find('textarea').setValue('取消前的补充')
   await w.find('textarea').trigger('keydown', { key: 'Enter', keyCode: 13 })
   await flushPromises()
+  expect(api.conversations.steer).toHaveBeenCalledTimes(1)
   expect(api.conversations.append).not.toHaveBeenCalled()
-  expect(w.find('[data-testid="queue-panel"]').exists()).toBe(true)
+  expect(w.text()).toContain('取消前的补充')
 
-  // 另一实例取消 → 本实例 SSE 收到 status:cancelled → 终态 + drainQueue → send/append
+  // 另一实例取消 → 本实例 SSE 收到 status:cancelled → 终态收尾(sending 清),补充消息仍在屏
   es.emit({ type: 'status', status: 'cancelled' })
   await flushPromises()
-  await flushPromises() // drainQueue 走 nextTick(send)
-
-  expect(api.conversations.append).toHaveBeenCalledTimes(1)
-  expect(api.conversations.append.mock.calls[0][1].message).toBe('排队消息')
-  expect(w.find('[data-testid="queue-panel"]').exists()).toBe(false)
+  expect(w.vm.sending).toBe(false)
+  expect(w.text()).toContain('取消前的补充', 'steer 消息已落库,不随终态消失')
+  expect(w.find('[data-testid="queue-panel"]').exists(), '无队列残留概念').toBe(false)
+  expect(api.conversations.append).not.toHaveBeenCalled()
 })
 
 // contracts-03:审批被他端决策(另一实例 approve/deny)后,本实例的审批 modal 不消失、
@@ -368,7 +370,8 @@ test('SSE:审批被他端决策(running/done)→ 本实例 modal 消失、输入
   es.emit({ type: 'approval', pending: { toolCallId: 'tc1', name: 'wb_exec', args: { command: 'ls' } } })
   await flushPromises()
   expect(w.find('[data-testid="modal"]').exists()).toBe(true)
-  expect(w.find('textarea').attributes('disabled')).toBeDefined()
+  // steer(2026-10-13 spec D5/D7):textarea 恒可打字(审批等待=补充上下文窗口)
+  expect(w.find('textarea').attributes('disabled')).toBeUndefined()
 
   // 另一实例批准 → resume running:modal 撤下、输入解禁
   es.emit({ type: 'status', status: 'running' })

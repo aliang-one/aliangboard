@@ -1407,3 +1407,35 @@ test('routeDynamicApproval:{{cred: 占位符恒人审——免审 SSH 服务器�
   assert.equal(await routeDynamicApproval('wb_exec', { command: 'ls' }, laxSsh, null, null), true, '无占位符走既有兜底人审')
   assert.equal(await routeDynamicApproval('wb_exec', { command: '{{cred:reg#password}}' }, null, null, null), true, '无桥也人审(fail-closed)')
 })
+
+// ── steer(spec D2,2026-10-13):run/resume 均装配 pollSteer 闭包,按 watermark 吸收
+// steered 行,注入即推进(幂等),广播 steer_consumed。resume 新闭包 watermark 重置,
+// paused 期间的 steer 首轮吸收、不与快照重复。──
+test('runConversation: pollSteer 闭包按 watermark 吸收 steered 行 + steer_consumed + 幂等', async () => {
+  const s = setup()
+  const agent = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async () => ({ content: 'ok' })), busEmit: s.busEmit, busDispose: s.busDispose })
+  await agent.runConversation(s.conv.id, { chat: async () => ({}) })
+  const pollSteer = s.capturedRunOpts().pollSteer
+  assert.equal(typeof pollSteer, 'function')
+  appendMessage(s.db, { conversationId: s.conv.id, role: 'user', content: '补充X', steered: 1 })
+  assert.deepEqual(pollSteer(), [{ role: 'user', content: '补充X' }])
+  assert.deepEqual(pollSteer(), [])                       // watermark 已推进
+  assert.ok(s.events.some(e => e.type === 'steer_consumed'))
+})
+
+test('C1 回归:paused 期间 steer → approve 续跑首轮吸收(真序列,spec D5)', async () => {
+  const s = setup()
+  // 第一段:run 触发审批暂停(handleAgentResult 落快照 + steerWatermark)
+  const pending = { toolCallId: 'tc1', name: 'apply', args: {} }
+  const agent = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async () => ({
+    status: 'pending_approval', pending, messages: [{ role: 'assistant', content: '审批' }], queue: [], denied: [], steps: 1,
+  })), busEmit: s.busEmit, busDispose: s.busDispose })
+  await agent.runConversation(s.conv.id, { chat: async () => ({}) })
+  assert.equal(getConversation(s.db, s.conv.id).status, 'paused')
+  // paused 期间:用户 steer 落库(与 Task 1 端点同款形状)
+  appendMessage(s.db, { conversationId: s.conv.id, role: 'user', content: '审批期间补充', steered: 1 })
+  // approve 续跑:resume 的 watermark 必须锚定「暂停时」而非「此刻」——否则该行永不吸收
+  const agent2 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async () => ({ status: 'done', content: '已执行', trace: [], steps: 2, messages: [], queue: [], denied: [] })), busEmit: s.busEmit, busDispose: s.busDispose })
+  await agent2.resumeConversation(s.conv.id, true, { chat: async () => ({}) })
+  assert.deepEqual(s.capturedRunOpts().pollSteer(), [{ role: 'user', content: '审批期间补充' }])
+})

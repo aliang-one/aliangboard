@@ -165,7 +165,7 @@ export function trimMessages(messages, budget = DEFAULT_BUDGET_CHARS) {
   return { messages: out, truncated: true }
 }
 
-export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, shouldAbort, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS, retryDelays, retryBudgetMs, sleepFn, waitSliceMs = 1000 }) {
+export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () => false, shouldAbort, maxSteps = MAX_STEPS, budgetChars = DEFAULT_BUDGET_CHARS, retryDelays, retryBudgetMs, sleepFn, waitSliceMs = 1000, pollSteer }) {
   // chat: async (messages, toolDefs) => assistantMessage {role, content, tool_calls?}
   // toolDefs: LLM 工具定义(OpenAI tools 格式)
   // execTool: async (name, args) => 结果(string 或对象,转字符串喂回 LLM)
@@ -363,6 +363,14 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       // 任何后续 chat——含收尾轮(纯生成无工具,虽无副作用但结果注定被丢弃,省一次调用)。
       // 在途 LLM 流本身不可中断属已知边界,此处拦的是「下一轮」。
       if (shouldAbort && await shouldAbort()) throw new Error('对话已取消,中止工具执行')
+      // steer(spec D2,2026-10-13):每轮 chat 前吸收运行中补充(先于 stepCap 判定——收尾轮
+      // 同样吃到注入,否则临上限补充静默丢失)。与 refreshSystem 同排、trim 之前:注入体积
+      // 计入预算(计量缺陷A「先注入再裁」)。resume 同钩子首轮即吸收 paused 期间的补充
+      // (新闭包 watermark 重置,快照已含行 seq<watermark 不重复注入)。
+      if (pollSteer) {
+        const steered = await pollSteer()
+        if (steered?.length) messages.push(...steered)
+      }
       if (steps >= stepCap) {
         // 收尾轮(2026-09-03):到上限不再硬断——注入系统收尾指令、不带工具,强制基于已有信息终答。
         // truncated 仍 true:前端据此亮「已达步数上限」标;每 run 至多一次(极端二次到顶走旧兜底文案)。
