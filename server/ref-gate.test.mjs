@@ -122,7 +122,7 @@ function convHarness(db, { userId, role }) {
   const sent = []
   db.exec(`CREATE TABLE workbench_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, clusterId TEXT NOT NULL, ownerId TEXT NOT NULL, createdAt INTEGER NOT NULL, activeConversationId TEXT, projectRecap TEXT, historyWatermark INTEGER DEFAULT 0, repoRoot TEXT DEFAULT NULL)`)
   db.exec(`CREATE TABLE workbench_conversations (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', steps INTEGER DEFAULT 0, title TEXT, userMessage TEXT, error TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingApproval TEXT, messages TEXT, queue TEXT, denied TEXT, "references" TEXT, system TEXT DEFAULT '', content TEXT DEFAULT '', reasoning TEXT DEFAULT '', trace TEXT DEFAULT '[]', recap TEXT, summarizedUpTo INTEGER)`)
-  db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER, id TEXT PRIMARY KEY, role TEXT, content TEXT, refs TEXT, reasoning TEXT, trace TEXT, createdAt INTEGER)`)
+  db.exec(`CREATE TABLE workbench_messages (conversationId TEXT, seq INTEGER, id TEXT PRIMARY KEY, role TEXT, content TEXT, refs TEXT, reasoning TEXT, trace TEXT, steered INTEGER, createdAt INTEGER)`)
   db.exec(`CREATE TABLE platform_settings (key TEXT PRIMARY KEY, value TEXT)`)
   db.prepare(`INSERT INTO workbench_projects (id,name,clusterId,ownerId,createdAt) VALUES ('p1','proj','c1','u1',1)`).run()
   const k8sPaths = []
