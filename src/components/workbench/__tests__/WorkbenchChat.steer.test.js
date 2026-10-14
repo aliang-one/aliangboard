@@ -87,6 +87,21 @@ test('运行中回车:调 steer、user turn 上屏带徽标、input 清空、不
   w.unmount()
 })
 
+test('SSE steer_ack 先于 POST 响应到达:不双插(双路竞态)', async () => {
+  const w = await mountRunning()
+  let resolvePost
+  api.conversations.steer.mockImplementation(() => new Promise(r => { resolvePost = r }))
+  await w.find('textarea').setValue('先到的补充')
+  await w.find('textarea').trigger('keydown', { key: 'Enter', keyCode: 13 })
+  await flushPromises()
+  es().emit({ type: 'steer_ack', messageId: 'sm-r', content: '先到的补充', refs: null }) // SSE 帧先处理
+  await flushPromises()
+  resolvePost({ messageId: 'sm-r' })      // POST 响应后到
+  await flushPromises()
+  expect(w.findAll('p').filter(x => x.text().includes('先到的补充'))).toHaveLength(1)
+  w.unmount()
+})
+
 test('steer_ack 他端到达:同 messageId 去重,新 messageId 插屏', async () => {
   const w = await mountRunning()
   api.conversations.steer.mockResolvedValue({ messageId: 'sm-1' })

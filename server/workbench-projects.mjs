@@ -83,6 +83,9 @@ export function createConversationsSchema(db) {
   try { db.exec('ALTER TABLE workbench_messages ADD COLUMN reasoning TEXT') } catch { /* 列已存在 */ }
   // steer(2026-10-13 spec D4):运行中注入的 user 行标记——pollSteer 增量查询过滤 + 前端徽标。
   try { db.exec('ALTER TABLE workbench_messages ADD COLUMN steered INTEGER') } catch { /* 列已存在 */ }
+  // steer(final review C1):暂停时锚定的 watermark——resume 读它而非现算 maxSeq,否则
+  // paused 期间落库的 steer 行 seq ≤ 现 maxSeq,续跑首轮永不吸收(spec D5 头条场景)。
+  try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN steerWatermark INTEGER') } catch { /* 列已存在 */ }
 }
 
 export function createConversation(db, { projectId, system, userMessage, references }) {

@@ -113,7 +113,7 @@ const CK_TIME_MS = 500
   // tracker(R1):reasoning 与 content 同源同命运——终态/暂停一并落库,thinking 不再只活在 SSE。
   // traceJson(2026-08-25):本轮工具事件序列(已 JSON 串)。此前落 out.trace——runner 返回里
   // 根本没有该字段,恒为 "[]" → 前端重建历史时 ToolTrace 全不渲染(「聊天结束后看不到工具调用」)。
-  function handleAgentResult(convId, project, out, tracker, traceJson) {
+  function handleAgentResult(convId, project, out, tracker, traceJson, steerWatermark) {
     // EXISTENCE 守卫(终审 I5):对话行已被删(DELETE 项目/对话)时,run 的 cancelled 守卫
     // (getConversation(id)?.status === 'cancelled')读到 undefined 而放行,这里若不拦会把
     // 终态/消息/项目历史写进孤儿行——被删的数据「复活」一半,且 project.id 可能已不存在。
@@ -130,6 +130,9 @@ const CK_TIME_MS = 500
         // pending_approval 状态进入),展开保载荷原字段,clusterId 恒为 string('' = 未绑)。
         pendingApproval: JSON.stringify({ ...out.pending, clusterId: project.clusterId }),
         steps: out.steps,
+        // steer(final review C1,2026-10-14):锚定「暂停时」watermark——resume 以此为起点吸收
+        // 审批等待期落库的补充;若 resume 现算 maxSeq,paused 期 steer 行恒 ≤ watermark 永不吸收。
+        steerWatermark: steerWatermark ?? 0,
       }
       // paused 顺手落检查点:<200 字的 content/reasoning 尾巴此时不写,重启/resume 就丢
       if (tracker) { patch.content = tracker.partial(); patch.reasoning = readFinalReasoning(tracker) }
@@ -466,7 +469,7 @@ const CK_TIME_MS = 500
         busDispose(convId)
         return
       }
-      handleAgentResult(convId, project, out, tracker, JSON.stringify(turnTrace))
+      handleAgentResult(convId, project, out, tracker, JSON.stringify(turnTrace), steerWatermark)
       finalizeConvEmit(convId, out)
       // gap2-04(2026-09-07 审计批次三):摘要 fire 不再静默吞错——内层 catch 已落日志,此处兜
       // detached reject(不吞=未捕获 rejection 杀进程;只记不阻对话)。
@@ -569,9 +572,10 @@ const CK_TIME_MS = 500
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
       // 以免把终态改写成 failed 吞掉已完成答案)。
       if (!pending) { busEmit(convId, { type: 'end' }); busDispose(convId); return }
-      // steer(spec D2):同 runConversation 的轮间注入闭包——resume 新闭包 watermark 重置,
-      // paused 期间 steer 的行在续跑首轮 chat 前吸收(快照已含行 seq<watermark,不重复注入)。
-      let steerWatermark = getMaxSeq(db, convId)
+      // steer(spec D2 + final review C1):同 runConversation 的轮间注入闭包——watermark 读
+      // 「暂停时锚定值」(handleAgentResult 落库),使审批等待期落库的补充在续跑首轮被吸收;
+      // 旧 paused 行无锚(列迁移前)回退现算,行为与迁移前一致(不吸收,行仍在历史不丢)。
+      let steerWatermark = conv.steerWatermark ?? getMaxSeq(db, convId)
       const pollSteer = () => {
         const rows = db.prepare("SELECT id,content,seq FROM workbench_messages WHERE conversationId=? AND seq>? AND role='user' AND steered=1 ORDER BY seq ASC").all(convId, steerWatermark)
         if (!rows.length) return []

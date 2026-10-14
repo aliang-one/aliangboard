@@ -1302,7 +1302,10 @@ async function sendSteer(msg) {
 
 // steer 上屏:插到当前 thinking turn 之后(补充发生在回答生成中,AI 下一轮吸收);
 // 无 thinking turn(终态边界/他端已收流)push 尾部——消息永不丢(Review Focus #2)。
+// messageId 查重(final review #2):SSE steer_ack 帧与 POST 响应两路到达顺序不定,
+// 谁先谁插屏、后到者丢弃(同一条补充永不双份)。
 function insertSteerTurn({ messageId, content, refs: turnRefs }) {
+  if (messageId && turns.value.some(t => t.messageId === messageId)) return
   const turn = { _id: ++turnSeq, role: 'user', content, refs: turnRefs?.length ? [...turnRefs] : undefined, messageId, steered: 1, steerRead: false }
   const at = activeAgentTurn()
   if (at) {
