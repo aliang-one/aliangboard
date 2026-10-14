@@ -452,6 +452,13 @@ function onChatScroll() { showJumpBtn.value = !isNearBottom() }
 watch(input, v => setDraft(conversationId.value || 'new', v))
 
 // --- 异步轮询 ---
+// METER-2 根治(spec D8,2026-10-13):轮次令牌——pollOnce 发起时捕获,续体不等即整包丢弃。
+// 旧缺陷:终态事件补发的 GET(网络慢)晚于用户手动续发的新轮到达,done 分支无条件
+// sending=false + convStatus 覆写 → 新轮运行态被击穿、后续输入直发撞 400 busy(审计 P0,
+// 两位验证者以生产时序探针实证)。++ 于每个「成功开启新轮」的点(sendNew append/create、
+// edit、regenerate、decideApproval 续跑);steer 不开新 run(不 ++)。
+// 注:声明必须在 pollOnce 首次调用(watch immediate 同步触发)之前,否则 TDZ。
+let pollEpoch = 0
 function stopPolling() { if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null } }
 
 // 对话初载(R2,2026-08-19):此前 watch 里单发 pollOnce + catch 静默——瞬时网络错误下
@@ -627,8 +634,10 @@ function tryParseTrace(raw) {
 }
 
 async function pollOnce(id) {
+  const epoch = pollEpoch
   try {
     const conv = await workbenchApi.conversations.get(id)
+    if (epoch !== pollEpoch) return   // METER-2:陈旧响应——发起后本端已开启新轮,整包丢弃
     convStatus.value = conv.status
     // 上下文余量(Task 3 口径):服务端每轮下发 estTokens/windowTokens/recapUpTo/willTrim
     if (conv.context) ctxInfo.value = conv.context
@@ -1011,6 +1020,7 @@ async function regenerate() {
     conversationId.value = id
     convStatus.value = 'running'
     sending.value = true
+    pollEpoch++ // D8:regenerate 新轮开启
     await scrollToBottom()
     startStreaming(id)
   } catch (e) {
@@ -1097,6 +1107,7 @@ async function cancelPaused() {
 // 故排队在前端完成:运行中发送 → 入队上屏 chip(可删) → watch convStatus 终态 → 出队走正常 send()。
 // sessionStorage 按 conversationId 持久化:悬浮窗关闭重开/工作台切对话都会重挂载组件(key 绑定),
 // 内存队列会丢——恢复后若对话已终态,由 loadConversation 末尾触发 drain。
+// steer(2026-10-13)注:运行中发送已改走 steer 实时注入;本队列退役为 legacy 兼容层(见 loadQueue)。
 const queued = ref([])
 const queueKey = id => `wb-chat-queue:${id}`
 function saveQueue() {
@@ -1164,6 +1175,7 @@ async function send() {
       resetInput()
       conversationId.value = props.activeConversationId
       convStatus.value = 'running'
+      pollEpoch++ // D8:编辑重发新轮开启
       if (resp?.context) ctxInfo.value = resp.context
       await scrollToBottom()
       startStreaming(props.activeConversationId)
@@ -1215,6 +1227,7 @@ async function sendNew(msg) {
       if (unmounted) return // P0(C):await 期间被卸载(切对话/关 Modal)——不再碰已死组件
       conversationId.value = props.activeConversationId
       convStatus.value = 'running'
+      pollEpoch++ // D8:新轮开启,作废在途 pollOnce(METER-2 陈旧响应根治)
       netLost.value = false; pollFailStreak = 0   // POST 成功 = 网络已活,熄断连横幅(免得残留到下次轮询)
       // contracts-09(2026-09-07 审计批次三):响应回带 user 消息行 id——乐观 turn 改持之,
       // 发送后本会话内即可编辑(旧实现恒 null,要等刷新重建才有 id;pollOnce 见 turns 非空不重建)。
@@ -1235,6 +1248,7 @@ async function sendNew(msg) {
       if (!id) throw new Error(t('workbench.chat.agentFailed'))
       conversationId.value = id
       convStatus.value = 'running'
+      pollEpoch++ // D8:新轮开启(create 路径同 append)
       netLost.value = false; pollFailStreak = 0   // 同上:POST 成功即网络已活
       // contracts-09:同 append 分支,create 响应亦回带首条 user 行 id。
       if (resp?.messageId) updateTurn(userId, { messageId: resp.messageId })
@@ -1328,6 +1342,7 @@ async function decideApproval(approved, remember = false) {
     }
     convStatus.value = 'running'
     lastApproval.value = null   // 审批已消费:黄条重开入口下线
+    pollEpoch++ // D8:approve/deny 续跑新轮开启
     if (pa.turnId) updateTurn(pa.turnId, { status: 'thinking' })
     startStreaming(id)
   } catch (e) {

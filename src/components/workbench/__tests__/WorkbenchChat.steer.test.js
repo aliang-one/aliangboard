@@ -163,3 +163,38 @@ test('刷新重建:steered 行带徽标(pollOnce 重建路径)', async () => {
   expect(w.text()).toContain('已注入运行中的对话')
   w.unmount()
 })
+
+// ── METER-2 根治(spec D8,审计 P0 回归):deferred GET 生产时序 ──
+// 审计实证:mockResolvedValue 塌缩异步边界测不出该 P0——必须手动延迟旧 GET 的返回,
+// 复刻「终态事件补发的 GET(网络慢)晚于用户新轮到达」的真实次序。
+function runningConvDone() {
+  const c = runningConv(); c.status = 'done'; c.content = '第一答'
+  c.messages = [
+    { id: 'm1', role: 'user', content: '第一问', refs: null },
+    { id: 'm2', role: 'assistant', content: '第一答', trace: '[]' },
+  ]
+  return c
+}
+test('METER-2 P0 回归:终态迟到 GET 不击穿新轮 running/convStatus', async () => {
+  const w = await mountRunning()          // running + SSE(FakeEventSource)
+  // 终态事件 → 终态处理器无条件补发 pollOnce(deferred,模拟网络慢)
+  let resolveGet
+  api.conversations.get.mockImplementation(() => new Promise(r => { resolveGet = r }))
+  es().emit({ type: 'status', status: 'done' })
+  await flushPromises()
+  // 用户立即手发新消息(append 成功 = 新轮开启,pollEpoch++)
+  api.conversations.append.mockResolvedValue({ messageId: 'am-2' })
+  await typeAndEnter(w, '新问题')
+  await flushPromises()
+  expect(w.vm.sending).toBe(true)         // 新轮运行态
+  expect(w.vm.convStatus).toBe('running')
+  // 旧 GET(done 快照)此刻才返回——修复前:done 分支无条件 sending=false + convStatus 覆写 done
+  resolveGet(runningConvDone())
+  await flushPromises()
+  await vi.advanceTimersByTimeAsync(0)
+  await flushPromises()
+  expect(w.vm.sending, '陈旧 GET 不击穿新轮运行态').toBe(true)
+  expect(w.vm.convStatus, 'convStatus 不被旧快照覆写').toBe('running')
+  expect(w.vm.errorBanner).toBe('')
+  w.unmount()
+})
