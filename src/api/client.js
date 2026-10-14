@@ -316,6 +316,7 @@ export const workbenchApi = {
   conversations: {
     create: (payload) => platformHttp.request('/api/workbench/conversations', { method: 'POST', body: JSON.stringify(payload) }),
     append: (id, { message, references }) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, references }) }),
+    steer: (id, { message, references }) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}/steer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, references }) }),
     get: (id) => platformHttp.request(`/api/workbench/conversations/${encodeURIComponent(id)}`),
     list: (projectId) => platformHttp.request(`/api/workbench/conversations?projectId=${encodeURIComponent(projectId)}`),
     // v2(2026-09-12 credential-adapters):body {remember:true} = 批准并落 grants(适配器只读

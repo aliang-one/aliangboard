@@ -4079,6 +4079,8 @@
       "editCancel": "取消编辑",
       "queueHint": "已排队，将在本轮回答结束后自动发送",
       "queueRemove": "移除排队消息",
+      "steerBadge": "已注入运行中的对话",
+      "steerBadgeRead": "AI 已读取该补充",
       "approvalMode": {
         "tooltip": "AI 工具审批模式(影响需人工确认的工具范围;读类工具本就免审)",
         "ask": "每项确认",

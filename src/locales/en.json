@@ -4079,6 +4079,8 @@
       "editCancel": "Cancel edit",
       "queueHint": "Queued — will be sent automatically after the current reply finishes",
       "queueRemove": "Remove queued message",
+      "steerBadge": "Injected into the running chat",
+      "steerBadgeRead": "AI has read this supplement",
       "approvalMode": {
         "tooltip": "AI tool approval mode (scope of tools needing manual confirmation; read-only tools are always exempt)",
         "ask": "Confirm each",

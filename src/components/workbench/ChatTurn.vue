@@ -253,6 +253,12 @@ function onRootClick(e) {
 
     <!-- USER:圆角气泡带(refs+文本),与 agent 文本同左缘(px-md 对齐) -->
     <div v-if="turn.role === 'user'" class="mx-md rounded-xl bg-primary/[0.06] border border-primary/15 px-md py-sm flex flex-col gap-xs">
+      <!-- steer 徽标(spec D7,2026-10-13):运行中注入的补充——bolt=已注入(等 run 轮间吸收),
+           task_alt=steer_consumed(AI 已读到)。颜色沿 token,不引新色阶 -->
+      <span v-if="turn.steered" data-testid="steer-badge" class="flex items-center gap-xs text-body-xs self-start" :class="turn.steerRead ? 'text-primary' : 'text-on-surface-variant/70'">
+        <span class="material-symbols-outlined text-sm">{{ turn.steerRead ? 'task_alt' : 'bolt' }}</span>
+        {{ turn.steerRead ? t('workbench.chat.steerBadgeRead') : t('workbench.chat.steerBadge') }}
+      </span>
       <div v-if="turn.refs && turn.refs.length" class="flex flex-col gap-xs">
         <template v-for="(r, i) in turn.refs" :key="i">
           <ResourceCard v-if="r.resource" :resource="r.resource" :source-cluster="refSourceLabel(r)" />

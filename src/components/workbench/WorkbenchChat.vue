@@ -662,7 +662,7 @@ async function pollOnce(id) {
         const terminalFailed = conv.status === 'failed' || conv.status === 'cancelled'
         for (const m of msgs) {
           if (m.role === 'user') {
-            turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs), messageId: m.id })
+            turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs), messageId: m.id, steered: m.steered ? 1 : 0, steerRead: false })
           } else {
             // R1(2026-08-19):assistant 消息带消息级 reasoning(服务端已持久化),刷新后 thinking 可回看。
             // 存量尾巴自愈(2026-09-06):轮未完成落库的消息(失败/取消/硬断)已流出文本只在
@@ -908,6 +908,18 @@ function startStreaming(id) {
       lastApproval.value = null
       pendingApproval.value = null
     }
+    // steer(spec D7,2026-10-13):运行中补充落库广播——本端发送已上屏的按 messageId 去重;
+    // 他端/双实例插屏(插到 thinking turn 后)。steer_consumed:run 循环已吸收 → 徽标翻「AI 已读取」。
+    if (evt.type === 'steer_ack' && evt.messageId) {
+      if (!turns.value.some(t => t.messageId === evt.messageId)) {
+        insertSteerTurn({ messageId: evt.messageId, content: evt.content || '', refs: parseRefs(evt.refs) })
+        followBottom()
+      }
+    }
+    if (evt.type === 'steer_consumed' && Array.isArray(evt.messageIds)) {
+      const ids = new Set(evt.messageIds)
+      for (const t of turns.value) if (t.steered && t.messageId && ids.has(t.messageId)) t.steerRead = true
+    }
     // 终态:关流;failed 同步亮顶部横幅(与轮询降级路径对齐——此前 SSE 路径只写 turn 内小红块)。
     // 事件到达本身证明连接活着 → 熄 netLost(终态后轮询/看门狗即停,不清则横幅永久残留)
     // contracts-01:cancelled 同入终态处理——sending 不清则 drainQueue 的 sending 守卫恒拦,
@@ -1121,10 +1133,9 @@ async function send() {
   const msg = input.value.trim()
   errorBanner.value = ''
   if (!msg) return
-  // 运行中不拒发——入队,本轮回答结束自动发出(2026-09-03:旧实现静默 return,Workspace 里
-  // 输入框全程可打字但回车石沉大海;悬浮窗重挂载后 sending=false 误放行,服务端 400 打回)
-  if (sending.value) { queueMessage(msg); resetInput(); return }
-  // 编辑重发分支(spec §3.3):编辑态发送走 edit 端点(服务端截断锚之后重跑),本地就地截断+新轮
+  // 编辑重发分支(spec §3.3):编辑态发送走 edit 端点(服务端截断锚之后重跑),本地就地截断+新轮。
+  // 位于 steer 分支之前:running 中 editing 不可达(startEdit 有 sending 防线),paused 挂载后的
+  // 编辑态发送尊重编辑;顺序重排对既有路径零行为变化。
   if (editing.value && props.activeConversationId) {
     const ed = editing.value
     const refsSnapshot = [...refs.value]
@@ -1162,6 +1173,10 @@ async function send() {
     }
     return
   }
+  // ── steer(spec D7,2026-10-13):运行中/待审批实时补充——落库即上屏,run 循环下一轮
+  // 吸收(spec D2/D3)。判定含 paused:挂载恢复的 paused 对话 sending 未置位,漏判会把
+  // 补充错走 append 撞服务端 400 busy。409 终态竞态在 sendSteer 内自动降级。
+  if (sending.value || convStatus.value === 'paused') { await sendSteer(msg); return }
   // 「历史被顶掉」防线(2026-08-25):对话存在但从未成功加载(网关抖动→loadFailed 空态)时,
   // 直接发消息会让本地 turns 只剩本轮——观感即"历史全消失"。先补一次加载,仍失败则拦下发。
   if (conversationId.value && !turns.value.length) {
@@ -1171,6 +1186,12 @@ async function send() {
       return
     }
   }
+  await sendNew(msg)
+}
+
+// 普通发送主干(乐观 turns + append/create + P0(B) 失败回滚):send() 编辑/steer 分支之外
+// 的原路径;sendSteer 的 409 降级复用(此时服务端已终态,直接走新轮)。
+async function sendNew(msg) {
   const userId = ++turnSeq
   const agentId = ++turnSeq
   const refsSnapshot = refs.value.length ? [...refs.value] : null // P0(B):失败回滚用
@@ -1236,6 +1257,50 @@ async function send() {
     errorBanner.value = e.message || t('workbench.chat.agentFailed')
     sending.value = false
   }
+}
+
+// ── steer(spec D7,2026-10-13):运行中/待审批实时补充——落库即上屏,run 循环下一轮
+// 吸收(spec D2/D3,生效边界=下一 LLM 轮)。409 steerFinished(终态竞态:run 在回车瞬间
+// 结束)自动降级普通 append 一次;其余失败 input/refs 不动(字不丢),亮横幅。
+async function sendSteer(msg) {
+  const id = props.activeConversationId || conversationId.value
+  if (!id) { errorBanner.value = t('workbench.chat.agentFailed'); return } // 新建对话在途窗口无 steer 目标(sending 分支本不该无 id),保守拦截
+  const refsSnapshot = refs.value.length ? [...refs.value] : []
+  try {
+    const resp = await workbenchApi.conversations.steer(id, {
+      message: msg,
+      references: refsSnapshot.map(r => ({ kind: r.kind, namespace: r.namespace, name: r.name })),
+    })
+    if (unmounted) return
+    refs.value = []
+    resetInput()
+    insertSteerTurn({ messageId: resp?.messageId || null, content: msg, refs: refsSnapshot })
+    if (Array.isArray(resp?.references) && resp.references.length) {
+      const ut = turns.value.find(x => x.messageId === resp?.messageId)
+      if (ut?.refs) pairRefResources(ut.refs, resp.references)
+    }
+    await scrollToBottom()
+  } catch (e) {
+    if (unmounted) return
+    if (e?.status === 409) {
+      // 终态竞态:服务端已结束——降级普通发送一次(input/refs 原样在,sendNew 自行清理)
+      sending.value = false
+      await sendNew(msg)
+      return
+    }
+    errorBanner.value = e.message || t('workbench.chat.agentFailed')
+  }
+}
+
+// steer 上屏:插到当前 thinking turn 之后(补充发生在回答生成中,AI 下一轮吸收);
+// 无 thinking turn(终态边界/他端已收流)push 尾部——消息永不丢(Review Focus #2)。
+function insertSteerTurn({ messageId, content, refs: turnRefs }) {
+  const turn = { _id: ++turnSeq, role: 'user', content, refs: turnRefs?.length ? [...turnRefs] : undefined, messageId, steered: 1, steerRead: false }
+  const at = activeAgentTurn()
+  if (at) {
+    const i = turns.value.findIndex(t => t._id === at._id)
+    turns.value.splice(i + 1, 0, turn)
+  } else turns.value.push(turn)
 }
 
 async function decideApproval(approved, remember = false) {
@@ -1520,14 +1585,16 @@ function useHint(h) { input.value = h }
       <!-- Input + search dropdown -->
       <div class="relative">
         <div class="flex items-end gap-sm bg-surface-container-low border border-outline-variant rounded-2xl px-md py-sm focus-within:border-primary/40 transition-colors">
-          <textarea ref="taEl" v-model="input" @keydown="onKeydown" @input="autoGrow" :disabled="!!pendingApproval || convStatus === 'paused'" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
+          <!-- textarea 恒可打字(steer spec D5/D7,2026-10-13):运行中/审批等待均可实时补充——
+               旧 disabled(!!pendingApproval || paused)双锁死,审批期间无法补上下文 -->
+          <textarea ref="taEl" v-model="input" @keydown="onKeydown" @input="autoGrow" rows="1" :placeholder="t('workbench.chat.userMessage')" class="flex-1 bg-transparent resize-none outline-none text-body-sm leading-relaxed max-h-32"></textarea>
           <!-- 运行中:发送键变停止键(输错→停止→修改重发);等待审批时不显示。
                手机 40px 触控高(2026-09-09 Wave5 B7):桌面保持 w-8 h-8,手机档 min 尺寸接管 -->
           <button v-if="sending && conversationId && !pendingApproval" @click="stopRun" :title="t('workbench.chat.stop')"
             class="shrink-0 w-8 h-8 flex items-center justify-center border border-error/40 text-error rounded-xl hover:bg-error/10 transition-colors max-sm:min-h-[40px] max-sm:min-w-[40px]">
             <span class="material-symbols-outlined text-base">stop</span>
           </button>
-          <button v-else @click="send" :disabled="sending || !input.trim() || !!pendingApproval || convStatus === 'paused'" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity max-sm:min-h-[40px] max-sm:min-w-[40px]">
+          <button v-else @click="send" :disabled="!input.trim()" class="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-xl disabled:opacity-30 hover:opacity-90 transition-opacity max-sm:min-h-[40px] max-sm:min-w-[40px]">
             <span class="material-symbols-outlined text-base">send</span>
           </button>
         </div>

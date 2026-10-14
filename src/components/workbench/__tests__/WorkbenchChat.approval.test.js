@@ -156,7 +156,8 @@ test('审批被他端决策:pollOnce 对齐 done → modal 消失、输入解禁
     toolCallId: 't-xdec', name: 'wb_exec',
     args: { namespace: 'default', pod: 'nginx-1', command: 'ls' },
   })
-  expect(w.find('textarea').attributes('disabled'), '审批期间输入禁用').toBeDefined()
+  // steer(2026-10-13 spec D5/D7):textarea 恒可打字——审批等待是补充上下文的黄金窗口
+  expect(w.find('textarea').attributes('disabled'), '审批期间输入保持可用(steer 补充通道)').toBeUndefined()
 
   // 另一实例决策完毕 → 本实例下一次 pollOnce 对齐 done
   api.conversations.get.mockResolvedValue({
@@ -166,7 +167,7 @@ test('审批被他端决策:pollOnce 对齐 done → modal 消失、输入解禁
   await flushPromises()
 
   expect(w.find('[data-testid="approval-approve"]').exists(), '过期 modal 撤下').toBe(false)
-  expect(w.find('textarea').attributes('disabled'), '输入解禁').toBeUndefined()
+  expect(w.find('textarea').attributes('disabled'), '输入恒可用(steer 后无禁用键)').toBeUndefined()
 })
 
 // approval-flow-01:wb_ssh_job_write 应答此前无渲染分支——人只看到工具名+批准钮,往哪个任务
@@ -267,7 +268,8 @@ test('他端 approve 后运行中:pollOnce 对齐 running → 过期 modal 撤�
     toolCallId: 't-xrun', name: 'wb_exec',
     args: { namespace: 'default', pod: 'nginx-1', command: 'ls' },
   })
-  expect(w.find('textarea').attributes('disabled'), '审批期间输入禁用').toBeDefined()
+  // steer(2026-10-13 spec D5/D7):textarea 恒可打字
+  expect(w.find('textarea').attributes('disabled'), '审批期间输入保持可用(steer 补充通道)').toBeUndefined()
 
   // 另一实例批准完毕 → 本实例(轮询通路)下一次 pollOnce 对齐 running
   api.conversations.get.mockResolvedValue({
@@ -277,7 +279,7 @@ test('他端 approve 后运行中:pollOnce 对齐 running → 过期 modal 撤�
   await flushPromises()
 
   expect(w.find('[data-testid="approval-approve"]').exists(), '运行中过期 modal 撤下').toBe(false)
-  expect(w.find('textarea').attributes('disabled'), '输入解禁(禁用键= pendingApproval/paused)').toBeUndefined()
+  expect(w.find('textarea').attributes('disabled'), '输入恒可用(steer 后无禁用键)').toBeUndefined()
 })
 
 // ── 2026-09-07 审计批次三(PT5):approval-flow-02 + frontend-chat-09 残余 ──
@@ -290,7 +292,8 @@ test('approval-flow-02:paused 状态栏露出「取消会话」,点击调 cancel
     toolCallId: 't-cancel', name: 'wb_exec',
     args: { namespace: 'default', pod: 'nginx-1', command: 'ls' },
   })
-  expect(w.find('textarea').attributes('disabled'), '审批期间输入禁用').toBeDefined()
+  // steer(2026-10-13 spec D5/D7):textarea 恒可打字
+  expect(w.find('textarea').attributes('disabled'), '审批期间输入保持可用(steer 补充通道)').toBeUndefined()
   const btn = w.find('[data-testid="cancel-paused-btn"]')
   expect(btn.exists(), 'paused 有取消入口').toBe(true)
   expect(btn.text()).toContain(zh.workbench.chat.cancelPaused)
@@ -322,7 +325,7 @@ test('approval-flow-02:approve 400(LLM 未配置)→ 横幅亮明确文案 + mod
   expect(w.vm.errorBanner).toContain('LLM 未配置', '横幅亮服务端明确文案(不再静默)')
   expect(w.find('[data-testid="approval-approve"]').exists(), 'modal 恢复(配置恢复后可重试/可拒绝)').toBe(true)
   expect(w.vm.lastApproval, '黄条重开入口保留').toBeTruthy()
-  expect(w.find('textarea').attributes('disabled'), '仍 paused:输入保持禁用').toBeDefined()
+  expect(w.find('textarea').attributes('disabled'), '仍 paused:输入保持可用(steer 补充通道)').toBeUndefined()
 })
 
 // approval-flow-02 续:deny 响应可能直接终态 failed(无 LLM 配置:决策受理、无法续跑)——
