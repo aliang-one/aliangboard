@@ -162,6 +162,25 @@ test('B5①: editing 拦下的出队在 cancelEdit 后补触发', async () => {
 
 // B5②:done 对齐不清残留 errorBanner(旧错误挂新答)。compact 失败等来源的横幅在后续成功
 // 对齐后应清场——失败分支无条件置横幅,done 分支此前不清,生命周期不对称。
+test('多条存量:出队一条后键即时重写,刷新只余一条(Review Focus #3)', async () => {
+  sessionStorage.setItem('wb-chat-queue:conv-q', JSON.stringify([
+    { id: 1, content: '甲', refs: [] }, { id: 2, content: '乙', refs: [] },
+  ]))
+  const w = await mountRunning()
+  api.conversations.append.mockImplementation(async () => {
+    // 出队发送成功 = 新一轮 run 在跑:后续轮询须对齐 running(否则 done 假象会二次 drain)
+    api.conversations.get.mockImplementation(async () => { const c = runningConv(); return c })
+    return { messageId: 'x' }
+  })
+  api.conversations.get.mockImplementation(async () => doneConv())
+  await vi.advanceTimersByTimeAsync(2100)
+  await flushPromises()
+  expect(api.conversations.append).toHaveBeenCalledTimes(1)
+  expect(api.conversations.append.mock.calls[0][1].message).toBe('甲')
+  expect(JSON.parse(sessionStorage.getItem('wb-chat-queue:conv-q'))).toEqual([{ id: 2, content: '乙', refs: [] }])
+  w.unmount()
+})
+
 test('B5②: done 对齐清残留 errorBanner(旧错误不挂新答)', async () => {
   const w = await mountRunning()
   w.vm.errorBanner = '旧的失败横幅'

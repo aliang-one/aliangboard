@@ -4077,7 +4077,7 @@
       "editTitle": "编辑并重发",
       "editBanner": "正在编辑此消息，发送后将删除其后 {n} 条对话",
       "editCancel": "取消编辑",
-      "queueHint": "已排队，将在本轮回答结束后自动发送",
+      "queueHint": "旧版排队消息，将在本轮回答结束后自动发送",
       "queueRemove": "移除排队消息",
       "steerBadge": "已注入运行中的对话",
       "steerBadgeRead": "AI 已读取该补充",

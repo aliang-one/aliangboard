@@ -1072,7 +1072,7 @@ async function stopRun() {
     // 且「停止旧回答→队列继续」语义下旧内容无回填意义。
     // frontend-chat-07(2026-09-07 审计批次三):输入框非空(用户运行中打了未发送草稿——
     // 运行态不禁输入)也不回填——旧实现无条件覆盖,草稿凭空蒸发,用户被迫凭记忆重打。
-    if (lastUser && !queued.value.length && !input.value.trim()) { input.value = lastUser.content; nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' }) }
+    if (lastUser && !legacyQueued.value.length && !input.value.trim()) { input.value = lastUser.content; nextTick(() => { if (taEl.value) taEl.value.style.height = 'auto' }) }
   } else {
     // 已终态(等):拉一次对齐显示
     try { await pollOnce(conversationId.value) } catch { /* 忽略 */ }
@@ -1102,34 +1102,28 @@ async function cancelPaused() {
   errorBanner.value = ''   // 会话已整体放弃:审批失败的残留横幅(如 LLM 未配置)一并清场
 }
 
-// ── 运行中追加(2026-09-03):本地排队,本轮终态后自动逐条发出 ──
-// 服务端 P0(D) 守卫拒绝运行中续接(detached run 无互斥,并发双 run 交错写 trace/消息),
-// 故排队在前端完成:运行中发送 → 入队上屏 chip(可删) → watch convStatus 终态 → 出队走正常 send()。
-// sessionStorage 按 conversationId 持久化:悬浮窗关闭重开/工作台切对话都会重挂载组件(key 绑定),
-// 内存队列会丢——恢复后若对话已终态,由 loadConversation 末尾触发 drain。
-// steer(2026-10-13)注:运行中发送已改走 steer 实时注入;本队列退役为 legacy 兼容层(见 loadQueue)。
-const queued = ref([])
+// ── legacy 队列兼容(spec D7,2026-10-13):steer 全覆盖 running/paused 后排队退役——
+// 运行中发送改走 steer 实时注入(见 sendSteer),本层只处理旧版前端写入 sessionStorage 的
+// 存量排队消息:只读展示 chip,终态逐条 append 发出,发完自清;新代码禁写入。
+const legacyQueued = ref([])
 const queueKey = id => `wb-chat-queue:${id}`
-function saveQueue() {
+function persistLegacyQueue() {
   const id = props.activeConversationId || conversationId.value
   if (!id) return
-  try { queued.value.length ? sessionStorage.setItem(queueKey(id), JSON.stringify(queued.value)) : sessionStorage.removeItem(queueKey(id)) } catch { /* 私密模式等 */ }
+  try { legacyQueued.value.length ? sessionStorage.setItem(queueKey(id), JSON.stringify(legacyQueued.value)) : sessionStorage.removeItem(queueKey(id)) } catch { /* 私密模式等 */ }
 }
 function loadQueue() {
   const id = props.activeConversationId || conversationId.value
-  if (!id) { queued.value = []; return }
-  try { queued.value = JSON.parse(sessionStorage.getItem(queueKey(id)) || '[]') } catch { queued.value = [] }
+  if (!id) { legacyQueued.value = []; return }
+  legacyQueued.value = (() => {
+    try { const q = JSON.parse(sessionStorage.getItem(queueKey(id)) || '[]'); return Array.isArray(q) ? q : [] } catch { return [] }
+  })()
 }
-function queueMessage(msg) {
-  queued.value.push({ id: ++turnSeq, content: msg, refs: refs.value.length ? refs.value.map(r => ({ ...r })) : [] })
-  refs.value = [] // chips 随首条排队消息带走(与 send 同语义)
-  saveQueue()
-}
-function removeQueued(id) { queued.value = queued.value.filter(q => q.id !== id); saveQueue() }
+function removeQueued(id) { legacyQueued.value = legacyQueued.value.filter(q => q.id !== id); persistLegacyQueue() }
 function drainQueue() {
-  if (!queued.value.length || sending.value || editing.value || pendingApproval.value) return
-  const q = queued.value.shift()
-  saveQueue()
+  if (!legacyQueued.value.length || sending.value || editing.value || pendingApproval.value) return
+  const q = legacyQueued.value.shift()
+  persistLegacyQueue() // Review Focus #3:出队即重写键——刷新窗口内不重发已出队消息
   input.value = q.content
   if (q.refs?.length) refs.value = q.refs
   nextTick(() => send())
@@ -1587,9 +1581,9 @@ function useHint(h) { input.value = h }
         </div>
       </div>
 
-      <!-- 运行中追加队列(2026-09-03):本轮回答结束后自动逐条发出,可单独移除 -->
-      <div v-if="queued.length" data-testid="queue-panel" class="flex flex-col gap-xs mb-sm">
-        <div v-for="q in queued" :key="q.id" class="flex items-center gap-sm bg-primary/5 border border-primary/20 rounded-lg px-sm py-xs">
+      <!-- 旧版排队消息(legacy 兼容层,2026-10-13 steer 退役排队):本轮回答结束后自动逐条发出,可单独移除 -->
+      <div v-if="legacyQueued.length" data-testid="queue-panel" class="flex flex-col gap-xs mb-sm">
+        <div v-for="q in legacyQueued" :key="q.id" class="flex items-center gap-sm bg-primary/5 border border-primary/20 rounded-lg px-sm py-xs">
           <span class="material-symbols-outlined text-sm text-primary shrink-0">hourglass_top</span>
           <span class="text-body-xs text-on-surface-variant flex-1 min-w-0 truncate">{{ q.content }}</span>
           <button @click="removeQueued(q.id)" :title="t('workbench.chat.queueRemove')" class="text-on-surface-variant hover:text-error shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"><span class="material-symbols-outlined text-sm">close</span></button>
