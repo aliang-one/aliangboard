@@ -81,6 +81,8 @@ export function createConversationsSchema(db) {
   // 消息级=终值(重建 turns 回看 thinking 用)。此前 reasoning 只走 SSE 内存,刷新即蒸发。
   try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN reasoning TEXT') } catch { /* 列已存在 */ }
   try { db.exec('ALTER TABLE workbench_messages ADD COLUMN reasoning TEXT') } catch { /* 列已存在 */ }
+  // steer(2026-10-13 spec D4):运行中注入的 user 行标记——pollSteer 增量查询过滤 + 前端徽标。
+  try { db.exec('ALTER TABLE workbench_messages ADD COLUMN steered INTEGER') } catch { /* 列已存在 */ }
 }
 
 export function createConversation(db, { projectId, system, userMessage, references }) {
@@ -312,11 +314,11 @@ export function getLastReconcile(db, projectId) {
 
 // 消息 CRUD(T1):每条消息一行,seq 按对话隔离单调递增。
 // node:sqlite 拒绝 undefined 绑定 → refs/trace/reasoning 显式落 null(不传 undefined)。
-export function appendMessage(db, { conversationId, role, content, refs, trace, reasoning, seq }) {
+export function appendMessage(db, { conversationId, role, content, refs, trace, reasoning, seq, steered }) {
   const finalSeq = seq ?? (getMaxSeq(db, conversationId) + 1)
   const id = randomUUID()
-  db.prepare(`INSERT INTO workbench_messages (id,conversationId,role,content,refs,trace,reasoning,seq,createdAt) VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(id, conversationId, role, content ?? '', refs ? JSON.stringify(refs) : null, trace ?? null, reasoning ?? null, finalSeq, Date.now())
+  db.prepare(`INSERT INTO workbench_messages (id,conversationId,role,content,refs,trace,reasoning,seq,steered,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, conversationId, role, content ?? '', refs ? JSON.stringify(refs) : null, trace ?? null, reasoning ?? null, finalSeq, steered ? 1 : null, Date.now())
   return db.prepare('SELECT * FROM workbench_messages WHERE id=?').get(id)
 }
 

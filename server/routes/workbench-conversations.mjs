@@ -564,6 +564,66 @@ export function createWorkbenchConvRoutes(deps) {
       }
     }
 
+    // POST /api/workbench/conversations/:id/steer — 运行中/paused 实时补充(spec D1/D6,2026-10-13)。
+    // 只落 steered=1 的 user 行:不启 run、不改状态、不占 F6 名额——append 的 P0(D) 守卫
+    // (防并发双 run)原样保留,steer 与在跑 run 的唯一交互是「run 循环读到新行」
+    // (workbench-agent pollSteer 钩子,下一 LLM 轮吸收)。终态 409 引导前端降级 append。
+    if (url.pathname.match(/^\/api\/workbench\/conversations\/[^/]+\/steer$/) && req.method === 'POST') {
+      const ps = await requirePlatform(req, res); if (!ps) return true
+      const id = url.pathname.split('/')[4]
+      const conv = getConversation(db, id)
+      const project = resolveConvProject(req, res, ps, conv)
+      if (!project) return true
+      const input = await readBody(req)
+      const cleanMessage = typeof input?.message === 'string' ? input.message.trim() : ''
+      if (!cleanMessage) { sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true }
+      if (cleanMessage.length > MESSAGE_MAX_CHARS) {
+        sendJson(res, 400, { message: msg(req, 'wbc.messageTooLarge', { limitKB: Math.round(MESSAGE_MAX_CHARS / 1000) }) }); return true
+      }
+      const inputRefs = normalizeInputRefs(req, res, input?.references)
+      if (inputRefs === REFS_REJECTED) return true
+      if (conv.status !== 'running' && conv.status !== 'paused') {
+        sendJson(res, 409, { message: msg(req, 'wbc.steerFinished') }); return true
+      }
+      // 洪水轻限(spec D6):「最后一条非 steered user 行之后」steered 行 ≤50——不依赖 run
+      // 内存边界,且随 edit/regenerate 截断自然重置。
+      const anchorSeq = db.prepare("SELECT COALESCE(MAX(seq),0) s FROM workbench_messages WHERE conversationId=? AND role='user' AND (steered IS NULL OR steered=0)").get(id).s
+      const steerCount = db.prepare('SELECT COUNT(*) c FROM workbench_messages WHERE conversationId=? AND steered=1 AND seq>?').get(id, anchorSeq).c
+      if (steerCount >= 50) { sendJson(res, 400, { message: msg(req, 'wbc.steerTooMany') }); return true
+      }
+      const stampedRefs = stampForProject(inputRefs, project)
+      const { resources: fetchedResources } = await buildRefsContext(project, stampedRefs, { userId: ps.userId, role: ps.role })
+      // TOCTOU 复查(与 append 同款):await 窗口内对话可能已终态——复查仍 running/paused 才落。
+      const nowConv = getConversation(db, id)
+      if (!nowConv || (nowConv.status !== 'running' && nowConv.status !== 'paused')) {
+        sendJson(res, 409, { message: msg(req, 'wbc.steerFinished') }); return true
+      }
+      // 落行(零 await 同步块,单进程不变式下原子)
+      const userRow = appendMessage(db, {
+        conversationId: id, role: 'user', content: cleanMessage,
+        refs: Array.isArray(stampedRefs) ? stampedRefs.map((r, i) => ({ ...r, resource: fetchedResources[i] || null })) : null,
+        steered: 1,
+      })
+      // 并入对话级 references(与 append 同款去重 + B5a 解析守卫;refreshSystem 每轮刷新注入)
+      let mergedRefs = []
+      let refsParseOk = true
+      try { mergedRefs = JSON.parse(nowConv.references || '[]') } catch { refsParseOk = false }
+      if (refsParseOk && Array.isArray(stampedRefs)) {
+        const key = r => `${r.kind}/${r.namespace || ''}/${r.name}`
+        const idxOf = new Map(mergedRefs.map((r, i) => [key(r), i]))
+        for (const r of stampedRefs) {
+          const k = key(r)
+          if (idxOf.has(k)) mergedRefs[idxOf.get(k)] = r
+          else { idxOf.set(k, mergedRefs.length); mergedRefs.push(r) }
+        }
+        db.prepare('UPDATE workbench_conversations SET "references"=?, updatedAt=? WHERE id=?').run(JSON.stringify(mergedRefs), Date.now(), id)
+      }
+      busEmit(id, { type: 'steer_ack', messageId: userRow.id, content: cleanMessage, seq: userRow.seq, refs: userRow.refs })
+      auditConv(ps, 'steer', id, project.id)
+      sendJson(res, 200, { messageId: userRow.id, references: fetchedResources, context: contextInfo(getConversation(db, id)) })
+      return true
+    }
+
     // POST /api/workbench/conversations/:id/regenerate — 重新生成最后一条回复(P1 消息操作)。
     // 截掉最后 user 消息之后的 assistant 回复 → 复位 conv 运行态字段 → runConversation
     // 以剩余消息(buildHistory)重跑,即"原问题重答",不重复计 user 轮。
