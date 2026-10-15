@@ -340,3 +340,18 @@ test('prompts/get: 返回剧本 messages(含工具链引导);未知名 → -3260
   const bad = await handleMcpMessage({ jsonrpc: '2.0', id: 7, method: 'prompts/get', params: { name: 'nope' } }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
   assert.equal(bad.error.code, -32602)
 })
+
+// ── 错误可行动化(2026-10-15):拒/404 附下一步建议,让 AI 不盲试、知道换路。──
+test('PERMISSION_DENIED → 错误附 can_i 自查建议(可行动)', async () => {
+  const tools = mockTools({ callTool: async () => { const e = new Error('policy'); e.code = 'PERMISSION_DENIED'; e.reason = 'tier'; e.detail = '需要 operator 档'; throw e } })
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'get_pod_logs', arguments: {} } }, { keyRow: readKey, cluster, apiKeyTools: tools })
+  assert.equal(r.error.code, -32603)
+  assert.ok(r.error.message.includes('can_i'), '拒绝附 can_i 自查建议')
+})
+
+test('404/not found → isError 文本附 list_resources 找名建议(可行动)', async () => {
+  const tools = mockTools({ callTool: async () => { throw new Error('pods "web-x" not found (404)') } })
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'get_pod_logs', arguments: {} } }, { keyRow: readKey, cluster, apiKeyTools: tools })
+  assert.equal(r.result.isError, true)
+  assert.ok(r.result.content[0].text.includes('list_resources'), '404 附先 list 找名建议')
+})

@@ -140,8 +140,12 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db =
       const out = await apiKeyTools.callTool(keyRow, cluster, name, params?.arguments || {}, 'mcp')
       return ok(id, { content: [{ type: 'text', text: JSON.stringify(out) }] })
     } catch (e) {
-      if (e.code === 'PERMISSION_DENIED') return err(id, -32603, `PERMISSION_DENIED(${e.reason}): ${e.detail || e.message}`)
-      return ok(id, { isError: true, content: [{ type: 'text', text: describeThrow(e) }] })
+      // 错误可行动化(2026-10-15):拒/404 附下一步建议——AI 客户端拿到的是「换哪条路」
+      // 而非裸失败,避免反复盲试同一工具。
+      if (e.code === 'PERMISSION_DENIED') return err(id, -32603, `PERMISSION_DENIED(${e.reason}): ${e.detail || e.message}。建议:用 can_i(namespace, verb, resource) 自查该 key 的能力边界,勿重复盲试`)
+      const raw = describeThrow(e)
+      if (/\b404\b|not found/i.test(raw)) return ok(id, { isError: true, content: [{ type: 'text', text: `${raw}。建议:先 list_resources 确认资源名/namespace 是否正确(path 类工具从其结果取)` }] })
+      return ok(id, { isError: true, content: [{ type: 'text', text: raw }] })
     }
   }
 
