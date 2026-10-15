@@ -79,7 +79,7 @@ test('tools/call: 集群不存在 → isError', async () => {
 })
 
 test('未知 method → -32601', async () => {
-  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 8, method: 'prompts/list' }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 8, method: 'resources/list' }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
   assert.equal(r.error.code, -32601)
 })
 
@@ -303,4 +303,40 @@ test('HTTP 层: 认证通过即回写 api_keys.lastUsedAt(节流重置后首击�
   const row = db.prepare('SELECT lastUsedAt, lastUsedIp FROM api_keys WHERE id=?').get(minted.id)
   assert.ok(row.lastUsedAt, 'MCP 认证后 lastUsedAt 已回写')
   assert.equal(row.lastUsedIp, '203.0.113.9')
+})
+
+// ── 可发现性(2026-10-15):initialize instructions(教 AI「要不要/怎么用」本工具箱)+
+// prompts(斜杠工作流剧本,强引导工具链)。描述三件套守卫见 mcp-tool-desc-guard。──
+test('initialize: 含非空 instructions(工具选择指南:优先用本 server + 排查入口锚点)', async () => {
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  const ins = r.result.instructions
+  assert.ok(typeof ins === 'string' && ins.length > 200, 'instructions 非空且成段')
+  assert.ok(ins.includes('优先'), '告诉 AI 优先用本工具箱而非让用户手动 kubectl')
+  assert.ok(ins.includes('describe_resource'), '排查入口锚点')
+  assert.ok(ins.includes('can_i'), '变更前自查锚点')
+  assert.ok(ins.includes('list_resources'), '找名字先 list 锚点')
+})
+
+test('initialize: capabilities 声明 prompts', async () => {
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  assert.ok(r.result.capabilities.prompts, '声明 prompts 能力(客户端才会列)')
+})
+
+test('prompts/list: 返回工作流剧本(名称+描述,供客户端列斜杠命令)', async () => {
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 5, method: 'prompts/list', params: {} }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  const names = r.result.prompts.map(p => p.name)
+  assert.ok(names.length >= 3, '至少三个剧本')
+  for (const p of r.result.prompts) {
+    assert.ok(p.name && p.description && p.description.length > 10, '每个剧本有可读描述')
+  }
+  assert.ok(names.includes('troubleshoot-pod'), 'pod 排障剧本')
+})
+
+test('prompts/get: 返回剧本 messages(含工具链引导);未知名 → -32602', async () => {
+  const r = await handleMcpMessage({ jsonrpc: '2.0', id: 6, method: 'prompts/get', params: { name: 'troubleshoot-pod' } }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  assert.ok(Array.isArray(r.result.messages) && r.result.messages.length >= 1)
+  const text = r.result.messages.map(m => m.content?.text || '').join('\n')
+  assert.ok(text.includes('describe_resource') && text.includes('get_pod_logs'), '剧本含工具链')
+  const bad = await handleMcpMessage({ jsonrpc: '2.0', id: 7, method: 'prompts/get', params: { name: 'nope' } }, { keyRow: readKey, cluster, apiKeyTools: mockTools() })
+  assert.equal(bad.error.code, -32602)
 })

@@ -23,6 +23,48 @@ export const TOOL_META = registry.toMeta()
 const ok = (id, result) => ({ jsonrpc: '2.0', id, result })
 const err = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } })
 
+// ── 可发现性(2026-10-15):initialize instructions —— 教 AI 客户端「要不要用、怎么选」。
+// 这是 MCP 协议里 server 级使用指南的唯一注入点;不写,AI 只能逐条读工具描述自行猜
+// 触发时机。内容=任务→工具映射速查(锚点词与工具描述三件套互为印证)。
+export const MCP_INSTRUCTIONS = `AliangBoard K8s 多集群运维工具箱(按 API key 的 namespace/tier 预先收窄,你看到的就是你能用的)。凡涉及 Kubernetes 的任务——排查异常、查状态、改配置、回滚——优先用这些工具完成,不要让用户手动 kubectl,也不要因为「不确定有没有权限」而不尝试:有界拒绝会返回明确原因。
+
+常用路径速查:
+· 排查入口:describe_resource(一次返回对象+关联事件)→ get_pod_logs(pod 日志;崩溃重启用 previous=true 看前一容器)→ exec_pod / browse_files(容器内取证)。
+· 不知道资源名/namespace 里有什么:先 list_resources(pods/deployments 等常用 kind 直取;CRD/ingress 等任意 kind 用 path 模式)。
+· 改动类操作(scale/update_image/restart/apply_yaml/delete_resource/rollout_undo):动手前用 can_i 自查权限;回滚先 rollout_history 取 revision,再 rollout_undo;改完用 rollout_status 验证。
+· 权限被拒(PERMISSION_DENIED)时:错误附原因;拿不准能力边界就用 can_i 预查,不要反复盲试。
+· SSH 服务器运维(非 K8s pod):先 read_server_ledger 看各服务器职责,再 wb_ssh_exec(短命令)/ wb_ssh_run(长任务,wb_ssh_job_out 轮询输出)。
+
+安全约定:标「admin 档」的工具需要相应权限的 key;所有命令执行与变更都有审计留痕。`
+
+// ── prompts(斜杠工作流剧本):客户端列为 /mcp:aliangboard:<name>,用户一键把整条
+// 工具链喂给 AI——对「AI 不知道从哪开始」的强引导。三个剧本覆盖最高频任务域。
+const MCP_PROMPTS = [
+  {
+    name: 'troubleshoot-pod',
+    description: '排障剧本:pod 不就绪/CrashLoop/服务异常,按 describe→events→logs→exec 链路走',
+    build: args => `集群里 pod ${args?.pod || '<pod>'} (namespace ${args?.namespace || '<ns>'}) 异常,请按以下链路排查并给出结论:
+1) describe_resource 看对象现状与关联事件(镜像/探针/调度/OOMKilled 线索);
+2) get_pod_logs 取日志(若反复重启,加 previous=true 看崩溃前日志);
+3) 需要容器内取证时 exec_pod(只读命令优先);
+4) 汇总结象→根因假设→建议动作;涉及变更先 can_i 自查再执行。`,
+  },
+  {
+    name: 'rollback-deployment',
+    description: '回滚剧本:发布出问题,查历史→回滚→验证三步走',
+    build: args => `deployment ${args?.name || '<name>'} (namespace ${args?.namespace || '<ns>'}) 的最新发布疑似有问题,请:
+1) rollout_status 确认当前卡住/异常状态;rollout_history 列出 revisions 定位上一稳定版;
+2) rollout_undo 回滚到该 revision(先 can_i 确认权限);
+3) rollout_status 验证回滚完成,并 get_events 复核无新告警。`,
+  },
+  {
+    name: 'ssh-ops',
+    description: 'SSH 运维剧本:非 K8s 的服务器操作,先读台账再动手',
+    build: args => `我要在服务器 ${args?.server || '<server>'} 上做运维操作: ${args?.task || '<任务描述>'}。
+请先 read_server_ledger 确认该服务器角色与注意事项,再选择通道:短命令(<30s)wb_ssh_exec;安装/构建/备份等长任务 wb_ssh_run(用 wb_ssh_job_out 增量读输出,勿轮询过频)。输出截断时按 offset 续读。`,
+  },
+]
+
 // 工具异常 → AI 可读文本([object Object] 家族灭绝,2026-08-27):当前工具链 throw 均为
 // Error/PermissionDeniedError(e.message 恒有),但未来新工具 throw 裸对象/字符串时,
 // String(obj) 会塌成 [object Object](get_pod_logs previous=true 同族事故的协议层残留点)。
@@ -46,7 +88,17 @@ export async function handleMcpMessage(msg, { keyRow, cluster, apiKeyTools, db =
   if (method === 'initialize') {
     const requested = params?.protocolVersion
     const negotiated = SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL
-    return ok(id, { protocolVersion: negotiated, capabilities: { tools: {} }, serverInfo: { name: 'aliangboard', version: '0.1.0' } })
+    return ok(id, { protocolVersion: negotiated, capabilities: { tools: {}, prompts: {} }, instructions: MCP_INSTRUCTIONS, serverInfo: { name: 'aliangboard', version: '0.1.0' } })
+  }
+
+  // prompts(可发现性 2026-10-15):斜杠工作流剧本——把「任务→工具链」直接喂给 AI。
+  if (method === 'prompts/list') {
+    return ok(id, { prompts: MCP_PROMPTS.map(p => ({ name: p.name, description: p.description })) })
+  }
+  if (method === 'prompts/get') {
+    const p = MCP_PROMPTS.find(x => x.name === params?.name)
+    if (!p) return err(id, -32602, `unknown prompt: ${params?.name}`)
+    return ok(id, { messages: [{ role: 'user', content: { type: 'text', text: p.build(params?.arguments || {}) } }] })
   }
 
   if (method === 'tools/list') {
