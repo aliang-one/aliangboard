@@ -1830,6 +1830,8 @@
       "dataKeysCount": "Data Keys ({n})",
       "hide": "Hide",
       "reveal": "Reveal",
+      "revealAll": "Reveal all",
+      "hideAll": "Hide all",
       "noDataKeys": "No data keys",
       "annotationsCount": "Annotations ({n})",
       "addAnnotation": "Add Annotation",

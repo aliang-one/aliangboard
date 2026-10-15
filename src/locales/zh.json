@@ -1830,6 +1830,8 @@
       "dataKeysCount": "数据键（{n}）",
       "hide": "隐藏",
       "reveal": "显示",
+      "revealAll": "显示全部",
+      "hideAll": "隐藏全部",
       "noDataKeys": "暂无数据键",
       "annotationsCount": "注解（{n}）",
       "addAnnotation": "添加注解",

@@ -71,6 +71,12 @@ function toggleReveal(key) {
   revealedKeys.value = s
 }
 
+// 一键显示/隐藏全部：部分显示时视为「未全显」，按钮恒指向「显示全部」
+const allRevealed = computed(() => dataEntries.value.length > 0 && dataEntries.value.every(([key]) => revealedKeys.value.has(key)))
+function toggleRevealAll() {
+  revealedKeys.value = allRevealed.value ? new Set() : new Set(dataEntries.value.map(([key]) => key))
+}
+
 async function handleDelete() {
   await store.deleteSecret(route.params.name, route.params.namespace)
   router.push({ name: 'NsSecrets', params: { namespace: route.params.namespace } })
@@ -255,9 +261,15 @@ const refCount = computed(() =>
       <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-card overflow-hidden">
         <div class="px-lg py-md border-b border-outline-variant bg-surface-container-low flex items-center justify-between">
           <h3 class="text-headline-sm">{{ $t('ns.secretDetail.dataKeysCount', { n: dataEntries.length }) }}</h3>
-          <button @click="showAddKeyModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 max-sm:min-h-[40px]">
-            <span class="material-symbols-outlined text-sm">add</span> {{ $t('common.addKey') }}
-          </button>
+          <div class="flex flex-wrap gap-sm">
+            <button v-if="dataEntries.length" @click="toggleRevealAll" class="flex items-center gap-sm px-md py-xs border border-outline-variant text-on-surface-variant hover:text-primary hover:bg-primary-container/10 rounded-lg text-body-sm font-semibold transition-colors max-sm:min-h-[40px]" :title="allRevealed ? $t('ns.secretDetail.hideAll') : $t('ns.secretDetail.revealAll')">
+              <span class="material-symbols-outlined text-sm">{{ allRevealed ? 'visibility_off' : 'visibility' }}</span>
+              {{ allRevealed ? $t('ns.secretDetail.hideAll') : $t('ns.secretDetail.revealAll') }}
+            </button>
+            <button @click="showAddKeyModal = true" class="flex items-center gap-sm px-md py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 max-sm:min-h-[40px]">
+              <span class="material-symbols-outlined text-sm">add</span> {{ $t('common.addKey') }}
+            </button>
+          </div>
         </div>
         <div class="divide-y divide-outline-variant/30">
           <div v-for="([key, val], idx) in dataEntries" :key="idx" class="px-lg py-md">
