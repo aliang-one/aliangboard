@@ -17,7 +17,7 @@ vi.mock('@xterm/xterm', () => ({
     open() {}
     write(d) { writes.push(typeof d === 'string' ? d : new TextDecoder().decode(d)) }
     writeln(d) { writes.push((typeof d === 'string' || d == null ? d ?? '' : new TextDecoder().decode(d)) + '\n') }
-    onData() {} onResize() {} loadAddon() {} focus() {} dispose() {}
+    onData() {} onResize() {} loadAddon() {} attachCustomKeyEventHandler() {} hasSelection() { return false } focus() {} dispose() {}
   },
 }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }))
