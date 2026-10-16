@@ -12,6 +12,7 @@ import { sshTerminalStream } from '@/api/client'
 import { codeTheme } from '@/styles/code-theme'
 import { useIsPhone } from '@/composables/useBreakpoint'
 import { useTerminalFont } from '@/composables/useTerminalFont'
+import { attachTerminalClipboardKeys } from '@/composables/useTerminalClipboard'
 import TerminalKeyBar from '@/components/common/TerminalKeyBar.vue'
 
 const { t } = useI18n()
@@ -76,6 +77,7 @@ function ensureTerm() {
   term.loadAddon(fit)
   term.loadAddon(new WebLinksAddon())
   term.open(root.value)
+  attachTerminalClipboardKeys(term)   // Ctrl+V 粘贴 / Ctrl+C(有选区)复制接管(2026-10-16「粘贴不到」根因修复,与 pod 终端同源)
   term.onData(d => stream?.send(d))
   term.onResize(({ cols, rows }) => stream?.resize({ cols, rows }))
   term.focus()

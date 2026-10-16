@@ -14,7 +14,7 @@ vi.mock('@/api/client', () => ({
 }))
 vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({}) }))
 vi.mock('@xterm/xterm', () => ({
-  Terminal: class { constructor() { this.cols = 80; this.rows = 24 } open() {} write() {} writeln() {} onData() {} onResize() {} loadAddon() {} focus() {} dispose() {} },
+  Terminal: class { constructor() { this.cols = 80; this.rows = 24 } open() {} write() {} writeln() {} onData() {} onResize() {} loadAddon() {} attachCustomKeyEventHandler() {} hasSelection() { return false } focus() {} dispose() {} },
 }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
