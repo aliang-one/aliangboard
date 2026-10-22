@@ -63,7 +63,12 @@ export function buildToolDefs(tier) {
 // 白名单),命中放行直接 false(不 checkpoint、不进 SSH 路由);放行的执行行审计
 // requestSummary 追加 ' approval:auto' 标记(截断后追加,长 args 不吞标记)。SSH 工具恒不
 // 放宽(服务器策略更严者胜,见 wb-approval-mode.mjs);缺省零行为变化。
-export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps, disabledTools, budgetChars, dynamicApproval, excludeTools, shouldAbort, signal, approvalMode }) {
+// pollSteer(可选,2026-10-22 接线回归):async () => [{role:'user',content}]——透传 createAgent
+//   的轮间注入钩子(workbench-agent 注入「按 watermark 吸收 steered 行」闭包,spec D2)。
+//   pollSteer 是 createAgent 的工厂级参数(run() 选项形态被 agent.run 静默忽略),此前本工厂
+//   不收不转发 → 生产装配下钩子恒 undefined,运行中实时注入当轮从不生效(测试盲区:桩掉
+//   runner 的用例捕获 run 选项直调闭包,照常全绿)。缺省零行为变化(API key agent 路径不传)。
+export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, workbench, audit, maxSteps, disabledTools, budgetChars, dynamicApproval, excludeTools, shouldAbort, signal, approvalMode, pollSteer }) {
   const toolDefs = [
     ...(keyRow ? registry.toolDefsFor(effectiveTools(keyRow)) : []),
     ...(workbench ? registry.workbenchToolDefs(disabledTools) : []),
@@ -119,6 +124,6 @@ export function createAgentRunner({ llmClient, apiKeyTools, keyRow, cluster, wor
     gateAutoPassed = false
     return true
   }
-  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: needsApprovalFn, ...(maxSteps != null ? { maxSteps } : {}), ...(budgetChars ? { budgetChars } : {}), ...(shouldAbort ? { shouldAbort } : {}) })
+  const agent = createAgent({ chat, toolDefs, execTool, needsApproval: needsApprovalFn, ...(maxSteps != null ? { maxSteps } : {}), ...(budgetChars ? { budgetChars } : {}), ...(shouldAbort ? { shouldAbort } : {}), ...(pollSteer ? { pollSteer } : {}) })
   return { run: agent.run, toolDefs }
 }
