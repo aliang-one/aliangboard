@@ -617,7 +617,10 @@ const CK_TIME_MS = 500
       }
       // resume(审批续跑)done:消息级 trace = 本轮事件切片(currentTurnTrace)——含审批暂停前
       // 的中间文本/工具事件(交错渲染不断章),排除历史轮(2026-09-06 前整包拉 conv.trace 全对话累积)。
-      handleAgentResult(convId, project, out, tracker, JSON.stringify(currentTurnTrace(convId)))
+      // 第 6 参 steerWatermark(2026-10-22 审计):resume 的二次暂停同样锚定闭包「此刻」watermark——
+      // 漏传会被 handleAgentResult 的 `?? 0` 落 0,再 resume 读 0(非 nullish 不走兜底)从 seq 0
+      // 重吸全部历史 steer 行(重复注入 LLM + 重复广播 steer_consumed)。
+      handleAgentResult(convId, project, out, tracker, JSON.stringify(currentTurnTrace(convId)), steerWatermark)
       finalizeConvEmit(convId, out)
       maybeSummarize(db, convId, llmClient).catch(e => console.error('[workbench-agent] 轮次摘要失败:', e?.message || e)) // METER-5:resume done 同款补 fire
       maybeSummarizeProject(db, project.id, llmClient).catch(e => console.error('[workbench-agent] 项目摘要失败:', e?.message || e)) // gap2-04:同 run 路径,吞错改日志

@@ -1439,3 +1439,36 @@ test('C1 回归:paused 期间 steer → approve 续跑首轮吸收(真序列,spe
   await agent2.resumeConversation(s.conv.id, true, { chat: async () => ({}) })
   assert.deepEqual(s.capturedRunOpts().pollSteer(), [{ role: 'user', content: '审批期间补充' }])
 })
+
+test('链式审批二次暂停:resume 闭包 watermark 续传进快照(漏传则落 0,再 resume 重吸历史 steer 行)', async () => {
+  const s = setup()
+  const pending = { toolCallId: 'tc1', name: 'apply', args: {} }
+  // 段1:run → 暂停#1(run 路径 handleAgentResult 传 6 参,锚定开工 watermark)
+  const agent1 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async () => ({
+    status: 'pending_approval', pending, messages: [{ role: 'assistant', content: '审批1' }], queue: [], denied: [], steps: 1,
+  })), busEmit: s.busEmit, busDispose: s.busDispose })
+  await agent1.runConversation(s.conv.id, { chat: async () => ({}) })
+  // paused 期间 steer 落库(与端点同款形状)
+  appendMessage(s.db, { conversationId: s.conv.id, role: 'user', content: '审批期间补充', steered: 1 })
+  const steerSeq = s.db.prepare('SELECT MAX(seq) AS m FROM workbench_messages WHERE conversationId=?').get(s.conv.id).m
+  // 段2:approve 续跑——桩按真实因果顺序扮演 agent 循环(每轮 chat 前 pollSteer,agent.mjs 同款):
+  // resume 期间吸收 paused 补充、闭包 watermark 推进到 steerSeq,随后产出 pending#2 暂停。
+  // 时序教训(终审 C1):先 resume 后操作会藏住 watermark 传递缺陷,必须按循环真实顺序排。
+  const agent2 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async (opts) => {
+    await opts.pollSteer?.()
+    return { status: 'pending_approval', pending, messages: [{ role: 'assistant', content: '审批2' }], queue: [], denied: [], steps: 2 }
+  }), busEmit: s.busEmit, busDispose: s.busDispose })
+  await agent2.resumeConversation(s.conv.id, true, { chat: async () => ({}) })
+  const paused2 = getConversation(s.db, s.conv.id)
+  assert.equal(paused2.status, 'paused')
+  // 二次暂停必须锚定闭包「此刻」watermark(=steerSeq);resume 路径 handleAgentResult 漏传第 6 参
+  // 会经 handleAgentResult 的 `?? 0` 落 0
+  assert.equal(paused2.steerWatermark, steerSeq)
+  // 段3:再批续跑——闭包从快照 watermark 起,不得重吸已消费的补充行(重复注入 LLM + 重复广播)
+  const agent3 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async (opts) => {
+    await opts.pollSteer?.()
+    return { status: 'done', content: '已执行', trace: [], steps: 3, messages: [], queue: [], denied: [] }
+  }), busEmit: s.busEmit, busDispose: s.busDispose })
+  await agent3.resumeConversation(s.conv.id, true, { chat: async () => ({}) })
+  assert.deepEqual(s.capturedRunOpts().pollSteer(), [])
+})
