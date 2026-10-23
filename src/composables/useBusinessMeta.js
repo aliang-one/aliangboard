@@ -58,3 +58,12 @@ export function imageTag(image) {
   if (idx <= noDigest.lastIndexOf('/')) return ''   // registry:port/... 无 tag
   return noDigest.slice(idx + 1)
 }
+
+// === 版本元数据「跟随镜像 tag 自动更新」(2026-10-23) ===
+// 开关存注解（随对象走、不占 label、不动 Pod 模板不触发滚动）；开启后面板内改镜像
+// （改版本弹窗/深编辑/回滚）时版本 label 自动同步为镜像名「:」后的 tag。原样取 tag
+// 不加前缀；无 tag → latest（与展示层 imageTag()||latest 惯例一致）。
+export const VERSION_AUTO_KEY = 'aliangboard.io/version-auto'
+export function syncedImageVersion(image) {
+  return imageTag(image) || 'latest'
+}
