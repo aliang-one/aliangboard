@@ -14,11 +14,11 @@ import { useWorkloadTopology } from '@/composables/useWorkloadTopology'
 import WorkloadTopologyTab from '@/components/common/WorkloadTopologyTab.vue'
 import { TIER_OPTIONS } from '@/composables/useLayering'
 import { useMetricsHistory, toMilli, toMi } from '@/composables/useMetricsHistory'
-import { readMeta, imageTag } from '@/composables/useBusinessMeta'
+import { readMeta, imageTag, syncedImageVersion, isLegalLabelValue, VERSION_AUTO_KEY } from '@/composables/useBusinessMeta'
 import { recordTagUsage } from '@/composables/useTagHistory'
 import { podHealth, podConditions, condChip, podNameDisplay, podContainers } from '@/composables/usePod'
 import { SYSTEM_ANNOTATIONS as META_SYS_ANN } from '@/utils/systemMeta'
-import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, applyLabelPatch, consumersBrokenBy, podTemplateLabels, WORKLOAD_KIND_FROM_ROUTE, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
+import { selectorMatchLabels, findSelectorLabelConflict, guardTemplateLabels, templateSelectorBreaks, applyLabelPatch, consumersBrokenBy, podTemplateLabels, versionSyncTplLabels, WORKLOAD_KIND_FROM_ROUTE, WORKLOAD_ROLLOUT_TYPES } from '@/logic/workloadMeta'
 import { podsByPrefixFallback, volumesAndPullSecretsFromPodSpec } from '@/logic/topology'
 import { makeSubContainer, mapSubContainer, buildSubContainerSpec, mountsForTarget, isSubContainerEmpty, advancedCount, mergeResources } from '@/logic/subContainer'
 import { validateContainerFields, compareQuantity } from '@/logic/containerValidation'
@@ -206,6 +206,8 @@ const configRefs = computed(() => {
   return refs
 })
 const meta = computed(() => readMeta(workload.value))
+// 版本「跟随镜像 tag 自动更新」开关:存注解(VERSION_AUTO_KEY='true'),随对象走
+const versionAutoOn = computed(() => String(workload.value?.annotations?.[VERSION_AUTO_KEY] ?? '') === 'true')
 
 // === RBAC：按 can-i(SSAR) 真值控制操作按钮（默认允许，SSAR 失败/不可用时不锁死）===
 const RES_PLURAL = { Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs', CronJob: 'cronjobs' }
@@ -433,8 +435,13 @@ const rollbackTarget = ref(null)
 function confirmRollback(rev) { rollbackTarget.value = rev; showRollbackModal.value = true }
 async function handleRollback() {
   if (rollbackTarget.value == null) return
+  const target = rollbackTarget.value // await 前定格:ref 可在 in-flight 窗口被改选其它版本,读两次会串目标
   try {
-    await store.rollbackWorkload(route.params.name, route.params.namespace, rollbackTarget.value?.rev, routeKind.value || undefined)
+    await store.rollbackWorkload(route.params.name, route.params.namespace, target?.rev, routeKind.value || undefined)
+    // 回滚只还原模板,Deployment metadata 本就不被还原——版本跟随镜像时补一次同步(以目标版本镜像为准)。
+    // 模板取面必须是回滚刚还原的 _template(用 pre-rollback 的本地 raw 会把刚撤掉的旧 labels 写回去);
+    // 无 _template 时 rollbackWorkload 走最小 fallback 不触碰模板 labels,本地 raw 仍准。
+    await syncVersionMeta(target?.image, target?._template ? { spec: { template: target._template } } : workload.value?.raw)
     revisionsQuery.refetch()
     showRollbackModal.value = false
     rollbackTarget.value = null
@@ -645,6 +652,7 @@ async function saveImageTag() {
   if (!f.newTag) { notify('error', t('workload.notify.tagEmpty')); return }
   if (isJob.value) { notify('error', t('workload.edit.jobImmutableHint')); return } // 对抗审查 P2:Job 模板不可变,不得假成功
   const newImage = f.newTag ? `${f.repo}:${f.newTag}` : f.repo
+  const prevImage = workload.value?.image // await 前定格:后面 in-flight refetch 会刷新 live 值,拿它比对会误判「没变」而跳过同步
   try {
     // 走 updateWorkload image patch
     store.updateWorkload(route.params.name, route.params.namespace, { image: newImage }, routeKind.value || undefined)
@@ -654,6 +662,8 @@ async function saveImageTag() {
       if (tpl.spec?.containers?.[0]) tpl.spec.containers[0].image = newImage
       await store.applyWorkloadTemplate(route.params.name, route.params.namespace, tpl)
     }
+    // 版本跟随镜像开着:镜像真变了才同步(避免同 tag 空转 bump last-edited)
+    if (newImage !== prevImage) await syncVersionMeta(newImage)
     notify('success', t('workload.notify.imageUpdated', { image: newImage }))
     showImageTagModal.value = false
     refreshSoon()
@@ -1052,6 +1062,7 @@ async function saveEdit() {
   for (const [k, v] of Object.entries(f.labels || {})) if (typeof v === 'string') f.labels[k] = v.trim()
   const labels = { ...(f.labels || {}) }
   const image = f.imageTag ? `${f.imageRepo}:${f.imageTag}` : f.imageRepo
+  const prevImage = workload.value?.image // await 前定格(与 saveImageTag 同因:live 值会被 in-flight refetch 刷新)
   // kind 级（labels / replicas / schedule / 更新策略 / 历史上限）→ updateWorkload
   // 2026-09-28 issue#16:batch 入编——CronJob 真保存(schedule/suspend/镜像走 jobTemplate);
   // strategy/revisionHistoryLimit 收敛为 Deployment 专属(旧实现无条件塞给全部类型)。
@@ -1146,6 +1157,8 @@ async function saveEdit() {
       catch (e) { notify('error', e.message || t('workload.notify.containerSaveFailed')) }
     }
   }
+  // 版本跟随镜像开着:主容器镜像真变了才同步(只改副本数等其他字段不 bump)
+  if (image !== prevImage) await syncVersionMeta(image)
   refreshSoon()
   showEditModal.value = false
 }
@@ -1161,11 +1174,12 @@ const META_SYS_LABELS = ['app', META_MANAGED_KEY, 'pod-template-hash', 'controll
 // META_SYS_ANN 用共享名单(src/utils/systemMeta.js):复制 workload 反向映射同用,防两处漂移
 // 业务/分层键：由表单字段管理，从自定义列表隐藏
 // tags 现存 annotation（含逗号），但历史迁移可能残留 tags label——隐藏它，保存时一并清除（merge-patch null）
+// version-auto 开关注解同待遇:由表单开关管理,不进自定义行(否则会被 removedAnnotations 扫除静默删掉开关)
 const META_HIDDEN_LABELS = [...META_SYS_LABELS, META_CANON.owner, META_CANON.version, META_CANON.tags, ...META_LAYER_KEYS]
-const META_HIDDEN_ANN = [...META_SYS_ANN, META_DESC_KEY, META_CANON.title, META_CANON.tags] // title + tags 走 annotation
+const META_HIDDEN_ANN = [...META_SYS_ANN, META_DESC_KEY, META_CANON.title, META_CANON.tags, VERSION_AUTO_KEY] // title + tags 走 annotation
 
 const showMetaModal = ref(false)
-const metaForm = ref({ title: '', owner: '', version: '', tags: '', description: '', layer: '', labels: [], annotations: [] })
+const metaForm = ref({ title: '', owner: '', version: '', versionAuto: false, tags: '', description: '', layer: '', labels: [], annotations: [] })
 // selector 承重墙(2026-08-19 ai-gateway 事故):selector.matchLabels 绑定的标签创建后不可变——
 // 改 Pod 模板值即「selector does not match template labels」422。三防线见 @/logic/workloadMeta。
 const metaSelectorLabels = computed(() => selectorMatchLabels(workload.value?.raw))
@@ -1178,7 +1192,8 @@ function openMetaEditor() {
   metaForm.value = {
     title: m.title || '',
     owner: m.owner || '',
-    version: m.version || '',
+    version: versionAutoOn.value ? syncedImageVersion(workload.value.image) : (m.version || ''),
+    versionAuto: versionAutoOn.value,
     tags: m.tags || '',
     description: m.description || '',
     layer: META_LAYER_KEYS.map(k => curLabels[k]).find(Boolean) || workload.value.tier || '',
@@ -1209,7 +1224,15 @@ async function saveMeta() {
   // 业务 canonical labels（非空才写）；title + tags 走 annotation（支持中文/逗号）
   const business = {}
   if (f.owner) business[META_CANON.owner] = f.owner
-  if (f.version) business[META_CANON.version] = f.version
+  // 开关开着 → 版本强制 = 当前镜像 tag(防「开着开关却存了手输旧值」,打开即修正存量脏值);关 → 手工值。
+  // tag 不合法为 K8s label 值时(超 63 字符/首尾非字母数字)整包 patch 必 422、元数据全存不上,
+  // 且版本输入此时禁用无从改——保存前明确拦下,给出可行动出路(关开关手工填)。
+  if (f.versionAuto) {
+    const syncTag = syncedImageVersion(workload.value.image)
+    if (!isLegalLabelValue(syncTag)) { notify('error', t('workload.notify.versionSyncIllegal', { tag: syncTag })); return }
+    business[META_CANON.version] = syncTag
+  }
+  else if (f.version) business[META_CANON.version] = f.version
   if (f.layer) { business['aliangboard.io/layer'] = f.layer; business['layer.aliangboard.io'] = f.layer }
   // 自定义键（去重，后出现为准）
   const customLabels = {}
@@ -1226,6 +1249,7 @@ async function saveMeta() {
   if (f.description) annotations[META_DESC_KEY] = f.description
   if (f.title) annotations[META_CANON.title] = f.title // title 走 annotation 支持 UTF-8
   if (f.tags) annotations[META_CANON.tags] = f.tags // tags 含逗号，走 annotation
+  if (f.versionAuto) annotations[VERSION_AUTO_KEY] = 'true' // 关闭时键不在期望集 → removedAnnotations 扫除自动删
   Object.assign(annotations, customAnns)
   // 删除：原集合中既有、非系统保留、但不在期望中的键 → null（merge-patch 删除）
   const removedLabels = Object.keys(curLabels).filter(k => !META_SYS_LABELS.includes(k) && !(k in labels))
@@ -1258,6 +1282,38 @@ async function saveMeta() {
   store.updateWorkloadMeta(route.params.name, route.params.namespace, { labels, annotations, removedLabels, removedAnnotations, templateLabels })
   if (f.tags) recordTagUsage(route.params.namespace, f.tags) // 编辑标签也即时入历史，供下次建议
   showMetaModal.value = false
+}
+
+// 版本跟随镜像(2026-10-23):开关开着时,面板内改镜像(改版本弹窗/深编辑/回滚)后把版本
+// label 同步为该镜像名「:」后的 tag——metadata + Pod 模板两处一次写齐(根治两处各烂各的;
+// Job 的模板面不可变,updateWorkloadMeta 已有跳过防线)。镜像没变不调用(调用方守卫)。
+// tplRaw:模板 labels 的取面。改版本/深编辑路径模板 labels 未被自己的 patch 触碰,本地 raw
+// 仍准;回滚会把模板整体还原成目标 ReplicaSet 的 _template——必须传还原后的面,否则会把
+// 回滚刚撤掉的旧 labels(含 pod-template-hash)写回去,引发二次滚动。null = 只写 metadata。
+async function syncVersionMeta(imageRef, tplRaw = (workload.value?.raw ?? null)) {
+  if (!versionAutoOn.value || !workload.value) return
+  const tag = syncedImageVersion(imageRef)
+  // 镜像 tag 文法宽于 K8s label 值(digest 形 CI tag 常超 63 字符、可 _ 开头):非法时原样写
+  // 会 422 掉整个 patch(业务元数据整体保存失败),降级为明确提示、不写
+  if (!isLegalLabelValue(tag)) { notify('error', t('workload.notify.versionSyncIllegal', { tag })); return }
+  try {
+    const tplLabels = tplRaw ? versionSyncTplLabels(tplRaw, tag, metaSelectorLabels.value) : null
+    // 防线④同款(2026-09-01 Ingress 503 事故):Service/PDB/NetworkPolicy 的 selector 可钉在
+    // version 标签上(金丝雀锁定正是这个 label 的用途)。模板 labels 一变 Endpoints 静默清空——
+    // 被拆则跳过模板层同步并点名(labels 保持原面,消费者绑定不破;镜像本身已更新,照常滚动)。
+    if (tplLabels) {
+      const rawTpl = podTemplateLabels(tplRaw)
+      const broken = consumersBrokenBy(rawTpl, applyLabelPatch(rawTpl, tplLabels), guardConsumers.value)
+      if (broken.length) {
+        notify('error', t('workload.meta.labelConsumersLocked', { names: broken.map(c => `${c.kind}/${c.name}`).join('、') }))
+        return
+      }
+    }
+    await store.updateWorkloadMeta(route.params.name, route.params.namespace, {
+      labels: { [META_CANON.version]: tag },
+      templateLabels: tplLabels,
+    }, routeKind.value || undefined)
+  } catch (e) { notify('error', t('workload.notify.versionSyncFailed', { msg: e?.message || String(e) })) }
 }
 
 // === Template Editor ===
@@ -2209,7 +2265,15 @@ function podStatusBorder(s) {
         <div class="grid grid-cols-2 gap-sm">
           <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.titleLabel') }}</label><input v-model="metaForm.title" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="$t('workload.meta.titlePh')" /></div>
           <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.ownerLabel') }}</label><input v-model="metaForm.owner" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="$t('workload.meta.ownerPh')" /></div>
-          <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.versionLabel') }}</label><input v-model="metaForm.version" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="v1.0.0" /></div>
+          <div>
+            <label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.versionLabel') }}</label>
+            <input v-model="metaForm.version" :disabled="metaForm.versionAuto" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono disabled:opacity-60 disabled:cursor-not-allowed" placeholder="v1.0.0" />
+            <label class="mt-xs flex items-center gap-xs text-xs text-on-surface-variant cursor-pointer select-none min-w-0" :title="$t('workload.meta.versionAutoHint')">
+              <input type="checkbox" v-model="metaForm.versionAuto" class="shrink-0 accent-primary" />
+              <span class="truncate">{{ $t('workload.meta.versionAuto') }}</span>
+              <span v-if="metaForm.versionAuto" class="min-w-0 truncate font-mono text-primary/80">{{ syncedImageVersion(workload?.image) }}</span>
+            </label>
+          </div>
           <div><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.tagsLabel') }}</label><TagInput v-model="metaForm.tags" :namespace="route.params.namespace" :max="3" /></div>
           <div class="col-span-2"><label class="text-xs text-on-surface-variant block mb-xs">{{ $t('workload.meta.descLabel') }} <span class="text-on-surface-variant/50">{{ $t('workload.meta.descHint') }}</span></label><textarea v-model="metaForm.description" rows="2" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm resize-none" :placeholder="$t('workload.meta.descPh')" /></div>
           <div class="col-span-2">

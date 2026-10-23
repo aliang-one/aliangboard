@@ -10,6 +10,8 @@
 //   ② saveMeta 保存前拦截撞键行(findSelectorLabelConflict)——把 K8s 422 变成前端明确报错
 //   ③ 模板镜像对 selector 键强制原值透传(guardTemplateLabels)——业务/自定义键一律不得覆写
 
+import { META_KEYS } from '../composables/useBusinessMeta.js'
+
 // raw → spec.selector.matchLabels(Deployment/StatefulSet/DaemonSet;缺 shape 一律空 map 不炸)
 export function selectorMatchLabels(raw) {
   const m = raw?.spec?.selector?.matchLabels
@@ -167,4 +169,13 @@ export function podTemplateLabels(raw) {
   const tpl = spec?.jobTemplate?.spec?.template?.metadata?.labels
     ?? spec?.template?.metadata?.labels
   return tpl && typeof tpl === 'object' && !Array.isArray(tpl) ? tpl : {}
+}
+
+// 版本元数据「跟随镜像 tag 自动更新」(2026-10-23):同步时的模板 labels 期望全量 map——
+// 当前模板 labels 原样保留、只换 version 键(updateWorkloadMeta 契约要求全量,其余键
+// 不得被同步误伤);selector 绑定键(病态:绑 version 本身)经 guardTemplateLabels 原值
+// 透传,selector 不变式压过同步。纯函数不改入参。
+export function versionSyncTplLabels(raw, tag, selector) {
+  const tpl = podTemplateLabels(raw)
+  return guardTemplateLabels({ ...tpl, [META_KEYS.version.canon]: tag }, tpl, selector)
 }

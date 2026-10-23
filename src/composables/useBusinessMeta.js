@@ -58,3 +58,19 @@ export function imageTag(image) {
   if (idx <= noDigest.lastIndexOf('/')) return ''   // registry:port/... 无 tag
   return noDigest.slice(idx + 1)
 }
+
+// === 版本元数据「跟随镜像 tag 自动更新」(2026-10-23) ===
+// 开关存注解（随对象走、不占 label、不动 Pod 模板不触发滚动）；开启后面板内改镜像
+// （改版本弹窗/深编辑/回滚）时版本 label 自动同步为镜像名「:」后的 tag。原样取 tag
+// 不加前缀；无 tag → latest（与展示层 imageTag()||latest 惯例一致）。
+export const VERSION_AUTO_KEY = 'aliangboard.io/version-auto'
+export function syncedImageVersion(image) {
+  return imageTag(image) || 'latest'
+}
+
+// K8s label 值文法:(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])? 且 ≤63 字符。
+// 镜像 tag 文法更宽(≤128、可 _ 开头/-_. 结尾)——版本同步把 tag 写进 label 槽位前必须校验,
+// 否则整个 merge-patch 被 apiserver 422(业务元数据整体保存失败),同步对该负载永久失效。
+export function isLegalLabelValue(v) {
+  return typeof v === 'string' && /^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/.test(v)
+}
