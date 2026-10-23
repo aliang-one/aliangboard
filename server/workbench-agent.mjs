@@ -386,6 +386,22 @@ const CK_TIME_MS = 500
       const sshBridge = ctx.ssh || null
       const sshJobs = ctx.sshJobs || null
       const exposedCount = sshBridge ? sshBridge.listExposed().length : 0
+      // steer(spec D2,2026-10-13):轮间注入闭包——watermark=开工时 maxSeq,只吸收此后落库的
+      // steered user 行(append 400 守卫保证 running 中非 steer user 行不存在;显式 steered=1
+      // 过滤不依赖该推断)。注入即推进 watermark(幂等),并广播 steer_consumed 供前端翻徽标。
+      // epoch 无需特判:被取代 run 的产出整链丢弃(F3 写点守卫),消费本身无副作用。
+      // 装配形态(2026-10-23 二次修复):pollSteer 是 createAgent 的工厂级参数(agent.mjs:168,
+      // 循环 :370 读工厂闭包),必须经 createAgentRunner 工厂参递达;run() 选项形态会被
+      // agent.mjs run() 解构(:293 无 rest)静默丢弃——10-22 修复只接通了 runner 中段,
+      // 装配点仍走 run() 选项,生产恒死(本文件三份 steer 测试全绿恰因桩走同款死通道)。
+      let steerWatermark = getMaxSeq(db, convId)
+      const pollSteer = () => {
+        const rows = db.prepare("SELECT id,content,seq FROM workbench_messages WHERE conversationId=? AND seq>? AND role='user' AND steered=1 ORDER BY seq ASC").all(convId, steerWatermark)
+        if (!rows.length) return []
+        steerWatermark = rows[rows.length - 1].seq
+        busEmit(convId, { type: 'steer_consumed', seqs: rows.map(r => r.seq), messageIds: rows.map(r => r.id) })
+        return rows.map(r => ({ role: 'user', content: r.content }))
+      }
       const { run } = createAgentRunner({
         llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: getMaxStepsConfig(db), // 每次 run 现读(同 disabledTools 即时生效语义);0=不限制
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
@@ -404,6 +420,7 @@ const CK_TIME_MS = 500
         // agent-loop-05(2026-09-07 审计批次三):取消断流通道——cancelConversation 主动 abort
         // 在途 fetch(与 shouldAbort 分工:检查点拦「下一个」,signal 断「在途的这一个」)。
         signal: runHandle.controller.signal,
+        pollSteer, // steer 工厂级递达(run() 选项形态会被 agent.run 静默丢弃,2026-10-23)
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -423,18 +440,6 @@ const CK_TIME_MS = 500
         + await fetchRefContext(activeRefs, k8sSession, { db, principal, clusterId: project.clusterId }) // Phase C Task 6:逐 ref 过 refAllowed
         + staleNote
       const history = buildHistory(db, conv)
-      // steer(spec D2,2026-10-13):轮间注入闭包——watermark=开工时 maxSeq,只吸收此后落库的
-      // steered user 行(append 400 守卫保证 running 中非 steer user 行不存在;显式 steered=1
-      // 过滤不依赖该推断)。注入即推进 watermark(幂等),并广播 steer_consumed 供前端翻徽标。
-      // epoch 无需特判:被取代 run 的产出整链丢弃(F3 写点守卫),消费本身无副作用。
-      let steerWatermark = getMaxSeq(db, convId)
-      const pollSteer = () => {
-        const rows = db.prepare("SELECT id,content,seq FROM workbench_messages WHERE conversationId=? AND seq>? AND role='user' AND steered=1 ORDER BY seq ASC").all(convId, steerWatermark)
-        if (!rows.length) return []
-        steerWatermark = rows[rows.length - 1].seq
-        busEmit(convId, { type: 'steer_consumed', seqs: rows.map(r => r.seq), messageIds: rows.map(r => r.id) })
-        return rows.map(r => ({ role: 'user', content: r.content }))
-      }
       tracker = trackPartial(convId, conv, myEpoch) // F3 写点守卫:tracker 各写点比对 epoch(见 trackPartial 注释)
       runHandle.tracker = tracker // 在途登记补挂:SSE flushCheckpoint 的检查点漏斗(见 activeRuns 注)
       // 本段事件累积(tool/denied + 瘦身 assistant 文本)——done/salvage 时随 assistant 消息落库,
@@ -444,7 +449,6 @@ const CK_TIME_MS = 500
         system: conv.system,
         history,
         refreshSystem,
-        pollSteer,
         onDelta: tracker.onDelta,
         onReasoning: tracker.onReasoning,
         // onStep 统一走 makeOnStep(2026-09-06 run/resume 对齐,语义注释见工厂):assistant 事件
@@ -540,6 +544,18 @@ const CK_TIME_MS = 500
       const sshBridge = ctx.ssh || null
       const sshJobs = ctx.sshJobs || null
       const exposedCount = sshBridge ? sshBridge.listExposed().length : 0
+      // steer(spec D2 + final review C1):同 runConversation 的轮间注入闭包——watermark 读
+      // 「暂停时锚定值」(handleAgentResult 落库),使审批等待期落库的补充在续跑首轮被吸收;
+      // 旧 paused 行无锚(列迁移前)回退现算,行为与迁移前一致(不吸收,行仍在历史不丢)。
+      // 装配形态(2026-10-23 二次修复):工厂参递达,同 run 路径(注释详彼处)。
+      let steerWatermark = conv.steerWatermark ?? getMaxSeq(db, convId)
+      const pollSteer = () => {
+        const rows = db.prepare("SELECT id,content,seq FROM workbench_messages WHERE conversationId=? AND seq>? AND role='user' AND steered=1 ORDER BY seq ASC").all(convId, steerWatermark)
+        if (!rows.length) return []
+        steerWatermark = rows[rows.length - 1].seq
+        busEmit(convId, { type: 'steer_consumed', seqs: rows.map(r => r.seq), messageIds: rows.map(r => r.id) })
+        return rows.map(r => ({ role: 'user', content: r.content }))
+      }
       const { run } = createAgentRunner({
         llmClient, workbench: ctx, audit: { db, owner: actor?.username, clusterId: project.clusterId }, maxSteps: getMaxStepsConfig(db), // 每次 run 现读(同 disabledTools 即时生效语义);0=不限制
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
@@ -556,6 +572,7 @@ const CK_TIME_MS = 500
         shouldAbort: () => cancelSignal(convId, myEpoch),
         // agent-loop-05(2026-09-07 审计批次三):取消断流通道,与 run 路径同款。
         signal: runHandle.controller.signal,
+        pollSteer, // steer 工厂级递达(run() 选项形态会被 agent.run 静默丢弃,2026-10-23)
       })
       const k8sSession = buildK8sSession(project.clusterId)
       let refs = []; try { refs = JSON.parse(conv.references || '[]') } catch { refs = [] }
@@ -572,17 +589,6 @@ const CK_TIME_MS = 500
       // P0(E)防御:无审批态不 resume(路由侧 CAS 后理论不可达;不写任何状态,
       // 以免把终态改写成 failed 吞掉已完成答案)。
       if (!pending) { busEmit(convId, { type: 'end' }); busDispose(convId); return }
-      // steer(spec D2 + final review C1):同 runConversation 的轮间注入闭包——watermark 读
-      // 「暂停时锚定值」(handleAgentResult 落库),使审批等待期落库的补充在续跑首轮被吸收;
-      // 旧 paused 行无锚(列迁移前)回退现算,行为与迁移前一致(不吸收,行仍在历史不丢)。
-      let steerWatermark = conv.steerWatermark ?? getMaxSeq(db, convId)
-      const pollSteer = () => {
-        const rows = db.prepare("SELECT id,content,seq FROM workbench_messages WHERE conversationId=? AND seq>? AND role='user' AND steered=1 ORDER BY seq ASC").all(convId, steerWatermark)
-        if (!rows.length) return []
-        steerWatermark = rows[rows.length - 1].seq
-        busEmit(convId, { type: 'steer_consumed', seqs: rows.map(r => r.seq), messageIds: rows.map(r => r.id) })
-        return rows.map(r => ({ role: 'user', content: r.content }))
-      }
       tracker = trackPartial(convId, conv, myEpoch) // F3 写点守卫:同 run 路径(见 trackPartial 注释)
       runHandle.tracker = tracker // 在途登记补挂:同 run 路径(SSE flushCheckpoint 漏斗)
       const out = await run({
@@ -592,7 +598,6 @@ const CK_TIME_MS = 500
           toolCallId: pending.toolCallId, approved,
         },
         refreshSystem,
-        pollSteer,
         onDelta: tracker.onDelta,
         onReasoning: tracker.onReasoning,
         // 与 runConversation 同款(2026-09-06 对齐):assistant 轮完成清零检查点。turnTrace

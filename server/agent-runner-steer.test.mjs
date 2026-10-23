@@ -1,9 +1,9 @@
-// pollSteer 接线回归(2026-10-22 审计):workbench-agent 把 pollSteer 闭包作为 run() 选项传入,
-// 而 createAgentRunner 工厂签名不收、createAgent 调用不转发——pollSteer 是 createAgent 的工厂级
-// 参数(spec D2,agent.mjs 循环读工厂闭包),run() 选项形态被静默忽略 → 生产装配下钩子恒
-// undefined,运行中实时注入当轮从不生效、steer_consumed 永不广播。既有三份 steer 测试全绿
-// 恰因桩掉 runner(workbench-agent.test 捕获 run 选项直调闭包)或直测工厂形态(agent-steer.test),
-// 真实 runner→agent 装配零覆盖——本文件用真实 createAgentRunner 钉死该缝。
+// pollSteer 接线回归(2026-10-22 审计):pollSteer 是 createAgent 的工厂级参数(spec D2,
+// agent.mjs 循环读工厂闭包)。历史两断:①10-22 前唯一生产构造点 createAgentRunner 不收不转发;
+// ②10-22 修复补了中段(runner 收参+透传),但装配点 workbench-agent 仍把闭包放进 run() 选项——
+// agent.mjs run() 解构无 rest,选项形态被静默丢弃,生产恒死(该形态 10-23 才被发现,见
+// workbench-agent.test steer 组装配断言)。本文件用真实 createAgentRunner 钉死「runner 中段
+// 转发」这一跳;「装配点工厂参递达」由 workbench-agent.test 的 capturedRunnerArgs 断言钉死。
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createAgentRunner } from './agent-runner.mjs'

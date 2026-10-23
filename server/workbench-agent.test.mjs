@@ -1421,13 +1421,18 @@ test('routeDynamicApproval:{{cred: 占位符恒人审——免审 SSH 服务器�
 
 // ── steer(spec D2,2026-10-13):run/resume 均装配 pollSteer 闭包,按 watermark 吸收
 // steered 行,注入即推进(幂等),广播 steer_consumed。resume 新闭包 watermark 重置,
-// paused 期间的 steer 首轮吸收、不与快照重复。──
+// paused 期间的 steer 首轮吸收、不与快照重复。
+// 装配形态(2026-10-23 二次修复):pollSteer 是 createAgent 的工厂级参数,必须经
+// createAgentRunner 工厂参递达;run() 选项形态会被 agent.mjs run() 解构(:293 无 rest)
+// 静默丢弃——10-22 修复只接通了 runner 中段,装配点仍走 run() 选项,生产恒死。本组
+// 用例一律从 capturedRunnerArgs(工厂参)取闭包,并断言 run 选项不含 pollSteer。──
 test('runConversation: pollSteer 闭包按 watermark 吸收 steered 行 + steer_consumed + 幂等', async () => {
   const s = setup()
   const agent = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async () => ({ content: 'ok' })), busEmit: s.busEmit, busDispose: s.busDispose })
   await agent.runConversation(s.conv.id, { chat: async () => ({}) })
-  const pollSteer = s.capturedRunOpts().pollSteer
-  assert.equal(typeof pollSteer, 'function')
+  const pollSteer = s.capturedRunnerArgs().pollSteer
+  assert.equal(typeof pollSteer, 'function', '装配缝:pollSteer 必须以 createAgentRunner 工厂参形态递达(run() 选项会被 agent.run 静默丢弃)')
+  assert.ok(!('pollSteer' in (s.capturedRunOpts() || {})), 'run() 选项不得再含 pollSteer(死通道,防接线回退)')
   appendMessage(s.db, { conversationId: s.conv.id, role: 'user', content: '补充X', steered: 1 })
   assert.deepEqual(pollSteer(), [{ role: 'user', content: '补充X' }])
   assert.deepEqual(pollSteer(), [])                       // watermark 已推进
@@ -1448,7 +1453,9 @@ test('C1 回归:paused 期间 steer → approve 续跑首轮吸收(真序列,spe
   // approve 续跑:resume 的 watermark 必须锚定「暂停时」而非「此刻」——否则该行永不吸收
   const agent2 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async () => ({ status: 'done', content: '已执行', trace: [], steps: 2, messages: [], queue: [], denied: [] })), busEmit: s.busEmit, busDispose: s.busDispose })
   await agent2.resumeConversation(s.conv.id, true, { chat: async () => ({}) })
-  assert.deepEqual(s.capturedRunOpts().pollSteer(), [{ role: 'user', content: '审批期间补充' }])
+  assert.equal(typeof s.capturedRunnerArgs().pollSteer, 'function', 'resume 装配缝:工厂参形态递达')
+  assert.ok(!('pollSteer' in (s.capturedRunOpts() || {})), 'resume:run() 选项不得含 pollSteer(死通道,防接线回退)')
+  assert.deepEqual(s.capturedRunnerArgs().pollSteer(), [{ role: 'user', content: '审批期间补充' }])
 })
 
 test('链式审批二次暂停:resume 闭包 watermark 续传进快照(漏传则落 0,再 resume 重吸历史 steer 行)', async () => {
@@ -1465,8 +1472,8 @@ test('链式审批二次暂停:resume 闭包 watermark 续传进快照(漏传则
   // 段2:approve 续跑——桩按真实因果顺序扮演 agent 循环(每轮 chat 前 pollSteer,agent.mjs 同款):
   // resume 期间吸收 paused 补充、闭包 watermark 推进到 steerSeq,随后产出 pending#2 暂停。
   // 时序教训(终审 C1):先 resume 后操作会藏住 watermark 传递缺陷,必须按循环真实顺序排。
-  const agent2 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async (opts) => {
-    await opts.pollSteer?.()
+  const agent2 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async () => {
+    await s.capturedRunnerArgs().pollSteer?.() // 桩扮演 agent 循环:读工厂闭包(生产形态)
     return { status: 'pending_approval', pending, messages: [{ role: 'assistant', content: '审批2' }], queue: [], denied: [], steps: 2 }
   }), busEmit: s.busEmit, busDispose: s.busDispose })
   await agent2.resumeConversation(s.conv.id, true, { chat: async () => ({}) })
@@ -1476,10 +1483,10 @@ test('链式审批二次暂停:resume 闭包 watermark 续传进快照(漏传则
   // 会经 handleAgentResult 的 `?? 0` 落 0
   assert.equal(paused2.steerWatermark, steerSeq)
   // 段3:再批续跑——闭包从快照 watermark 起,不得重吸已消费的补充行(重复注入 LLM + 重复广播)
-  const agent3 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async (opts) => {
-    await opts.pollSteer?.()
+  const agent3 = createWorkbenchAgent({ db: s.db, ...stubDeps, ...s.makeRunner(async () => {
+    await s.capturedRunnerArgs().pollSteer?.() // 桩扮演 agent 循环:读工厂闭包(生产形态)
     return { status: 'done', content: '已执行', trace: [], steps: 3, messages: [], queue: [], denied: [] }
   }), busEmit: s.busEmit, busDispose: s.busDispose })
   await agent3.resumeConversation(s.conv.id, true, { chat: async () => ({}) })
-  assert.deepEqual(s.capturedRunOpts().pollSteer(), [])
+  assert.deepEqual(s.capturedRunnerArgs().pollSteer(), [])
 })
