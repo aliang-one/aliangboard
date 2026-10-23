@@ -5,7 +5,7 @@
 // busEmit/busDispose 作 factory dep 注入(与 createAgentRunner 同理,便于单测 stub)。
 import { buildHistory, appendMessage, getConversation, getProject, updateConversation, appendTrace, appendHistory, getMaxSeq } from './workbench-projects.mjs'
 import { maybeSummarize, maybeSummarizeProject } from './workbench-summarize.mjs'
-import { contextWindowFor, trimBudgetChars } from './model-context.mjs'
+import { resolveWindowTokens, trimBudgetChars } from './model-context.mjs'
 import { eventsForResult } from './conv-events.mjs'
 import { clampTraceStep } from './agent.mjs'
 import { getWorkbenchAiConfig, getMaxStepsConfig } from './workbench-ai-config.mjs'
@@ -391,7 +391,7 @@ const CK_TIME_MS = 500
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
-        budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
+        budgetChars: trimBudgetChars(resolveWindowTokens(llmClient.contextWindow, llmClient.model)), // 上文窗口:显式配置优先,回落模型推导(2026-10-23)
         // 动态审批白名单路由(2026-09-07 审计 F1):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
         dynamicApproval: (sshBridge || sshJobs || ctx.creds) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs, ctx.creds || null) : undefined,
         // 审批三档模式(2026-09-09):owner 的 prefs 现读(W2 语义:授权/审批主体恒取 project.ownerId,
@@ -545,7 +545,7 @@ const CK_TIME_MS = 500
         // 工具收紧(2026-08-25):每次 run 现读配置——禁用即时生效(权限回收语义)。
         // 提示词仍按对话创建时烘焙(conv.system),两者不同步属预期:追加指令面向新对话,禁用面向当下。
         disabledTools: getWorkbenchAiConfig(db).disabledTools,
-        budgetChars: trimBudgetChars(contextWindowFor(llmClient.model)),
+        budgetChars: trimBudgetChars(resolveWindowTokens(llmClient.contextWindow, llmClient.model)), // 上文窗口:显式配置优先,回落模型推导(2026-10-23)
         // 动态审批白名单路由(2026-09-07 审计 F1):单一事实源 routeDynamicApproval,勿在装配点复刻谓词
         dynamicApproval: (sshBridge || sshJobs || ctx.creds) ? (n, args) => routeDynamicApproval(n, args, sshBridge, sshJobs, ctx.creds || null) : undefined,
         // 审批三档模式(2026-09-09):owner 的 prefs 现读(W2 语义:授权/审批主体恒取 project.ownerId,

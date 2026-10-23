@@ -789,3 +789,29 @@ test('E6: 历史已摘要(装配面低于体积线)→ 不触发,即使全量历
   assert.equal(called, false, '装配面低于体积线 → 不烧 LLM(全量 240KB 不计入)')
   assert.equal(fired, false)
 })
+
+// 上文窗口显式配置(2026-10-23):体积触发线跟随生效窗口(resolveWindowTokens:显式配置优先)
+// 隔离体积路径:thresholdTurns 调到 100(20 条消息够不到),只让体积线决定是否触发。
+test('volumeTrigger:llmClient.contextWindow 显式配置压过模型推导', async () => {
+  const turns = { thresholdTurns: 100, recentKeep: 8 }
+  const mk = () => {
+    const db = freshDb()
+    createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'x' })
+    const conv = listConversations(db, p1Id(db))[0]
+    for (let i = 0; i < 10; i++) {
+      appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q'.repeat(10_000) })
+      appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a' })
+    } // Σcontent≈100k chars
+    return { db, convId: conv.id }
+  }
+  const a = mk()
+  const firedPlain = await maybeSummarize(a.db, a.convId, { chat: async () => ({ content: 'R' }), model: 'mock-1' }, turns)
+  assert.equal(firedPlain, true, '未配置:100k > mock-1(200k 窗)体积线 70k → 触发')
+  // 注意:不能用「chat 抛错 + fired=false」判未触发——maybeSummarize 吞错静默返 false,
+  // 抛错路径会假绿;必须用 called 标志断言 chat 根本没被调。
+  const b = mk()
+  let calledOverride = false
+  const firedOverride = await maybeSummarize(b.db, b.convId, { chat: async () => { calledOverride = true; return { content: 'R' } }, model: 'mock-1', contextWindow: 10_000_000 }, turns)
+  assert.equal(calledOverride, false, '显式 10M:体积线 3.5M → chat 根本不被调')
+  assert.equal(firedOverride, false)
+})

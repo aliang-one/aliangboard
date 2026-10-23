@@ -3294,6 +3294,11 @@
       "exOpenAILabel": "OpenAI:",
       "temperatureLabel": "temperature (blank = model default)",
       "maxTokensLabel": "max tokens (blank = model default)",
+      "contextWindowLabel": "Context window",
+      "contextWindowPlaceholder": "e.g. 200K",
+      "contextWindowHint": "Accepts forms like 200K / 1M / 131072 (decimal K/M), range 1000-100000000. Leave empty to auto-derive from the model name.",
+      "contextWindowEffectiveAuto": "Effective: {n} (auto by model name)",
+      "contextWindowEffectiveSet": "Effective: {n} (configured)",
       "paramsHint": "Optional params; when blank, the request omits these fields.",
       "apiKey": "API Key"
     },

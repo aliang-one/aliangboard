@@ -8,11 +8,27 @@ import { notify } from '@/composables/useToast'
 
 const { t } = useI18n()
 const status = ref(null)       // GET 回的当前有效配置 + 各字段来源
-const form = ref({ baseURL: '', model: '', apiKey: '', temperature: '', maxTokens: '' })
+const form = ref({ baseURL: '', model: '', apiKey: '', temperature: '', maxTokens: '', contextWindow: '' })
 const saving = ref(false)
 const testing = ref(false)
 const testResult = ref(null)   // { ok, reply? | message? }
 const loading = ref(true)
+
+// 上文窗口(2026-10-23):常见预设(点击填入);输入框接受 "1M"/"200K"/"131072"(服务端 parse 单源)。
+const WINDOW_PRESETS = ['32K', '64K', '128K', '200K', '256K', '512K', '1M', '2M']
+// token 数 → 紧凑显示(整百万→M、整千→K、否则原数字;无损回显)
+function fmtWindow(n) {
+  const v = Number(n)
+  if (!Number.isFinite(v) || v <= 0) return ''
+  if (v % 1_000_000 === 0) return `${v / 1_000_000}M`
+  if (v % 1_000 === 0) return `${v / 1_000}K`
+  return String(v)
+}
+const effectiveLabel = computed(() => {
+  if (!status.value) return ''
+  const n = fmtWindow(status.value.effectiveWindow)
+  return status.value.contextWindow ? t('admin.llm.contextWindowEffectiveSet', { n }) : t('admin.llm.contextWindowEffectiveAuto', { n })
+})
 
 const SOURCE_STYLE = { db: 'bg-status-running/10 text-status-running', env: 'bg-surface-container-high text-on-surface-variant', none: 'bg-error/10 text-error' }
 const SOURCE_LABEL_KEY = { db: 'admin.llm.sourceDb', env: 'admin.llm.sourceEnv', none: 'admin.llm.sourceNone' }
@@ -23,8 +39,10 @@ const apiKeyLabel = computed(() => {
   return t('admin.llm.set', { source: t(SOURCE_LABEL_KEY[status.value.apiKeySource]) })
 })
 
-async function load() {
-  loading.value = true
+// silent:保存后的回读不翻转 loading——loading 翻转会使 v-if 整块卸载重建表单,
+// 毁掉输入焦点与保存期间在途击键(审查 2026-10-23;首次挂载仍走全量 loading)。
+async function load(opts = {}) {
+  if (!opts.silent) loading.value = true
   try {
     const s = await adminApi.llmConfig.get()
     status.value = s
@@ -33,6 +51,7 @@ async function load() {
     form.value.apiKey = ''
     form.value.temperature = s.temperature || ''
     form.value.maxTokens = s.maxTokens || ''
+    form.value.contextWindow = fmtWindow(s.contextWindow)
   } catch (e) {
     notify('error', e.message || t('admin.llm.loadFailed'))
   } finally {
@@ -44,12 +63,12 @@ onMounted(load)
 async function save() {
   saving.value = true
   try {
-    const payload = { baseURL: form.value.baseURL.trim(), model: form.value.model.trim(), temperature: form.value.temperature.trim(), maxTokens: form.value.maxTokens.trim() }
+    const payload = { baseURL: form.value.baseURL.trim(), model: form.value.model.trim(), temperature: form.value.temperature.trim(), maxTokens: form.value.maxTokens.trim(), contextWindow: form.value.contextWindow.trim() } // contextWindow 原样提交("1M"/"200K"/数字),服务端 parse 归一
     if (form.value.apiKey) payload.apiKey = form.value.apiKey  // 留空不传 = 不修改
     await adminApi.llmConfig.save(payload)
     notify('success', t('common.saved'))
     form.value.apiKey = ''
-    await load()
+    await load({ silent: true })
   } catch (e) {
     notify('error', e.message || t('common.saveFailed'))
   } finally {
@@ -140,13 +159,22 @@ async function testConn() {
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.llm.maxTokensLabel') }}</label>
           <input v-model="form.maxTokens" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" placeholder="8192" />
         </div>
+        <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.llm.contextWindowLabel') }}</label>
+          <input v-model="form.contextWindow" data-testid="ctx-window-input" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('admin.llm.contextWindowPlaceholder')" />
+          <div class="flex flex-wrap items-center gap-xs mt-xs">
+            <button v-for="p in WINDOW_PRESETS" :key="p" type="button" data-testid="ctx-preset" @click="form.contextWindow = p"
+              class="px-2 py-0.5 rounded border border-outline-variant text-body-xs font-mono hover:bg-surface-container">{{ p }}</button>
+          </div>
+          <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('admin.llm.contextWindowHint') }}</p>
+          <p v-if="status" class="text-body-xs text-on-surface-variant mt-xs" data-testid="ctx-effective">{{ effectiveLabel }}</p>
+        </div>
         <p class="text-body-xs text-on-surface-variant">{{ $t('admin.llm.paramsHint') }}</p>
         <div><label class="text-body-xs text-on-surface-variant block mb-xs">{{ $t('admin.llm.apiKey') }}</label>
           <input v-model="form.apiKey" type="password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono" :placeholder="$t('admin.llm.apiKeyPlaceholder')" />
           <p class="text-body-xs text-on-surface-variant mt-xs">{{ $t('admin.llm.apiKeyHint') }}</p>
         </div>
         <div class="flex flex-wrap items-center gap-sm">
-          <button @click="save" :disabled="saving" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40 max-sm:min-h-[40px]">
+          <button @click="save" data-testid="save-btn" :disabled="saving" class="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-40 max-sm:min-h-[40px]">
             <span class="material-symbols-outlined text-base">save</span> {{ saving ? $t('admin.llm.saving') : $t('common.save') }}
           </button>
           <button @click="testConn" :disabled="testing" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container disabled:opacity-40 max-sm:min-h-[40px]">

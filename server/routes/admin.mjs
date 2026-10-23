@@ -8,6 +8,7 @@ import { normalizeToolOverrides, normalizeAllowedNamespaces } from '../authorize
 import { activeKeys, queryAuditLog, verifyChain } from '../audit.mjs'
 import { clampPresence, getPresenceConfig } from '../workbench-projects.mjs'
 import { msg } from '../messages.mjs'
+import { parseWindowInput, resolveWindowTokens } from '../model-context.mjs'
 import { resolvePasswordPolicy, firstFailedRule, normalizePolicy } from '../password-policy.mjs'
 import { getWorkbenchAiConfig, validateDisabledTools, clampInstructions, getMaxStepsConfig, validateMaxSteps, MAX_STEPS_RANGE,
   getMaxRunningConversationsConfig, validateMaxRunningConversations, MAX_RUNNING_CONVERSATIONS_RANGE,
@@ -74,6 +75,7 @@ export function createAdminRoutes(deps) {
       const ps = requireAdmin(req, res); if (!ps) return true
       const dbBase = getSetting('llm.baseURL'), dbKey = getSetting('llm.apiKey'), dbModel = getSetting('llm.model')
       const dbTemp = getSetting('llm.temperature'), dbMax = getSetting('llm.maxTokens')
+      const dbContextWindow = getSetting('llm.contextWindow')
       const src = (db, env) => db ? 'db' : (env ? 'env' : 'none')
       sendJson(res, 200, {
         baseURL: dbBase || process.env.LLM_BASE_URL || '',
@@ -84,6 +86,10 @@ export function createAdminRoutes(deps) {
         apiKeySource: src(dbKey, process.env.LLM_API_KEY),
         temperature: dbTemp || '',
         maxTokens: dbMax || '',
+        // 上文窗口(2026-10-23):显式配置原样回显;effectiveWindow 与运行时消费点同轨
+        // (parseWindowInput→resolveWindowTokens:显式配置优先,空/脏数据回落模型名推导)——UI 展示「当前生效」用。
+        contextWindow: dbContextWindow || '',
+        effectiveWindow: resolveWindowTokens(parseWindowInput(dbContextWindow), dbModel || process.env.LLM_MODEL || ''),
       })
       return true
     }
@@ -96,11 +102,17 @@ export function createAdminRoutes(deps) {
         if (t !== '' && (!Number.isFinite(t) || t < 0 || t > 2)) { sendJson(res, 400, { message: msg(req, 'admin.llmBadTemperature') }); return true }
         const m = input.maxTokens === '' || input.maxTokens == null ? '' : Number(input.maxTokens)
         if (m !== '' && (!Number.isInteger(m) || m < 1 || m > 200000)) { sendJson(res, 400, { message: msg(req, 'admin.llmBadMaxTokens') }); return true }
+        // 上文窗口(2026-10-23):收用户原样("1M"/"200k"/"131072")→ parseWindowInput 归一;
+        // 空串/缺席 = 清除(回落模型名自动);非法 400(双语),不落库。
+        const cwRaw = input.contextWindow == null ? '' : String(input.contextWindow).trim()
+        const cw = cwRaw === '' ? null : parseWindowInput(cwRaw)
+        if (cwRaw !== '' && cw === null) { sendJson(res, 400, { message: msg(req, 'admin.llmBadContextWindow') }); return true }
         setSetting('llm.baseURL', input.baseURL || '')
         setSetting('llm.model', input.model || '')
         if (typeof input.apiKey === 'string' && input.apiKey) setSetting('llm.apiKey', input.apiKey) // 留空 = 不修改
         setSetting('llm.temperature', t === '' ? '' : String(t))
         setSetting('llm.maxTokens', m === '' ? '' : String(m))
+        setSetting('llm.contextWindow', cw === null ? '' : String(cw))
         sendJson(res, 200, { ok: true })
         return true
       } catch (e) { sendJson(res, 500, { message: e?.message || msg(req, 'admin.saveFailed') }); return true }

@@ -1,7 +1,7 @@
 // server/model-context.test.mjs
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { contextWindowFor, estTokens, estTokensFromCounts, countCjkChars, trimBudgetChars } from './model-context.mjs'
+import { contextWindowFor, estTokens, estTokensFromCounts, countCjkChars, trimBudgetChars, parseWindowInput, resolveWindowTokens } from './model-context.mjs'
 
 test('contextWindowFor:家族 substring 匹配(小写化)', () => {
   assert.equal(contextWindowFor('gpt-4o'), 128_000)
@@ -70,4 +70,52 @@ test('trimBudgetChars:按 CJK 最坏密度校准(1 token/字;旧 ×2 对纯中�
   assert.equal(trimBudgetChars(200_000), 140_000)   // 200k 窗口 → 140k token 预算 → 140k 字符(CJK 最坏)
   assert.equal(trimBudgetChars(128_000), 89_600)
   assert.equal(trimBudgetChars(1_000_000), 700_000)
+})
+
+// ── 上文窗口显式配置(admin LLM 配置「上文大小」字段,2026-10-23)──
+// parseWindowInput:用户输入("1M"/"200K"/"131072")→ 归一化正整数 token;非法 → null(交路由 400,不抛错)。
+// 十进制(LLM 惯例):K=1_000、M=1_000_000(claude 的 200K = 200,000,非 K8s 的 Ki 二进制)。
+test('parseWindowInput:M/K 单位与裸数字(十进制 K=1000、M=1e6;大小写/首尾空白容忍)', () => {
+  assert.equal(parseWindowInput('1M'), 1_000_000)
+  assert.equal(parseWindowInput('1m'), 1_000_000, '小写单位同义')
+  assert.equal(parseWindowInput('200K'), 200_000)
+  assert.equal(parseWindowInput('200k'), 200_000)
+  assert.equal(parseWindowInput('131072'), 131_072, '裸数字=token 原值')
+  assert.equal(parseWindowInput(' 128K '), 128_000, '容忍首尾空白')
+  assert.equal(parseWindowInput('0.5M'), 500_000, '小数×单位取整后为整数即合法')
+  assert.equal(parseWindowInput('2M'), 2_000_000)
+  assert.equal(parseWindowInput('1000'), 1000, '恰在下界')
+})
+
+test('parseWindowInput:非法输入一律 null', () => {
+  assert.equal(parseWindowInput(''), null)
+  assert.equal(parseWindowInput('   '), null)
+  assert.equal(parseWindowInput(null), null)
+  assert.equal(parseWindowInput(undefined), null)
+  assert.equal(parseWindowInput('abc'), null)
+  assert.equal(parseWindowInput('1T'), null, '只认 K/M')
+  assert.equal(parseWindowInput('1e6'), null, '不解析科学计数法')
+  assert.equal(parseWindowInput('-200K'), null, '负数')
+  assert.equal(parseWindowInput('0'), null, '0 token 无意义')
+  assert.equal(parseWindowInput('1.5'), null, '无单位小数=非整数 token')
+  assert.equal(parseWindowInput('0.1234K'), null, '×单位后仍有小数余 → 非法')
+})
+
+test('parseWindowInput:范围钳制 1000..100M(下界防 budgetChars=0 被 runner falsy 回落、与余量表口径分裂;100M 留足 qwen-long 10M 余量)', () => {
+  assert.equal(parseWindowInput('100M'), 100_000_000, '上界恰好在界内')
+  assert.equal(parseWindowInput('101M'), null, '超上界')
+  assert.equal(parseWindowInput('100000001'), null, '裸数字同受上界钳制')
+  assert.equal(parseWindowInput('1'), null, '下界外:trimBudgetChars(1)=0 会被 agent-runner falsy 展开静默替换 60000')
+  assert.equal(parseWindowInput('999'), null, '下界外')
+})
+
+test('resolveWindowTokens:显式配置优先;空/非法回落 contextWindowFor(模型名推导)', () => {
+  assert.equal(resolveWindowTokens(1_000_000, 'qwen-max'), 1_000_000, '显式配置压过模型推导(128k)')
+  assert.equal(resolveWindowTokens(1_000_000, ''), 1_000_000, '无模型名也用显式值')
+  assert.equal(resolveWindowTokens('1000000', 'qwen-max'), 1_000_000, '数字字符串容忍(settings 原样形态)')
+  assert.equal(resolveWindowTokens(null, 'qwen-max'), 128_000, '空 → 回落模型推导')
+  assert.equal(resolveWindowTokens(undefined, 'qwen-max'), 128_000)
+  assert.equal(resolveWindowTokens('', 'qwen-max'), 128_000, '空串(清除态)回落')
+  assert.equal(resolveWindowTokens(0, 'qwen-max'), 128_000, '0 视为未配置')
+  assert.equal(resolveWindowTokens(null, 'totally-unknown'), 200_000, '回落链尾:未命中模型 → 默认 200k')
 })

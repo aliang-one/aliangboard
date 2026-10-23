@@ -272,7 +272,7 @@ test('regenWatermark:水位盖住末轮 user 时钳到 lastUserSeq-1,buildHistor
 // handle-direct 桩 harness(真 :memory: db + 桩 deps),断言按 brief 逐字。
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 
-function makeHttpHarness() {
+function makeHttpHarness(overrides = {}) {
   const db = new DatabaseSync(':memory:')
   createWorkbenchSchema(db)
   db.exec(`CREATE TABLE IF NOT EXISTS clusters (
@@ -298,6 +298,7 @@ function makeHttpHarness() {
     buildCallContext: () => ({}),
     requestKubernetes: async () => ({ status: 200, headers: {}, body: {} }),
     busSubscribe: () => {}, busUnsubscribe: () => {},
+    ...overrides,
   })
   return { db, pid, sent, call: (method, pathname) => routes.handle({ method, on: () => {} }, res, new URL(`http://x${pathname}`)) }
 }
@@ -319,6 +320,18 @@ test('GET /:id 返回 context:estTokens/windowTokens/budgetTokens/recapUpTo/will
   assert.equal(r.context.recapUpTo, conv.summarizedUpTo ?? 0)
   // 2026-09-09 METER-1:willTrim 切字符域(estChars vs charBudget,与 trimMessages 执法线同单位)
   assert.equal(r.context.willTrim, r.context.estChars > r.context.charBudget)
+})
+
+// 上文窗口显式配置(2026-10-23):llm 配置 contextWindow 压过模型推导,下发的余量表跟随
+test('GET /:id context:llm 配置 contextWindow 显式覆盖窗口/预算', async () => {
+  const h = makeHttpHarness({ getLlmConfig: () => ({ baseURL: 'http://llm', apiKey: 'k', model: 'qwen-max', contextWindow: 1_000_000 }) })
+  const conv = createConversation(h.db, { projectId: h.pid, system: '工作台提示词', userMessage: '帮我看看 pod' })
+  h.db.prepare("UPDATE workbench_conversations SET status='done' WHERE id=?").run(conv.id)
+  assert.ok(await h.call('GET', `/api/workbench/conversations/${conv.id}`), '路由命中')
+  const r = h.sent[h.sent.length - 1].json
+  assert.equal(r.context.windowTokens, 1_000_000, '显式 1M 压过 qwen-max 模型推导的 128k')
+  assert.equal(r.context.budgetTokens, 700_000, '1M×0.7')
+  assert.equal(r.context.charBudget, 700_000, '字符执法线同源跟随')
 })
 
 // ── 编辑重发 T2:POST /:id/edit 契约(spec §3.1)──

@@ -26,7 +26,7 @@ import {
   truncateAfterLastUser, regenWatermark, listActiveConversations, getPresenceConfig,
   buildHistory, truncateFromMessage,
 } from '../workbench-projects.mjs'
-import { contextWindowFor, estTokensFromCounts, countCjkChars, trimBudgetChars } from '../model-context.mjs'
+import { resolveWindowTokens, estTokensFromCounts, countCjkChars, trimBudgetChars } from '../model-context.mjs'
 import { sanitizeMessages } from '../llm.mjs'
 import { MAX_REF_BLOCK, MAX_REF_TOTAL } from '../ref-context.mjs'
 import { maybeSummarize, maybeSummarizeProject, compactConversation } from '../workbench-summarize.mjs'
@@ -230,7 +230,8 @@ export function createWorkbenchConvRoutes(deps) {
   // refs 估算改保守上限口径:min(N×MAX_REF_BLOCK, MAX_REF_TOTAL)(METER-3:旧 2048/ref 对
   // 实注入 16KB/ref 低估 8×;余量条语义=最坏口径,宁保守勿漏报)。
   function contextInfo(conv) {
-    const windowTokens = contextWindowFor(getLlmConfig().model)
+    const llmCfg = getLlmConfig()
+    const windowTokens = resolveWindowTokens(llmCfg.contextWindow, llmCfg.model) // 上文窗口:显式配置优先,回落模型推导(2026-10-23)
     const budgetTokens = Math.floor(windowTokens * 0.7)
     const charBudget = trimBudgetChars(windowTokens) // 单源:与 agent 执法线同函数同单位
     const acc = { cjk: 0, other: 0 }

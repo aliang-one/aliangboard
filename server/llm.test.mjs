@@ -547,3 +547,14 @@ test('chat: 非 JSON 错误体(nginx HTML 页)+ Retry-After → 非 JSON 错误�
     e => e.status === 503 && e.retryAfterMs === 20000 && /非 JSON/.test(e.message),
   )
 })
+
+// 上文窗口显式配置(2026-10-23):client 透传暴露 contextWindow——agent/summarize 消费点
+// 经 llmClient.contextWindow 取配置覆盖(resolveWindowTokens 单源回落模型推导)。
+test('createLlmClient:contextWindow 透传暴露;缺省/空串归一 null', () => {
+  const c1 = createLlmClient({ baseURL: 'http://x', model: 'm', contextWindow: 1_000_000 })
+  assert.equal(c1.contextWindow, 1_000_000)
+  const c2 = createLlmClient({ baseURL: 'http://x', model: 'm' })
+  assert.equal(c2.contextWindow, null, '未配置 → null(消费方回落模型推导)')
+  const c3 = createLlmClient({ baseURL: 'http://x', model: 'm', contextWindow: '' })
+  assert.equal(c3.contextWindow, null, "空串(getLlmConfig 清除态)归一 null")
+})

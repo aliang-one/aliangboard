@@ -58,7 +58,7 @@ export function sanitizeMessages(messages) {
 }
 
 export function createLlmClient({
-  baseURL, apiKey, model, temperature, maxTokens, fetch = defaultFetch,
+  baseURL, apiKey, model, temperature, maxTokens, contextWindow, fetch = defaultFetch,
   timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 120000,
   idleMs = Number(process.env.LLM_STREAM_IDLE_MS) || 180000,
   streamTotalMs = STREAM_TOTAL_MS,
@@ -203,7 +203,10 @@ export function createLlmClient({
     return finalize()
     } finally { clearTimeout(idleTimer); clearTimeout(deadlineTimer) }
   }
-  return { chat, chatStream, model, endpoint }
+  // contextWindow 透传暴露(2026-10-23):上文窗口显式配置(agent/summarize 经 resolveWindowTokens
+  // 消费)。缺省/空串归一 null——消费点零值回落模型推导。
+  const ctxWindow = Number(contextWindow)
+  return { chat, chatStream, model, endpoint, contextWindow: Number.isFinite(ctxWindow) && ctxWindow > 0 ? ctxWindow : null }
 }
 
 // 探测模型是否流式透传思考 token(reasoning_content/reasoning)——「LLM 配置」页用,

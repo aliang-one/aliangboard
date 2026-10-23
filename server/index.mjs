@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { load as yamlLoad } from 'js-yaml'
 import { Agent as UndiciAgent, fetch as kubeFetch } from 'undici'
 import { normalizeServer, getDispatcher, buildCallContext, parseResponseBody, _dispatcherCacheSizeForTest } from './call-context.mjs'
+import { parseWindowInput } from './model-context.mjs'
 import { sessionOwnerValid } from './session-guard.mjs'
 import { parseApiPath } from './k8s-path.mjs'
 import { createK8sGate, gateParsedPath, filterNamespaceList, gateWatchResources } from './k8s-gate.mjs'
@@ -351,6 +352,7 @@ function getLlmConfig() {
     model: getSetting('llm.model') || process.env.LLM_MODEL || '',
     temperature: getSetting('llm.temperature') || '',
     maxTokens: getSetting('llm.maxTokens') || '',
+    contextWindow: parseWindowInput(getSetting('llm.contextWindow')), // 数字|null(''/脏数据→null,消费点回落模型推导;2026-10-23)
   }
 }
 // scrypt 密码：格式 saltHex:hashHex:N:r:p

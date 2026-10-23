@@ -35,6 +35,35 @@ export function contextWindowFor(modelName) {
   return DEFAULT_WINDOW_TOKENS
 }
 
+// ── 上文窗口显式配置(admin LLM 配置「上文大小」字段,2026-10-23)──
+// 上限 100M:合法输入钳制(防手滑 1e15 类;qwen-long 真实 10M 已留足余量)。
+export const MAX_WINDOW_TOKENS = 100_000_000
+// 下界 1000:亚千 token 窗口无现实意义,且 window=1 会使 trimBudgetChars=0——0 被 agent-runner
+// 的 falsy 展开静默替换为缺省 60000,与余量表(contextInfo 按 0 下发)口径分裂(审查 2026-10-23)。
+export const MIN_WINDOW_TOKENS = 1000
+
+// 用户输入 → 归一化正整数 token;非法(空/单位不符/负零/小数余/超界)→ null(交路由 400,不抛错)。
+// 十进制(LLM 惯例):K=1_000、M=1_000_000(claude 的 200K = 200,000;非 K8s 的 Ki 二进制)。
+// 容忍大小写与首尾空白;"0.5M"=500_000 合法,"1.5"/"0.1234K" 非整数 token 非法。
+export function parseWindowInput(raw) {
+  const s = String(raw ?? '').trim().toLowerCase()
+  const m = /^(\d+(?:\.\d+)?)([km])?$/.exec(s)
+  if (!m) return null
+  const mult = m[2] === 'k' ? 1_000 : m[2] === 'm' ? 1_000_000 : 1
+  const n = Number(m[1]) * mult
+  const rounded = Math.round(n)
+  if (Math.abs(n - rounded) > 1e-6) return null // 小数余位非零 → 非整数 token(容差防 0.1*1000 类浮点误伤)
+  if (!Number.isSafeInteger(rounded) || rounded < MIN_WINDOW_TOKENS || rounded > MAX_WINDOW_TOKENS) return null
+  return rounded
+}
+
+// 窗口解析单源(全部消费点经此):显式配置 >0 优先,否则回落模型名推导(含默认 200k)。
+// override 容忍数字/数字字符串/''/null/undefined(settings 原样与测试桩两种形态)。
+export function resolveWindowTokens(overrideTokens, modelName) {
+  const n = Number(overrideTokens)
+  return Number.isFinite(n) && n > 0 ? n : contextWindowFor(modelName)
+}
+
 // CJK 感知估算(context-assembly-05,2026-09-07 审计批次三):旧 chars/2 折中在纯中文上低估
 // ~2 倍(中文≈1字/token 而非 2字/token)——willTrim 漏报、硬裁剪预算超发。模型:cjk≈1 token/字,
 // 其余≈1 token/4字符(ASCII/JSON 主体)。两入口:estTokens(整段文本)/estTokensFromCounts

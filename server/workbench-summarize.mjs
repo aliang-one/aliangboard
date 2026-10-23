@@ -11,7 +11,7 @@ import {
   clampRecap,
 } from './workbench-projects.mjs'
 import { deriveSalvageContent } from './salvage-content.mjs'
-import { trimBudgetChars, contextWindowFor } from './model-context.mjs'
+import { trimBudgetChars, resolveWindowTokens } from './model-context.mjs'
 import { createSingleFlight } from './state/kernel.mjs'
 // 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
 // msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
@@ -73,7 +73,7 @@ export async function maybeSummarize(
     // 口径=装配面(仅 seq>upToPrev;评审 Important#1:全量计数会让「历史已摘要」的对话
     // 永久越过体积线 → 每条新消息都白烧一次摘要 LLM)+ conv.recap 自身
     const volChars = allMsgs.filter(m => m.seq > upToPrev).reduce((n, m) => n + String(m.content || '').length, 0) + (conv.recap?.length || 0)
-    const volumeTrigger = volChars > trimBudgetChars(contextWindowFor(llmClient?.model)) * 0.5
+    const volumeTrigger = volChars > trimBudgetChars(resolveWindowTokens(llmClient?.contextWindow, llmClient?.model)) * 0.5 // 上文窗口:显式配置优先(2026-10-23)
     if (!(nonEmptyCount > thresholdTurns || volumeTrigger)) return false
     // 触发线放宽保留窗(METER-5 复核:只提前触发不改保留是白摘——单轮 15KB 的对话摘后 8 行
     // 全文仍超预算):体积路径逐级 8→4(compact 手动全量语义是 2,自动通道不过激);

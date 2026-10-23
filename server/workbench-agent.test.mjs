@@ -686,6 +686,17 @@ test('runConversation: budgetChars 按 llmClient.model 派生传入 runner', asy
   assert.equal(capturedBudget, 89_600, '128k×0.7=89600 字符(CJK 最坏密度校准)')
 })
 
+// 上文窗口显式配置(2026-10-23):llmClient.contextWindow 压过模型推导(resolveWindowTokens 单源)
+test('runConversation: llmClient.contextWindow 显式配置压过模型推导', async () => {
+  const { db, conv, busEmit, busDispose } = setup()
+  let capturedBudget = null
+  const createAgentRunner = (opts) => { capturedBudget = opts.budgetChars; return { run: async () => ({ status: 'done', content: 'ok', steps: 1, messages: [], queue: [], denied: [] }) } }
+  const agent = createWorkbenchAgent({ db, ...stubDeps, createAgentRunner, busEmit, busDispose })
+  const llmClient = { chat: async () => ({}), model: 'qwen-max', contextWindow: 1_000_000 }   // 显式 1M > qwen 128k
+  await agent.runConversation(conv.id, llmClient)
+  assert.equal(capturedBudget, 700_000, '1M×0.7=700000 字符(显式配置压过 qwen-max 128k 的 89600)')
+})
+
 // ── 项目记忆 T2:refreshSystem 拼入 projectRecap;projectMemory=false 不拼 ──
 test('runConversation:projectRecap 拼入 refreshSystem 产物;projectMemory=false 不拼', async () => {
   const { db, conv, capturedRunOpts, makeRunner } = setup()

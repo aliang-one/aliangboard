@@ -3294,6 +3294,11 @@
       "exOpenAILabel": "OpenAI:",
       "temperatureLabel": "temperature(留空=模型默认)",
       "maxTokensLabel": "max tokens(留空=模型默认)",
+      "contextWindowLabel": "上文大小(context window)",
+      "contextWindowPlaceholder": "如 200K",
+      "contextWindowHint": "支持 200K / 1M / 131072 写法(K=千、M=百万,十进制),范围 1000-100000000。留空 = 按模型名自动推导。",
+      "contextWindowEffectiveAuto": "当前生效:{n}(按模型名自动)",
+      "contextWindowEffectiveSet": "当前生效:{n}(已配置)",
       "paramsHint": "可选参数,留空时请求不带该字段。",
       "apiKey": "API 密钥"
     },
