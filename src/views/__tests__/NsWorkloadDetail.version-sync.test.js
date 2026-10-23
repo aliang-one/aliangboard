@@ -10,8 +10,8 @@
 // 真实 i18n + Vue Query;Modal teleport 到 body,交互走 document.body)。
 import { test, expect, vi, beforeEach } from 'vitest'
 
-const captured = vi.hoisted(() => ({ metaSaves: [], imageUpdates: [], tplApplies: [], rollbacks: [] }))
-const state = vi.hoisted(() => ({ workload: null, revisions: [] }))
+const captured = vi.hoisted(() => ({ metaSaves: [], imageUpdates: [], tplApplies: [], rollbacks: [], failNextMeta: false }))
+const state = vi.hoisted(() => ({ workload: null, revisions: [], services: [] }))
 
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -33,13 +33,16 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   currentCluster: 'demo', setNamespace: () => {}, checkAccessServer: vi.fn(async () => true),
   fetchWorkloads: vi.fn(async () => [state.workload]), fetchPods: vi.fn(async () => []),
   fetchPVCs: vi.fn(async () => []), fetchConfigMaps: vi.fn(async () => []), fetchSecrets: vi.fn(async () => []),
-  fetchServices: vi.fn(async () => []), fetchIngresses: vi.fn(async () => []), fetchEvents: vi.fn(async () => []),
+  fetchServices: vi.fn(async () => state.services), fetchIngresses: vi.fn(async () => []), fetchEvents: vi.fn(async () => []),
   fetchPDBs: vi.fn(async () => []), fetchNetworkPolicies: vi.fn(async () => []),
   fetchReplicaSets: vi.fn(async () => []), fetchEndpoints: vi.fn(async () => []), fetchHPAs: vi.fn(async () => []),
   fetchWorkloadRevisions: vi.fn(async () => state.revisions),
   updateWorkload: vi.fn((n, ns, updates) => { captured.imageUpdates.push(updates); return { ok: true } }),
   applyWorkloadTemplate: vi.fn((n, ns, tpl) => { captured.tplApplies.push(tpl); return { ok: true } }),
-  updateWorkloadMeta: vi.fn((n, ns, payload) => { captured.metaSaves.push(payload) }),
+  updateWorkloadMeta: vi.fn((n, ns, payload) => {
+    if (captured.failNextMeta) { captured.failNextMeta = false; return Promise.reject(new Error('mock meta patch 失败')) }
+    captured.metaSaves.push(payload)
+  }),
   rollbackWorkload: vi.fn((n, ns, rev) => { captured.rollbacks.push(rev); return { ok: true } }),
   invalidateAllClusterQueries: vi.fn(async () => {}),
 }) }))
@@ -68,7 +71,9 @@ function makeWorkload(annotations = {}) {
 }
 const demoRevisions = [
   { rev: 2, image: IMAGE, current: true, replicas: 1, age: '5d' },
-  { rev: 1, image: OLD_IMAGE, current: false, replicas: 1, age: '10d' },
+  // rev1._template 故意与当前模板不同面(team: legacy、无 version 键):鉴别回滚同步取的是
+  // 「还原后的 _template」还是 stale 的 pre-rollback raw(取错会把 team: red 写回去)
+  { rev: 1, image: OLD_IMAGE, current: false, replicas: 1, age: '10d', _template: { metadata: { labels: { app: 'demo-deploy', team: 'legacy' } }, spec: { containers: [{ name: 'main', image: OLD_IMAGE }] } } },
 ]
 
 function mountDetail() {
@@ -108,9 +113,11 @@ beforeEach(() => {
   document.body.innerHTML = ''
   captured.metaSaves.length = 0; captured.imageUpdates.length = 0
   captured.tplApplies.length = 0; captured.rollbacks.length = 0
+  captured.failNextMeta = false
   notify.mockClear()
   state.workload = makeWorkload({ [AUTO_KEY]: 'true' })
   state.revisions = JSON.parse(JSON.stringify(demoRevisions))
+  state.services = []
   i18n.global.locale.value = 'zh'
 })
 
@@ -134,17 +141,24 @@ test('开关已开:重开弹窗勾选态保持,版本输入禁用且显示同步
   expect(inp.value).toBe('1.25')
 })
 
-test('关掉开关保存:开关注解进 removedAnnotations,版本保留手工值', async () => {
+test('关掉开关保存:开关注解进 removedAnnotations,版本保留手工输入值(非镜像同步值)', async () => {
+  // 存量已同步形(version=1.25 于 metadata+模板一致)→ 关开关后手敲 v9-manual:保存应原样落 v9-manual
   state.workload = makeWorkload({ [AUTO_KEY]: 'true' })
-  state.workload.labels[VKEY] = '1.25' // 与模板一致的已同步形
+  state.workload.labels[VKEY] = '1.25'
+  state.workload.raw.spec.template.metadata.labels[VKEY] = '1.25'
   await openMetaModal()
-  autoCheckbox().click(); await flushPromises() // 关掉
+  autoCheckbox().click(); await flushPromises() // 关掉 → 版本输入恢复可编辑
+  const inp = versionInput()
+  expect(inp.disabled).toBe(false)
+  setInput(inp, 'v9-manual'); await flushPromises()
   await clickBody(i18n.global.t('workload.meta.save'))
   expect(captured.metaSaves).toHaveLength(1)
   const p = captured.metaSaves[0]
   expect(p.annotations[AUTO_KEY]).toBeUndefined()
   expect(p.removedAnnotations).toContain(AUTO_KEY)
-  expect(p.labels[VKEY]).toBe('1.25')
+  expect(p.labels[VKEY]).toBe('v9-manual')
+  // 手工版本走 saveMeta 既有语义:业务 label 镜像进模板(与 syncHint 一致,变值触发一次滚动)
+  expect(p.templateLabels[VKEY]).toBe('v9-manual')
 })
 
 test('开关注解不进自定义注解行(防止每次保存元数据被静默误删/误改)', async () => {
@@ -194,6 +208,9 @@ test('回滚到旧版本:开关开着 → 同步目标版本镜像的 tag', asyn
   const p = captured.metaSaves[0]
   expect(p.labels[VKEY]).toBe('1.24')
   expect(p.templateLabels[VKEY]).toBe('1.24')
+  // 关键鉴别:模板面必须取自回滚刚还原的 _template(team: legacy),
+  // 取 stale pre-rollback raw 会写回 team: red 并携带旧 labels 面引发二次滚动
+  expect(p.templateLabels.team).toBe('legacy')
 })
 
 test('开关没开:改镜像全程不触发 updateWorkloadMeta(同步哑火)', async () => {
@@ -206,4 +223,58 @@ test('开关没开:改镜像全程不触发 updateWorkloadMeta(同步哑火)', a
   await clickBody(i18n.global.t('workload.imageTag.update'))
   expect(captured.imageUpdates[0]?.image).toBe('ghcr.io/demo/app:1.26')
   expect(captured.metaSaves).toHaveLength(0)
+})
+
+// --- 评审修复回归锁(2026-10-23 对抗评审:14 项确认 6 根因) ---
+
+const LONG_TAG = `sha256-${'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'}` // 71 字符合法 Docker tag、非法 label 值
+
+async function changeTagViaModal(tag) {
+  const btn = document.body.querySelector(`button[title="${i18n.global.t('workload.rollout.changeTagTitle')}"]`)
+  btn.click(); await flushPromises()
+  const tagInput = [...document.body.querySelectorAll('input[placeholder="v3.5.1"]')].at(-1)
+  setInput(tagInput, tag); await flushPromises()
+  await clickBody(i18n.global.t('workload.imageTag.update'))
+}
+
+test('非法 label 值的超长 tag:镜像照常更新,同步明确拒写并提示(不 422 整包)', async () => {
+  await mountDetail(); await flushPromises()
+  await changeTagViaModal(LONG_TAG)
+  expect(captured.imageUpdates[0]?.image).toBe(`ghcr.io/demo/app:${LONG_TAG}`)
+  expect(captured.metaSaves, '非法 label 值不得进 patch(否则整包 422)').toHaveLength(0)
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('不是合法的 K8s label 值'))
+})
+
+test('Service selector 钉住 version 标签(金丝雀):同步跳过模板层并点名,不静默拆 Endpoints', async () => {
+  state.services = [{ name: 'pin-svc', namespace: 'default', type: 'ClusterIP', ports: '80:8080/TCP', selector: { app: 'demo-deploy', [VKEY]: 'vOld' }, portList: [] }]
+  await mountDetail(); await flushPromises()
+  await changeTagViaModal('1.26')
+  expect(captured.imageUpdates[0]?.image).toBe('ghcr.io/demo/app:1.26')
+  expect(captured.metaSaves, '模板 labels 变更会拆 pin-svc,必须整体跳过').toHaveLength(0)
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('Service/pin-svc'))
+})
+
+test('同 tag 空转:不改镜像不触发同步(防无谓 bump last-edited)', async () => {
+  await mountDetail(); await flushPromises()
+  await changeTagViaModal('1.25') // 与当前镜像同 tag
+  expect(captured.imageUpdates).toHaveLength(1)
+  expect(captured.metaSaves).toHaveLength(0)
+})
+
+test('深编辑只改非镜像字段:不同步', async () => {
+  const w = mountDetail(); await flushPromises()
+  await w.findAll('button').find(b => b.text() === i18n.global.t('common.edit')).trigger('click'); await flushPromises()
+  // 副本数 1→2(镜像未动)→ 保存
+  const repLabel = [...document.body.querySelectorAll('label')].find(l => l.textContent.includes(i18n.global.t('workload.edit.replicas')))
+  if (repLabel) setInput(repLabel.parentElement.querySelector('input'), '2')
+  await clickBody(i18n.global.t('workload.edit.save'))
+  expect(captured.metaSaves).toHaveLength(0)
+})
+
+test('updateWorkloadMeta 拒绝:回退到 versionSyncFailed 提示,不炸交互流', async () => {
+  captured.failNextMeta = true
+  await mountDetail(); await flushPromises()
+  await changeTagViaModal('1.26')
+  expect(captured.metaSaves).toHaveLength(0)
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('版本元数据同步失败'))
 })

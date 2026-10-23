@@ -2710,6 +2710,7 @@
       "fetchFailed": "拉取失败",
       "tagEmpty": "版本不能为空",
       "versionSyncFailed": "版本元数据同步失败：{msg}",
+      "versionSyncIllegal": "镜像 tag「{tag}」不是合法的 K8s label 值（须 ≤63 字符且字母数字开头结尾），版本元数据未同步；可关闭「跟随镜像 tag 自动更新」后手工填写版本",
       "imageUpdated": "镜像版本已更新为 {image}",
       "updateFailed": "更新失败",
       "templateSaved": "Pod 模板已更新",

@@ -2710,6 +2710,7 @@
       "fetchFailed": "Fetch failed",
       "tagEmpty": "Tag cannot be empty",
       "versionSyncFailed": "Version metadata sync failed: {msg}",
+      "versionSyncIllegal": "Image tag \"{tag}\" is not a legal K8s label value (≤63 chars, must start/end alphanumeric); version metadata not synced. Turn off auto-sync and fill the version manually if needed",
       "imageUpdated": "Image updated to {image}",
       "updateFailed": "Update failed",
       "templateSaved": "Pod template updated",

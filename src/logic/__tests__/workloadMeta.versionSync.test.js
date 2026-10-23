@@ -4,7 +4,7 @@
 // ①syncedImageVersion 取值边界(registry 端口/digest/无 tag → latest)
 // ②versionSyncTplLabels 换 version 键不误伤(CronJob jobTemplate 面/selector 绑键守卫/不 mutating)
 import { describe, test, expect } from 'vitest'
-import { VERSION_AUTO_KEY, syncedImageVersion, META_KEYS } from '../../composables/useBusinessMeta.js'
+import { VERSION_AUTO_KEY, syncedImageVersion, isLegalLabelValue, META_KEYS } from '../../composables/useBusinessMeta.js'
 import { versionSyncTplLabels } from '../workloadMeta.js'
 
 const VKEY = META_KEYS.version.canon // 'aliangboard.io/version'
@@ -31,6 +31,26 @@ describe('syncedImageVersion:镜像引用 → 同步用版本值', () => {
     expect(syncedImageVersion('registry.liang.home:5000/app')).toBe('latest')
     expect(syncedImageVersion('')).toBe('latest')
     expect(syncedImageVersion(null)).toBe('latest')
+  })
+})
+
+describe('isLegalLabelValue:K8s label 值文法(镜像 tag 写入 label 槽位前的校验)', () => {
+  test('常规 tag / 字母数字首尾含 -_. → 合法', () => {
+    expect(isLegalLabelValue('1.0.47')).toBe(true)
+    expect(isLegalLabelValue('v1.0.48-rc.1')).toBe(true)
+    expect(isLegalLabelValue('latest')).toBe(true)
+    expect(isLegalLabelValue('a')).toBe(true)
+  })
+  test('超 63 字符 / _ 开头 / -_. 结尾 / 含 + 等非法字符 → 拒绝', () => {
+    expect(isLegalLabelValue(`sha256-${'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'}`)).toBe(false)
+    expect(isLegalLabelValue('a'.repeat(64))).toBe(false)
+    expect(isLegalLabelValue('a'.repeat(63))).toBe(true, '63 恰好是边界')
+    expect(isLegalLabelValue('_weird')).toBe(false)
+    expect(isLegalLabelValue('bad-')).toBe(false)
+    expect(isLegalLabelValue('bad.')).toBe(false)
+    expect(isLegalLabelValue('v1.0.48-rc.1+build')).toBe(false)
+    expect(isLegalLabelValue(42)).toBe(false)
+    expect(isLegalLabelValue(null)).toBe(false)
   })
 })
 
