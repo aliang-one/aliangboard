@@ -1,5 +1,5 @@
 // src/logic/navConfig.test.mjs
-// 导航单源自卫:①每条 route 尾段必须真实存在于 router/index.js(防手滑路径);
+// 导航单源自卫:①每条 route 整段必须真实存在于 router/index.js(防手滑路径);
 // ②NS_ROUTE_MAP 每个目标路由名存在;③跨 ns 组四条齐全(spec §6 补入口)。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
