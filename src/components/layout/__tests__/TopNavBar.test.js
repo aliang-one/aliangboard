@@ -56,13 +56,14 @@ test('收缩链:搜索框包裹层 min-w-0(吸溢出压力);桌面左区无集�
   expect(w.find('[data-test="ns-trigger"]').exists()).toBe(false)
 })
 
-test('用户名 span truncate+max-w(title 兜底语义保留在 UserMenu)', () => {
+test('用户名 span truncate+w-full(2026-10-23 Task4 起 UserMenu 为侧栏行形态,顶栏退役过渡)', () => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const w = mountNav()
   const logoutBtn = w.findAll('header button').at(-1)
   const userSpan = logoutBtn.findAll('span').find(s => s.classes().includes('truncate'))
-  expect(userSpan.classes()).toContain('xl:max-w-[120px]')
+  // 旧身份舱 max-w-[120px] 形态已退役:溢出配方改为 truncate 元素自带 w-full(overflow-guard V1/V2)
+  expect(userSpan.classes()).toContain('w-full')
 })
 
 test('手机档:顶栏左端汉堡可见,点击开抽屉;桌面档无汉堡', async () => {
