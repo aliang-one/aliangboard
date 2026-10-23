@@ -2,7 +2,7 @@
 // SSH 服务器终端：浏览器 xterm.js ↔ 网关保活 SSH 会话(sshTerminalStream)。
 // 与 InteractiveTerminal 的差异：无 shell 降级梯子(远端 shell 由服务器定)；
 // sid 恒定 → 断开/刷新后重连,网关先回放快照(徽标「已回放」)再续直播。
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -28,14 +28,35 @@ const props = defineProps({
   // 单行头部收编(2026-09-08,取代 closable):false = 装饰圆点 | 'window' = 浮窗
   // (●●● 变真窗口钮 + 头部即拖拽把手 + open_in_new 迁入) | 'page' = 独立标签页(仅红点=关窗)
   chrome: { type: [Boolean, String], default: false },
+  // 会话显示名(2026-10-23,仅 page 档头部中段渲染):宿主(弹窗页)按 store 记录解析后传入,
+  // 双击/✏️ 改名 emit rename 由宿主落 store + 网关
+  title: { type: String, default: '' },
+  // 可否改名(2026-10-23):宿主无本地记录时给 false,禁编辑入口防「能看不能改还无声失败」
+  editable: { type: Boolean, default: true },
   maximized: { type: Boolean, default: false },     // 绿点字形(最大化/还原)状态
 })
 // 窗口控制由父级处置(浮窗红=sshStore.closeWindow 杀会话+摘记录;弹窗红=杀会话+关标签页;
 // 组件保持哑,不直接碰 store)
-const emit = defineEmits(['win-close', 'win-minimize', 'win-maximize', 'open-external', 'new-terminal'])
+const emit = defineEmits(['win-close', 'win-minimize', 'win-maximize', 'open-external', 'new-terminal', 'rename'])
 const isChrome = computed(() => props.chrome === 'window' || props.chrome === 'page')
 const isWindowChrome = computed(() => props.chrome === 'window')
 const isPageChrome = computed(() => props.chrome === 'page')
+
+// 中段会话名改名(page 档专属,2026-10-23):与 InteractiveTerminal 双击改名同款交互配方
+const titleEditing = ref(false)
+const titleInput = ref('')
+function startTitleRename() {
+  if (!isPageChrome.value || !props.title || !props.editable) return
+  titleInput.value = props.title
+  titleEditing.value = true
+}
+function saveTitleRename() {
+  const v = titleInput.value.trim()
+  titleEditing.value = false
+  if (v && v !== props.title) emit('rename', v)
+}
+// 外部改名生效(他页同步)时退出编辑态,避免输入框悬留旧草稿
+watch(() => props.title, () => { titleEditing.value = false })
 
 const root = ref(null)
 // idle 未连接 | connecting 连接中 | open 会话进行中 | reconnecting 断线自动重连中 | closed 会话结束 | error 出错
@@ -188,8 +209,8 @@ defineExpose({ refit, replayed, lastCwd, connectIfIdle, connect, status })
 <template>
   <div class="h-full flex flex-col min-h-0 bg-code-surface rounded-lg overflow-hidden border border-outline-variant/20">
     <!-- 终端 -->
-    <div class="flex items-center justify-between px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0 min-w-0"
-         :class="isWindowChrome ? 'cursor-move select-none' : ''"
+    <div class="items-center px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0 min-w-0"
+         :class="[isPageChrome ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_max-content]' : 'flex justify-between', isWindowChrome ? 'cursor-move select-none' : '']"
          :data-window-drag="isWindowChrome ? '' : null">
       <div class="flex items-center gap-sm min-w-0 flex-1">
         <!-- ●●● chrome=真窗口钮(红关/黄最小化/绿最大化,组 hover 浮字形,macOS 语义);非 chrome=装饰 -->
@@ -215,7 +236,25 @@ defineExpose({ refit, replayed, lastCwd, connectIfIdle, connect, status })
         <span class="text-code-sm text-on-surface-variant ml-sm truncate font-mono">ssh://{{ serverName || serverId }}</span>
         <span v-if="replayed" data-test="replayBadge" class="text-body-xs text-primary ml-xs shrink-0" :title="t('ssh.replayedBadge')">↺ {{ t('ssh.replayedBadge') }}</span>
       </div>
-      <div class="flex items-center gap-sm shrink-0">
+      <!-- 中段(仅 page 档):会话名居中,双击/✏️ 改名(2026-10-23)。与 InteractiveTerminal 同款
+           三段式 grid(1fr/2fr/max-content,右段恒不压缩);改名 emit rename 由宿主落 store + 网关 label 端点 -->
+      <div v-if="isPageChrome" class="flex items-center justify-center gap-xs min-w-0 group">
+        <input v-if="titleEditing" v-model="titleInput" data-test="ssh-title-input" data-no-drag
+               @blur="saveTitleRename" @keydown.enter="saveTitleRename" @keydown.esc="titleEditing = false"
+               class="flex-1 min-w-0 w-0 bg-surface-container-lowest border border-primary rounded px-sm py-0.5 text-body-sm font-mono focus:outline-none" />
+        <template v-else-if="title">
+          <span data-test="ssh-title" @dblclick="startTitleRename"
+                class="min-w-0 max-w-full truncate text-code-sm text-on-surface font-mono cursor-text"
+                :title="t('terminal.dblClickRename', { name: title })">
+            {{ title }}
+          </span>
+          <button v-if="editable" data-test="btnRename" @click="startTitleRename" :title="t('terminal.renameTitle')"
+            class="shrink-0 p-0.5 rounded text-on-surface-variant opacity-0 group-hover:opacity-100 hover:text-primary max-sm:opacity-100 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            <span class="material-symbols-outlined text-sm">edit</span>
+          </button>
+        </template>
+      </div>
+      <div class="flex items-center justify-end gap-sm shrink-0 min-w-0">
         <span v-if="status === 'open'" class="flex items-center gap-xs">
           <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
           <span class="text-body-sm text-primary">{{ t('common.watchLive') }}</span>

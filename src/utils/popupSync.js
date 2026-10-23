@@ -24,12 +24,16 @@ export function writePopupTombstone(kind, sid) { writeSignal(POPUP_CLOSED_KEY, {
 
 // 弹窗页调用:mount 立即发信标 + 心跳续约(opener 刷新后靠下一次心跳重新对齐状态);
 // pagehide 发墓碑。返回停止函数(组件卸载调用)。空 sid(手输 URL)直接 no-op。
+// meta 可传函数(getter,2026-10-23 弹窗页改名):每次心跳取当前值——改名后 opener 若按
+// 信标重建记录,拿到的是新名而非打开时的旧名快照;传对象则行为同旧(静态快照)。
 export function startPopupHeartbeat(kind, sid, meta = {}, intervalMs = 20000) {
   if (!sid) return () => {}
-  announcePopupAlive(kind, sid, meta)
+  const metaOf = typeof meta === 'function' ? meta : () => meta
+  const beat = () => announcePopupAlive(kind, sid, metaOf())
+  beat()
   const onHide = () => writePopupTombstone(kind, sid)
   window.addEventListener('pagehide', onHide)
-  const timer = setInterval(() => announcePopupAlive(kind, sid, meta), intervalMs)
+  const timer = setInterval(beat, intervalMs)
   return () => { clearInterval(timer); window.removeEventListener('pagehide', onHide) }
 }
 

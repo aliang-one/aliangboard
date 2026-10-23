@@ -421,3 +421,25 @@ test('openExternal:弹窗 URL 与窗口名用 label||name(新标签页里也能�
     expect(url).not.toContain(encodeURIComponent('web-1'))
   } finally { window.open = _open }
 })
+
+// 弹窗页改名场景锁(2026-10-23 居中改名接线 renameWindow 的新消费方):弹窗页 = 独立
+// pinia 从盘重建(内存表=磁盘全集),renameWindow → persist() merge-on-write 必须保住
+// 他页窗口(冻结页/磁盘并集语义),同时网关 label 端点以 sid 直写。
+test('弹窗页改名(独立 pinia 从盘重建):merge-on-write 保留他页窗口;网关 label 直写', () => {
+  fresh()
+  localStorage.setItem(LS_KEY, JSON.stringify([
+    { id: 'ssh-a', serverId: 'sv1', name: 'gw-1', label: '' },
+    { id: 'ssh-b', serverId: 'sv2', name: 'gw-2', label: '' },
+  ]))
+  setActivePinia(createPinia())   // 模拟弹窗页:全新 pinia,loadPersisted 从盘重建
+  const spy = vi.spyOn(sshApi, 'setSessionLabel').mockResolvedValue({ ok: true })
+  try {
+    const store = useSshTerminalStore()
+    expect(store.windows.map(w => w.id)).toEqual(['ssh-a', 'ssh-b'])
+    store.renameWindow('ssh-a', '生产机')
+    const rows = JSON.parse(localStorage.getItem(LS_KEY))
+    expect(rows.find(r => r.id === 'ssh-a').label).toBe('生产机')
+    expect(rows.find(r => r.id === 'ssh-b')).toEqual({ id: 'ssh-b', serverId: 'sv2', name: 'gw-2', label: '' })   // 他页窗口不被吞
+    expect(spy).toHaveBeenCalledWith('ssh-a', '生产机')   // 网关直写(另一 origin 可还原)
+  } finally { vi.restoreAllMocks() }
+})

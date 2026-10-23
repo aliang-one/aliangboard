@@ -4,17 +4,19 @@
 // 2026-09-08 单行头部收编:外部 36px 顶条退役,关窗入口=终端头部红点(chrome='page')。
 // 语义保持:红点仅 window.close() 不杀会话——pod 会话由 tmux 承载,任务栏 chip 靠
 // popupSync 墓碑对账回收(与旧「关闭窗口」按钮一致)。
-import { computed, onUnmounted } from 'vue'
+import { computed, onUnmounted, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import InteractiveTerminal from '@/components/common/InteractiveTerminal.vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useTerminalStore } from '@/stores/terminals'
 import { codeTheme } from '@/styles/code-theme'
 import { startPopupHeartbeat } from '@/utils/popupSync'
 
 const { t } = useI18n()
 const route = useRoute()
 const store = useClusterStore()
+const termStore = useTerminalStore()
 // 从 URL query 读取终端上下文
 const ns = computed(() => route.query.ns || '')
 const pod = computed(() => route.query.pod || '')
@@ -24,20 +26,32 @@ const name = computed(() => route.query.name || 'terminal')
 // 刷新弹窗同 URL 同 sid → 回放历史续跑。空 sid 时网关降级一次性 exec(直接敲地址的场景)。
 const sid = computed(() => route.query.sid || '')
 
-// 设置页面标题
-document.title = t('terminal.title', { name: name.value })
+// 会话名(2026-10-23 居中改名):store 镜像优先,URL query 兜底——本页(或他页)改过名后
+// F5 同 URL 不回退旧 query 名;镜像缺失(换浏览器/清存储)仍可用。syncFromStorage 纯本地
+// 即时重建镜像行,无网络依赖(记录本体仍由服务端持有)。
+termStore.syncFromStorage()
+const record = computed(() => termStore.terminals.find(t => t.id === sid.value))
+const sessionName = computed(() => record.value?.name || name.value)
+// 页面标题跟随会话名(改名即刷新,替代原 setup 一次性赋值)
+watchEffect(() => { document.title = t('terminal.title', { name: sessionName.value }) })
+
 // session token 已由 main.js 从 URL 写入 sessionStorage；验证存在
 const hasToken = sessionStorage.getItem('aliangboard.session')
 // 存活信标(2026-09-01 状态对账):opener 借此即时感知本弹窗生死(F5 复活/关闭墓碑),
-// 替代纯内存轮询——opener 刷新后不再失明(详见 utils/popupSync.js 头注)
+// 替代纯内存轮询——opener 刷新后不再失明(详见 utils/popupSync.js 头注)。
+// meta 传 getter(2026-10-23):改名后心跳自动带新名,opener 按信标重建记录不回退旧名。
 let stopHeartbeat = null
 if (!hasToken) {
   document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:${codeTheme.surface};color:${codeTheme.onSurface};font-family:monospace;font-size:14px">${t('terminal.expired')}</div>`
 } else {
   if (ns.value) store.setNamespace(ns.value)
-  if (sid.value) stopHeartbeat = startPopupHeartbeat('pod', sid.value, { namespace: ns.value, podName: pod.value, container: container.value, name: name.value })
+  if (sid.value) stopHeartbeat = startPopupHeartbeat('pod', sid.value, () => ({ namespace: ns.value, podName: pod.value, container: container.value, name: sessionName.value }))
 }
 onUnmounted(() => { if (stopHeartbeat) stopHeartbeat() })
+
+// 改名(头部中段双击/✏️):落 store(服务端 PATCH + 镜像落盘 → opener 任务栏 chip 经
+// storage 对账即时跟随)。无 sid(一次性 exec)/无记录时无处可改,no-op。
+function onRename(v) { if (sid.value) termStore.renameTerminal(sid.value, v) }
 
 // 红点关窗:只关标签页,会话保留(见头部注释)
 function closeWindow() { window.close() }
@@ -45,9 +59,9 @@ function closeWindow() { window.close() }
 
 <template>
   <div class="h-screen w-screen flex flex-col bg-code-surface">
-    <!-- 全屏终端(chrome='page':头部仅红点=关窗;黄/绿在浏览器标签页无对应物,不渲染) -->
+    <!-- 全屏终端(chrome='page':头部三段式——左身份/中会话名(可改名)/右状态;红点=关窗) -->
     <div class="flex-1 min-h-0">
-      <InteractiveTerminal class="h-full" :pod-name="pod" :namespace="ns" :container="container || 'main'" :session-id="sid" :auto-connect="true" chrome="page" @win-close="closeWindow" />
+      <InteractiveTerminal class="h-full" :pod-name="pod" :namespace="ns" :container="container || 'main'" :session-id="sid" :title="sessionName" :editable="!!record" :auto-connect="true" chrome="page" @win-close="closeWindow" @rename="onRename" />
     </div>
   </div>
 </template>

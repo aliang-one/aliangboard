@@ -30,18 +30,22 @@ const props = defineProps({
   // (●●● 变真窗口钮 + 头部即拖拽把手 + open_in_new + 双击改名) | 'page' = 独立标签页(仅红点=关窗)。
   chrome: { type: [Boolean, String], default: false },
   title: { type: String, default: '' },           // chrome='window' 头部显示名(=terminal.name)
+  // 中段会话名可否改名(2026-10-23):宿主无本地记录时给 false,禁编辑入口防「能看不能改还无声失败」
+  editable: { type: Boolean, default: true },
   maximized: { type: Boolean, default: false },   // 绿点字形(最大化/还原)状态,由壳层 maximize-change 回灌
 })
 const emit = defineEmits(['win-close', 'win-minimize', 'win-maximize', 'open-external', 'rename'])
 
 const isChrome = computed(() => props.chrome === 'window' || props.chrome === 'page')
 const isWindowChrome = computed(() => props.chrome === 'window')
+const isPageChrome = computed(() => props.chrome === 'page')
 
-// 双击改名(2026-09-08 自 TerminalWindow 壳层标题栏迁入,浮窗头部承担)
+// 双击改名(2026-09-08 自 TerminalWindow 壳层标题栏迁入,浮窗头部承担;
+// 2026-10-23 page 档放开:弹窗页头部中段居中会话名同样可改名,emit 链路复用)
 const editing = ref(false)
 const nameInput = ref('')
 function startRename() {
-  if (!isWindowChrome.value) return
+  if (!isChrome.value || !props.editable) return
   nameInput.value = props.title
   editing.value = true
 }
@@ -202,8 +206,8 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
     <!-- 头部:chrome 模式恒渲染(idle 未连接的浮窗也须有窗口钮可点,否则关不掉);
          内嵌模式维持现状——连接开始后才出现 -->
     <div v-if="isChrome || status !== 'idle'"
-      class="flex items-center justify-between px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0 min-w-0"
-      :class="isWindowChrome ? 'cursor-move select-none' : ''"
+      class="items-center px-md py-xs bg-code-surface-dim border-b border-outline-variant/20 shrink-0 min-w-0"
+      :class="[isPageChrome ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_max-content]' : 'flex justify-between', isWindowChrome ? 'cursor-move select-none' : '']"
       :data-window-drag="isWindowChrome ? '' : null">
       <div class="flex items-center gap-sm min-w-0 flex-1">
         <!-- ●●● chrome=真窗口钮(红关/黄最小化/绿最大化,组 hover 浮字形,macOS 语义);内嵌=装饰 -->
@@ -227,7 +231,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
           <span class="w-2.5 h-2.5 rounded-full bg-primary-container/70"></span>
         </div>
         <!-- 名称/信息:浮窗=显示名(双击改名,pod:容器·shell 进 tooltip);其余=pod:容器·shell 原样 -->
-        <input v-if="editing" v-model="nameInput" data-test="term-title-input" data-no-drag
+        <input v-if="editing && !isPageChrome" v-model="nameInput" data-test="term-title-input" data-no-drag
                @blur="saveRename" @keydown.enter="saveRename" @keydown.esc="editing = false"
                class="flex-1 min-w-0 w-0 bg-surface-container-lowest border border-primary rounded px-sm py-0.5 text-body-sm font-mono focus:outline-none" />
         <span v-else-if="isWindowChrome && title" data-test="term-title" @dblclick="startRename"
@@ -239,7 +243,26 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
         <span v-if="persistent === true" class="text-body-xs text-primary ml-xs shrink-0" :title="t('terminal.persistentHint')">✓ {{ t('terminal.persistentBadge') }}</span>
         <span v-else-if="persistent === false" class="text-body-xs text-tertiary ml-xs shrink-0" :title="t('terminal.ephemeralHint')">⚠ {{ t('terminal.ephemeralBadge') }}</span>
       </div>
-      <div class="flex items-center gap-sm shrink-0">
+      <!-- 中段(仅 page 档):会话名居中,双击/✏️ 改名(2026-10-23)。三段式 grid(1fr/2fr/max-content)
+           保证长名截断而非挤破两侧,右段(状态+钮)恒 max-content 不压缩不叠压;
+           改名 emit 复用浮窗链路,持久化由宿主(弹窗页)落 store -->
+      <div v-if="isPageChrome" class="flex items-center justify-center gap-xs min-w-0 group">
+        <input v-if="editing" v-model="nameInput" data-test="term-title-input" data-no-drag
+               @blur="saveRename" @keydown.enter="saveRename" @keydown.esc="editing = false"
+               class="flex-1 min-w-0 w-0 bg-surface-container-lowest border border-primary rounded px-sm py-0.5 text-body-sm font-mono focus:outline-none" />
+        <template v-else-if="title">
+          <span data-test="term-title" @dblclick="startRename"
+                class="min-w-0 max-w-full truncate text-code-sm text-on-surface font-mono cursor-text"
+                :title="t('terminal.dblClickRename', { name: title })">
+            {{ title }}
+          </span>
+          <button v-if="editable" data-test="btn-rename" @click="startRename" :title="t('terminal.renameTitle')"
+            class="shrink-0 p-0.5 rounded text-on-surface-variant opacity-0 group-hover:opacity-100 hover:text-primary max-sm:opacity-100 transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">
+            <span class="material-symbols-outlined text-sm">edit</span>
+          </button>
+        </template>
+      </div>
+      <div class="flex items-center justify-end gap-sm shrink-0 min-w-0">
         <span v-if="status === 'open'" class="flex items-center gap-xs">
           <span class="w-2 h-2 rounded-full bg-primary-container animate-pulse-status"></span>
           <span class="text-body-sm text-primary">{{ t('common.watchLive') }}</span>

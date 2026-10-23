@@ -98,3 +98,62 @@ describe("chrome='page'(独立标签页)", () => {
     expect(w.emitted('win-close')).toHaveLength(1)
   })
 })
+
+// 居中会话名(2026-10-23):弹窗页头部三段式——左=身份信息,中=会话名(双击/✏️ 改名),右=状态钮。
+// 会话名来自宿主(弹窗页按 store 记录解析后传 title),改名 emit rename 由宿主落 store。
+describe("chrome='page' 居中会话名+改名", () => {
+  test('title 渲染在中段(term-title);双击进编辑,回车 emit rename;Esc 取消', async () => {
+    const w = mountTerm({ chrome: 'page', title: '我的终端' })
+    const ttl = w.find('[data-test="term-title"]')
+    expect(ttl.exists()).toBe(true)
+    expect(ttl.text()).toBe('我的终端')
+    await ttl.trigger('dblclick')
+    const input = w.find('input[data-test="term-title-input"]')
+    expect(input.exists()).toBe(true)
+    await input.setValue('新名')
+    await input.trigger('keydown.enter')
+    expect(w.emitted('rename')).toEqual([['新名']])
+    // Esc 分支:进编辑后取消,不 emit
+    await w.find('[data-test="term-title"]').trigger('dblclick')
+    await w.find('input[data-test="term-title-input"]').trigger('keydown.esc')
+    expect(w.emitted('rename')).toHaveLength(1)
+  })
+  test('✏️ 钮点击同样进入编辑(hover 显隐配方,max-sm 常显)', async () => {
+    const w = mountTerm({ chrome: 'page', title: '我的终端' })
+    const btn = w.find('[data-test="btn-rename"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.classes().join(' ')).toContain('max-sm:opacity-100')
+    await btn.trigger('click')
+    expect(w.find('input[data-test="term-title-input"]').exists()).toBe(true)
+  })
+  test('编辑态输入框在中段(左段身份信息不被顶替);无 title 不渲染中段', async () => {
+    const w = mountTerm({ chrome: 'page', title: '我的终端' })
+    await w.find('[data-test="term-title"]').trigger('dblclick')
+    // 输入框在中段容器内,左段 pod:container 信息仍可见
+    const centerInputs = w.findAll('input[data-test="term-title-input"]')
+    expect(centerInputs).toHaveLength(1)
+    expect(w.html()).toContain('web-1:main')
+    const w2 = mountTerm({ chrome: 'page' })
+    expect(w2.find('[data-test="term-title"]').exists()).toBe(false)
+    expect(w2.find('[data-test="btn-rename"]').exists()).toBe(false)
+    expect(w2.html()).toContain('web-1:main')
+  })
+  test('浮窗档不变:title 仍在左段且只有一个 term-title', () => {
+    const w = mountTerm({ chrome: 'window', title: 'web-1/main #2' })
+    expect(w.find('[data-test="term-title"]').exists()).toBe(true)
+    expect(w.find('[data-test="btn-rename"]').exists()).toBe(false)
+  })
+  test('page 档头部三段 grid:右轨道 max-content(右段永不压缩,挤压由左/中 truncate 吸收)', () => {
+    const w = mountTerm({ chrome: 'page', title: '我的终端' })
+    expect(w.find('[data-window-drag]').exists()).toBe(false)
+    expect(w.find('.grid').classes().join(' ')).toContain('max-content')
+  })
+  test('editable=false(无本地记录):✏️ 不渲染,双击不进编辑(防「能看不能改还无声失败」)', async () => {
+    const w = mountTerm({ chrome: 'page', title: '我的终端', editable: false })
+    expect(w.find('[data-test="btn-rename"]').exists()).toBe(false)
+    expect(w.find('[data-test="term-title"]').exists()).toBe(true)   // 名字仍展示
+    await w.find('[data-test="term-title"]').trigger('dblclick')
+    expect(w.find('input[data-test="term-title-input"]').exists()).toBe(false)
+    expect(w.emitted('rename')).toBeUndefined()
+  })
+})

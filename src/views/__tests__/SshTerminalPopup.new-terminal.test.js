@@ -13,7 +13,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: k => k }) }))
 vi.mock('@/api/client', () => ({ sshApi: { killSession: vi.fn(() => Promise.resolve({ ok: true })) } }))
 vi.mock('@/stores/sshTerminals', () => ({
   genSid: vi.fn(() => 'ssh-fixed-new'),
-  useSshTerminalStore: vi.fn(() => ({ closeWindow: vi.fn() })),
+  useSshTerminalStore: vi.fn(() => ({ windows: [], closeWindow: vi.fn(), renameWindow: vi.fn() })),
 }))
 
 // stub:透传 props 供断言;点击模拟「+」;expose lastCwd 供弹窗读取

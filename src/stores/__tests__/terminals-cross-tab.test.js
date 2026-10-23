@@ -61,3 +61,22 @@ test('他页新增:以最小化收编;身份字段齐 → 本页 openTerminal �
   expect(store.terminals.map(t => t.id)).toEqual(['term-other'])
   expect(termRemoveMock).toHaveBeenCalledWith(mine.id)
 })
+
+// 弹窗页改名缺口根修(2026-10-23):弹窗独立标签页里 renameTerminal → persistMirror 落盘,
+// opener 的 syncFromStorage 此前对已知 id 原样保留内存对象 → 任务栏 chip 恒显旧名直至刷新。
+// 现身份字段(namespace/podName/container/name)跟随镜像(与 sshTerminals.syncFromStorage 同款),
+// status/zIndex/command 仍本页权威不被覆盖。
+test('他页/弹窗页改名:已知 id 身份字段跟随镜像(status/zIndex 仍本页权威)', () => {
+  const store = useTerminalStore()
+  const t = store.openTerminal({ namespace: 'ns1', podName: 'pod-a', container: 'main' })
+  store.renameTerminal(t.id, '本地名')   // 本页先改名(会同步写镜像)
+  // 他页(弹窗页)改名后落盘的镜像行
+  localStorage.setItem(LS_KEY, JSON.stringify([
+    { id: t.id, namespace: 'ns1', podName: 'pod-a', container: 'main', name: '他页新名' },
+  ]))
+  fireMirror()
+  const cur = store.terminals.find(x => x.id === t.id)
+  expect(cur.name).toBe('他页新名')
+  expect(cur.status).toBe('open')          // 本页状态不被镜像覆盖
+  expect(cur.id).toBe(t.id)
+})

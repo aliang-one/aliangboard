@@ -4401,6 +4401,7 @@
     "sshSessions": "{n} terminals",
     "overflowMore": "{n} more sessions",
     "dblClickRename": "{name} (double-click to rename)",
+    "renameTitle": "Rename",
     "openInNewTabTitle": "Open in new tab",
     "restoreTitle": "Restore",
     "maximizeTitle": "Fullscreen",

@@ -67,3 +67,23 @@ test('startPopupHeartbeat:空 sid 直接 no-op(手输 URL 无 sid 的场景)', (
   expect(read(POPUP_ALIVE_KEY)).toBeNull()
   stop()
 })
+
+// 弹窗页改名(2026-10-23):meta 支持传函数(getter)——每次心跳取当前值,
+// 改名后 opener 若按信标重建记录,拿到的是新名而非打开时的旧名快照
+test('startPopupHeartbeat:meta 为函数时每次心跳取当前值(改名后心跳带新名)', () => {
+  vi.useFakeTimers()
+  let name = '旧名'
+  const stop = startPopupHeartbeat('pod', 'p1', () => ({ name }), 1000)
+  expect(read(POPUP_ALIVE_KEY).meta.name).toBe('旧名')
+  name = '新名'
+  vi.advanceTimersByTime(1000)
+  expect(read(POPUP_ALIVE_KEY).meta.name).toBe('新名')
+  stop()
+})
+
+test('startPopupHeartbeat:meta 为对象时行为不变(向后兼容)', () => {
+  vi.useFakeTimers()
+  const stop = startPopupHeartbeat('ssh', 's1', { serverId: 'sv1' }, 1000)
+  expect(read(POPUP_ALIVE_KEY).meta).toEqual({ serverId: 'sv1' })
+  stop()
+})

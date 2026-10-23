@@ -17,7 +17,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: k => k }) }))
 vi.mock('@/api/client', () => ({ sshApi: { killSession: vi.fn(() => Promise.resolve({ ok: true })) } }))
 vi.mock('@/stores/sshTerminals', () => ({
   genSid: vi.fn(() => 'ssh-x'),
-  useSshTerminalStore: vi.fn(() => ({ closeWindow: state.closeWindow })),
+  useSshTerminalStore: vi.fn(() => ({ windows: [], closeWindow: state.closeWindow, renameWindow: vi.fn() })),
 }))
 vi.mock('@/components/ssh/SshTerminal.vue', () => ({
   default: {

@@ -91,7 +91,9 @@ export const useTerminalStore = defineStore('terminals', () => {
     } catch { /* 存储不可用:降级为单页有效 */ }
   }
 
-  // storage 事件对账:以镜像为权威重建;已知 id 原样保留(本地 status/zIndex 不被覆盖),
+  // storage 事件对账:以镜像为权威重建;已知 id 的身份字段(namespace/podName/container/name)
+  // 跟随镜像——弹窗页/他页改的名经 storage 事件即达本页任务栏 chip(2026-10-23 缺口根修,
+  // 与 sshTerminals.syncFromStorage 同款语义),本地 status/zIndex/command 不被覆盖;
   // 镜像里没有的 id(他页已关)摘除并登记 locallyDeleted + persistDelete(服务端幂等)。
   function syncFromStorage() {
     let rows = []
@@ -102,11 +104,19 @@ export const useTerminalStore = defineStore('terminals', () => {
     for (const r of rows) {
       const cur = byId.get(r.id)
       byId.delete(r.id)
-      merged.push(cur || {
-        id: r.id, namespace: r.namespace || '', podName: r.podName || '', container: r.container || '',
-        name: r.name || `${r.podName || 'pod'}/${r.container || 'main'}`,
-        command: 'sh', status: 'minimized', zIndex: 0, createdAt: Date.now(),
-      })
+      if (cur) {
+        cur.namespace = r.namespace || cur.namespace
+        cur.podName = r.podName || cur.podName
+        cur.container = r.container ?? cur.container
+        cur.name = r.name || cur.name
+        merged.push(cur)
+      } else {
+        merged.push({
+          id: r.id, namespace: r.namespace || '', podName: r.podName || '', container: r.container || '',
+          name: r.name || `${r.podName || 'pod'}/${r.container || 'main'}`,
+          command: 'sh', status: 'minimized', zIndex: 0, createdAt: Date.now(),
+        })
+      }
     }
     for (const orphan of byId.values()) {
       locallyDeleted.add(orphan.id)
@@ -314,6 +324,6 @@ export const useTerminalStore = defineStore('terminals', () => {
 
   return {
     terminals, openTerminals, minimizedTerminals, allTerminals,
-    loadPersisted, openTerminal, openNewTerminal, closeTerminal, minimizeTerminal, restoreTerminal, renameTerminal, focusTerminal, openExternal, focusExternal,
+    loadPersisted, syncFromStorage, openTerminal, openNewTerminal, closeTerminal, minimizeTerminal, restoreTerminal, renameTerminal, focusTerminal, openExternal, focusExternal,
   }
 })
