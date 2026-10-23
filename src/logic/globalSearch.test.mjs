@@ -114,17 +114,43 @@ test('collectResourceItems:roles 混合面按 scope 拆 kind(store.fetchRoles �
   assert.equal(kinds.ClusterRole.namespace, '')
 })
 
-test('PAGE_ENTRIES:纯 ASCII 关键词(i18n 残留中文门禁红线),且双语言同义词表全覆盖', () => {
+test('PAGE_ENTRIES:纯 ASCII 关键词(i18n 残留中文门禁红线),且既有页双语言同义词表全覆盖', () => {
+  // 2026-10-23 派生化:页面表由 navConfig 派生后新增 15 页(平台管理 7 + 资源组 8),
+  // 其英文 slug 关键词表(KEYWORDS)未逐字列出者 keywords 为空、i18n 同义词键允许暂缺
+  // (靠侧栏导航可达,同义词补齐不在本任务范围);既有 17 页的关键词与双语同义词覆盖不得回退。
   for (const p of PAGE_ENTRIES) {
-    assert.ok(p.keywords.length >= 1, p.path)
     for (const k of p.keywords) assert.ok(!/[一-鿿]/.test(k), `${p.path} 关键词含中文:${k}`)
   }
+  // 带关键词且非 admin 门控的条目 = 既有 17 页(新关键词页均为 admin 门控页);
+  // 快照钉死,新增关键词页必须同步补双语同义词或显式扩此名单。
+  const curated = PAGE_ENTRIES.filter(p => p.keywords.length > 0 && !p.admin).map(p => p.path).sort()
+  assert.deepEqual(curated, [
+    '/audit-logs', '/cluster', '/cluster/certs', '/clusters', '/configuration', '/crds', '/deploy',
+    '/monitoring', '/namespaces', '/network', '/nodes', '/rbac', '/rbac/can-i', '/settings',
+    '/storage', '/workbench', '/workloads',
+  ])
   for (const [name, loc] of [['en', enLocales], ['zh', zhLocales]]) {
     const syn = loc.nav.searchPageSynonyms
     assert.ok(syn && typeof syn === 'object', `${name} 缺 nav.searchPageSynonyms`)
-    for (const p of PAGE_ENTRIES) {
-      const key = p.path.replace(/^\//, '').split('/').pop()
+    for (const path of curated) {
+      const key = path.replace(/^\//, '').split('/').pop()
       assert.ok(typeof syn[key] === 'string' && syn[key].length > 0, `${name}.${key} 缺同义词`)
     }
   }
+})
+
+test('PAGE_ENTRIES 派生:含平台管理 7 页且带 admin 标记', () => {
+  const admin = PAGE_ENTRIES.filter(p => p.admin)
+  assert.equal(admin.length, 7)
+  assert.ok(admin.some(p => p.path === '/admin/llm-config'))
+})
+
+test('admin 页面:默认不命中,showAdmin:true 才命中', () => {
+  assert.ok(!matchPages('llm').some(p => p.path === '/admin/llm-config'))
+  assert.ok(matchPages('llm', {}, { showAdmin: true }).some(p => p.path === '/admin/llm-config'))
+})
+
+test('searchAll 透传 showAdmin', () => {
+  const { pages } = searchAll('apikeys', [], { showAdmin: true })
+  assert.ok(pages.some(p => p.path === '/admin/apikeys'))
 })
