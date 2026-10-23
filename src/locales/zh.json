@@ -549,6 +549,7 @@
     "security": "安全",
     "policy": "策略",
     "clusterResources": "集群资源",
+    "crossNamespace": "跨命名空间",
     "multiCluster": "多集群",
     "platformAdmin": "平台管理",
     "searchPlaceholder": "搜索资源、页面…",

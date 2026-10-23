@@ -549,6 +549,7 @@
     "security": "Security",
     "policy": "Policy",
     "clusterResources": "Cluster Resources",
+    "crossNamespace": "Cross-Namespace",
     "multiCluster": "Multi-Cluster",
     "platformAdmin": "Platform Admin",
     "searchPlaceholder": "Search resources and pages…",
