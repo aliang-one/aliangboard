@@ -11,7 +11,7 @@
 import { test, expect, vi, beforeEach } from 'vitest'
 
 const captured = vi.hoisted(() => ({ metaSaves: [], imageUpdates: [], tplApplies: [], rollbacks: [], failNextMeta: false }))
-const state = vi.hoisted(() => ({ workload: null, revisions: [], services: [] }))
+const state = vi.hoisted(() => ({ workload: null, revisions: [], services: [], qc: null }))
 
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -37,7 +37,14 @@ vi.mock('@/stores/cluster', () => ({ useClusterStore: () => ({
   fetchPDBs: vi.fn(async () => []), fetchNetworkPolicies: vi.fn(async () => []),
   fetchReplicaSets: vi.fn(async () => []), fetchEndpoints: vi.fn(async () => []), fetchHPAs: vi.fn(async () => []),
   fetchWorkloadRevisions: vi.fn(async () => state.revisions),
-  updateWorkload: vi.fn((n, ns, updates) => { captured.imageUpdates.push(updates); return { ok: true } }),
+  // 忠实模拟 live-watch 竞态:workload.value 就是 state.workload 本体(视图 .find 原对象),
+  // updateWorkload 落库即改 state → await applyWorkloadTemplate 之后守卫读 live 值已见新镜像——
+  // 复现「守卫在 await 后比对 live 值会误判没变」的真实时序(prevImage 回归锁的鉴别前提)
+  updateWorkload: vi.fn((n, ns, updates) => {
+    captured.imageUpdates.push(updates)
+    if (updates?.image && state.workload) state.workload.image = updates.image
+    return { ok: true }
+  }),
   applyWorkloadTemplate: vi.fn((n, ns, tpl) => { captured.tplApplies.push(tpl); return { ok: true } }),
   updateWorkloadMeta: vi.fn((n, ns, payload) => {
     if (captured.failNextMeta) { captured.failNextMeta = false; return Promise.reject(new Error('mock meta patch 失败')) }
@@ -79,6 +86,7 @@ const demoRevisions = [
 function mountDetail() {
   setActivePinia(createPinia())
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  state.qc = qc
   return mount(NsWorkloadDetail, { attachTo: document.body, global: { plugins: [i18n, [VueQueryPlugin, { queryClient: qc }]], stubs: { Breadcrumbs: true } } })
 }
 const bodyBtns = text => [...document.body.querySelectorAll('button')].filter(b => b.textContent.trim() === text)
@@ -118,6 +126,7 @@ beforeEach(() => {
   state.workload = makeWorkload({ [AUTO_KEY]: 'true' })
   state.revisions = JSON.parse(JSON.stringify(demoRevisions))
   state.services = []
+  state.qc = null
   i18n.global.locale.value = 'zh'
 })
 
@@ -277,4 +286,24 @@ test('updateWorkloadMeta 拒绝:回退到 versionSyncFailed 提示,不炸交互�
   await changeTagViaModal('1.26')
   expect(captured.metaSaves).toHaveLength(0)
   expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('版本元数据同步失败'))
+})
+
+test('in-flight refetch 竞态:await 后 live 值已是新镜像,prevImage 快照仍判定「变了」→ 同步不丢', async () => {
+  // mock store 已模拟真实时序:await applyWorkloadTemplate 期间 invalidate 重取,
+  // workload.value.image 已刷新为 1.26。守卫若误比 live 值 → 误判「没变」→ 同步静默丢(评审根因 #4)
+  await mountDetail(); await flushPromises()
+  await changeTagViaModal('1.26')
+  expect(captured.metaSaves).toHaveLength(1)
+  expect(captured.metaSaves[0].labels[VKEY]).toBe('1.26')
+})
+
+test('saveMeta 非法 tag 门:开关开着且当前镜像 tag 非法 → 拦截保存并指路(不 422 整包)', async () => {
+  state.workload = makeWorkload({ [AUTO_KEY]: 'true' })
+  state.workload.image = `ghcr.io/demo/app:${LONG_TAG}`
+  await openMetaModal()
+  await clickBody(i18n.global.t('workload.meta.save'))
+  expect(captured.metaSaves, '非法 label 值不得进 patch(整包必 422,业务元数据全存不上)').toHaveLength(0)
+  expect(notify).toHaveBeenCalledWith('error', expect.stringContaining('不是合法的 K8s label 值'))
+  // 弹窗保持打开(早退发生在任何 store 调用/状态变更之前,用户可关开关手工填)
+  expect(autoCheckbox(), '拦截后弹窗应保持打开').toBeTruthy()
 })
