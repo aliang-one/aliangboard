@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
+import { i18n } from '@/i18n'
 
 // 回归:底部「事件/活动记录/设置」三入口两态——
 // ns 态 = 停靠坞 dock 砖块(icon-only,hover/title 提示);集群态 = icon-only 双图标。
@@ -35,7 +37,14 @@ import SideNavBar from '../SideNavBar.vue'
 beforeEach(() => {
   sessionStorage.setItem('aliangboard.session', 'test-session') // round-3:侧边栏区分无集群态,这些用例测有集群行为须声明会话
 })
-const mountIt = () => mount(SideNavBar, { global: { plugins: [createPinia()], mocks: { $t: (k) => k } } })
+// Task 7 起侧栏装真实子组件(SideNavSearch/WorkbenchNavItem/UserMenu/AlertBell):
+// useI18n 须 i18n 插件、useQuery 须 VueQueryPlugin($t mock 保留——title 断言按 key 即可)
+const mountIt = () => mount(SideNavBar, {
+  global: {
+    plugins: [createPinia(), i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
+    mocks: { $t: (k) => k },
+  },
+})
 
 describe('SideNavBar 底部 icon 行(事件/活动记录/设置)', () => {
   it('选中 ns:三项都在,各含正确 icon,dock 内 icon-only(title 提示)', () => {

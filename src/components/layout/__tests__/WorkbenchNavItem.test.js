@@ -42,6 +42,7 @@ test('行契约:nav-item 类 + 激活态 primary-container + 瓷砖 workspaces',
   const row = w.find('[data-test="wb-nav-item"]')
   expect(row.attributes('aria-label')).toBe('工作台')
   expect(row.classes()).toContain('nav-item')
+  expect(row.find('.nav-item__label').exists()).toBe(true)      // 行 label 承侧栏 rail 折叠契约
   expect(row.classes()).not.toContain('bg-primary-container')   // 非激活
   expect(row.find('.material-symbols-outlined').text()).toBe('workspaces')
   mocks.path = '/workbench'

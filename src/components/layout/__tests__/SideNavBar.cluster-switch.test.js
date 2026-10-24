@@ -5,6 +5,7 @@ import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { reactive, nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@/i18n'
 
 const { _routeObj, pushMock, _store } = vi.hoisted(() => ({
@@ -61,7 +62,8 @@ beforeEach(() => {
 afterEach(() => { matchMediaSpy?.mockRestore(); document.body.innerHTML = ''; storeMock.switchCluster.mockClear(); pushMock.mockClear() })
 
 function mountNav() {
-  return mount(SideNavBar, { global: { plugins: [i18n] } })
+  // Task 7 起侧栏装 WorkbenchNavItem(useQuery)——mount 须带 VueQueryPlugin
+  return mount(SideNavBar, { global: { plugins: [i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
 }
 const panelEl = () => document.querySelector('[data-testid="cluster-dropdown-panel"]')
 

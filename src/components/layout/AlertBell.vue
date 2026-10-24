@@ -1,4 +1,7 @@
 <script setup>
+// 多根 fragment(触发钮 + Teleport 面板 + 遮罩):透传 attrs 不自动继承(会告警且被丢弃)——
+// 显式关继承 + $attrs 绑定触发钮,消费方的覆盖类(SideNavBar 底部行 !rounded-none / dock !p-0
+// 透明底组)才能真正落上(Task 7)。
 import { ref, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -11,10 +14,18 @@ import { routeForResource } from '@/logic/resourceNavigation'
 import { buildCertAlerts } from '@/logic/certExpiry'
 import { Z } from '@/styles/zScale'
 
+defineOptions({ inheritAttrs: false })
+
 // 全局告警铃铛(2026-09-04 顶栏改版):吃既有全局 events 查询(键与监控/ns 事件页共享)。
 // 自轮询只在 watch 流不活跃时兜底(watch live 期间 views 已切零轮询,观察者各自持
 // interval,若这里仍 60s 会把整表 events 拉成常驻全局轮询——审查抓回)。
 // 未读语义承 Headlamp:红点 + 面板内未读加粗,行点击/全部已读显式确认(不自动已读)。
+// tile 形态(2026-10-23 顶栏退役 Task 7):true=图标包进 dock-ig__sq 瓦片(ns 态停靠坞网格用);
+// 根 button 不加 dock-ig——由消费方外层 div 承载,避免 data-test 双根合并歧义。
+const props = defineProps({
+  tile: { type: Boolean, default: false },
+})
+
 const router = useRouter()
 const route = useRoute()
 const store = useClusterStore()
@@ -68,6 +79,7 @@ function onMarkAllRead() { markAllRead(allWarnings.value) }
 
 <template>
   <button
+    v-bind="$attrs"
     ref="bellRef"
     data-test="alert-bell"
     class="relative p-sm text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors"
@@ -75,7 +87,10 @@ function onMarkAllRead() { markAllRead(allWarnings.value) }
     aria-haspopup="true" :aria-expanded="open ? 'true' : 'false'"
     @click="open = !open"
   >
-    <span class="material-symbols-outlined">notifications</span>
+    <span v-if="tile" class="dock-ig__sq">
+      <span class="material-symbols-outlined">notifications</span>
+    </span>
+    <span v-else class="material-symbols-outlined">notifications</span>
     <span v-if="unread.length" data-test="alert-dot"
       class="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-error border-2 border-surface"></span>
   </button>
