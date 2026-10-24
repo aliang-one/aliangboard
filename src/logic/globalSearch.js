@@ -1,41 +1,70 @@
-// 全局搜索纯函数(2026-09-04 顶栏搜索升级,自 TopNavBar 内联实现抽出)。
-// 三件事:①页面导航匹配(英文 slug 关键词 + i18n 同义词表,输「监控/deploy」直达路由);
-// ②资源名子串过滤;③页面优先排序 + 总条数钳制。
-// 中文同义词必须放 locales(nav.searchPageSynonyms)——i18n 残留中文门禁禁止 src 出现
-// 中文字面量;组件经 useI18n().tm 取当前语言表后由 synonyms 参数传入。
+// 全局搜索纯函数(2026-09-04 自顶栏抽出;2026-10-23 页面表改由 navConfig 派生,spec §3):
+// 页面 path/labelKey/icon 单源自导航,关键词与中文同义词(经参数传入)留本模块。
+import {
+  CLUSTER_PRIMARY_NAV, CLUSTER_CROSS_NS_NAV, CLUSTER_RESOURCES_NAV, CLUSTER_OTHER_NAV,
+  PLATFORM_ADMIN_NAV, WORKBENCH_NAV,
+} from './navConfig.js'
+
+// 英文 slug 关键词(承 2026-09-04 旧表逐字);未列出的条目靠 i18n 同义词表命中
+const KEYWORDS = {
+  '/cluster': ['cluster', 'overview'],
+  '/nodes': ['node', 'nodes'],
+  '/namespaces': ['namespace', 'namespaces'],
+  '/storage': ['storage'],
+  '/monitoring': ['monitor', 'monitoring'],
+  '/crds': ['crd', 'crds'],
+  '/cluster/certs': ['cert', 'certificate', 'tls', 'x509', 'ca'],
+  '/clusters': ['clusters', 'multi-cluster'],
+  '/workloads': ['workload', 'workloads'],
+  '/network': ['network'],
+  '/configuration': ['config', 'configuration'],
+  '/rbac': ['rbac'],
+  '/rbac/can-i': ['can-i', 'cani'],
+  '/deploy': ['deploy'],
+  '/audit-logs': ['audit', 'activity', 'events'],
+  '/settings': ['settings'],
+  '/workbench': ['workbench', 'ai'],
+  '/admin/users': ['users', 'user-management'],
+  '/admin/groups': ['groups', 'grants'],
+  '/admin/clusters': ['cluster-management'],
+  '/admin/apikeys': ['apikeys', 'api-key'],
+  '/admin/ai-behavior': ['ai-behavior'],
+  '/admin/llm-config': ['llm', 'llm-config'],
+  '/admin/audit-trail': ['audit-trail'],
+}
+
+const toPageEntry = it => ({
+  path: it.route,
+  labelKey: it.labelKey,
+  icon: it.icon,
+  keywords: KEYWORDS[it.route] || [],
+})
+
+// 平台管理页 admin 专属:默认不进匹配(非 admin 使用者搜索不漏 admin 路由),showAdmin 放行
 export const PAGE_ENTRIES = [
-  { path: '/cluster', labelKey: 'nav.clusterOverview', icon: 'dashboard', keywords: ['cluster', 'overview'] },
-  { path: '/nodes', labelKey: 'nav.nodes', icon: 'dns', keywords: ['node', 'nodes'] },
-  { path: '/namespaces', labelKey: 'nav.namespaces', icon: 'folder_open', keywords: ['namespace', 'namespaces'] },
-  { path: '/storage', labelKey: 'nav.storage', icon: 'storage', keywords: ['storage'] },
-  { path: '/monitoring', labelKey: 'nav.monitoring', icon: 'monitoring', keywords: ['monitor', 'monitoring'] },
-  { path: '/crds', labelKey: 'nav.crds', icon: 'extension', keywords: ['crd', 'crds'] },
-  { path: '/cluster/certs', labelKey: 'nav.certs', icon: 'verified', keywords: ['cert', 'certificate', 'tls', 'x509', 'ca'] },
-  { path: '/clusters', labelKey: 'nav.clusters', icon: 'hub', keywords: ['clusters', 'multi-cluster'] },
-  { path: '/workloads', labelKey: 'nav.workloads', icon: 'work', keywords: ['workload', 'workloads'] },
-  { path: '/network', labelKey: 'nav.network', icon: 'share', keywords: ['network'] },
-  { path: '/configuration', labelKey: 'route.configuration', icon: 'tune', keywords: ['config', 'configuration'] },
-  { path: '/rbac', labelKey: 'route.rbac', icon: 'security', keywords: ['rbac'] },
-  { path: '/rbac/can-i', labelKey: 'route.canI', icon: 'rule', keywords: ['can-i', 'cani'] },
-  { path: '/deploy', labelKey: 'nav.deploy', icon: 'rocket_launch', keywords: ['deploy'] },
-  { path: '/audit-logs', labelKey: 'nav.activityLog', icon: 'history', keywords: ['audit', 'activity', 'events'] },
-  { path: '/settings', labelKey: 'nav.settings', icon: 'settings', keywords: ['settings'] },
-  { path: '/workbench', labelKey: 'nav.workbench', icon: 'auto_awesome', keywords: ['workbench', 'ai'] },
+  ...[...CLUSTER_PRIMARY_NAV, ...CLUSTER_CROSS_NS_NAV, ...CLUSTER_RESOURCES_NAV,
+    ...CLUSTER_OTHER_NAV, WORKBENCH_NAV].map(toPageEntry),
+  ...PLATFORM_ADMIN_NAV.map(it => ({ ...toPageEntry(it), admin: true })),
+  // 固定补充:不走侧栏数据组的功能页(全局工具)
+  { path: '/rbac/can-i', labelKey: 'route.canI', icon: 'rule', keywords: KEYWORDS['/rbac/can-i'] },
+  { path: '/deploy', labelKey: 'nav.deploy', icon: 'rocket_launch', keywords: KEYWORDS['/deploy'] },
+  { path: '/audit-logs', labelKey: 'nav.activityLog', icon: 'history', keywords: KEYWORDS['/audit-logs'] },
+  { path: '/settings', labelKey: 'nav.settings', icon: 'settings', keywords: KEYWORDS['/settings'] },
 ]
 
 const pathKey = p => String(p || '').replace(/^\//, '')
 
-export function matchPages(rawQuery, synonyms = {}) {
+export function matchPages(rawQuery, synonyms = {}, opts = {}) {
+  const showAdmin = opts.showAdmin === true
   const q = String(rawQuery || '').trim().toLowerCase()
   if (!q) return []
   const scored = []
   for (const p of PAGE_ENTRIES) {
-    // 同义词表键约定双兼容:'monitoring' 或 '/rbac/can-i' 全路径(尾段取 pop)
+    if (p.admin && !showAdmin) continue
+    // ↓ 以下与原实现逐字一致(同义词键兼容/前缀优先排序)
     const pk = pathKey(p.path)
     const zhText = synonyms[pk] ?? synonyms[pk.split('/').pop()] ?? ''
-    // 同义词串以英文逗号分隔(| 是 vue-i18n 复数语法,值级门禁禁止)
     const pool = [...p.keywords, ...String(zhText).split(',').filter(Boolean)]
-    // 前缀命中排子串命中之前(短查询时子串命中泛滥,如 'e' 几乎全站命中)
     const prefix = pool.some(k => k.toLowerCase().startsWith(q))
     const includes = pool.some(k => k.toLowerCase().includes(q))
     if (prefix || includes) scored.push({ p, prefix })
@@ -54,7 +83,7 @@ export function searchResources(rawQuery, items) {
 export function searchAll(rawQuery, items, opts = {}) {
   const limit = opts.limit ?? 12
   const synonyms = opts.synonyms || {}
-  const pages = matchPages(rawQuery, synonyms).slice(0, 4)
+  const pages = matchPages(rawQuery, synonyms, { showAdmin: opts.showAdmin === true }).slice(0, 4)
   const resources = searchResources(rawQuery, items).slice(0, Math.max(0, limit - pages.length))
   return { pages, resources }
 }

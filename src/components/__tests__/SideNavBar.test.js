@@ -3,6 +3,9 @@ import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { i18n } from '@/i18n'
 import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
+// 2026-10-23 Task 5 起侧栏装配 WorkbenchNavItem(useQuery)——mount 须带 queryClient,
+// 否则 setup 即抛「No queryClient found」(Task 8 全量跑测时抓回;enabled=平台登录态,测试内恒 false 零请求)
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 
 // vi.hoisted 回调在 imports 解析前运行（此时 reactive 未定义，TDZ），故 reactive() 在外层应用
 const { _routeObj, pushMock } = vi.hoisted(() => ({
@@ -42,7 +45,8 @@ beforeEach(() => {
 })
 
 function mountSideNavBar() {
-  return mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return mount(SideNavBar, { global: { plugins: [i18n, createPinia(), [VueQueryPlugin, { queryClient: qc }]] } })
 }
 
 test('ns mode: 集群导航组隐藏、ns 资源组显示', () => {
@@ -111,24 +115,28 @@ test('cluster mode: 无角板、底部仅活动+设置', () => {
   expect(w.find('[data-test="bottom-settings"]').exists()).toBe(true)
 })
 
-test('ns mode: 部署+集群+3 图标同在单一 dock 板块,dock 内 icon-only(title 提示)', () => {
+test('ns mode: 部署+集群+图标组同在单一 dock 板块,dock 内 icon-only(title 提示)', () => {
   routeRef.meta.scope = 'namespace'
   routeRef.path = '/ns/default'
   const w = mountSideNavBar()
-  // 部署/集群 hero/3 图标同在 .dock 板块内,不单独漂浮
+  // 部署/集群 hero/图标组同在 .dock 板块内,不单独漂浮
   const dock = w.find('[data-test="bottom-actions"] .dock')
   expect(dock.exists()).toBe(true)
   expect(dock.find('[data-test="deploy-card"]').exists()).toBe(true)
   expect(dock.find('[data-test="cluster-slab"]').exists()).toBe(true)
   const igs = dock.findAll('.dock-ig')
-  expect(igs.length).toBe(4)
+  // 5 = 部署 + 设置/事件/活动 3 图标 + 告警瓦片(2026-10-23 顶栏退役 Task 7 入 dock,RF1 !belowSm 门控)
+  expect(igs.length).toBe(5)
+  expect(dock.find('[data-test="bottom-alerts"]').exists()).toBe(true)
   igs.forEach(ig => {
     expect(ig.find('.material-symbols-outlined').exists()).toBe(true)
-    expect(ig.attributes('title')).toBeTruthy()
     expect(ig.find('.dock-ig__lb').exists()).toBe(false)
+    // 告警瓦片例外:dock-ig 由外层 div 承载,title/aria 在 AlertBell 根 button 上(T7 契约)
+    if (ig.attributes('data-test') !== 'bottom-alerts') expect(ig.attributes('title')).toBeTruthy()
   })
-  // 部署横跨底行(高频入口最大点击面),设置为普通瓦片
-  expect(dock.find('[data-test="deploy-card"]').classes()).toContain('col-span-3')
+  expect(dock.find('[data-test="bottom-alerts"]').find('button').attributes('title')).toBeTruthy()
+  // 部署横跨整行 4 列(高频入口最大点击面)
+  expect(dock.find('[data-test="deploy-card"]').classes()).toContain('col-span-4')
   expect(dock.find('[data-test="deploy-card"]').text()).toContain('部署')
 })
 

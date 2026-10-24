@@ -1,5 +1,5 @@
 <script setup>
-// 更新横幅:检测到新版本时显示(TopNavBar 下方,集群健康横幅同款样式、primary 色非 error 色)。
+// 更新横幅:检测到新版本时显示(集群健康横幅上方、main 之前,同款样式、primary 色非 error 色)。
 // 「横幅一次」= 每版本一次:关闭记 localStorage(ab.updateBannerDismissed=去 v 规范形),出现更新版本再弹。
 // props 驱动(不自带 query),AppLayout 负责 useAppVersion 接线——便于独立测试。
 import { computed, ref } from 'vue'

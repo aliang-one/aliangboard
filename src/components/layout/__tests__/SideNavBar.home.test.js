@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
+import { i18n } from '@/i18n'
 
 // 回归:点 ns 名 → 回拓扑首页(NamespaceOverview);箭头单独切 ns。
 const { pushSpy } = vi.hoisted(() => ({ pushSpy: vi.fn() }))
@@ -31,7 +33,14 @@ beforeEach(() => {
 
 describe('SideNavBar ns 名回首页', () => {
   it('点击 ns 名区域 → push NamespaceOverview', async () => {
-    const w = mount(SideNavBar, { global: { plugins: [createPinia()], mocks: { $t: (k) => k } } })
+    // Task 7 起侧栏装真实子组件(SideNavSearch/WorkbenchNavItem/UserMenu/AlertBell):
+    // useI18n 须 i18n 插件、useQuery 须 VueQueryPlugin
+    const w = mount(SideNavBar, {
+      global: {
+        plugins: [createPinia(), i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
+        mocks: { $t: (k) => k },
+      },
+    })
     const nsHome = w.find('[data-test="ns-home"]')
     expect(nsHome.exists()).toBe(true)
     await nsHome.trigger('click')

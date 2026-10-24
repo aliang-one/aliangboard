@@ -10,7 +10,16 @@ import { useShellStore } from '@/stores/shell'
 import { useEscClose } from '@/composables/useEscClose'
 import { Z } from '@/styles/zScale'
 import { getSession } from '@/api/client'
+// 导航声明单源(2026-10-23 顶栏退役·导航单源收敛):本组件只渲染,数据在 @/logic/navConfig.js
+import {
+  CLUSTER_PRIMARY_NAV, CLUSTER_CROSS_NS_NAV, CLUSTER_RESOURCES_NAV, CLUSTER_OTHER_NAV,
+  PLATFORM_ADMIN_NAV, NS_NAV_GROUPS, NS_ROUTE_MAP,
+} from '@/logic/navConfig.js'
 import ClusterSwitchPanel from './ClusterSwitchPanel.vue'
+import SideNavSearch from './SideNavSearch.vue'
+import WorkbenchNavItem from './WorkbenchNavItem.vue'
+import UserMenu from './UserMenu.vue'
+import AlertBell from './AlertBell.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -58,7 +67,7 @@ useEscClose(computed(() => belowSm.value && shell.drawerOpen), () => shell.close
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
 
-// === 集群切换(2026-09-04 自 TopNavBar 迁入,顶栏去重):集群头部为全断点唯一锚点 ===
+// === 集群切换(2026-09-04 自顶栏迁入,顶栏去重):集群头部为全断点唯一锚点 ===
 // 桌面/rail:头部直弹锚定面板;抽屉档:经 shell 通道(契约不变,消费方自顶栏迁来)→ bottom sheet
 const showClusterPanel = ref(false)
 const clusterBrandRef = ref(null)
@@ -82,88 +91,8 @@ function goClusters() {
 }
 watch(() => shell.clusterSelectTick, () => { if (belowSm.value) { showNsDropdown.value = false; showClusterPanel.value = true } })
 
-// 集群级导航——分三组，全部收进可折叠的「集群管理」专门板块。
-// 集群级导航——分三组，收进可折叠的「集群管理」板块（仅集群态渲染；命名空间态整组隐藏）。
-const clusterPrimaryNav = [
-  { icon: 'dashboard', labelKey: 'nav.clusterOverview', route: '/cluster' },
-  { icon: 'dns', labelKey: 'nav.nodes', route: '/nodes' },
-  { icon: 'folder_open', labelKey: 'nav.namespaces', route: '/namespaces' },
-  { icon: 'storage', labelKey: 'nav.storage', route: '/storage' },
-  { icon: 'monitoring', labelKey: 'nav.monitoring', route: '/monitoring' },
-]
-const clusterResourcesNav = [
-  { icon: 'extension', labelKey: 'nav.crds', route: '/crds' },
-  { icon: 'flag', label: 'PriorityClasses', route: '/priorityclasses' },
-  { icon: 'language', label: 'IngressClasses', route: '/ingressclasses' },
-  { icon: 'memory', label: 'RuntimeClasses', route: '/runtimeclasses' },
-  { icon: 'api', label: 'APIServices', route: '/admin/apiservices' },
-  { icon: 'webhook', label: 'Mutating Webhooks', route: '/admin/webhooks-mutating' },
-  { icon: 'rule', label: 'Validating Webhooks', route: '/admin/webhooks-validating' },
-  { icon: 'dynamic_feed', label: 'ReplicaSets', route: '/admin/replicasets' },
-  { icon: 'hard_drive', label: 'CSINodes', route: '/admin/csinodes' },
-  { icon: 'verified', labelKey: 'nav.certs', route: '/cluster/certs' },
-]
-const clusterOtherNav = [
-  { icon: 'hub', labelKey: 'nav.clusters', route: '/clusters' },
-]
-// 平台管理（admin only）
-const platformAdminNav = [
-  { icon: 'group', labelKey: 'nav.userManagement', route: '/admin/users' },
-  { icon: 'admin_panel_settings', labelKey: 'nav.groupsGrants', route: '/admin/groups' },
-  { icon: 'cloud', labelKey: 'nav.clusterManagement', route: '/admin/clusters' },
-  { icon: 'vpn_key', labelKey: 'nav.apiKeys', route: '/admin/apikeys' },
-  { icon: 'tune', labelKey: 'nav.aiBehavior', route: '/admin/ai-behavior' },
-  { icon: 'neurology', labelKey: 'nav.llmConfig', route: '/admin/llm-config' },
-  { icon: 'shield', labelKey: 'nav.auditTrail', route: '/admin/audit-trail' },
-]
+// 集群级导航/平台管理/ns 分组数据源:@/logic/navConfig.js(2026-10-23 单源收敛,本组件只渲染)
 const clusterNavOpen = ref(true)
-
-// Namespace 作用域导航 - 按 Kuboard 分组
-const nsNavGroups = [
-  {
-    labelKey: 'nav.workloads',
-    icon: 'work',
-    items: [
-      { icon: 'apps', labelKey: 'nav.workloadsList', routeKey: 'workloads' },
-      { icon: 'view_in_ar', label: 'Pods', routeKey: 'pods' },
-      { icon: 'timeline', label: 'HPA', routeKey: 'hpa' },
-    ]
-  },
-  {
-    labelKey: 'nav.network',
-    icon: 'share',
-    items: [
-      { icon: 'hub', label: 'Services', routeKey: 'services' },
-      { icon: 'language', label: 'Ingress', routeKey: 'ingress' },
-      { icon: 'shield', label: 'NetworkPolicy', routeKey: 'networkpolicies' },
-    ]
-  },
-  {
-    labelKey: 'nav.storageConfig',
-    icon: 'folder_shared',
-    items: [
-      { icon: 'storage', label: 'Storage (PVC)', routeKey: 'storage' },
-      { icon: 'description', label: 'ConfigMaps', routeKey: 'configmaps' },
-      { icon: 'key', label: 'Secrets', routeKey: 'secrets' },
-    ]
-  },
-  {
-    labelKey: 'nav.security',
-    icon: 'security',
-    items: [
-      { icon: 'admin_panel_settings', label: 'RBAC', routeKey: 'rbac' },
-    ]
-  },
-  {
-    labelKey: 'nav.policy',
-    icon: 'policy',
-    items: [
-      { icon: 'pie_chart', label: 'ResourceQuota', routeKey: 'resourcequotas' },
-      { icon: 'tune', label: 'LimitRange', routeKey: 'limitranges' },
-      { icon: 'shield', label: 'PDB', routeKey: 'pdbs' },
-    ]
-  },
-]
 
 const currentNs = computed(() => store.currentNamespace)
 
@@ -172,25 +101,6 @@ const filteredNamespaces = computed(() => {
   const q = nsSearch.value.toLowerCase()
   return allNamespaces.value.filter(ns => ns.name.toLowerCase().includes(q))
 })
-
-const nsRouteMap = {
-  overview: 'NamespaceOverview',
-  events: 'NsEvents',
-  layers: 'NsLayers',
-  workloads: 'NsWorkloads',
-  pods: 'NsPods',
-  hpa: 'NsHPA',
-  services: 'NsServices',
-  ingress: 'NsIngress',
-  networkpolicies: 'NsNetworkPolicies',
-  storage: 'NsStorage',
-  configmaps: 'NsConfigMaps',
-  secrets: 'NsSecrets',
-  rbac: 'NsRBAC',
-  resourcequotas: 'NsResourceQuotas',
-  limitranges: 'NsLimitRanges',
-  pdbs: 'NsPDBs',
-}
 
 function selectNamespace(ns) {
   store.setNamespace(ns)
@@ -211,7 +121,7 @@ function onNsHomeClick() {
 
 function goNsRoute(routeKey) {
   if (!currentNs.value) return
-  const name = nsRouteMap[routeKey]
+  const name = NS_ROUTE_MAP[routeKey]
   if (name) navTo({ name, params: { namespace: currentNs.value } })
 }
 
@@ -220,11 +130,13 @@ function isGlobalActive(path) {
   // 仅对有子路由的项用前缀匹配（避免 /cluster 误匹配 /clusters）
   if (path === '/nodes' && route.path.startsWith('/nodes/')) return true
   if (path === '/crds' && route.path.startsWith('/crds/')) return true
+  if (path === '/workloads' && route.path.startsWith('/workloads/')) return true
+  if (path === '/rbac' && route.path.startsWith('/rbac/')) return true
   return false
 }
 
 function isNsRouteActive(routeKey) {
-  const name = nsRouteMap[routeKey]
+  const name = NS_ROUTE_MAP[routeKey]
   if (!name) return false
   if (route.name === name) return true
   if (name === 'NsWorkloads' && route.name === 'NsWorkloadDetail') return true
@@ -304,6 +216,10 @@ function nsStatusColor(status) {
 
     <!-- Divider -->
     <div class="h-px bg-outline-variant/50 mx-md"></div>
+
+    <!-- 搜索段(2026-10-23 顶栏退役 Task 6 宿主装配):三态自适应组件自持(desktop 内联/
+         rail 图标钮/抽屉内联),三态恒显(无集群也搜平台页/admin 页) -->
+    <SideNavSearch />
 
     <!-- 无集群态唯一显式入口(round-3):集群域控件全隐藏,返回选择页的通道卡
          (与选择页的免集群通道卡互为镜像) -->
@@ -396,7 +312,7 @@ function nsStatusColor(status) {
           <!-- 命名空间作用域导航：选中 ns 后为主，置顶 -->
           <div v-if="isNsMode" data-test="ns-nav-section" class="animate-fade-in mb-md">
             <p class="text-label-caps text-on-surface-variant px-sm mb-xs truncate ns-cap">{{ $t('common.namespace') }}: {{ currentNs }}</p>
-            <div v-for="group in nsNavGroups" :key="group.label || group.labelKey" class="mb-xs">
+            <div v-for="group in NS_NAV_GROUPS" :key="group.label || group.labelKey" class="mb-xs">
               <div class="flex items-center gap-xs px-md pt-sm pb-xs group-head">
                 <span class="material-symbols-outlined text-xs text-on-surface-variant opacity-50">{{ group.icon }}</span>
                 <p class="text-xs text-on-surface-variant font-medium opacity-60">{{ group.labelKey ? $t(group.labelKey) : group.label }}</p>
@@ -424,21 +340,29 @@ function nsStatusColor(status) {
               <p class="text-label-caps">{{ $t('nav.clusterManagement') }}</p>
             </button>
             <div v-show="clusterNavOpen" class="flex flex-col gap-xs">
-              <a v-for="item in clusterPrimaryNav" :key="item.route" @click="navTo(item.route)"
+              <a v-for="item in CLUSTER_PRIMARY_NAV" :key="item.route" @click="navTo(item.route)"
+                class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
+                :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
+                <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
+                <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
+              </a>
+              <!-- 跨命名空间视图(2026-10-23 补入口,spec §6):此前仅全局搜索可达 -->
+              <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs group-head">{{ $t('nav.crossNamespace') }}</p>
+              <a v-for="item in CLUSTER_CROSS_NS_NAV" :key="item.route" @click="navTo(item.route)"
                 class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
                 <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
               </a>
               <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs group-head">{{ $t('nav.clusterResources') }}</p>
-              <a v-for="item in clusterResourcesNav" :key="item.route" @click="navTo(item.route)"
+              <a v-for="item in CLUSTER_RESOURCES_NAV" :key="item.route" @click="navTo(item.route)"
                 class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
                 <span class="text-body-sm nav-item__label">{{ item.labelKey ? $t(item.labelKey) : item.label }}</span>
               </a>
               <p class="text-xs text-on-surface-variant opacity-50 px-md pt-sm pb-xs group-head">{{ $t('nav.multiCluster') }}</p>
-              <a v-for="item in clusterOtherNav" :key="item.route" @click="navTo(item.route)"
+              <a v-for="item in CLUSTER_OTHER_NAV" :key="item.route" @click="navTo(item.route)"
                 class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
                 :class="isGlobalActive(item.route) ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
                 <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
@@ -449,10 +373,15 @@ function nsStatusColor(status) {
         </div>
       </Transition>
 
+      <!-- 工作台段(2026-10-23 spec §4.3):W 舷板入 K 壳,三态恒显(免集群) -->
+      <div data-test="wb-nav-seg" class="px-md pt-sm">
+        <WorkbenchNavItem />
+      </div>
+
       <!-- 平台管理（admin only）-->
       <div v-if="authStore.isAdmin" class="px-md pt-sm">
         <p class="text-label-caps text-on-surface-variant/60 px-sm pb-xs ns-cap">{{ $t('nav.platformAdmin') }}</p>
-        <a v-for="item in platformAdminNav" :key="item.route" @click="navTo(item.route)"
+        <a v-for="item in PLATFORM_ADMIN_NAV" :key="item.route" @click="navTo(item.route)"
           class="nav-item flex items-center gap-md px-md py-sm rounded-lg cursor-pointer transition-all duration-200"
           :class="route.path === item.route ? 'bg-primary-container text-on-primary-container font-semibold' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
           <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
@@ -480,8 +409,8 @@ function nsStatusColor(status) {
               <span class="block text-[8px] text-on-primary/80 whitespace-nowrap">{{ $t('nav.clusterOverview') }}</span>
             </span>
           </button>
-          <!-- 4 图标 3 列网格:设置/事件/活动,部署横跨底行(高频入口给最大点击面+文字) -->
-          <div class="grid grid-cols-3 gap-1 content-center shrink-0">
+          <!-- 5 格 4 列网格:设置/事件/活动/告警,部署横跨底行(高频入口给最大点击面+文字) -->
+          <div class="grid grid-cols-4 gap-1 content-center shrink-0">
             <button data-test="bottom-settings" @click="navTo('/settings')"
               :title="$t('nav.settings')" :aria-label="$t('nav.settings')"
               class="dock-ig dock-ig--lg cursor-pointer" :class="isGlobalActive('/settings') ? 'dock-ig--hot' : ''">
@@ -497,9 +426,14 @@ function nsStatusColor(status) {
               class="dock-ig cursor-pointer" :class="isGlobalActive('/audit-logs') ? 'dock-ig--hot' : ''">
               <span class="dock-ig__sq"><span class="material-symbols-outlined text-sm">history</span></span>
             </button>
+            <!-- 告警瓦片(2026-10-23 顶栏退役):dock-ig 与 data-test 由外层 div 承载,AlertBell
+                 只出图标瓦片(tile);!belowSm 与集群态行同门控——手机抽屉内 dock 不带告警(RF1) -->
+            <div v-if="!belowSm" data-test="bottom-alerts" class="dock-ig cursor-pointer">
+              <AlertBell tile class="!p-0 !bg-transparent !shadow-none !border-0 !rounded-none" />
+            </div>
             <button data-test="deploy-card" @click="navTo({ name: 'NsDeploy', params: { namespace: currentNs } })"
               :title="$t('nav.deploy')" :aria-label="$t('nav.deploy')"
-              class="dock-ig dock-ig--deploy dock-ig--wide col-span-3 cursor-pointer">
+              class="dock-ig dock-ig--deploy dock-ig--wide col-span-4 cursor-pointer">
               <span class="dock-ig__sq">
                 <span class="material-symbols-outlined text-sm">rocket_launch</span>
                 <span class="text-[9px] font-bold tracking-[0.15em]">{{ $t('nav.deploy') }}</span>
@@ -516,6 +450,11 @@ function nsStatusColor(status) {
           :class="isGlobalActive('/audit-logs') ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'">
           <span class="material-symbols-outlined text-lg">history</span>
         </a>
+        <!-- 告警颗(2026-10-23 顶栏退役):wrapper div 承载 v-if 与 data-test(AlertBell 根自带
+             data-test="alert-bell",透传合并会歧义);!belowSm=手机抽屉内不渲染,footer 侧承担(RF1) -->
+        <div v-if="!belowSm" data-test="bottom-alerts-row" class="flex-1 flex items-center justify-center">
+          <AlertBell class="!rounded-none" />
+        </div>
         <a data-test="bottom-settings" @click="navTo('/settings')"
           :title="$t('nav.settings')" :aria-label="$t('nav.settings')"
           class="flex-1 flex items-center justify-center py-sm rounded-lg transition-colors cursor-pointer"
@@ -524,8 +463,14 @@ function nsStatusColor(status) {
         </a>
       </div>
     </div>
+
+    <!-- 头像行(2026-10-23 spec §4.5):三态恒显——登出/个人中心无集群必须可达;
+         底部行 div 之后、贴侧栏底缘全幅(UserMenu 自带 shrink-0 外层,菜单 Teleport body) -->
+    <div data-test="sidenav-user-row" class="shrink-0 border-t border-outline-variant/50">
+      <UserMenu />
+    </div>
   </aside>
-  <!-- 集群选择面板(自 TopNavBar 迁入):桌面锚定头部 Teleport,抽屉档贴底 sheet;
+  <!-- 集群选择面板(自顶栏迁入):桌面锚定头部 Teleport,抽屉档贴底 sheet;
        遮罩二态——抽屉档独立全屏 Z.popover-1(盖抽屉 55,被面板 110 盖),桌面共享 z-30 -->
   <ClusterSwitchPanel
     :open="showClusterPanel"
@@ -631,7 +576,7 @@ function nsStatusColor(status) {
 .ns-row__name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ns-row__pods{margin-left:auto;font-size:10px;color:rgb(var(--md-sys-color-outline))}
 
-/* ===== 停靠坞:集群 hero + 部署 + 3 图标同块成组 ===== */
+/* ===== 停靠坞:集群 hero + 部署 + 4 图标(设置/事件/活动/告警)同块成组 ===== */
 .dock {
   border-radius: 18px 9px 9px 14px; /* 不规则圆角:左上大,其余小,右下中 */
   background: linear-gradient(160deg, rgb(var(--md-sys-color-surface-container-low)), rgb(var(--md-sys-color-surface-container)));
@@ -655,9 +600,11 @@ function nsStatusColor(status) {
 }
 @keyframes slab-led-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 
-/* ===== 4 图标:3 列网格(设置/事件/活动),部署横跨底行 ===== */
+/* ===== 5 格:4 列网格(设置/事件/活动/告警),部署横跨底行 ===== */
 .dock-ig { display: flex; align-items: center; justify-content: center; }
-.dock-ig__sq {
+/* 瓦片方块样式用 :deep:告警瓦片(AlertBell tile)的 .dock-ig__sq 在子组件内层、不带本组件
+   scope 属性,普通 scoped 选择器够不着;:deep 形态对自家瓦片与告警瓦片一视同仁(单份定义) */
+:deep(.dock-ig__sq) {
   width: 28px; height: 28px; border-radius: 10px;
   background: rgb(var(--md-sys-color-surface-container-lowest)); border: 1px solid rgb(var(--md-sys-color-outline-variant)); color: rgb(var(--md-sys-color-on-surface-variant));
   display: flex; align-items: center; justify-content: center;
@@ -676,7 +623,7 @@ function nsStatusColor(status) {
 /* 横跨底行的宽条形态 */
 .dock-ig--wide { width: 100%; }
 .dock-ig--wide .dock-ig__sq { width: 100%; border-radius: 8px 12px 8px 12px; }
-.dock-ig:hover .dock-ig__sq { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0, 60, 35, .18); color: rgb(var(--md-sys-color-primary)); }
+.dock-ig:hover :deep(.dock-ig__sq) { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0, 60, 35, .18); color: rgb(var(--md-sys-color-primary)); }
 .dock-ig--hot .dock-ig__sq { background: rgb(var(--md-sys-color-primary) / .14); color: rgb(var(--md-sys-color-primary)); border-color: rgb(var(--md-sys-color-primary) / .35); }
 
 /* ===== 钻入 ns 入场编排;返回集群走 drill-up 菜单体感 ===== */
@@ -688,6 +635,8 @@ function nsStatusColor(status) {
 .dock-ig:nth-child(2) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .41s backwards; }
 .dock-ig:nth-child(3) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .50s backwards; }
 .dock-ig:nth-child(4) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .59s backwards; }
+/* Task 7 告警瓦片入列后:设置/事件/活动/告警 4 颗,部署成第 5 子(横跨底行)保持末位弹出 */
+.dock-ig:nth-child(5) { animation: dock-pop .42s cubic-bezier(.3, 1.4, .5, 1) .68s backwards; }
 
 @keyframes dock-swell { 0% { opacity: 0; transform: scale(.9); } 70% { opacity: 1; transform: scale(1.02); } 100% { transform: scale(1); } }
 @keyframes dock-pop { 0% { opacity: 0; transform: scale(.3); } 75% { opacity: 1; transform: scale(1.12); } 100% { opacity: 1; transform: scale(1); } }
@@ -696,7 +645,7 @@ function nsStatusColor(status) {
    集群头两态容器(transition-all)也纳入禁用,满足「所有动效须带禁用分支」 */
 @media (prefers-reduced-motion: reduce) {
   .dock, .dock-ig, .slab-led { animation: none !important; }
-  .cluster-slab, .dock-ig__sq, .cluster-header { transition: none !important; }
+  .cluster-slab, :deep(.dock-ig__sq), .cluster-header { transition: none !important; }
   .ns-band,.ns-chip,.ns-ci,.ns-t,.ns-tile,.ns-row,.ns-search{transition:none !important}
   .ns-arr,.ns-drop{animation:none !important}
 }
@@ -728,9 +677,13 @@ function nsStatusColor(status) {
   .rail:not(:hover) .ns-arr,
   .rail:not(:hover) .ns-tile,
   .rail:not(:hover) .slab-txt { display: none; }
-  .rail:not(:hover) .nav-item { flex-direction: column; gap: 2px; padding: 7px 2px; margin-left: 0; }
-  .rail:not(:hover) .nav-item .material-symbols-outlined { text-align: center; }
-  .rail:not(:hover) .nav-item__label { font-size: 9px; line-height: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  /* 头像行文本(Task 7):UserMenu 内层不承载本组件 scope 属性,须 :deep 穿透(与 .ns-txt 同语义) */
+  .rail:not(:hover) :deep(.sb-user-txt) { display: none; }
+  /* nav-item 折叠改 :deep:工作台行(WorkbenchNavItem 双根 fragment 的 <a>)同样不带本组件
+     scope 属性,普通 scoped 选择器够不着;:deep 形态对自家项与子项一视同仁(单份定义) */
+  .rail:not(:hover) :deep(.nav-item) { flex-direction: column; gap: 2px; padding: 7px 2px; margin-left: 0; }
+  .rail:not(:hover) :deep(.nav-item) .material-symbols-outlined { text-align: center; }
+  .rail:not(:hover) :deep(.nav-item__label) { font-size: 9px; line-height: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
   .rail:not(:hover) .ns-main { justify-content: center; }
   .rail:not(:hover) .dock { flex-direction: column; align-items: stretch; }
   .rail:not(:hover) .dock > .grid { display: flex; flex-direction: column; }
@@ -747,9 +700,10 @@ function nsStatusColor(status) {
   .rail .ns-arr,
   .rail .ns-tile,
   .rail .slab-txt { display: none; }
-  .rail .nav-item { flex-direction: column; gap: 2px; padding: 7px 2px; margin-left: 0; }
-  .rail .nav-item .material-symbols-outlined { text-align: center; }
-  .rail .nav-item__label { font-size: 9px; line-height: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  .rail :deep(.sb-user-txt) { display: none; }
+  .rail :deep(.nav-item) { flex-direction: column; gap: 2px; padding: 7px 2px; margin-left: 0; }
+  .rail :deep(.nav-item) .material-symbols-outlined { text-align: center; }
+  .rail :deep(.nav-item__label) { font-size: 9px; line-height: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
   .rail .ns-main { justify-content: center; }
   .rail .dock { flex-direction: column; align-items: stretch; }
   .rail .dock > .grid { display: flex; flex-direction: column; }
@@ -761,7 +715,7 @@ function nsStatusColor(status) {
 
 /* ===== 手机抽屉(<640,2026-09-01 手机适配 Wave 1a)=====
    宽度固定 260px(不随 --sb-width——手机档 AppLayout 把该变量归 0 供内容满宽);
-   默认屏外,drawer-open 平移入场;zIndex 经内联取 Z.drawer(高于顶栏 z-50,低于窗口带)。
+   默认屏外,drawer-open 平移入场;zIndex 经内联取 Z.drawer(高于 nav 预留 50,低于窗口带)。
    rail 类在手机档不挂载(aboveLg 桌面与 640~1023 iPad 档零回归)。 */
 @media (max-width: 639.98px) {
   .sidenav-root.drawer-mode { width: 260px; transform: translateX(-100%); transition: transform .25s cubic-bezier(.2,.7,.3,1); box-shadow: none; }

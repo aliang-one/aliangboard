@@ -41,3 +41,23 @@ test('空结果不渲染列表', () => {
   const w = mountList([])
   expect(w.find('[data-test="search-row"]').exists()).toBe(false)
 })
+
+test('默认形态不变:根节点仍是 absolute 下拉(top-full/mt-1/z-50)', () => {
+  const w = mountList()
+  const cls = w.find('[data-test="search-row"]').element.parentElement.className
+  expect(cls).toContain('absolute')
+  expect(cls).toContain('top-full')
+  expect(cls).toContain('mt-1')
+  expect(cls).toContain('z-50')
+})
+
+test('docked 形态:根节点为文档流面板,无 absolute/z-50 定位类', () => {
+  const w = mount(SearchResults, {
+    props: { results: [{ page: true, path: '/x', labelKey: 'nav.settings', icon: 'settings' }], docked: true },
+    global: { mocks: { $t: k => k } },
+  })
+  const cls = w.find('[data-test="search-row"]').element.parentElement.className
+  expect(cls).not.toContain('absolute')
+  expect(cls).not.toContain('z-50')
+  expect(cls).toContain('w-full')
+})

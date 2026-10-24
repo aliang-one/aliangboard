@@ -2,7 +2,8 @@
 // 独立页(登录/选集群)右上角语言切换(2026-09-08 round-2):这两页无应用壳,
 // 用户菜单里的语言入口不可达——看不懂中文的用户在登录页就需要换语言。
 // 语义与 UserMenu 分段按钮一致:preferences.setLanguage(本地 setLocale 即时生效 +
-// 服务端同步;登录前 savePreferences 401 被 catch,本地已生效)。壳内页仍走 UserMenu。
+// 服务端同步;登录前 savePreferences 401 被 catch,本地已生效)。
+// 语言切换入口:登录前与设置页(Settings general)。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePreferencesStore } from '@/stores/preferences'
