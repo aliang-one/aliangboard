@@ -13,6 +13,15 @@ const KEYWORDS = {
   '/storage': ['storage'],
   '/monitoring': ['monitor', 'monitoring'],
   '/crds': ['crd', 'crds'],
+  // 资源组 8 页(2026-10-24 polish 批补可搜:此前 keywords 空,仅侧栏导航可达)
+  '/priorityclasses': ['priorityclass', 'priority-classes'],
+  '/ingressclasses': ['ingressclass', 'ingress-classes'],
+  '/runtimeclasses': ['runtimeclass', 'runtime-classes'],
+  '/admin/apiservices': ['apiservice', 'api-services'],
+  '/admin/webhooks-mutating': ['mutating-webhook', 'webhook'],
+  '/admin/webhooks-validating': ['validating-webhook', 'webhook'],
+  '/admin/replicasets': ['replicaset', 'replica-sets'],
+  '/admin/csinodes': ['csinode', 'csi-node'],
   '/cluster/certs': ['cert', 'certificate', 'tls', 'x509', 'ca'],
   '/clusters': ['clusters', 'multi-cluster'],
   '/workloads': ['workload', 'workloads'],
@@ -33,9 +42,12 @@ const KEYWORDS = {
   '/admin/audit-trail': ['audit-trail'],
 }
 
+// label 透传(2026-10-24 polish 批):资源组 8 页只有 label 无 labelKey,条目不带 label
+// 会让 SearchResults 渲染 $t(undefined)(潜伏断链)——navConfig 的 label/labelKey 双形态原样下传
 const toPageEntry = it => ({
   path: it.route,
   labelKey: it.labelKey,
+  label: it.label,
   icon: it.icon,
   keywords: KEYWORDS[it.route] || [],
 })

@@ -35,7 +35,7 @@ const ICON_FOR = {
       @click="$emit('select', it)"
     >
       <span class="material-symbols-outlined text-on-surface-variant text-lg shrink-0">{{ it.page ? (it.icon || 'arrow_forward') : (ICON_FOR[it.kind] || 'circle') }}</span>
-      <span class="font-mono text-code-sm text-on-surface truncate">{{ it.page ? $t(it.labelKey) : it.name }}</span>
+      <span class="font-mono text-code-sm text-on-surface truncate">{{ it.page ? (it.labelKey ? $t(it.labelKey) : it.label) : it.name }}</span>
       <span class="ml-auto text-xs text-on-surface-variant shrink-0">{{ it.kind }}<span v-if="it.namespace"> · {{ it.namespace }}</span></span>
     </button>
   </div>

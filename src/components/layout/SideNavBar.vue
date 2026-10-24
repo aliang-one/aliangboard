@@ -409,8 +409,10 @@ function nsStatusColor(status) {
               <span class="block text-[8px] text-on-primary/80 whitespace-nowrap">{{ $t('nav.clusterOverview') }}</span>
             </span>
           </button>
-          <!-- 5 格 4 列网格:设置/事件/活动/告警,部署横跨底行(高频入口给最大点击面+文字) -->
-          <div class="grid grid-cols-4 gap-1 content-center shrink-0">
+          <!-- 5 格网格:设置/事件/活动/告警,部署横跨底行(高频入口给最大点击面+文字)。
+               列数响应式(polish 批):手机抽屉内告警被 !belowSm 移除后 3 瓦片落 3 列,≥sm 四瓦片四列;
+               部署随之 col-span-3/sm:col-span-4 满行(col-span-4 在 3 列格会撑出隐式第 4 列) -->
+          <div class="grid grid-cols-3 sm:grid-cols-4 gap-1 content-center shrink-0">
             <button data-test="bottom-settings" @click="navTo('/settings')"
               :title="$t('nav.settings')" :aria-label="$t('nav.settings')"
               class="dock-ig dock-ig--lg cursor-pointer" :class="isGlobalActive('/settings') ? 'dock-ig--hot' : ''">
@@ -433,7 +435,7 @@ function nsStatusColor(status) {
             </div>
             <button data-test="deploy-card" @click="navTo({ name: 'NsDeploy', params: { namespace: currentNs } })"
               :title="$t('nav.deploy')" :aria-label="$t('nav.deploy')"
-              class="dock-ig dock-ig--deploy dock-ig--wide col-span-4 cursor-pointer">
+              class="dock-ig dock-ig--deploy dock-ig--wide col-span-3 sm:col-span-4 cursor-pointer">
               <span class="dock-ig__sq">
                 <span class="material-symbols-outlined text-sm">rocket_launch</span>
                 <span class="text-[9px] font-bold tracking-[0.15em]">{{ $t('nav.deploy') }}</span>
@@ -679,6 +681,9 @@ function nsStatusColor(status) {
   .rail:not(:hover) .slab-txt { display: none; }
   /* 头像行文本(Task 7):UserMenu 内层不承载本组件 scope 属性,须 :deep 穿透(与 .ns-txt 同语义) */
   .rail:not(:hover) :deep(.sb-user-txt) { display: none; }
+  /* 头像行居中(polish 批):文本隐藏后按钮仍左对齐留 px-md 空边——折叠态头像钮居中;
+     [data-testid] 作用于子组件内层元素同样须 :deep(与 .sb-user-txt 先例同) */
+  .rail:not(:hover) :deep([data-testid="user-menu-trigger"]) { justify-content: center; padding-left: 0; padding-right: 0; }
   /* nav-item 折叠改 :deep:工作台行(WorkbenchNavItem 双根 fragment 的 <a>)同样不带本组件
      scope 属性,普通 scoped 选择器够不着;:deep 形态对自家项与子项一视同仁(单份定义) */
   .rail:not(:hover) :deep(.nav-item) { flex-direction: column; gap: 2px; padding: 7px 2px; margin-left: 0; }
@@ -701,6 +706,7 @@ function nsStatusColor(status) {
   .rail .ns-tile,
   .rail .slab-txt { display: none; }
   .rail :deep(.sb-user-txt) { display: none; }
+  .rail :deep([data-testid="user-menu-trigger"]) { justify-content: center; padding-left: 0; padding-right: 0; }
   .rail :deep(.nav-item) { flex-direction: column; gap: 2px; padding: 7px 2px; margin-left: 0; }
   .rail :deep(.nav-item) .material-symbols-outlined { text-align: center; }
   .rail :deep(.nav-item__label) { font-size: 9px; line-height: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }

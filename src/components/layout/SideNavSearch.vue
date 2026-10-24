@@ -5,6 +5,7 @@
 //   drawer(<sm):抽屉内内联框 + 贴底 sheet(承原顶栏 ns bottom sheet 配方,Z.popover/-1)。
 // 惰性查询门控/⌘K/页面同义词与原顶栏同语义;admin 页面条目经 showAdmin: auth.isAdmin
 // 门控(Task 2)。Task 8 起顶栏本体已退役,本组件为全局搜索唯一宿主。
+// polish 批补:桌面下拉外点关闭(document click 清词)+ 跨断点收缩落 drawer 清孤儿 sheet。
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
@@ -157,8 +158,22 @@ function onSearchKeydown(e) {
 const resultsOpen = computed(() => isDesktop.value && searchResults.value.length > 0)
 const { panelRef, panelStyle } = useDropdownPanel(inputRef, resultsOpen, { matchTriggerWidth: true })
 
+// 桌面下拉外点关闭(polish 批):blur 只摘 searchOpen,查询词残留会让面板在失焦后继续
+// 漂浮——document 级 click,目标不在宿主段/下拉面板内即清词(面板随 results.length 消失)。
+// rail 弹层/抽屉 sheet 已有各自遮罩关闭路径,非 desktop 档不经此监听(不动)
+function onDocClick(e) {
+  if (!isDesktop.value) return
+  if (e.target.closest?.('[data-test="sidenav-search"], [data-test="search-dropdown"]')) return
+  searchQuery.value = ''
+}
+onMounted(() => document.addEventListener('click', onDocClick))
+onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+
 // 路由切换收起残留结果(原顶栏宿主无此守卫;迁入侧栏后补:长驻组件不随页面卸载清场)
 watch(() => route.fullPath, () => { searchQuery.value = ''; searchModalOpen.value = false })
+// 跨断点收缩孤儿 sheet 清理(polish 批):desktop→drawer 跨档收缩时查询词残留会让贴底
+// sheet+遮罩在抽屉未开时浮现(sheet 只门控 mode,不知抽屉开闭)——落 drawer 即清词收弹层
+watch(mode, (m) => { if (m === 'drawer') { searchQuery.value = ''; searchModalOpen.value = false } })
 </script>
 
 <template>
