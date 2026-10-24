@@ -18,7 +18,21 @@ const PROTOCOL = SUPPORTED_PROTOCOL_VERSIONS[SUPPORTED_PROTOCOL_VERSIONS.length 
 
 // MCP tool 元数据(描述 + inputSchema):从 tool-registry 派生(单一源,schema 在 tool-registry.mjs)。
 // tools/list 按调用者 effectiveTools 过滤(tier ∪ per-key tool_overrides 覆盖;只列能用的,不广告用不了的)。
-export const TOOL_META = registry.toMeta()
+// cred: 注入广告句剥离(2026-10-24 审计 P2):MCP/API-key 面执行分派绕开 registry exec
+// (apiKeyTools.callTool / sshBridge.exec,零 substitute)——占位符在该面按字面落进目标机
+// shell。广告「平台执行时注入实际值,你看不到值」对该面是虚假承诺,还会诱导外部 AI 把
+// {{cred:}} 字面写进命令。剥离含 {{cred 的整句(以。收口的句子),追加固定说明。
+const CRED_AD_SENTENCE_RE = /[^。]*\{\{cred:[^。]*。/g
+// 说明文字刻意不带 {{cred: 字面(下游 AI/守卫按「描述含占位符字面=广告注入」判定)
+const MCP_CRED_NOTE = '凭据占位符注入仅在工作台会话生效;本面命令按字面执行,不要使用 cred 占位符语法。'
+export function stripCredInjectionNote(desc) {
+  const s = String(desc ?? '')
+  // 判定用 includes 不用 RE.test:g 标志 RE 的 lastIndex 跨调用串扰,test 会漏检
+  return s.includes('{{cred:') ? s.replace(CRED_AD_SENTENCE_RE, '') + MCP_CRED_NOTE : s
+}
+export const TOOL_META = Object.fromEntries(
+  Object.entries(registry.toMeta()).map(([name, m]) => [name, { ...m, description: stripCredInjectionNote(m.description) }])
+)
 
 const ok = (id, result) => ({ jsonrpc: '2.0', id, result })
 const err = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } })

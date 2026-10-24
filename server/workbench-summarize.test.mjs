@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { maybeSummarize, compactConversation, SUMMARIZE_PROMPT, maybeSummarizeProject, CAPABILITY_CONSTRAINT } from './workbench-summarize.mjs'
+import { rememberCredentialValue, resetCredentialValuesForTest } from './credential-known-values.mjs'
 import { createSingleFlight } from './state/kernel.mjs'
 import {
   createWorkbenchSchema,
@@ -364,6 +365,54 @@ test('maybeSummarizeProject:LLM 抛错 → 不动库返回 false', async () => {
   const row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(project.id)
   assert.equal(row.projectRecap, '旧')
   assert.equal(row.historyWatermark, 42)
+})
+
+// ═══ 2026-10-24 凭据审计 P1:recap 蒸馏放大链闭合 ═══
+// 正文复述的 🔓明文(spec §14 接受的残余)此前经 projectRecap 蒸馏进后续每轮 system
+// (红线 6「系统提示永不携带明文」破,且跨对话扩散)。transcript 先洗后切 + recap 落库前洗。
+test('maybeSummarizeProject:transcript 与落库 recap 都按已知凭据值洗(蒸馏放大链闭合)', async () => {
+  resetCredentialValuesForTest()
+  rememberCredentialValue('ghp_recap_distill_secret', 'gh#token')
+  const db = freshDb()
+  const project = { id: p1Id(db) }
+  for (let i = 0; i < 8; i++) insertHistory(db, project.id, 'assistant', `部署用了 ghp_recap_distill_secret 第${i}步`, 4000 + i)
+  let seenTranscript = ''; let seenSystem = ''
+  const llm = { chat: async ({ messages }) => {
+    seenSystem = messages[0].content
+    seenTranscript = messages[1].content
+    return { content: '摘要:token 是 ghp_recap_distill_secret(LLM 不听话复述)' }
+  } }
+  assert.equal(await maybeSummarizeProject(db, project.id, llm), true)
+  assert.ok(!seenTranscript.includes('ghp_recap_distill_secret'), '喂摘要 LLM 的 transcript 无明文')
+  assert.ok(seenTranscript.includes('***'), 'transcript 已指纹化')
+  assert.ok(seenSystem.includes('指纹'), '摘要 system 提示带脱敏指令')
+  const row = db.prepare('SELECT projectRecap FROM workbench_projects WHERE id=?').get(project.id)
+  assert.ok(!row.projectRecap.includes('ghp_recap_distill_secret'), '落库 recap 无明文(LLM 复述也洗)')
+  assert.match(row.projectRecap, /\*\*\*/)
+  resetCredentialValuesForTest()
+})
+
+test('maybeSummarize:会话级 recap 同样洗(transcript 先洗后切 + 产物落库前洗)', async () => {
+  resetCredentialValuesForTest()
+  rememberCredentialValue('ghp_conv_recap_secret', 'gh#token')
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'x' })
+  const conv = listConversations(db, p1Id(db))[0]
+  for (let i = 0; i < 10; i++) {
+    appendMessage(db, { conversationId: conv.id, role: 'user', content: `q${i}` })
+    appendMessage(db, { conversationId: conv.id, role: 'assistant', content: `提到 ghp_conv_recap_secret ${i}` })
+  }
+  let seenTranscript = ''
+  const llm = { chat: async ({ messages }) => {
+    seenTranscript = JSON.stringify(messages)
+    return { content: 'RECAP: 令牌为 ghp_conv_recap_secret' }
+  } }
+  assert.equal(await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 }), true)
+  assert.ok(!seenTranscript.includes('ghp_conv_recap_secret'), '会话级 transcript 无明文')
+  const c = getConversation(db, conv.id)
+  assert.ok(!c.recap.includes('ghp_conv_recap_secret'), '落库 recap 无明文')
+  assert.match(c.recap, /\*\*\*/)
+  resetCredentialValuesForTest()
 })
 
 // context-assembly-08(含 gap2-03,2026-09-07 审计批次三):水位读法 `ts > watermark` 把与水位

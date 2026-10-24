@@ -14,6 +14,8 @@ export const TABLE = {
   'api.missingPod': { zh: '缺 pod', en: 'Missing pod' },
   'api.missingCommand': { zh: '缺 command', en: 'Missing command' },
   'api.podPathDenied': { zh: '路径被禁止(密钥与 proc 系统面)', en: 'Path denied (secrets/proc surfaces)' },
+  'api.selfPodDenied': { zh: '目标 pod 是网关自身容器(凭据库与主钥所在,工作台 AI 不可达)', en: 'Target pod is the gateway container itself (hosts the credential vault; not reachable by the workbench AI)' },
+  'api.gatewayPathDenied': { zh: '路径被禁止(网关数据面文件:数据库/主钥)', en: 'Path denied (gateway data-plane file: database/master key)' },
   'api.topNeedsNamespace': { zh: 'scope=pods 需要 namespace', en: 'scope=pods requires a namespace' },
   'api.metricsServerUnavailable': { zh: 'metrics-server 未安装或未就绪(kubectl top 同样不可用);装好后再试。原始错误: {msg}', en: 'metrics-server is not installed or not ready (kubectl top is also unavailable); install it and retry. Original error: {msg}' },
   'api.deploymentNotFound': { zh: 'Deployment {name} 不存在', en: 'Deployment {name} not found' },

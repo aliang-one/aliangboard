@@ -90,6 +90,7 @@ import { isFailoverEligible, currentEndpoint, currentDispatcher } from './failov
 import { parseResources, createMuxStream } from './k8s-watch-mux.mjs'
 import { buildImpersonation, impersonateDisplaynameFor, mergeImpersonate, createImpersonationProbe } from './impersonate.mjs'
 import { maskSecretResource, maskSensitiveText, logSafeCommand, logSafeFacet } from './secret-mask.mjs'
+import { isSelfPodTarget, isSensitiveGatewayPath } from './self-pod-guard.mjs'
 import { planExec, probeKey, tmuxProbeCommand, isTmuxPresent, tmuxLabel, tmuxSessionName, tmuxKillCommand, tmuxListClientsCommand, pickStaleSids, tmuxCaptureCommand, tmuxAttachOnlyCommand, tmuxNewSessionDetached, tmuxHasSessionCommand, hasHistoryFromCapture, archFromUname, injectDestCandidates, shellProbeCommand, pickShellFromProbe, tmuxConfContent, confDestCandidates } from './tmux-session.mjs'
 import { msg, t } from './messages.mjs'
 import { normalizeKind, CANONICAL_KINDS } from './kindAlias.mjs'
@@ -1677,10 +1678,15 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           gate.check(args.namespace, 'operate', 'wb_read_pod_file')
           if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
+          // 自指容器防线(2026-10-24 审计 P0-2):本工具 requiresApproval=false 任何审批档直行,
+          // 指向网关自身容器时主钥/SQLite 读回内容零洗涤直达 LLM——pod 名命中即拒。
+          if (isSelfPodTarget(args.pod)) throw new Error(msg(req, 'api.selfPodDenied'))
           const p = safePodPath(args.path)
           // CSO #4:免审读文件的敏感面拒绝清单(/proc /sys /dev /run/secrets)——SA token 等
           // 密钥路径畅通会直接明文进 LLM;管理员档 read_file 的 /proc 调试语义不受影响。
           if (podPathDenied(p)) throw new Error(msg(req, 'api.podPathDenied'))
+          // 同防线 belt:网关数据面文件(库/两把主钥)精确拒绝(HOSTNAME 不可用环境仍拦)。
+          if (isSensitiveGatewayPath(p)) throw new Error(msg(req, 'api.gatewayPathDenied'))
           // `--` 止参:白名单允许 `-` 开头的路径,防被 cat 当选项(纵深防御,一字之差);
           // 数组直传(2026-08-25 bug):不经 shell,空格路径原样一参
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', ['cat', '--', p], false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX })
@@ -1861,17 +1867,26 @@ async function handle(req, res) {
           if (!k8sSession) throw new Error(msg(req, 'api.clusterMissingForProject'))
           gate.check(args.namespace, 'operate', 'wb_exec') // Phase C 裁决:exec 恒 operate
           if (!args.pod) throw new Error(msg(req, 'api.missingPod'))
+          // 自指容器防线(2026-10-24 审计 P0-2):auto 档本工具免审,exec 命令面无法路径级拦,
+          // pod 名识别是主防线——指向网关自身容器(主钥+凭据库所在)一律拒。
+          if (isSelfPodTarget(args.pod)) throw new Error(msg(req, 'api.selfPodDenied'))
           const command = Array.isArray(args.command) ? args.command.join(' ') : String(args.command || '')
           if (!command.trim()) throw new Error(msg(req, 'api.missingCommand'))
           // C1:{{cred:}} 注入路径下 tool-registry 随 args 携 __credLog={command:占位符版,scrub}
           // (服务端内部键,仅进 execCapture 日志面;command 本身已是物化版,不回写)
           const r = await execCapture(k8sSession, args.namespace, args.pod, args.container || '', toExecArgv(command), false, { timeoutMs: WB_EXEC_TIMEOUT_MS, maxBytes: WB_EXEC_STREAM_MAX }, args.__credLog || null)
+          // 先洗后切(2026-10-24 审计 P1):注入值 scrub 先于 slice——截断点切中物化值会留
+          // 半截明文,scrub 认不出整值即穿透(C1 此前只接了日志面,回传面漏接)。
+          // 层序:credScrub(注入值)→ maskSensitiveText(JWT/PEM/AKIA 形态)→ slice(32768/8192)。
+          const credScrub = (args.__credLog && typeof args.__credLog.scrub === 'function') ? args.__credLog.scrub : null
+          const stdoutRaw = r.stdout?.toString('utf8') || ''
+          const stderrRaw = r.stderr || ''
           return {
             pod: args.pod, container: args.container || '', exitCode: r.exitCode ?? null,
             // CSO #4:审批通过后输出同样进 LLM/trace,stdout/stderr 一并高精度脱敏
             // 终审 R1:先脱敏后截断,防截断点切中 JWT/PEM 留半截明文
-            stdout: maskSensitiveText(r.stdout?.toString('utf8') || '').slice(0, 32768),
-            stderr: maskSensitiveText(r.stderr || '').slice(0, 8192),
+            stdout: maskSensitiveText(credScrub ? credScrub(stdoutRaw) : stdoutRaw).slice(0, 32768),
+            stderr: maskSensitiveText(credScrub ? credScrub(stderrRaw) : stderrRaw).slice(0, 8192),
             timedOut: !!r.timedOut, truncated: !!r.truncated,
             ...(r.timedOut ? { hint: msg(req, 'api.execTimedOutHint', { s: Math.round(WB_EXEC_TIMEOUT_MS / 1000) }) } : {}),
           }

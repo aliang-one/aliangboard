@@ -11,7 +11,8 @@ import { clampTraceStep } from './agent.mjs'
 import { getWorkbenchAiConfig, getMaxStepsConfig } from './workbench-ai-config.mjs'
 import { readUserApprovalMode } from './wb-approval-mode.mjs'
 import { deriveSalvageContent } from './salvage-content.mjs'
-import { persistableTrace, persistableMessages } from './workbench-persist.mjs'
+import { persistableTrace, persistableMessages, scrubPendingApprovalDeep } from './workbench-persist.mjs'
+import { currentKnownCredentialValues } from './credential-known-values.mjs'
 import { workbenchExcludeTools } from './tool-registry.mjs'
 import { buildProjectMemoryInjection } from './workbench-prompt.mjs'
 // gap3-01(2026-09-07 审计批次二):换绑锚定——refreshSystem 装配前比对 refs 戳与当下
@@ -121,14 +122,17 @@ const CK_TIME_MS = 500
     if (out.status === 'pending_approval') {
       const patch = {
         status: 'paused',
-        messages: JSON.stringify(persistableMessages(out.messages)),
+        // 值级兜底(P0-1):known=当轮已知凭据值集,截断裸串形态的 🔓明文也洗(审计 HIGH)
+        messages: JSON.stringify(persistableMessages(out.messages, currentKnownCredentialValues())),
         queue: JSON.stringify(out.queue),
         denied: JSON.stringify(out.denied),
         // gap3-02(2026-09-07 审计批次三):审批盖集群戳——裁决快照锚定「审批创建时」的项目
         // 绑定集群;approve/resume 执行前比对当下 project.clusterId,不一致拒绝(路由门,
         // 防「已批工具按裁决快照对新集群执行」)。out.pending 理论非空(该分支仅在
         // pending_approval 状态进入),展开保载荷原字段,clusterId 恒为 string('' = 未绑)。
-        pendingApproval: JSON.stringify({ ...out.pending, clusterId: project.clusterId }),
+        // args 面洗回占位符(2026-10-24 审计 P1):模型把 🔓明文转写进工具 args 时审批载荷
+        // 不得带明文落库;占位符在 resume 时经 substitute 重新物化,执行语义不变。
+        pendingApproval: JSON.stringify({ ...scrubPendingApprovalDeep(out.pending), clusterId: project.clusterId }),
         steps: out.steps,
         // steer(final review C1,2026-10-14):锚定「暂停时」watermark——resume 以此为起点吸收
         // 审批等待期落库的补充;若 resume 现算 maxSeq,paused 期 steer 行恒 ≤ watermark 永不吸收。
@@ -139,7 +143,7 @@ const CK_TIME_MS = 500
       updateConversation(db, convId, patch)
     } else {
       const patch = {
-        status: 'done', messages: JSON.stringify(persistableMessages(out.messages)),
+        status: 'done', messages: JSON.stringify(persistableMessages(out.messages, currentKnownCredentialValues())),
         content: out.content, steps: out.steps,
       }
       if (tracker) patch.reasoning = readFinalReasoning(tracker)
@@ -149,7 +153,7 @@ const CK_TIME_MS = 500
       // (如「(达到最大步数,未给出终答)」),不补块则交错模式对用户不可见。
       let traceArr = []
       try { traceArr = JSON.parse(traceJson || '[]') } catch { traceArr = [] }
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', reasoning: tracker ? readFinalReasoning(tracker) : null, trace: JSON.stringify(persistableTrace(ensureFinalTraceBlock(out.content, traceArr))) })
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: out.content || '', reasoning: tracker ? readFinalReasoning(tracker) : null, trace: JSON.stringify(persistableTrace(ensureFinalTraceBlock(out.content, traceArr), currentKnownCredentialValues())) })
       appendHistory(db, project.id, 'user', getConversation(db, convId).userMessage)
       appendHistory(db, project.id, 'assistant', out.content || '')
     }
@@ -264,7 +268,7 @@ const CK_TIME_MS = 500
       // 整轮失忆(重发时 sanitizeMessages 剔除)、对摘要器=「零产出」毒输入;派生串与前端
       // missingFinalTail 前缀语义天然兼容(拼接即前缀,ensureFinalTraceBlock 不再补尾)。
       const finalTrace = ensureFinalTraceBlock(partial, traceArr)
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent(partial, persistableTrace(finalTrace)), reasoning: reasoning || null, trace: JSON.stringify(persistableTrace(finalTrace)) })
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent(partial, persistableTrace(finalTrace, currentKnownCredentialValues())), reasoning: reasoning || null, trace: JSON.stringify(persistableTrace(finalTrace, currentKnownCredentialValues())) })
     } else {
       updateConversation(db, convId, { status: 'failed', error: err.message })
     }
@@ -295,7 +299,7 @@ const CK_TIME_MS = 500
       if (isSuperseded(convId, myEpoch)) return
       const e = clampTraceStep(raw)
       if (e.type !== 'tool_start') {
-        appendTrace(db, convId, persistableTrace([e])[0])
+        appendTrace(db, convId, persistableTrace([e], currentKnownCredentialValues())[0])
         if (e.type === 'assistant') {
           turnTrace.push({ type: 'assistant', content: e.message?.content || '', ts: e.ts })
           tracker?.resetRound()   // 检查点轮间清零(见 trackPartial 注释)
@@ -342,7 +346,7 @@ const CK_TIME_MS = 500
       const slice = currentTurnTrace(convId)
       if (partial || reasoning || slice.length) {
         const finalTrace = ensureFinalTraceBlock(partial, slice)
-        appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent(partial, persistableTrace(finalTrace)), reasoning: reasoning || null, trace: JSON.stringify(persistableTrace(finalTrace)) })
+        appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent(partial, persistableTrace(finalTrace, currentKnownCredentialValues())), reasoning: reasoning || null, trace: JSON.stringify(persistableTrace(finalTrace, currentKnownCredentialValues())) })
       }
       busEmit(convId, { type: 'end' })
       busDispose(convId)
@@ -467,7 +471,7 @@ const CK_TIME_MS = 500
         const reasoning = tracker ? readFinalReasoning(tracker) : ''
         if (partial || reasoning || turnTrace.length) {
           const finalTrace = ensureFinalTraceBlock(partial, turnTrace)
-          appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent(partial, persistableTrace(finalTrace)), reasoning: reasoning || null, trace: JSON.stringify(persistableTrace(finalTrace)) })
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent(partial, persistableTrace(finalTrace, currentKnownCredentialValues())), reasoning: reasoning || null, trace: JSON.stringify(persistableTrace(finalTrace, currentKnownCredentialValues())) })
         }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
@@ -614,7 +618,7 @@ const CK_TIME_MS = 500
         const slice = currentTurnTrace(convId)
         if (partial || reasoning || slice.length) {
           const finalTrace = ensureFinalTraceBlock(partial, slice)
-          appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent(partial, persistableTrace(finalTrace)), reasoning: reasoning || null, trace: JSON.stringify(persistableTrace(finalTrace)) })
+          appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent(partial, persistableTrace(finalTrace, currentKnownCredentialValues())), reasoning: reasoning || null, trace: JSON.stringify(persistableTrace(finalTrace, currentKnownCredentialValues())) })
         }
         busEmit(convId, { type: 'end' })
         busDispose(convId)
@@ -655,7 +659,7 @@ const CK_TIME_MS = 500
       if (!getConversation(db, convId)) return
       const slice = currentTurnTrace(convId)
       if (!slice.length) return
-      appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent('', persistableTrace(slice)), reasoning: null, trace: JSON.stringify(persistableTrace(slice)) })
+      appendMessage(db, { conversationId: convId, role: 'assistant', content: deriveSalvageContent('', persistableTrace(slice, currentKnownCredentialValues())), reasoning: null, trace: JSON.stringify(persistableTrace(slice, currentKnownCredentialValues())) })
     } catch (e) {
       console.error('[workbench-agent] preservePausedOutput 落库失败:', e?.message || e)
     }

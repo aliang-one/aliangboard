@@ -22,8 +22,14 @@ async function execWithCredInjection(ctx, args, run) {
   if (!ctx.creds || !containsCredRef(args)) return run(args.command)
   const sub = ctx.creds.substitute(args.command)
   if (!sub.ok) return { error: sub.error }
-  const r = await run(sub.text, { command: args.command, scrub: sub.scrub })
-  return (r && typeof r === 'object') ? scrubDeep(r, sub.scrub) : (typeof r === 'string' ? sub.scrub(r) : r)
+  // 异常路径同洗(2026-10-24 审计 P1):执行面 throw 的报错文案可能带物化命令回显
+  // (容器错误/exec 失败提示),裸 e.message 直达 LLM = 注入值出上下文。
+  try {
+    const r = await run(sub.text, { command: args.command, scrub: sub.scrub })
+    return (r && typeof r === 'object') ? scrubDeep(r, sub.scrub) : (typeof r === 'string' ? sub.scrub(r) : r)
+  } catch (e) {
+    return { error: sub.scrub(String(e?.message || e)) }
+  }
 }
 
 const RANK = { read: 0, operator: 1, admin: 2 }

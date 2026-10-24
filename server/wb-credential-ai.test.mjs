@@ -263,3 +263,50 @@ test('注入:wb_exec 占位符命令 paused;approve 后物化命令到达 K8s;�
     h.cleanup()
   }
 })
+
+// ═══ 2026-10-24 凭据审计 HIGH:超窗截断 × 落库洗涤 ═══
+// 复现形态(实证过的真实破口面):🔓明文(4096 合规)+ 2×16KB text → 全字段读取结果 >32KB
+// → clampTraceStep 把 trace result 拍平成裸串 → 结构化洗涤(scrubReadResult 只认 fields 数组)
+// 失明。修复前🔓明文随截断残留进对话级/消息级 trace 并随 SSE 快照/前端重建回放;修复后
+// credential-known-values 值级兜底在持久化边界按值洗。
+// (实证注记:messages 列在 done 路径不落 out.messages——agent.mjs 终态返回无该字段,工具
+// 结果的持久面是 trace;messages 列只在 paused 检查点落历史轮工具结果,persistableMessages
+// 兜底由单测覆盖。)
+test('🔓 超窗截断:全字段读取超 32KB trace 钳制,当轮可见但落库 trace 无明文(值级兜底)', { timeout: 120000 }, async () => {
+  const h = await startHarness({ toolArgs: { credential: 'big' }, finalText: '已按批准读取明文,结论如上。' })
+  try {
+    const H = await h.login()
+    const PLAIN = 'ghp_' + 'T'.repeat(4092)    // 4096 chars:M3 恰好合规;合计闸 4096 不>4096 放行
+    const BIGTEXT = 'x'.repeat(16000)
+    const cr = await fetch(`${h.BASE}/api/workbench/credentials`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'big', exposeToAi: true, fields: [
+      { key: 'token', type: 'password', value: PLAIN, aiReadable: true },
+      { key: 'blob1', type: 'text', value: BIGTEXT },
+      { key: 'blob2', type: 'text', value: BIGTEXT }] }) })
+    assert.equal(cr.status, 200, `大凭据应创建成功(M3 各自合规),实际 ${cr.status}`)
+    const { cvId, waitStatus, approve } = await h.startConversation(H, '读 big 凭据')
+    let st = await waitStatus(['paused', 'failed', 'done'])
+    assert.equal(st, 'paused', '🔓读取先过审批门')
+    await approve()
+    st = await waitStatus(['done', 'failed'])
+    assert.equal(st, 'done', `approve 后应终态,实际 ${st}`)
+    // 当轮上下文:token 排在前,明文在 8192 工具内容窗口内可见(🔓通道定义),且结果被钳制
+    const toolRound = h.llmRounds.find(ms => ms.some(m => m.role === 'tool'))
+    assert.ok(toolRound, '应有回填 tool 消息的轮次')
+    const toolMsg = JSON.stringify(toolRound.find(m => m.role === 'tool'))
+    assert.ok(toolMsg.includes('[truncated'), '结果确被 8192 内容钳制(前置条件成立)')
+    assert.ok(toolMsg.includes(PLAIN), '明文在当轮上下文(截断窗口内)')
+    // 落库 trace 两面无明文:值级兜底把被 32KB 钳制拍平的裸串洗回指纹(修复前此断言失败=审计 HIGH)
+    const rdb = new DatabaseSync(join(h.DIR, 'wb.db'), { readOnly: true })
+    const msgTraces = rdb.prepare('SELECT trace FROM workbench_messages WHERE conversationId=? AND trace IS NOT NULL').all(cvId).map(r => r.trace).join('\n')
+    const convTrace = JSON.stringify(rdb.prepare('SELECT trace FROM workbench_conversations WHERE id=?').get(cvId) || {})
+    const convMessages = JSON.stringify(rdb.prepare('SELECT messages FROM workbench_conversations WHERE id=?').get(cvId) || {})
+    rdb.close()
+    assert.ok(msgTraces.includes('resultTruncated'), 'trace 确被 32KB 钳制拍平(前置条件成立)')
+    assert.ok(!msgTraces.includes(PLAIN), '消息行 trace 无明文(修复前:拍平裸串绕过结构化洗涤,明文残留)')
+    assert.ok(!convTrace.includes(PLAIN), '对话级 trace 无明文')
+    assert.ok(!convMessages.includes(PLAIN), 'messages 列无明文')
+    assert.match(msgTraces + convTrace, /\*\*\* \(\d+ chars, #[0-9a-f]{8}\)/, '落库为指纹')
+  } finally {
+    h.cleanup()
+  }
+})

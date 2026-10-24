@@ -108,3 +108,14 @@ test('T5:执行面返裸字符串 → scrub 洗净;返数字/null → 原样(无
   const ctxNum = { creds: { substitute: () => sub }, wb: { execInPod: async () => 42 } }
   assert.equal(await registry.get('wb_exec').exec(ctxNum, { command: 'echo {{cred:r#password}}' }), 42, '数字原样')
 })
+
+// ═══ 2026-10-24 凭据审计 P1:异常路径同样过 scrub ═══
+// 旧形态:execInPod throw → 工具层 catch 返回裸 {error: e.message}——注入值出现在报错
+// 文案里(如命令回显/容器错误带命令)时未经洗涤直达 LLM。
+test('异常路径 scrub:执行面 throw 的 e.message 也经注入值洗(2026-10-24 审计 P1)', async () => {
+  const sub = { ok: true, text: 'echo MATERIALIZED', refs: [], scrub: s => String(s).split('MATERIALIZED').join('***MASK***') }
+  const ctx = { creds: { substitute: () => sub }, wb: { execInPod: async () => { throw new Error('exec failed: MATERIALIZED') } } }
+  const r = await registry.get('wb_exec').exec(ctx, { command: 'echo {{cred:r#password}}' })
+  assert.ok(r && typeof r.error === 'string', '仍以 { error } 形态回传')
+  assert.ok(!r.error.includes('MATERIALIZED') && r.error.includes('***MASK***'), `error 文案已洗: ${r.error}`)
+})

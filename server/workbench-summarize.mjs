@@ -12,6 +12,7 @@ import {
 } from './workbench-projects.mjs'
 import { deriveSalvageContent } from './salvage-content.mjs'
 import { trimBudgetChars, resolveWindowTokens } from './model-context.mjs'
+import { scrubKnownValues } from './credential-known-values.mjs'
 import { createSingleFlight } from './state/kernel.mjs'
 // 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
 // msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
@@ -24,7 +25,10 @@ export const CAPABILITY_CONSTRAINT =
   '硬性约束:工具、能力、权限的可用性随时可能因部署/配置变化,禁止把"某功能不可用/缺少某接口"这类瞬时状态写入摘要;摘要只记录稳定的项目事实、目标与决策。'
 
 export const SUMMARIZE_PROMPT =
-  '把以下对话老片段压成紧凑 recap,保留关键决策、涉及资源、结论与未决问题,丢弃寒暄/中间步骤细节。用中文,不超过 300 字。' + CAPABILITY_CONSTRAINT
+  '把以下对话老片段压成紧凑 recap,保留关键决策、涉及资源、结论与未决问题,丢弃寒暄/中间步骤细节。用中文,不超过 300 字。' +
+  // 脱敏指令(2026-10-24 凭据审计 P1):已知凭据明文已在喂入前指纹化;LLM 若仍见到疑似密钥
+  // 值(登记遗漏形态),指令层兜底不得复述。硬洗在 transcriptLine 与落库面,此为软防线。
+  '若内容中出现疑似密码/令牌/密钥的明文值,摘要中一律以 ***(N chars,#指纹) 形态指代,绝不复述原值。' + CAPABILITY_CONSTRAINT
 
 // transcript 行构造(H2,2026-09-09 审计):空 assistant 行(salvage/preserve 落库的 content=''
 // 形态,真实文本在 trace)与「继续」短行原样进摘要器 →「用户反复要求继续、助手零产出」→
@@ -36,9 +40,11 @@ function transcriptLine(m) {
   if (m.role === 'assistant' && !content.trim()) {
     let backfill = ''
     try { backfill = deriveSalvageContent('', JSON.parse(m.trace || '[]')) } catch { backfill = '' }
-    return backfill ? `assistant: ${backfill}` : null
+    return backfill ? `assistant: ${scrubKnownValues(backfill)}` : null
   }
-  return `${m.role}: ${content}`
+  // 已知凭据值先洗后切(2026-10-24 审计 P1):正文复述的 🔓明文(spec §14 残余)不得经
+  // recap 蒸馏进后续每轮 system(红线 6 + 跨对话放大链)。
+  return `${m.role}: ${scrubKnownValues(content)}`
 }
 
 // per-conv in-flight 去重(H1,镜像 projectSummarizerInflight):messages 路由与 agent done
@@ -102,7 +108,7 @@ export async function maybeSummarize(
           { role: 'user', content: transcript },
         ],
       })
-      const seg = out?.content?.trim()
+      const seg = out?.content?.trim() ? scrubKnownValues(out.content.trim()) : ''
       if (!seg) return false
       // H1(2026-09-09 审计)落库三防线:
       // ① maxSeq 回落守卫:窗口内 edit/regenerate 截断使消息回退 → 丢弃(等价 oldMsgs 复验,
@@ -225,18 +231,20 @@ export async function maybeSummarizeProject(db, projectId, llmClient, { inflight
     // (两分支都递增 recapRev)。本写入自身不递增 rev(只有人工写计数)——连续两轮自动摘要
     // 互不挤兑,水位守卫已覆盖同批/更新批的自动写竞争。
     const revAtSnapshot = project.recapRev ?? 0
+    // 已知凭据值先洗后切(2026-10-24 审计 P1):正文复述的 🔓明文(spec §14 残余)不得经
+    // projectRecap 蒸馏进该项目后续所有对话的 system(红线 6「系统提示永不携带明文」+ 跨对话放大)。
     const transcript = [
-      ...(project.projectRecap ? [`(此前项目摘要)\n${project.projectRecap}`] : []),
-      ...pending.map(h => `${h.role}: ${String(h.content || '').slice(0, 800)}`),
+      ...(project.projectRecap ? [`(此前项目摘要)\n${scrubKnownValues(project.projectRecap)}`] : []),
+      ...pending.map(h => `${h.role}: ${scrubKnownValues(String(h.content || '')).slice(0, 800)}`),
     ].join('\n')
     try {
       const out = await llmClient.chat({
         messages: [
-          { role: 'system', content: `你负责维护一份项目记忆摘要。把「此前项目摘要」与「新增对话」滚动合并为一份新摘要:保留已做出的决定、关键事实与数据、尚未解决的问题;丢弃过程性闲聊;中文,紧凑,不超过 500 字。输出只有摘要本身。${CAPABILITY_CONSTRAINT}` },
+          { role: 'system', content: `你负责维护一份项目记忆摘要。把「此前项目摘要」与「新增对话」滚动合并为一份新摘要:保留已做出的决定、关键事实与数据、尚未解决的问题;丢弃过程性闲聊;中文,紧凑,不超过 500 字。若内容中出现疑似密码/令牌/密钥的明文值,摘要中一律以 ***(N chars,#指纹) 形态指代,绝不复述原值。输出只有摘要本身。${CAPABILITY_CONSTRAINT}` },
           { role: 'user', content: transcript },
         ],
       })
-      const recap = out?.content?.trim()
+      const recap = out?.content?.trim() ? scrubKnownValues(out.content.trim()) : ''
       if (!recap) return false
       // 长度硬钳(prompt 的「不超过 500 字」只是请求,LLM 不服从时不能无界落库+每轮注入)
       const capped = recap.length > 2000 ? recap.slice(0, 2000) + '…(截断)' : recap

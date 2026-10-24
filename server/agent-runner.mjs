@@ -8,6 +8,7 @@ import { effectiveTools } from './authorize.mjs'
 import { reserveAudit, finalizeAudit } from './audit.mjs'
 import { modeAutoPasses } from './wb-approval-mode.mjs'
 import { containsCredRef, firstCredRefName } from './credentials/agent-bridge.mjs'
+import { scrubKnownValues } from './credential-known-values.mjs'
 
 // 工作台审计:wb_* 工具(用项目绑定集群凭据直连)不走 API key 的 callTool 审计,
 // 此处在 execTool 补一条 reserve/finalize 进 audit_log(source='workbench'),让 AI 驱动的集群变更可追溯。
@@ -18,8 +19,9 @@ function wbAuditIntent(audit, name, args) {
   let resource = null
   // I1(2026-09-20 final review,spec §8):{{cred:名#字段}} 注入命令归因到 Credential/<名>——
   // wb_exec/wb_ssh_exec 的 args 无 server/credential 键,占位符是唯一凭据线索;解析不成形
-  // (含 {{cred: 前缀但无完整收口)兜底 Credential/unknown。args 是占位符版(物化只在执行面内),
-  // 故 requestSummary 天然安全,不动。
+  // (含 {{cred: 前缀但无完整收口)兜底 Credential/unknown。args 通常是占位符版(物化只在执行
+  // 面内),但🔓明文可能被模型转写进 args(2026-10-24 审计)——requestSummary 先洗后切:
+  // 已知值(credential-known-values 登记)洗回指纹,再截 120 字符。
   const credRefName = containsCredRef(args) ? (firstCredRefName(args) ?? 'unknown') : null
   if (credRefName) resource = `Credential/${credRefName}`
   else if (args?.server) resource = args.server === '__global__' ? 'SshLedger/__global__' : `SshServer/${args.server}`
@@ -30,7 +32,7 @@ function wbAuditIntent(audit, name, args) {
   else if (args?.name) resource = args.name
   else if (args?.path) resource = args.path
   let summary = null
-  try { summary = JSON.stringify(args).slice(0, 120) } catch { /* 忽略不可序列化 */ }
+  try { summary = scrubKnownValues(JSON.stringify(args)).slice(0, 120) } catch { /* 忽略不可序列化 */ }
   return {
     owner: audit.owner, clusterId: audit.clusterId,
     namespace: args?.namespace || null,

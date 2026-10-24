@@ -158,3 +158,100 @@ test('firstCredRefName:首个含模式字符串参数的 NAME;无命中/非对�
   // → wbAuditIntent 兜底 Credential/unknown(在那侧测)
   assert.equal(firstCredRefName({ command: 'echo {{cred:broken' }), null)
 })
+
+// ═══ 2026-10-24 凭据审计修复:登记点 + 🔓合计闸 + 适配器回显洗 + 占位符谓词递归 ═══
+
+import { ADAPTERS } from './credential-adapters/registry.mjs'
+import { rememberCredentialValue, scrubKnownValues, resetCredentialValuesForTest, currentKnownCredentialValues } from './credential-known-values.mjs'
+import { AI_READABLE_MAX_VALUE_LEN } from './credentials-store.mjs'
+
+test('containsCredRef/firstCredRefName:嵌套数组与对象中的占位符也命中(审批门不可被形态绕过)', () => {
+  assert.equal(containsCredRef({ command: ['echo', '{{cred:gh#token}}'] }), true)
+  assert.equal(containsCredRef({ nested: { deep: { cmd: 'x {{cred:a#b}} y' } } }), true)
+  assert.equal(containsCredRef({ clean: ['no', 'refs'] }), false)
+  assert.equal(firstCredRefName({ command: ['echo', '{{cred:gh#token}}'] }), 'gh')
+  assert.equal(firstCredRefName({ nested: { cmd: '{{cred:deep#k}}' } }), 'deep')
+})
+
+test('substitute:物化值进登记表——任意后续字符串可按值洗(持久化兜底的登记点)', async () => {
+  resetCredentialValuesForTest()
+  const { bridge } = makeBridge()
+  const sub = bridge.substitute('deploy {{cred:gh#token}}')
+  assert.ok(sub.ok)
+  assert.ok(sub.text.includes('ghp_x'), '前置条件:物化值在命令里')
+  assert.ok(scrubKnownValues(sub.text).includes('*** '), '登记后全局按值洗生效')
+  assert.ok(currentKnownCredentialValues().some(p => p.value === 'ghp_x'))
+})
+
+test('read():🔓明文进登记表(text 字段不进)', async () => {
+  resetCredentialValuesForTest()
+  const db = new DatabaseSync(':memory:')
+  createCredentialsSchema(db)
+  createCredential(db, KEY, { name: 'readreg', exposeToAi: true, fields: [
+    { key: 'note', type: 'text', value: 'text-plaintext-value' },
+    { key: 'pwd', type: 'password', value: 'readreg-password-plain', aiReadable: true }] })
+  const bridge = createCredentialsAgentBridge({ db, key: KEY })
+  await bridge.read({ credential: 'readreg' })
+  const vals = currentKnownCredentialValues().map(p => p.value)
+  assert.ok(vals.includes('readreg-password-plain'), '🔓明文登记')
+  assert.ok(!vals.includes('text-plaintext-value'), 'text 同权,不登记不洗')
+  assert.ok(scrubKnownValues('leak: readreg-password-plain').includes('*** '))
+})
+
+test('read():🔓明文字段合计超限 fail-closed 拒读(截断窗口防线,多字段形态)', async () => {
+  resetCredentialValuesForTest()
+  const db = new DatabaseSync(':memory:')
+  createCredentialsSchema(db)
+  const half = Math.ceil(AI_READABLE_MAX_VALUE_LEN / 2) + 100   // 两个都合规(≤4096),合计超限
+  createCredential(db, KEY, { name: 'bigsum', exposeToAi: true, fields: [
+    { key: 'p1', type: 'password', value: 'A'.repeat(half), aiReadable: true },
+    { key: 'p2', type: 'password', value: 'B'.repeat(half), aiReadable: true },
+    { key: 'pad', type: 'text', value: 'T'.repeat(16000) }] })
+  const bridge = createCredentialsAgentBridge({ db, key: KEY })
+  const all = await bridge.read({ credential: 'bigsum' })
+  assert.ok(all.error, '全字段读取应拒')
+  assert.match(all.error, /逐字段/)
+  assert.ok(!JSON.stringify(all).includes('A'.repeat(20)), '不得返回任何明文')
+  const one = await bridge.read({ credential: 'bigsum', field: 'p1' })   // 单字段合规可读
+  assert.ok(!one.error)
+  assert.equal(one.fields.length, 1)
+})
+
+test('runAdapter:适配器消费值进登记表,响应体回显的值洗回指纹(回显型端点防线)', async () => {
+  resetCredentialValuesForTest()
+  ADAPTERS.echo_audit_test = {
+    manifest: { name: 'echo_audit_test', title: 'echo', needs: { api_token: 'password' }, readonlyMethods: ['GET'] },
+    exec: async ({ fields }) => ({ echoed: `Bearer ${fields.api_token}`, nested: { auth: fields.api_token }, ok: true }),
+  }
+  try {
+    const db = new DatabaseSync(':memory:')
+    createCredentialsSchema(db)
+    createCredential(db, KEY, { name: 'echo-cred', exposeToAi: true, fields: [
+      { key: 'api_token', type: 'password', value: 'ghp_echo_response_secret' }] })
+    const bridge = createCredentialsAgentBridge({ db, key: KEY })
+    const r = await bridge.runAdapter('echo_audit_test', { credential: 'echo-cred', path: '/x' })
+    assert.ok(!JSON.stringify(r).includes('ghp_echo_response_secret'), '回显值不得原样回传')
+    assert.ok(r.echoed.includes('*** '), `回显位置洗成指纹: ${r.echoed}`)
+    assert.ok(r.nested.auth.includes('*** '), '嵌套对象同洗')
+    assert.ok(r.ok === true, '非敏感字段不受影响')
+    assert.ok(currentKnownCredentialValues().some(p => p.value === 'ghp_echo_response_secret'), '消费值登记')
+    assert.ok(scrubKnownValues('echo again ghp_echo_response_secret').includes('*** '), '全局登记可洗')
+  } finally { delete ADAPTERS.echo_audit_test }
+})
+
+test('runAdapter:短值(<8 字符)响应不洗——in-run 洗脱阈值防误伤(true/1234 类)', async () => {
+  resetCredentialValuesForTest()
+  ADAPTERS.short_audit_test = {
+    manifest: { name: 'short_audit_test', title: 'echo', needs: { api_token: 'password' }, readonlyMethods: ['GET'] },
+    exec: async ({ fields }) => ({ val: fields.api_token, note: 'result: true 1234 ok' }),
+  }
+  try {
+    const db = new DatabaseSync(':memory:')
+    createCredentialsSchema(db)
+    createCredential(db, KEY, { name: 'short-cred', exposeToAi: true, fields: [
+      { key: 'api_token', type: 'password', value: 'true' }] })
+    const bridge = createCredentialsAgentBridge({ db, key: KEY })
+    const r = await bridge.runAdapter('short_audit_test', { credential: 'short-cred', path: '/x' })
+    assert.equal(r.note, 'result: true 1234 ok', '普通文本中的短词不得被洗烂')
+  } finally { delete ADAPTERS.short_audit_test }
+})

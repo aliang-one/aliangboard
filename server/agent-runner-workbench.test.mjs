@@ -6,6 +6,7 @@ import { registry, workbenchExcludeTools, SSH_HIDDEN_TOOLS } from './tool-regist
 import { createAgentRunner } from './agent-runner.mjs'
 import { createAuditSchema } from './audit.mjs'
 import { routeDynamicApproval } from './workbench-agent.mjs'
+import { rememberCredentialValue, resetCredentialValuesForTest } from './credential-known-values.mjs'
 
 function seqChat(messages) { let i = 0; return async () => messages[Math.min(i++, messages.length - 1)] }
 const tc = (id, name, args) => ({ role: 'assistant', content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] })
@@ -452,4 +453,26 @@ test('createAgentRunner maxSteps=0:不设限,超过旧默认 8 仍继续', async
   const out = await run({ history: [] })
   assert.equal(out.content, 'done')
   assert.ok(out.steps >= 13, `应跑满 12 轮工具 + 终答,实际 ${out.steps}`)
+})
+
+// ═══ 2026-10-24 凭据审计 P1:requestSummary 值洗(先洗后切)═══
+// 旧注释假设「args 是占位符版,天然安全」——🔓明文被模型转写进下一次工具 args 时该假设不成立,
+// requestSummary(JSON 前 120 字符)带明文落 audit_log。已知值表登记后,审计面按值洗回指纹。
+test('audit requestSummary:模型 args 里的已知凭据值洗成指纹(先洗后切)', async () => {
+  resetCredentialValuesForTest()
+  rememberCredentialValue('ghp_audit_summary_secret', 'gh#token')
+  const db = new DatabaseSync(':memory:')
+  createAuditSchema(db)
+  const wb = { readLedger: async () => '# 台账', readFile: async () => '', writeFile: async () => {}, listResources: async () => ({ count: 0, items: [] }) }
+  // 长命令把值推到截断边界附近——先洗后切:值整体洗成指纹后 '***' 仍在 120 窗口内
+  const cmd = `deploy ${'x'.repeat(60)} && echo ghp_audit_summary_secret | docker login`
+  const llmClient = { chat: seqChat([tc('1', 'wb_list_resources', { kind: 'pods', note: cmd }), fin('done')]) }
+  const { run } = createAgentRunner({ llmClient, workbench: wb, audit: { db, owner: 'admin', clusterId: 'c1' } })
+  await run({ history: [] })
+  const rows = db.prepare('SELECT requestSummary FROM audit_log WHERE tool=?').all('wb_list_resources')
+  assert.ok(rows.length >= 1)
+  const s = rows[0].requestSummary || ''
+  assert.ok(!s.includes('ghp_audit_summary_secret'), `requestSummary 不得含明文: ${s}`)
+  assert.ok(s.includes('***'), '已知值洗成指纹')
+  resetCredentialValuesForTest()
 })
