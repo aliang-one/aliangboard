@@ -130,6 +130,8 @@ function isGlobalActive(path) {
   // 仅对有子路由的项用前缀匹配（避免 /cluster 误匹配 /clusters）
   if (path === '/nodes' && route.path.startsWith('/nodes/')) return true
   if (path === '/crds' && route.path.startsWith('/crds/')) return true
+  if (path === '/workloads' && route.path.startsWith('/workloads/')) return true
+  if (path === '/rbac' && route.path.startsWith('/rbac/')) return true
   return false
 }
 
@@ -643,7 +645,7 @@ function nsStatusColor(status) {
    集群头两态容器(transition-all)也纳入禁用,满足「所有动效须带禁用分支」 */
 @media (prefers-reduced-motion: reduce) {
   .dock, .dock-ig, .slab-led { animation: none !important; }
-  .cluster-slab, .dock-ig__sq, .cluster-header { transition: none !important; }
+  .cluster-slab, :deep(.dock-ig__sq), .cluster-header { transition: none !important; }
   .ns-band,.ns-chip,.ns-ci,.ns-t,.ns-tile,.ns-row,.ns-search{transition:none !important}
   .ns-arr,.ns-drop{animation:none !important}
 }

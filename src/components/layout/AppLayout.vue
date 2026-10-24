@@ -135,7 +135,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); if (refreshTimer) clearTime
         <!-- 刷新:全断点常驻(自顶栏迁入;数据新鲜度语义与「最后更新」同区) -->
         <button data-test="footer-refresh" @click="refreshPage" :disabled="refreshing"
           :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')"
-          class="p-sm rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50 shrink-0">
+          class="p-sm rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-primary transition-colors disabled:opacity-50 shrink-0">
           <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
         </button>
         <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm max-lg:hidden shrink-0">

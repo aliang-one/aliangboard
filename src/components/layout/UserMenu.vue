@@ -71,7 +71,7 @@ onBeforeUnmount(() => {
       <img v-if="avatarDataUrl" :src="avatarDataUrl" data-testid="user-avatar-img" alt="avatar" class="w-7 h-7 rounded-full object-cover shrink-0" />
       <div v-else data-testid="user-avatar-fallback" class="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-body-sm font-bold shrink-0">{{ initial }}</div>
       <div class="min-w-0 flex-1 sb-user-txt">
-        <span class="block w-full text-body-sm font-semibold truncate">{{ displayName }}</span>
+        <span class="block w-full text-body-sm font-semibold truncate" :title="displayName">{{ displayName }}</span>
         <span v-if="roleLabel" data-testid="user-menu-role" class="block w-full text-[10px] text-on-surface-variant truncate">{{ roleLabel }}</span>
       </div>
       <span class="material-symbols-outlined text-on-surface-variant text-body-sm transition-transform sb-user-txt" :class="open ? 'rotate-180' : ''">expand_more</span>
