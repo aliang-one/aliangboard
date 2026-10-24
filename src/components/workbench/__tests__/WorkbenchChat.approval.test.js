@@ -501,3 +501,21 @@ test('M1:命令含 {{cred:}} → 审批卡提示注入占位符;普通命令无�
   })
   expect(w2.text()).not.toContain(zh.workbench.chat.credInjectHint, '普通命令不出现提示(免噪音)')
 })
+
+// ═══ 2026-10-24 凭据审计 P2(人因):read_credential 是 auto 档唯一中断源,审批卡此前
+// 只渲染裸 args JSON,无任何「批准后明文将发送至 LLM 服务」警示——疲劳盲批腐蚀主门。
+test('read_credential 审批卡:明文风险警示行(批准后明文将随对话发送至 LLM 服务)', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-readcred', name: 'read_credential',
+    args: { credential: 'gh', field: 'token' },
+  })
+  expect(w.text()).toContain(zh.workbench.chat.credPlaintextHint)
+})
+
+test('非明文工具审批卡不渲染明文警示行(免噪音)', async () => {
+  const w = await mountPausedApproval({
+    toolCallId: 't-ssh2', name: 'wb_ssh_exec',
+    args: { server: 's1', command: 'uptime' },
+  })
+  expect(w.text()).not.toContain(zh.workbench.chat.credPlaintextHint)
+})

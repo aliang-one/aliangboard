@@ -3980,6 +3980,7 @@
       "dbApprovalTitle": "Database Query Approval",
       "execDesc": "The command will run inside the target container (kubectl exec — one-shot, non-interactive, 30s timeout). Output goes back to the AI for further analysis; confirm the command is not destructive.",
       "credInjectHint": "This command contains a credential-injection placeholder; the actual value is injected by the platform upon approval (the value is never shown).",
+      "credPlaintextHint": "⚠ Approving sends this credential field's plaintext to the LLM service, where it stays in this turn's AI context. Approve only when necessary.",
       "targetLabel": "Target",
       "approvalJobText": "Answer to write to the job's stdin:",
       "approvalNotes": "Notes to write to the ledger (full replace):",

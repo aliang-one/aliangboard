@@ -325,6 +325,9 @@ const approvalCommand = computed(() => {
 // (批准后由平台注入实际值,值不展示)——占位符形态对人否则是未知语义。基于归一后的
 // approvalCommand 判定(argv 数组已 join,同上方一行)。
 const approvalCredInject = computed(() => approvalCommand.value.includes('{{cred:') ? t('workbench.chat.credInjectHint') : '')
+// 明文读取警示(2026-10-24 凭据审计 P2 人因):read_credential 是 auto 档唯一审批中断源,
+// 卡片此前只渲染裸 args JSON——「批准 = 明文将发送至 LLM 服务」必须显式在卡片上,抗疲劳盲批。
+const approvalPlaintextRead = computed(() => pendingApproval.value?.name === 'read_credential' ? t('workbench.chat.credPlaintextHint') : '')
 // approval-flow-01:wb_ssh_job_write 应答——人必须看到"往哪个任务写什么",否则盲批安装器应答。
 // 终审修复(2026-09-07 批次二):门只看 text——旧条件 jobId!=null && text!=null 在 LLM 违
 // schema 漏发 jobId 时把应答文本挤没(approvalTarget 因 a.server 在场恒真,兜底 JSON 也被压
@@ -1694,6 +1697,8 @@ function useHint(h) { input.value = h }
           <pre class="font-mono text-body-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-lg p-md">{{ approvalCommand }}</pre>
           <p v-if="approvalCredInject" class="text-body-sm text-on-surface-variant">{{ approvalCredInject }}</p>
         </template>
+        <!-- 明文读取警示(2026-10-24 审计 P2):read_credential 审批卡必显,警示色独立于 args 渲染分支 -->
+        <p v-if="approvalPlaintextRead" class="text-body-sm font-semibold text-status-warning">{{ approvalPlaintextRead }}</p>
         <!-- approval-flow-01:wb_ssh_job_write 应答——server(+jobId 若在场)目标行 + 将写入 stdin 的文本;
              终审修复:jobId 段仅在场时渲染(LLM 违 schema 漏发 jobId 不再把整块应答展示挤没) -->
         <template v-if="approvalJobText">
