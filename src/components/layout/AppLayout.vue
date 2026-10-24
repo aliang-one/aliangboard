@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { useRoute } from 'vue-router'
 import SideNavBar from './SideNavBar.vue'
-import TopNavBar from './TopNavBar.vue'
+import AlertBell from './AlertBell.vue'
 import TerminalTaskbar from '@/components/terminal/TerminalTaskbar.vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useTerminalStore } from '@/stores/terminals'
@@ -43,13 +43,25 @@ const termStore = useTerminalStore()
 const fbStore = useFileBrowserStore()
 const trStore = useTransferStore()
 const sshStore = useSshTerminalStore()
-const { tick: refreshTick } = usePageRefresh()
+const { tick: refreshTick, bump: bumpRefresh } = usePageRefresh()
 const shell = useShellStore()
 
 // 平台版本更新检测(横幅:每版本提示一次;未登录不进 AppLayout,query 天然不启用)
 const { query: versionQuery } = useAppVersion()
 const hasUpdate = computed(() => !!versionQuery.data.value?.hasUpdate)
 const latestVersion = computed(() => versionQuery.data.value?.latest || null)
+
+// 刷新当前页(2026-10-23 自顶栏迁入 footer):重挂当前视图 + 后台重拉列表
+const refreshing = ref(false)
+let refreshTimer = null
+function refreshPage() {
+  if (refreshing.value) return
+  refreshing.value = true
+  bumpRefresh()
+  store.invalidateAllClusterQueries()
+  clearTimeout(refreshTimer)
+  refreshTimer = setTimeout(() => { refreshing.value = false }, 700)
+}
 
 // footer 时间：由定时器驱动，避免模板内 new Date() 在每次重渲时跳变且不自动 tick
 const lastUpdated = ref('')
@@ -70,7 +82,7 @@ onMounted(() => {
     })
   }
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onUnmounted(() => { if (timer) clearInterval(timer); if (refreshTimer) clearTimeout(refreshTimer) })
 </script>
 
 <template>
@@ -82,7 +94,6 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <div class="shell-main flex-1 flex flex-col min-w-0">
       <!-- 全局加载指示：hydrate 期间（登录/同步/切集群）顶部细条，覆盖所有页面 -->
       <div v-if="store.connectionState === 'loading'" class="fixed top-0 right-0 h-0.5 bg-primary animate-pulse" :style="{ zIndex: Z.windowBase, left: 'var(--sb-width)' }"></div>
-      <TopNavBar />
       <!-- 集群健康横幅：Critical / Disconnected -->
       <div v-if="store.clusterHealth.status === 'Critical' || store.clusterHealth.status === 'Disconnected'"
         class="px-lg py-sm flex items-center gap-sm text-on-error bg-error/10 border-b border-error/30 text-body-sm">
@@ -109,14 +120,25 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         </router-view>
       </main>
       <!-- Footer Status Bar -->
-      <footer class="shell-footer px-lg py-sm bg-surface border-t border-outline-variant flex justify-between items-center shrink-0">
-        <div class="flex items-center gap-lg min-w-0">
-          <div class="flex items-center gap-sm min-w-0">
-            <span class="w-2 h-2 rounded-full shrink-0" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
-            <span class="text-body-sm text-on-surface-variant min-w-0 truncate">{{ $t('layout.clusterStatusSummary', { status: store.clusterHealth.status, ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, wready: store.clusterHealth.workers.ready, wtotal: store.clusterHealth.workers.total }) }}</span>
-          </div>
+      <footer class="shell-footer px-lg py-sm bg-surface border-t border-outline-variant flex items-center gap-sm shrink-0">
+        <!-- 手机档:汉堡 + 告警(顶栏退役后手机全局工具归 footer;spec §5) -->
+        <button v-if="belowSm" data-test="footer-menu" @click="shell.toggleDrawer()"
+          class="p-sm -ml-sm rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-primary transition-colors"
+          :aria-label="$t('nav.openMenu')">
+          <span class="material-symbols-outlined">menu</span>
+        </button>
+        <AlertBell v-if="belowSm" class="max-sm:shrink-0" />
+        <div class="flex items-center gap-sm min-w-0 flex-1">
+          <span class="w-2 h-2 rounded-full shrink-0" :class="{ 'bg-primary': store.clusterHealth.severity === 'ok', 'bg-tertiary-container': store.clusterHealth.severity === 'warn', 'bg-error': store.clusterHealth.severity === 'crit', 'bg-on-surface-variant': store.clusterHealth.severity === 'none' }"></span>
+          <span class="text-body-sm text-on-surface-variant min-w-0 truncate">{{ $t('layout.clusterStatusSummary', { status: store.clusterHealth.status, ready: store.clusterHealth.controlPlane.ready, total: store.clusterHealth.controlPlane.total, wready: store.clusterHealth.workers.ready, wtotal: store.clusterHealth.workers.total }) }}</span>
         </div>
-        <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm max-lg:hidden">
+        <!-- 刷新:全断点常驻(自顶栏迁入;数据新鲜度语义与「最后更新」同区) -->
+        <button data-test="footer-refresh" @click="refreshPage" :disabled="refreshing"
+          :aria-label="$t('nav.refreshPage')" :title="$t('nav.refreshPageData')"
+          class="p-sm rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-primary rounded-full transition-colors disabled:opacity-50 shrink-0">
+          <span class="material-symbols-outlined" :class="refreshing ? 'animate-spin' : ''">refresh</span>
+        </button>
+        <div class="flex items-center gap-md text-on-surface-variant font-mono text-code-sm max-lg:hidden shrink-0">
           <span>{{ $t('layout.lastUpdated') }} {{ lastUpdated }}</span>
           <span class="px-sm py-xs bg-surface-container rounded-sm border border-outline-variant">{{ store.cluster.version }}</span>
         </div>

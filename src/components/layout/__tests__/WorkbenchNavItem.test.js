@@ -1,4 +1,4 @@
-// 工作台侧栏入口行(2026-10-23 顶栏退役·导航单源收敛 Task 5,自 WorkbenchEntryPill 迁入):
+// 工作台侧栏入口行(2026-10-23 顶栏退役·导航单源收敛 Task 5,自顶栏工作台胶囊迁入):
 // ① 行契约(nav-item 类/激活 primary-container/瓷砖 workspaces);② 待审批红数角标(全断点通用,
 // 旧胶囊的三徽章优先级链/手机红点退役);③ summary 数据驱动 title 摘要;④ 悬停面板
 // (150ms 开/200ms 宽限/Escape/外点/项目行跳转,useDropdownPanel 定位);⑤ 手机档整链禁开面板。

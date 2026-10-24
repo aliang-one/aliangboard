@@ -67,7 +67,7 @@ useEscClose(computed(() => belowSm.value && shell.drawerOpen), () => shell.close
 const showNsDropdown = ref(false)
 const nsSearch = ref('')
 
-// === 集群切换(2026-09-04 自 TopNavBar 迁入,顶栏去重):集群头部为全断点唯一锚点 ===
+// === 集群切换(2026-09-04 自顶栏迁入,顶栏去重):集群头部为全断点唯一锚点 ===
 // 桌面/rail:头部直弹锚定面板;抽屉档:经 shell 通道(契约不变,消费方自顶栏迁来)→ bottom sheet
 const showClusterPanel = ref(false)
 const clusterBrandRef = ref(null)
@@ -468,7 +468,7 @@ function nsStatusColor(status) {
       <UserMenu />
     </div>
   </aside>
-  <!-- 集群选择面板(自 TopNavBar 迁入):桌面锚定头部 Teleport,抽屉档贴底 sheet;
+  <!-- 集群选择面板(自顶栏迁入):桌面锚定头部 Teleport,抽屉档贴底 sheet;
        遮罩二态——抽屉档独立全屏 Z.popover-1(盖抽屉 55,被面板 110 盖),桌面共享 z-30 -->
   <ClusterSwitchPanel
     :open="showClusterPanel"
@@ -713,7 +713,7 @@ function nsStatusColor(status) {
 
 /* ===== 手机抽屉(<640,2026-09-01 手机适配 Wave 1a)=====
    宽度固定 260px(不随 --sb-width——手机档 AppLayout 把该变量归 0 供内容满宽);
-   默认屏外,drawer-open 平移入场;zIndex 经内联取 Z.drawer(高于顶栏 z-50,低于窗口带)。
+   默认屏外,drawer-open 平移入场;zIndex 经内联取 Z.drawer(高于 nav 预留 50,低于窗口带)。
    rail 类在手机档不挂载(aboveLg 桌面与 640~1023 iPad 档零回归)。 */
 @media (max-width: 639.98px) {
   .sidenav-root.drawer-mode { width: 260px; transform: translateX(-100%); transition: transform .25s cubic-bezier(.2,.7,.3,1); box-shadow: none; }

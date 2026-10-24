@@ -1,6 +1,6 @@
 <!-- src/components/layout/WorkbenchNavItem.vue -->
 <script setup>
-// 工作台侧栏入口行(2026-10-23 自顶栏 WorkbenchEntryPill 迁入,spec §4.3):行形态入侧栏滚动导航,
+// 工作台侧栏入口行(2026-10-23 自顶栏工作台入口胶囊迁入,spec §4.3):行形态入侧栏滚动导航,
 // 悬停面板原样保留(≥lg、非触屏)。
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

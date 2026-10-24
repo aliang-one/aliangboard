@@ -1,4 +1,4 @@
-// 全局搜索纯函数(2026-09-04 自 TopNavBar 抽出;2026-10-23 页面表改由 navConfig 派生,spec §3):
+// 全局搜索纯函数(2026-09-04 自顶栏抽出;2026-10-23 页面表改由 navConfig 派生,spec §3):
 // 页面 path/labelKey/icon 单源自导航,关键词与中文同义词(经参数传入)留本模块。
 import {
   CLUSTER_PRIMARY_NAV, CLUSTER_CROSS_NS_NAV, CLUSTER_RESOURCES_NAV, CLUSTER_OTHER_NAV,

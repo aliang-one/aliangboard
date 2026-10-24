@@ -1,6 +1,6 @@
 <script setup>
 // 搜索结果列表(2026-09-04 搜索升级):内联下拉与 <lg 弹层共用一份渲染,
-// 消灭原 TopNavBar 里两段复制粘贴的 results 标记。页面条走 labelKey 文案,
+// 消灭原顶栏搜索宿主里两段复制粘贴的 results 标记。页面条走 labelKey 文案,
 // 资源条走 kind→图标映射 + name + kind · ns;统一 emit select(item)。
 // docked(2026-10-23 顶栏退役):true 时根节点为文档流面板(无定位类),
 // 供侧栏 Teleport 面板内嵌;默认 false 行为不变(absolute 下拉)。

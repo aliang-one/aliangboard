@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useDropdownPanel } from '@/composables/useDropdownPanel'
 import { Z } from '@/styles/zScale'
 
-// 集群选择面板(2026-09-04 顶栏去重:自 TopNavBar 迁出,集群切换归侧栏)。
+// 集群选择面板(2026-09-04 顶栏去重:自顶栏迁出,集群切换归侧栏)。
 // 哑组件契约:clusters/currentName/health* props 进,select/manage 事件出;
 // 定位形态二选一——bottomSheet=true 贴底全宽(手机抽屉),否则 Teleport+fixed
 // 锚定 triggerRef(桌面/rail,issue#4 同款配方)。开关状态归宿主。

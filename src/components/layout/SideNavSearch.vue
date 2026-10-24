@@ -1,10 +1,10 @@
 <script setup>
-// 全局搜索宿主(2026-10-23 顶栏退役 Task 6):TopNavBar 搜索逻辑整体迁入,三态自适应——
+// 全局搜索宿主(2026-10-23 顶栏退役 Task 6,搜索逻辑整体自顶栏迁入),三态自适应——
 //   desktop(≥lg):内联输入框 + Teleport 锚定下拉(useDropdownPanel,docked 结果内嵌);
-//   rail(<lg 且 ≥sm):图标钮 + 顶部居中弹层(承 TopNavBar search-modal 逐字);
-//   drawer(<sm):抽屉内内联框 + 贴底 sheet(承 TopNavBar ns bottom sheet 配方,Z.popover/-1)。
-// 惰性查询门控/⌘K/页面同义词与 TopNavBar 同语义;admin 页面条目经 showAdmin: auth.isAdmin
-// 门控(Task 2)。TopNavBar 本体仍在岗(Task 8 退役),勿动。
+//   rail(<lg 且 ≥sm):图标钮 + 顶部居中弹层(承原顶栏 search-modal 逐字);
+//   drawer(<sm):抽屉内内联框 + 贴底 sheet(承原顶栏 ns bottom sheet 配方,Z.popover/-1)。
+// 惰性查询门控/⌘K/页面同义词与原顶栏同语义;admin 页面条目经 showAdmin: auth.isAdmin
+// 门控(Task 2)。Task 8 起顶栏本体已退役,本组件为全局搜索唯一宿主。
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
@@ -41,7 +41,7 @@ const pageSynonyms = computed(() => {
   return map
 })
 
-// === 全局搜索:惰性 Query 消费者(自 TopNavBar 迁) ===
+// === 全局搜索:惰性 Query 消费者(自顶栏迁) ===
 // 惰性资源查询仅在搜索框/弹层打开时 enabled(避免无谓请求);nodes/namespaces 读 store 预载。
 const cid = computed(() => (store.currentCluster || 'cluster'))
 const searchOpen = ref(false)
@@ -157,7 +157,7 @@ function onSearchKeydown(e) {
 const resultsOpen = computed(() => isDesktop.value && searchResults.value.length > 0)
 const { panelRef, panelStyle } = useDropdownPanel(inputRef, resultsOpen, { matchTriggerWidth: true })
 
-// 路由切换收起残留结果(TopNavBar 无此守卫;迁入侧栏后补:长驻组件不随页面卸载清场)
+// 路由切换收起残留结果(原顶栏宿主无此守卫;迁入侧栏后补:长驻组件不随页面卸载清场)
 watch(() => route.fullPath, () => { searchQuery.value = ''; searchModalOpen.value = false })
 </script>
 
@@ -187,7 +187,7 @@ watch(() => route.fullPath, () => { searchQuery.value = ''; searchModalOpen.valu
       </div>
     </Teleport>
 
-    <!-- rail 弹层(承 TopNavBar search-modal 逐字:遮罩+顶部居中+nextTick autofocus) -->
+    <!-- rail 弹层(承原顶栏 search-modal 逐字:遮罩+顶部居中+nextTick autofocus) -->
     <Teleport to="body">
       <div v-if="searchModalOpen" data-test="search-modal" class="fixed inset-0" :style="{ zIndex: Z.popover }">
         <div class="absolute inset-0 bg-black/30" @click="closeSearchModal"></div>
@@ -203,7 +203,7 @@ watch(() => route.fullPath, () => { searchQuery.value = ''; searchModalOpen.valu
       </div>
     </Teleport>
 
-    <!-- drawer 贴底 sheet(手机;承 TopNavBar ns bottom sheet 配方:Z.popover 盖遮罩 Z.popover-1) -->
+    <!-- drawer 贴底 sheet(手机;承原顶栏 ns bottom sheet 配方:Z.popover 盖遮罩 Z.popover-1) -->
     <Teleport to="body">
       <div v-if="mode === 'drawer' && searchResults.length" data-test="search-sheet"
         class="fixed bottom-0 left-0 right-0 rounded-t-2xl max-h-[70vh] overflow-y-auto bg-surface-container-lowest border border-outline-variant max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]"

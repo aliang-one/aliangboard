@@ -71,7 +71,7 @@ function onSshChipClick(chip, evt) {
   anchorEl.value = evt?.currentTarget || null
   // 手机右缘钳制(2026-09-09 Wave5 B7):menuLeft 直用 chip 左缘,右半屏 chip 的
   // min-w-[200px] 菜单右缘会出屏(390px 视口 left≈250+200>390,行内关闭/改名钮不可达)。
-  // 右缘留 220px(菜单宽+边距)、左缘不小于 8——对齐 WorkbenchEntryPill 面板钳制配方。
+  // 右缘留 220px(菜单宽+边距)、左缘不小于 8——对齐 WorkbenchNavItem 悬停面板钳制配方。
   menuLeft.value = anchorEl.value
     ? Math.max(8, Math.min(anchorEl.value.getBoundingClientRect().left, window.innerWidth - 220))
     : 8
