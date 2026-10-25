@@ -1,13 +1,13 @@
 <!-- src/components/layout/WorkbenchNavItem.vue -->
 <script setup>
 // 工作台侧栏入口行(2026-10-23 自顶栏工作台入口胶囊迁入,spec §4.3):行形态入侧栏滚动导航,
-// 悬停面板原样保留(≥lg、非触屏;polish 批起双门真正生效:isPhone/belowLg/canHover 三守卫)。
+// 悬停面板原样保留(≥lg、非触屏)。
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, keepPreviousData } from '@tanstack/vue-query'
 import { workbenchApi, getPlatformToken } from '@/api/client'
-import { useIsPhone, useBreakpoint, MQ_BELOW_LG } from '@/composables/useBreakpoint'
+import { useIsPhone } from '@/composables/useBreakpoint'
 import { useDropdownPanel } from '@/composables/useDropdownPanel'
 
 const route = useRoute()
@@ -16,11 +16,6 @@ const { t } = useI18n()
 
 const isWorkbenchActive = computed(() => route.path.startsWith('/workbench'))
 const { isPhone } = useIsPhone()
-// 悬停面板为桌面指针设备专属(spec 意图):<lg(rail 折叠态)整档禁开;触屏(无 hover 能力)
-// 禁开。canHover 默认 true——SSR/无 matchMedia/查询失败均视为可开(宽松侧,免环境误伤),
-// 仅浏览器显式评估 (hover:hover)+(pointer:fine) 为 false 才禁
-const { matches: belowLg } = useBreakpoint(MQ_BELOW_LG)
-const canHover = ref(true)
 
 // ---- 数据(导航静默:失败不 toast,keepPreviousData 保旧值)----
 const q = useQuery({
@@ -57,10 +52,9 @@ const { panelRef, panelStyle } = useDropdownPanel(rowRef, panelOpen)
 let openTimer = null
 let closeTimer = null
 // 触屏 tap 合成 mouseenter 会让面板在跳转 /workbench 后残留新页(touch 无 mouseleave 关不掉)——
-// 手机档整链禁开(Wave 4 终审 A);polish 批补齐 spec 意图:<lg(rail)与触屏设备同样
-// 禁开(桌面指针设备专属),canHover 探测失败(===false 之外)不拦
+// 手机档整链禁开(Wave 4 终审 A)
 function openPanel() {
-  if (isPhone.value || belowLg.value || canHover.value === false) return
+  if (isPhone.value) return
   clearTimeout(closeTimer)
   clearTimeout(openTimer)
   openTimer = setTimeout(() => { panelOpen.value = true }, 150)
@@ -79,13 +73,7 @@ function onDocClick(e) {
   if (panelOpen.value && !e.target.closest?.('[data-test="wb-nav-item"], [data-test="wb-panel"]')) closeNow()
 }
 function onKey(e) { if (e.key === 'Escape') closeNow() }
-onMounted(() => {
-  document.addEventListener('click', onDocClick); document.addEventListener('keydown', onKey)
-  // 指针能力探测:SSR/无 matchMedia 保持默认可开;仅显式评估 false(触屏)才禁(宽松侧)
-  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-    canHover.value = window.matchMedia('(hover: hover) and (pointer: fine)').matches
-  }
-})
+onMounted(() => { document.addEventListener('click', onDocClick); document.addEventListener('keydown', onKey) })
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKey)

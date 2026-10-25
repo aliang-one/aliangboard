@@ -135,13 +135,8 @@ test('ns mode: 部署+集群+图标组同在单一 dock 板块,dock 内 icon-onl
     if (ig.attributes('data-test') !== 'bottom-alerts') expect(ig.attributes('title')).toBeTruthy()
   })
   expect(dock.find('[data-test="bottom-alerts"]').find('button').attributes('title')).toBeTruthy()
-  // 图标网格响应式列数(polish 批):手机 3 列(告警被 !belowSm 移除后 3 瓦片落 3 列),≥sm 四列
-  const grid = dock.find('.grid')
-  expect(grid.classes()).toContain('grid-cols-3')
-  expect(grid.classes()).toContain('sm:grid-cols-4')
-  // 部署横跨整行(高频入口最大点击面):手机 3 列 / ≥sm 四列,随网格同步响应式
-  expect(dock.find('[data-test="deploy-card"]').classes()).toContain('col-span-3')
-  expect(dock.find('[data-test="deploy-card"]').classes()).toContain('sm:col-span-4')
+  // 部署横跨整行 4 列(高频入口最大点击面)
+  expect(dock.find('[data-test="deploy-card"]').classes()).toContain('col-span-4')
   expect(dock.find('[data-test="deploy-card"]').text()).toContain('部署')
 })
 

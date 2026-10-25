@@ -115,9 +115,9 @@ test('collectResourceItems:roles 混合面按 scope 拆 kind(store.fetchRoles �
 })
 
 test('PAGE_ENTRIES:纯 ASCII 关键词(i18n 残留中文门禁红线),且双语言同义词表全覆盖', () => {
-  // 2026-10-23 派生化;2026-10-24 polish 批:CLUSTER_RESOURCES_NAV 8 页补进 KEYWORDS
-  // (英 slug 可搜)且同义词键补齐中英两语言;同义词查键与 matchPages 同轨
-  // (整段 pk 优先、回退末段),嵌套 admin/* 键(如 admin/apiservices)不再被末段截断漏检。
+  // 2026-10-23 派生化:CLUSTER_RESOURCES_NAV 8 页不在 KEYWORDS 表(keywords 空,靠侧栏
+  // 导航可达);既有 17 页双语同义词键不回退;新页面(admin 7 + 跨 ns 4 + 固定 4)的
+  // 中文可搜性由下方命中断言钉死(admin 7 页同义词已随本任务补齐中英两语言)。
   for (const p of PAGE_ENTRIES) {
     for (const k of p.keywords) assert.ok(!/[一-鿿]/.test(k), `${p.path} 关键词含中文:${k}`)
   }
@@ -126,9 +126,8 @@ test('PAGE_ENTRIES:纯 ASCII 关键词(i18n 残留中文门禁红线),且双语�
     const syn = loc.nav.searchPageSynonyms
     assert.ok(syn && typeof syn === 'object', `${name} 缺 nav.searchPageSynonyms`)
     for (const p of curated) {
-      const pk = p.path.replace(/^\//, '')
-      const hit = syn[pk] ?? syn[pk.split('/').pop()]
-      assert.ok(typeof hit === 'string' && hit.length > 0, `${name}.${pk} 缺同义词`)
+      const key = p.path.replace(/^\//, '').split('/').pop()
+      assert.ok(typeof syn[key] === 'string' && syn[key].length > 0, `${name}.${key} 缺同义词`)
     }
   }
   // 新页面(admin 7 + 跨 ns 4 + 固定 4):取各页首个中文同义词作查询逐页断言命中;
@@ -166,32 +165,4 @@ test('admin 页面:默认不命中,showAdmin:true 才命中', () => {
 test('searchAll 透传 showAdmin', () => {
   const { pages } = searchAll('apikeys', [], { showAdmin: true })
   assert.ok(pages.some(p => p.path === '/admin/apikeys'))
-})
-
-// ===== polish 批:资源组 8 页可搜 + label 保真 =====
-test('资源组 8 页:英文 slug 可搜且页面条带 label(label 保真,免 $t(undefined) 断链)', () => {
-  // CLUSTER_RESOURCES_NAV 8 页只有 label 无 labelKey:slug 命中后条目必须透传 label,
-  // SearchResults 页面分支才有文案可渲染(此前 $t(undefined) 是潜伏断链)
-  const SLUGS = {
-    '/priorityclasses': ['priorityclass', 'PriorityClasses'],
-    '/ingressclasses': ['ingressclass', 'IngressClasses'],
-    '/runtimeclasses': ['runtimeclass', 'RuntimeClasses'],
-    '/admin/apiservices': ['apiservice', 'APIServices'],
-    '/admin/webhooks-mutating': ['mutating-webhook', 'Mutating Webhooks'],
-    '/admin/webhooks-validating': ['validating-webhook', 'Validating Webhooks'],
-    '/admin/replicasets': ['replicaset', 'ReplicaSets'],
-    '/admin/csinodes': ['csinode', 'CSINodes'],
-  }
-  for (const [path, [slug, label]] of Object.entries(SLUGS)) {
-    const hit = matchPages(slug).find(p => p.path === path)
-    assert.ok(hit, `「${slug}」未命中 ${path}`)
-    assert.equal(hit.label, label, `${path} label 未透传`)
-    assert.equal(hit.labelKey, undefined, `${path} 不应有 labelKey`)
-  }
-  // 代表性钉序:replicaset 唯一前缀命中,居首
-  assert.equal(matchPages('replicaset')[0].label, 'ReplicaSets')
-})
-
-test('资源组 8 页:中文同义词命中(副本集 → /admin/replicasets)', () => {
-  assert.ok(matchPages('副本集', ZH_SYNONYMS).some(p => p.path === '/admin/replicasets'))
 })

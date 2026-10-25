@@ -577,15 +577,7 @@
       "admin/apikeys": "API 密钥,密钥管理",
       "admin/ai-behavior": "AI 行为,行为配置",
       "admin/llm-config": "LLM 配置,模型配置",
-      "admin/audit-trail": "审计,审计轨迹",
-      "priorityclasses": "PriorityClass,优先级",
-      "ingressclasses": "IngressClass,入口类",
-      "runtimeclasses": "RuntimeClass,运行时类",
-      "admin/apiservices": "APIService,API 服务",
-      "admin/webhooks-mutating": "变更webhook,注入webhook",
-      "admin/webhooks-validating": "校验webhook,验证webhook",
-      "admin/replicasets": "ReplicaSet,副本集",
-      "admin/csinodes": "CSINode,CSI节点"
+      "admin/audit-trail": "审计,审计轨迹"
     },
     "alerts": "告警",
     "alertUnread": "未读 {n} 条",

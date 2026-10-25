@@ -154,33 +154,6 @@ test('手机档:mouseenter 不开悬停面板(触屏 tap 泄漏防线)', async (
   w.unmount(); spy.mockRestore()
 })
 
-// ===== 悬停面板双门(polish 批):≥lg + 指针设备专属 =====
-// 触屏指针门:hover/fine 查询显式 false 时 mouseenter 不出面板。仿 mobileViewport 的
-// spyOn 形态但断点查询全 false(isPhone/belowLg 双门放行)——唯一拦路的必须是 canHover 门;
-// 对照半段证明同断点形态下 hover 查询放行面板即开(非 mock 副作用假绿)。
-test('触屏指针门:hover/fine 查询显式 false → mouseenter 不开面板(canHover 门)', async () => {
-  const spy = vi.spyOn(window, 'matchMedia').mockImplementation(() => ({
-    matches: false, addEventListener: () => {}, removeEventListener: () => {},
-  }))
-  vi.useFakeTimers()
-  mocks.summary.mockResolvedValue(SUMMARY())
-  let w = mountItem(); await flushPromises()
-  await w.find('[data-test="wb-nav-item"]').trigger('mouseenter')
-  vi.advanceTimersByTime(500); await flushPromises()
-  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeFalsy()
-  w.unmount()
-  // 对照:hover 查询放行(断点查询仍全 false)→ 面板即开,拦路者确系 canHover
-  spy.mockImplementation((q) => ({
-    matches: q === '(hover: hover) and (pointer: fine)', addEventListener: () => {}, removeEventListener: () => {},
-  }))
-  w = mountItem(); await flushPromises()
-  await w.find('[data-test="wb-nav-item"]').trigger('mouseenter')
-  vi.advanceTimersByTime(150); await flushPromises()
-  expect(document.body.querySelector('[data-test="wb-panel"]')).toBeTruthy()
-  vi.useRealTimers()
-  w.unmount(); spy.mockRestore()
-})
-
 // ===== 悬停面板(自胶囊原样迁入;定位改 useDropdownPanel)=====
 test('悬停 150ms 开面板;面板含汇总 chips 与项目行', async () => {
   vi.useFakeTimers()

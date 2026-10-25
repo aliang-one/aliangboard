@@ -577,15 +577,7 @@
       "admin/apikeys": "API keys,key management",
       "admin/ai-behavior": "AI behavior,behavior config",
       "admin/llm-config": "LLM config,model config",
-      "admin/audit-trail": "audit,audit trail",
-      "priorityclasses": "priority classes,pod priority",
-      "ingressclasses": "ingress classes,ingress controllers",
-      "runtimeclasses": "runtime classes,container runtime",
-      "admin/apiservices": "api services,aggregated apis",
-      "admin/webhooks-mutating": "mutating webhooks,admission",
-      "admin/webhooks-validating": "validating webhooks,admission",
-      "admin/replicasets": "replica sets,replication",
-      "admin/csinodes": "csi nodes,storage drivers"
+      "admin/audit-trail": "audit,audit trail"
     },
     "alerts": "Alerts",
     "alertUnread": "{n} unread",

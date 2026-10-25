@@ -99,12 +99,3 @@ test('搜索段/头像行/工作台段的 rail 折叠可达性(RF5,静态类断�
   expect(w.find('.sb-user-txt').exists()).toBe(true)
   w.unmount()
 })
-
-// polish 批:rail 折叠态头像行居中——头像钮(UserMenu 内层 button)不带本组件 scope
-// 属性,须 :deep([data-testid="user-menu-trigger"]) 穿透;两块指针媒体(hover:hover/
-// hover:none)各一条,钉在源码防 :deep 误删后规则静默失效
-test('rail 折叠态头像行居中:两块媒体查询各带 :deep 头像钮居中规则(静态断言)', () => {
-  const src = readFileSync('./src/components/layout/SideNavBar.vue', 'utf8')
-  expect(src).toMatch(/\.rail:not\(:hover\) :deep\(\[data-testid="user-menu-trigger"\]\)[^{]*\{[^}]*justify-content: center[^}]*\}/)
-  expect(src).toMatch(/\.rail :deep\(\[data-testid="user-menu-trigger"\]\)[^{]*\{[^}]*justify-content: center[^}]*\}/)
-})

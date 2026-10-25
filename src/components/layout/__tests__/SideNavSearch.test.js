@@ -269,26 +269,3 @@ test('Event 行点击兜底 NsEvents(带 ns,移植)', async () => {
   expect(mocks.push).toHaveBeenCalledWith({ name: 'NsEvents', params: { namespace: 'job' } })
   w.unmount()
 })
-
-// ===== polish 批:桌面下拉外点关闭 + 跨断点收缩孤儿 sheet 清理 =====
-test('桌面下拉外点关闭:输入框/面板之外点击 → 清词收面板(polish)', async () => {
-  mockBp(false, false)
-  const w = mountSearch({ attach: true })
-  const input = w.find('[data-test="search-input"]')
-  await input.trigger('focus')
-  await input.setValue('monitor')
-  await flushPromises()
-  expect(document.body.querySelector('[data-test="search-dropdown"]')).toBeTruthy() // 先证下拉在场
-  document.body.click()   // 下拉/输入框宿主段之外的点击
-  await flushPromises()
-  expect(input.element.value).toBe('')                                              // 查询词被清
-  expect(document.body.querySelector('[data-test="search-dropdown"]')).toBeFalsy()  // 面板随 results.length 消失
-  w.unmount()
-})
-
-test('跨断点收缩孤儿清理:mode 落 drawer 即清查询词(静态断言,polish)', () => {
-  // 查询词残留 → 贴底 sheet+遮罩在抽屉未开时浮现(sheet 只门控 mode,不知抽屉开闭);
-  // 钉在源码:watch(mode) 存在且落 drawer 清 searchQuery
-  const src = readFileSync('./src/components/layout/SideNavSearch.vue', 'utf8')
-  expect(src).toMatch(/watch\(mode[\s\S]{0,200}?searchQuery\.value = ''/)
-})
