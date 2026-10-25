@@ -823,7 +823,8 @@ const workloadEvents = computed(() => {
     .filter(e => e.relatedName === wlName || rsNames.has(e.relatedName) || podNames.has(e.relatedName))
     .sort((a, b) => (b._ts || 0) - (a._ts || 0))
 })
-// Events tab 表头(DataTable 双分支共用)+ 行集:slice 后无唯一键 → 注入 _idx 作 rowKey
+// Events tab 表头(DataTable 双分支共用)+ 行集:行键用事件 uid——watch 实时重排后
+// DataTable 展开态(set 以 rowKey 为键)跟随事件本身,不漂移到别的行;缺 uid 兜底 evt-i 保唯一
 const eventHeaders = [
   { key: 'object', label: t('workload.eventsTab.object') },
   { key: 'reason', label: 'Reason' },
@@ -831,12 +832,24 @@ const eventHeaders = [
   { key: 'message', label: 'Message' },
   { key: 'age', label: 'Age' },
 ]
-const eventRows = computed(() => workloadEvents.value.slice(0, 100).map((e, i) => ({ ...e, _idx: i })))
+const eventRows = computed(() => workloadEvents.value.slice(0, 100).map((e, i) => ({ ...e, _rowKey: e.uid || `evt-${i}` })))
 // 事件配色（mapEvent 给的 color：error/tertiary/primary/surface → 状态色）
 const EVENT_BG = { error: 'bg-error', tertiary: 'bg-status-pending', primary: 'bg-status-running', surface: 'bg-on-surface-variant' }
 const EVENT_TEXT = { error: 'text-error', tertiary: 'text-status-pending', primary: 'text-status-running', surface: 'text-on-surface-variant' }
 const eventBg = e => EVENT_BG[e.color] || EVENT_BG.surface
 const eventText = e => EVENT_TEXT[e.color] || EVENT_TEXT.surface
+// 右列事件时间线行点击展开(截断↔完整换行+元信息行);键优先事件 uid——watch 重排后
+// 展开态跟随事件本身,缺 uid 兜底索引
+const expandedTimeline = ref(new Set())
+const tlKey = (e, i) => e.uid || `idx-${i}`
+const isTimelineExpanded = (e, i) => expandedTimeline.value.has(tlKey(e, i))
+function toggleTimelineExpand(e, i) {
+  const k = tlKey(e, i)
+  const next = new Set(expandedTimeline.value)
+  if (next.has(k)) next.delete(k)
+  else next.add(k)
+  expandedTimeline.value = next
+}
 
 // 端口转发（复用 PortForwardPanel）：以选中 Pod 为目标，候选端口取自其容器端口
 const showPortForward = ref(false)
@@ -1666,13 +1679,21 @@ function podStatusBorder(s) {
               <div v-if="workloadEvents.length" class="px-md py-sm">
                 <div class="relative">
                   <div class="absolute left-[9px] top-2 bottom-2 w-px bg-outline-variant/40"></div>
-                  <div v-for="(e, i) in workloadEvents.slice(0, 6)" :key="i" class="relative pl-[27px] pb-xs last:pb-0 flex items-center gap-1">
+                  <div v-for="(e, i) in workloadEvents.slice(0, 6)" :key="tlKey(e, i)" data-testid="event-timeline-row"
+                    class="relative pl-[27px] pb-xs last:pb-0 flex items-center gap-1 cursor-pointer hover:bg-surface-container-low/40 rounded-md transition-colors"
+                    @click="toggleTimelineExpand(e, i)">
                     <span class="absolute left-0 top-1/2 -translate-y-1/2 w-[19px] h-[19px] rounded-full flex items-center justify-center ring-[3px] ring-surface-container-lowest shrink-0" :class="eventBg(e)">
                       <span class="material-symbols-outlined text-white" style="font-size:11px">{{ e.icon || 'info' }}</span>
                     </span>
                     <span class="text-[11px] font-semibold shrink-0" :class="eventText(e)">{{ e.reason || '—' }}</span>
                     <span class="text-[9px] px-1 rounded bg-surface-container text-on-surface-variant/60 shrink-0">{{ e.relatedKind || 'Event' }}</span>
-                    <span class="text-[11px] text-on-surface-variant/70 truncate flex-1 min-w-0">{{ e.message }}</span>
+                    <div class="flex-1 min-w-0">
+                      <span data-testid="event-timeline-msg" class="block text-[11px] text-on-surface-variant/70" :class="isTimelineExpanded(e, i) ? 'break-words whitespace-normal' : 'truncate'">{{ e.message }}</span>
+                      <div v-if="isTimelineExpanded(e, i)" data-testid="event-timeline-meta" class="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-on-surface-variant/50">
+                        <span class="font-mono">{{ e.relatedKind || 'Event' }}/{{ e.relatedName }}</span>
+                        <span v-if="e.firstTs">{{ $t('workload.eventsTab.firstSeen') }} {{ e.firstTs }}</span>
+                      </div>
+                    </div>
                     <span v-if="e.count > 1" class="text-[9px] px-1 rounded font-mono font-semibold shrink-0" :class="[eventText(e), 'bg-current/10']">×{{ e.count }}</span>
                     <span class="text-[10px] text-on-surface-variant/40 shrink-0">{{ e.age }}</span>
                   </div>
@@ -1941,7 +1962,7 @@ function podStatusBorder(s) {
 
     <!-- ====== Events Tab ====== -->
     <div v-if="activeTab === 'events'">
-      <DataTable :headers="eventHeaders" :rows="eventRows" row-key="_idx">
+      <DataTable :headers="eventHeaders" :rows="eventRows" row-key="_rowKey" expandable>
         <template #object="{ row }">
           <span class="text-on-surface-variant/60">{{ row.relatedKind }}</span> <span class="font-mono break-all">{{ row.relatedName }}</span>
         </template>
@@ -1953,6 +1974,17 @@ function podStatusBorder(s) {
         </template>
         <template #message="{ row }"><span class="text-xs text-on-surface-variant block truncate max-w-[400px]" :title="row.message">{{ row.message }}</span></template>
         <template #age="{ row }"><span class="text-xs text-on-surface-variant">{{ row.age }}</span></template>
+        <template #expanded="{ row }">
+          <div data-testid="event-expand-panel" class="flex flex-col gap-xs text-xs">
+            <p class="break-words whitespace-pre-line text-on-surface">{{ row.message }}</p>
+            <div class="flex flex-wrap gap-x-md gap-y-1 text-on-surface-variant">
+              <span><span class="text-on-surface-variant/60">{{ $t('workload.eventsTab.object') }}: </span><span class="font-mono">{{ row.relatedKind }}/{{ row.relatedName }}</span></span>
+              <span><span class="text-on-surface-variant/60">{{ $t('workload.eventsTab.type') }}: </span>{{ row.type }}</span>
+              <span v-if="row.count > 1"><span class="text-on-surface-variant/60">{{ $t('workload.eventsTab.count') }}: </span>×{{ row.count }}</span>
+              <span v-if="row.firstTs"><span class="text-on-surface-variant/60">{{ $t('workload.eventsTab.firstSeen') }}: </span>{{ row.firstTs }}</span>
+            </div>
+          </div>
+        </template>
       </DataTable>
     </div>
   </div>

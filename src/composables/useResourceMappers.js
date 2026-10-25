@@ -218,6 +218,8 @@ export function mapEvent(item) {
     namespace: item.metadata?.namespace || io.namespace || '',
     time: ageOf(ts),
     age: ageOf(ts),
+    // 首次发生时间(展开面板展示用);只有 lastTimestamp 的事件缺失,置空串由 UI 隐藏
+    firstTs: item.firstTimestamp ? ageOf(item.firstTimestamp) : '',
     icon, color,
     relatedKind: io.kind || '',
     relatedName: io.name || '',

@@ -2594,6 +2594,8 @@
       "type": "类型",
       "message": "消息",
       "age": "年龄",
+      "count": "次数",
+      "firstSeen": "首次",
       "noEvents": "暂无事件"
     },
     "modals": {

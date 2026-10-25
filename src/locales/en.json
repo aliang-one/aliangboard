@@ -2594,6 +2594,8 @@
       "type": "Type",
       "message": "Message",
       "age": "Age",
+      "count": "Count",
+      "firstSeen": "First Seen",
       "noEvents": "No events"
     },
     "modals": {
