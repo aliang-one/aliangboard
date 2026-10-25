@@ -2,6 +2,7 @@
 // 核心原则:① 知识≠能力(不发明能力,只蒸馏用法知识,每条带证据)② 合并去重不堆叠(产合并后 learnings)。
 // llmClient / db 注入,便于单测。ledger 文件经 workbench-repos 读。
 import { readFile as wbReadFile } from './workbench-repos.mjs'
+import { makeChatWithRetry } from './llm-retry.mjs'
 
 const DEFAULTS = { maxAudit: 100, maxHistory: 60, maxHistoryChars: 800, maxIndexChars: 8000 }
 
@@ -81,7 +82,10 @@ ${fmtHistory || '(无)'}
 export async function runDistill({ llmClient, db, clusterId, ledgerRepo, clusterName, opts, material }) {
   material = material || await gatherDistillMaterial(db, clusterId, ledgerRepo, opts)
   const messages = buildDistillPrompt(material, clusterName)
-  const msg = await llmClient.chat({ messages })
+  // 直呼穿重试梯(2026-10-25 盲区批):蒸馏一次即败会让整轮 job 白跑,瞬时 5xx/429 穿梯
+  // 重试(与 agent 主链同梯);原 payload 仅 messages 一项,以重试入参为准,错误照旧上抛。
+  const chatRetry = makeChatWithRetry({ chat: m => llmClient.chat({ messages: m }) })
+  const msg = await chatRetry(messages)
   const proposed = stripFences(String(msg.content || ''))
   const lines = proposed.split('\n').filter(l => l.trim().startsWith('- '))
   return {

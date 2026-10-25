@@ -29,6 +29,10 @@ function p1Id(db) {
   return db.prepare("SELECT id FROM workbench_projects WHERE name='p1'").get().id
 }
 
+// 2026-10-25 盲区批:摘要直呼穿重试梯后,失败路径用例若不注入零延迟梯会睡真实缺省梯
+// (名义总额 57s)。seam 与 agent.test.mjs 同款(retryDelays 零延迟 + 假 sleep)。
+const RETRY_NO_WAIT = { retryDelays: [0], sleepFn: async () => {} }
+
 // 注:createLlmClient(server/llm.mjs) 暴露的是 chat({messages}) → message{role,content},
 // 不是 run;测试桩对齐真实签名。Task 4 把真实 llmClient 注入即可。
 test('未达阈值不摘要', async () => {
@@ -97,11 +101,28 @@ test('LLM 抛错时不阻塞(返回 false,不抛)', async () => {
     appendMessage(db, { conversationId: conv.id, role: 'assistant', content: `a${i}` })
   }
   const llm = { chat: async () => { throw new Error('LLM down') } }
-  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8 })
+  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8, retry: RETRY_NO_WAIT })
   assert.equal(fired, false)
   const c = getConversation(db, conv.id)
   assert.equal(c.recap, null)
   assert.equal(c.summarizedUpTo, 0)
+})
+
+// ── 2026-10-25 盲区批:摘要直呼穿重试梯(瞬时故障不再一次即败)──
+test('LLM 瞬时 429 一次后成功 → 穿梯产出摘要(不再一次即败)', async () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: '', userMessage: 'x' })
+  const conv = listConversations(db, p1Id(db))[0]
+  for (let i = 0; i < 10; i++) {
+    appendMessage(db, { conversationId: conv.id, role: 'user', content: `q${i}` })
+    appendMessage(db, { conversationId: conv.id, role: 'assistant', content: `a${i}` })
+  }
+  let calls = 0
+  const llm = { chat: async () => { calls++; if (calls === 1) { const e = new Error('LLM HTTP 429: 您的账户已达到速率限制'); e.status = 429; throw e } return { content: '限流间隙的摘要' } } }
+  const fired = await maybeSummarize(db, conv.id, llm, { thresholdTurns: 12, recentKeep: 8, retry: RETRY_NO_WAIT })
+  assert.equal(fired, true, '429 穿梯后摘要照常落库')
+  assert.equal(calls, 2, '失败 1 次 + 穿梯重试 1 次')
+  assert.match(getConversation(db, conv.id).recap, /限流间隙的摘要/)
 })
 
 test('LLM 返回空 content 不写 recap', async () => {
@@ -201,7 +222,7 @@ test('compactConversation:LLM 失败 → 不动任何字段', async () => {
   const { db, conv } = compactFixture()
   const before = getConversation(db, conv.id)
   const llm = { chat: async () => { throw new Error('LLM down') } }
-  const out = await compactConversation(db, conv.id, llm)
+  const out = await compactConversation(db, conv.id, llm, '', RETRY_NO_WAIT)
   assert.equal(out.ok, false)
   const after = getConversation(db, conv.id)
   assert.equal(after.recap, before.recap)
@@ -361,7 +382,7 @@ test('maybeSummarizeProject:LLM 抛错 → 不动库返回 false', async () => {
   db.prepare('UPDATE workbench_projects SET projectRecap=?, historyWatermark=? WHERE id=?').run('旧', 42, project.id)
   for (let i = 0; i < 8; i++) insertHistory(db, project.id, 'user', `m${i}`, 3000 + i)
   const llm = { chat: async () => { throw new Error('LLM down') } }
-  assert.equal(await maybeSummarizeProject(db, project.id, llm), false)
+  assert.equal(await maybeSummarizeProject(db, project.id, llm, { retry: RETRY_NO_WAIT }), false)
   const row = db.prepare('SELECT projectRecap, historyWatermark FROM workbench_projects WHERE id=?').get(project.id)
   assert.equal(row.projectRecap, '旧')
   assert.equal(row.historyWatermark, 42)
@@ -701,10 +722,10 @@ test('gap2-04:轮次/项目摘要失败落 console.error(可见性,不改返回�
     appendMessage(db, { conversationId: conv.id, role: 'user', content: `q${i}` })
     appendMessage(db, { conversationId: conv.id, role: 'assistant', content: `a${i}` })
   }
-  assert.equal(await maybeSummarize(db, conv.id, { chat: async () => { throw new Error('LLM down A') } }, { thresholdTurns: 12, recentKeep: 8 }), false)
+  assert.equal(await maybeSummarize(db, conv.id, { chat: async () => { throw new Error('LLM down A') } }, { thresholdTurns: 12, recentKeep: 8, retry: RETRY_NO_WAIT }), false)
   assert.ok(logs.some(l => /摘要失败.*LLM down A/.test(l)), '轮次摘要失败落日志(带前缀)')
   for (let i = 0; i < 8; i++) insertHistory(db, p1Id(db), 'user', `m${i}`, 8000 + i)
-  assert.equal(await maybeSummarizeProject(db, p1Id(db), { chat: async () => { throw new Error('LLM down B') } }), false)
+  assert.equal(await maybeSummarizeProject(db, p1Id(db), { chat: async () => { throw new Error('LLM down B') } }, { retry: RETRY_NO_WAIT }), false)
   assert.ok(logs.some(l => /摘要失败.*LLM down B/.test(l)), '项目摘要失败落日志(带前缀)')
   assert.ok(getConversation(db, conv.id).recap == null, '语义不变:失败不落库')
 })

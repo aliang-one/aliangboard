@@ -14,6 +14,7 @@ import { deriveSalvageContent } from './salvage-content.mjs'
 import { trimBudgetChars, resolveWindowTokens } from './model-context.mjs'
 import { scrubKnownValues } from './credential-known-values.mjs'
 import { createSingleFlight } from './state/kernel.mjs'
+import { makeChatWithRetry } from './llm-retry.mjs'
 // 注:compactConversation 的 message 返回消息键(wbc.compactShort 等),HTTP 层
 // msg(req, out.message) 翻译;未登记键回落原文(与 cancel 端点同款兜底)。
 
@@ -51,13 +52,23 @@ function transcriptLine(m) {
 // 两触发点并发到达时双双读 pending → 两路 LLM 白烧 + 互以入口快照覆写丢段。测试注入缝同款。
 const convSummarizerInflight = createSingleFlight({ name: 'convSummarizerInflight', domain: 'workbench' })
 
+// 直呼穿重试梯(2026-10-25 盲区批):三处摘要直呼 llmClient.chat 一次即败,统一接
+// makeChatWithRetry(与 agent 主链同梯:5xx/429/网络退避,4xx/超时单次立即重试,取消不重试)。
+// 失败语义不变(catch 后仍 fire-and-forget/返 false,只是失败前先穿梯);原 payload 仅
+// messages 一项,以重试入参为准。retry 为测试缝(注入 retryDelays [0,0] + 假 sleepFn 跳过
+// 真实等待,与 agent.test.mjs 同款;生产不传走缺省梯)。
+const summarizeRetryChat = (llmClient, retry) => makeChatWithRetry({
+  chat: messages => llmClient.chat({ messages }),
+  ...(retry || {}),
+})
+
 // maybeSummarize(db, convId, llmClient, { thresholdTurns=12, recentKeep=8 }) → Promise<boolean>
 // 返回 true=触发了摘要;false=未达阈值/无可摘/失败(不抛)。
 export async function maybeSummarize(
   db,
   convId,
   llmClient,
-  { thresholdTurns = 12, recentKeep = 8, inflight = convSummarizerInflight } = {},
+  { thresholdTurns = 12, recentKeep = 8, inflight = convSummarizerInflight, retry } = {},
 ) {
   if (inflight.has(convId)) return false
   inflight.set(convId, true)
@@ -102,12 +113,10 @@ export async function maybeSummarize(
     }
     const transcript = lines.join('\n')
     try {
-      const out = await llmClient.chat({
-        messages: [
-          { role: 'system', content: SUMMARIZE_PROMPT },
-          { role: 'user', content: transcript },
-        ],
-      })
+      const out = await summarizeRetryChat(llmClient, retry)([
+        { role: 'system', content: SUMMARIZE_PROMPT },
+        { role: 'user', content: transcript },
+      ])
       const seg = out?.content?.trim() ? scrubKnownValues(out.content.trim()) : ''
       if (!seg) return false
       // H1(2026-09-09 审计)落库三防线:
@@ -145,7 +154,7 @@ export async function maybeSummarize(
 // 落库竞态防线(conv-lifecycle-01,2026-09-07):重读+钳制+条件写,见 await 后注释。
 const COMPACT_KEEP_RECENT = 2
 const COMPACT_MIN_MESSAGES = 4
-export async function compactConversation(db, convId, llmClient, instruction = '') {
+export async function compactConversation(db, convId, llmClient, instruction = '', retry) {
   const conv = getConversation(db, convId)
   if (!conv) return { ok: false, status: 404, message: 'wbc.convNotFound' }
   if (conv.status === 'running' || conv.status === 'paused') return { ok: false, status: 400, message: 'wbc.compactBusy' }
@@ -162,12 +171,10 @@ export async function compactConversation(db, convId, llmClient, instruction = '
   ].join('\n')
   const instruct = String(instruction || '').trim().slice(0, 200)
   try {
-    const out = await llmClient.chat({
-      messages: [
-        { role: 'system', content: `你是对话压缩器。把下面的对话历史压缩成一份忠实、信息密集的中文摘要:保留已做出的决定、关键事实/数据、尚未解决的问题。${instruct ? `用户特别要求:${instruct}` : ''}${CAPABILITY_CONSTRAINT}` },
-        { role: 'user', content: transcript },
-      ],
-    })
+    const out = await summarizeRetryChat(llmClient, retry)([
+      { role: 'system', content: `你是对话压缩器。把下面的对话历史压缩成一份忠实、信息密集的中文摘要:保留已做出的决定、关键事实/数据、尚未解决的问题。${instruct ? `用户特别要求:${instruct}` : ''}${CAPABILITY_CONSTRAINT}` },
+      { role: 'user', content: transcript },
+    ])
     const recapRaw = out?.content?.trim()
     if (!recapRaw) return { ok: false, status: 502, message: 'wbc.compactFailed' }
     // context-assembly-03:整体替换写点同钳 64KB(clampRecap 单源);返回值同步用钳后值(与落库一致)
@@ -216,7 +223,7 @@ const projectSummarizerInflight = createSingleFlight({ name: 'projectSummarizerI
 // 条目按 projectId 存续(项目删除后残留一个键,有界可忽略;randomUUID 不复用无串味面)。
 const projectSummarizerFedRid = new Map()
 
-export async function maybeSummarizeProject(db, projectId, llmClient, { inflight = projectSummarizerInflight } = {}) {
+export async function maybeSummarizeProject(db, projectId, llmClient, { inflight = projectSummarizerInflight, retry } = {}) {
   if (inflight.has(projectId)) return false
   inflight.set(projectId, true)
   try {
@@ -238,12 +245,10 @@ export async function maybeSummarizeProject(db, projectId, llmClient, { inflight
       ...pending.map(h => `${h.role}: ${scrubKnownValues(String(h.content || '')).slice(0, 800)}`),
     ].join('\n')
     try {
-      const out = await llmClient.chat({
-        messages: [
-          { role: 'system', content: `你负责维护一份项目记忆摘要。把「此前项目摘要」与「新增对话」滚动合并为一份新摘要:保留已做出的决定、关键事实与数据、尚未解决的问题;丢弃过程性闲聊;中文,紧凑,不超过 500 字。若内容中出现疑似密码/令牌/密钥的明文值,摘要中一律以 ***(N chars,#指纹) 形态指代,绝不复述原值。输出只有摘要本身。${CAPABILITY_CONSTRAINT}` },
-          { role: 'user', content: transcript },
-        ],
-      })
+      const out = await summarizeRetryChat(llmClient, retry)([
+        { role: 'system', content: `你负责维护一份项目记忆摘要。把「此前项目摘要」与「新增对话」滚动合并为一份新摘要:保留已做出的决定、关键事实与数据、尚未解决的问题;丢弃过程性闲聊;中文,紧凑,不超过 500 字。若内容中出现疑似密码/令牌/密钥的明文值,摘要中一律以 ***(N chars,#指纹) 形态指代,绝不复述原值。输出只有摘要本身。${CAPABILITY_CONSTRAINT}` },
+        { role: 'user', content: transcript },
+      ])
       const recap = out?.content?.trim() ? scrubKnownValues(out.content.trim()) : ''
       if (!recap) return false
       // 长度硬钳(prompt 的「不超过 500 字」只是请求,LLM 不服从时不能无界落库+每轮注入)

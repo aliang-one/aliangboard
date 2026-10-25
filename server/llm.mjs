@@ -6,6 +6,7 @@
 //   一个 chunk 重置计时,无总时限。旧实现两共用 AbortSignal.timeout(60s 总限):长回答/
 //   慢思考模型读到一半被掐("回答一半就断流"的直接根因;首 token >60s 的深思考同样必死)。
 import { fetch as defaultFetch } from 'undici'
+import { makeChatWithRetry } from './llm-retry.mjs'
 
 // SSE 行尾三态(规范认 CR / LF / CRLF):事件终结符 = 空行(两个行尾),事件内部行分割同款。
 // 只认 '\n\n' 时 CRLF 风格代理(\r\n\r\n 分隔)的流永不切出事件,整流瘫痪。
@@ -213,13 +214,31 @@ export function createLlmClient({
 // 告诉管理员当前模型切没切到能展示思考过程的模型(GLM/DeepSeek-R1 类;gpt-5.x 经
 // 部分代理只发 content)。思考模型对任何输入都先吐 reasoning(实测),极小 prompt
 // 即可判定;总限防慢模型挂死探测(超时按已见字段给结论)。
+// 直呼穿重试梯(2026-10-25 盲区批):探测原为 race 超时单发,代理瞬时 5xx/429 一次即败。
+// race 保留在内层 chat 适配器里(每次尝试各自的 totalMs 守卫,梯外不再包 → 不双超时);
+// 守卫超时以 TimeoutError 抛出 → errKind 归 'timeout' 类 → 单次立即重试;两连超时定性
+// → 按已见字段给结论(原「race 超时」语义保留),非超时错误照旧上抛。探测回调直连
+// chatStream(不经重试梯 wrapped.sawDelta——探测无「前端已拼接」问题,重试零成本,
+// 已见旗标跨尝试单调累积)。
 export async function probeReasoningSupport(client, { totalMs = 45000, prompt = '1+1=?(探测用,请直接回答)' } = {}) {
   let sawReasoning = false, sawContent = false, sample = ''
-  const work = client.chatStream({ messages: [{ role: 'user', content: prompt }] }, {
-    onReasoning: t => { sawReasoning = true; if (sample.length < 80) sample += String(t) },
-    onDelta: () => { sawContent = true },
+  const chatRetry = makeChatWithRetry({
+    chat: (messages, _tools, _wrapped) => Promise.race([
+      client.chatStream({ messages }, {
+        onReasoning: t => { sawReasoning = true; if (sample.length < 80) sample += String(t) },
+        onDelta: () => { sawContent = true },
+      }),
+      new Promise((_resolve, reject) => setTimeout(() => reject(Object.assign(
+        new Error(`模型探测总限(${Math.round(totalMs / 1000)}s 到点仍未终态)`),
+        { name: 'TimeoutError' },
+      )), totalMs)),
+    ]),
   })
-  const guard = new Promise(resolve => setTimeout(resolve, totalMs, 'timeout'))
-  const r = await Promise.race([work, guard])
-  return { supported: sawReasoning, sawContent, sample: sample.slice(0, 80), timedOut: r === 'timeout' }
+  try {
+    await chatRetry([{ role: 'user', content: prompt }])
+  } catch (e) {
+    if (e?.name === 'TimeoutError') return { supported: sawReasoning, sawContent, sample: sample.slice(0, 80), timedOut: true }
+    throw e
+  }
+  return { supported: sawReasoning, sawContent, sample: sample.slice(0, 80), timedOut: false }
 }

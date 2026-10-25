@@ -2,6 +2,7 @@
 // 凭据智能粘贴解析(2026-09-12 spec §9):任意文本 → 字段袋草稿。纯函数,llmClient 注入可 mock。
 // 照 distill.mjs 模式:buildXxxPrompt → llmClient.chat({messages}) → 容错解析 → 硬钳。
 // 产出绝不落库——落库只能走 POST /api/workbench/credentials(人工确认后)。
+import { makeChatWithRetry } from './llm-retry.mjs'
 const SYS = `你是 aliangboard 的凭据解析器。任务:把用户粘贴的任意文本解析成一条凭据草稿。
 
 输出契约(只输出 JSON,不要解释,不要 markdown 围栏以外的文字):
@@ -59,7 +60,10 @@ function clampDraft(raw) {
 }
 
 export async function runCredentialParse({ llmClient, rawText }) {
-  const reply = await llmClient.chat({ messages: buildCredentialParsePrompt(rawText) })
+  // 直呼穿重试梯(2026-10-25 盲区批):瞬时 5xx/429 不再一次即败(与 agent 主链同梯);
+  // 原 payload 仅 messages 一项,以重试入参为准;解析失败/LLM 失败的原有错误处理不变(上抛交调用方)。
+  const chatRetry = makeChatWithRetry({ chat: messages => llmClient.chat({ messages }) })
+  const reply = await chatRetry(buildCredentialParsePrompt(rawText))
   const parsed = parseCredentialJson(reply?.content)
   if (!parsed) return { ok: false, error: 'parse-failed' }
   const { draft, dropped } = clampDraft(parsed)
