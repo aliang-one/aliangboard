@@ -3,7 +3,6 @@ import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { i18n } from '@/i18n'
 import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
-import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 // mountSideNav:复制自 SideNavBar.nsband.test.js 顶部的既有 mount 配置
 // (store/router/i18n stub);第二参可覆盖 store.currentNamespace 初值
@@ -42,8 +41,7 @@ beforeEach(() => {
 
 function mountSideNav(nsOverride) {
   if (nsOverride && 'currentNamespace' in nsOverride) storeMock.currentNamespace = nsOverride.currentNamespace
-  // Task 7 起侧栏装 WorkbenchNavItem(useQuery)——mount 须带 VueQueryPlugin
-  return mount(SideNavBar, { global: { plugins: [i18n, createPinia(), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
+  return mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })
 }
 
 function belowLg() {

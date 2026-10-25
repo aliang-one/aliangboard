@@ -3,7 +3,6 @@ import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { i18n } from '@/i18n'
 import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
-import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 // 与 SideNavBar.test.js 同法:reactive route/store 供逐用例改写;真实 i18n 插件(断言翻译文案)
 const { _routeObj, pushMock, _store } = vi.hoisted(() => ({
@@ -34,7 +33,6 @@ vi.mock('@/composables/useK8sQuery', () => ({
 }))
 
 import SideNavBar from '../SideNavBar.vue'
-// Task 7 起侧栏装 WorkbenchNavItem(useQuery)——各 mount 须带 VueQueryPlugin(见下内联)
 
 beforeEach(() => {
   sessionStorage.setItem('aliangboard.session', 'test-session') // round-3:侧边栏区分无集群态,这些用例测有集群行为须声明会话
@@ -48,7 +46,7 @@ function setMode(scope, path) {
 describe('SideNavBar ns-band 两态契约', () => {
   it('集群态:band 挂 ns-band--cluster,ns-enter 存在,只渲染未进入/进入对', () => {
     setMode('global', '/cluster')
-    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia(), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
+    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })
     const band = w.find('.ns-band')
     expect(band.exists()).toBe(true)
     expect(band.classes()).toContain('ns-band--cluster')
@@ -61,7 +59,7 @@ describe('SideNavBar ns-band 两态契约', () => {
 
   it('ns 态:band 挂 ns-band--ns,ns-enter 不存在,只渲染当前所在/回总览对', () => {
     setMode('namespace', '/ns/default')
-    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia(), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
+    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })
     const band = w.find('.ns-band')
     expect(band.classes()).toContain('ns-band--ns')
     expect(w.find('[data-test="ns-enter"]').exists()).toBe(false)
@@ -74,7 +72,7 @@ describe('SideNavBar ns-band 两态契约', () => {
     setMode('global', '/cluster')
     storeMock.currentNamespace = null
     pushMock.mockClear()
-    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia(), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
+    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })
     const home = w.find('[data-test="ns-home"]')
     expect(home.text()).toContain('选择命名空间')
     expect(w.find('[data-test="ns-enter"]').exists()).toBe(false)
@@ -86,7 +84,7 @@ describe('SideNavBar ns-band 两态契约', () => {
 
   it('瓦片点击开/关下拉,aria-expanded 跟随', async () => {
     setMode('namespace', '/ns/default')
-    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia(), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
+    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })
     const tile = w.find('.ns-tile')
     expect(tile.attributes('aria-expanded')).toBe('false')
     await tile.trigger('click')
@@ -102,7 +100,7 @@ describe('SideNavBar ns-band 两态契约', () => {
     storeMock.namespaceList.splice(0, storeMock.namespaceList.length, { name: 'staging', status: 'Active', pods: 3 })
     storeMock.setNamespace.mockClear()
     pushMock.mockClear()
-    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia(), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
+    const w = mount(SideNavBar, { global: { plugins: [i18n, createPinia()] } })
     await w.find('.ns-tile').trigger('click')
     const row = w.find('.ns-row')
     expect(row.exists()).toBe(true)

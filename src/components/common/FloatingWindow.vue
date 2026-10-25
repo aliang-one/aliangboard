@@ -60,10 +60,9 @@ function onDragEnd() {
 onUnmounted(() => { document.removeEventListener('mousemove', onDragMove); document.removeEventListener('mouseup', onDragEnd) })
 
 // 最大化 = 铺满「应用内容区」而非整个视口:避让应用骨架——左侧栏 260px(SideNavBar w-[260px])
-// + 底部任务栏 32px(TerminalTaskbar)。顶栏 64px 避让为历史配方(原顶栏 h-16 sticky 时代,
-// 旧写法 top:8px 会让窗口标题栏钻到导航栏下面被压住;2026-10-23 顶栏退役后保留为通用顶部余量)。
-// zIndex 由调用方给(终端/文件窗口窗口带
-// Z.windowBase..Z.windowMax,恒高于 nav 预留 Z.nav、恒低于模态框 Z.modal——见 zScale)。
+// + 顶部导航 64px(TopNavBar h-16,sticky z-50;旧写法 top:8px 让窗口标题栏钻到导航栏下面被压住)
+// + 底部任务栏 32px(TerminalTaskbar)。zIndex 由调用方给(终端/文件窗口窗口带
+// Z.windowBase..Z.windowMax,恒高于顶栏 Z.nav、恒低于模态框 Z.modal——见 zScale)。
 // —— 手机档(R1/Wave5):390px 视口下固定宽(720/860px)+ 级联定位数学会把窗口推出屏外
 // (x=Math.min(80, 390-740)=-350)且拖拽是 mouse 事件触屏不可用 → 浮窗一律 inset 铺满
 // 内容区;最大化 left 消费 --sb-width(手机档该变量为 0,天然全宽),桌面行为不变。

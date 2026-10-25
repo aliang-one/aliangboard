@@ -24,7 +24,7 @@ describe('K8s 会话层 401 分层语义', () => {
   it('无 k8s session 收到 401 = 未连接集群(预期状态):不清平台凭据、不跳转', async () => {
     savePlatformToken('plat-token')
     fetchMock.mockResolvedValue(res401())
-    // 首装场景:admin 在 /admin/clusters(requiresCluster:false),AppLayout/侧栏发 k8s 请求
+    // 首装场景:admin 在 /admin/clusters(requiresCluster:false),AppLayout/TopNavBar 发 k8s 请求
     await expect(api.k8s('/api/v1/namespaces')).rejects.toMatchObject({ status: 401 })
     expect(getSessionToken()).toBe('')                                    // 本来就没有,也不产生脏状态
     expect(localStorage.getItem('aliangboard.platform')).toBe('plat-token') // 平台登录不受牵连

@@ -115,54 +115,16 @@ test('collectResourceItems:roles 混合面按 scope 拆 kind(store.fetchRoles �
 })
 
 test('PAGE_ENTRIES:纯 ASCII 关键词(i18n 残留中文门禁红线),且双语言同义词表全覆盖', () => {
-  // 2026-10-23 派生化:CLUSTER_RESOURCES_NAV 8 页不在 KEYWORDS 表(keywords 空,靠侧栏
-  // 导航可达);既有 17 页双语同义词键不回退;新页面(admin 7 + 跨 ns 4 + 固定 4)的
-  // 中文可搜性由下方命中断言钉死(admin 7 页同义词已随本任务补齐中英两语言)。
   for (const p of PAGE_ENTRIES) {
+    assert.ok(p.keywords.length >= 1, p.path)
     for (const k of p.keywords) assert.ok(!/[一-鿿]/.test(k), `${p.path} 关键词含中文:${k}`)
   }
-  const curated = PAGE_ENTRIES.filter(p => p.keywords.length > 0 && !p.admin)
   for (const [name, loc] of [['en', enLocales], ['zh', zhLocales]]) {
     const syn = loc.nav.searchPageSynonyms
     assert.ok(syn && typeof syn === 'object', `${name} 缺 nav.searchPageSynonyms`)
-    for (const p of curated) {
+    for (const p of PAGE_ENTRIES) {
       const key = p.path.replace(/^\//, '').split('/').pop()
       assert.ok(typeof syn[key] === 'string' && syn[key].length > 0, `${name}.${key} 缺同义词`)
     }
   }
-  // 新页面(admin 7 + 跨 ns 4 + 固定 4):取各页首个中文同义词作查询逐页断言命中;
-  // admin 门控页以 showAdmin 放行(默认不可见由上方 brief 用例钉死)。
-  const COVERED = [
-    '/admin/users', '/admin/groups', '/admin/clusters', '/admin/apikeys',
-    '/admin/ai-behavior', '/admin/llm-config', '/admin/audit-trail',
-    '/workloads', '/network', '/configuration', '/rbac',
-    '/rbac/can-i', '/deploy', '/audit-logs', '/settings',
-  ]
-  const zhSyn = zhLocales.nav.searchPageSynonyms
-  for (const path of COVERED) {
-    const pk = path.replace(/^\//, '')
-    const first = String(zhSyn[pk] ?? zhSyn[pk.split('/').pop()] ?? '').split(',')[0]
-    assert.ok(first, `${path} 缺中文同义词`)
-    const opts = PAGE_ENTRIES.find(p => p.path === path)?.admin ? { showAdmin: true } : undefined
-    assert.ok(
-      matchPages(first, ZH_SYNONYMS, opts).some(p => p.path === path),
-      `${path} 中文「${first}」不可命中`,
-    )
-  }
-})
-
-test('PAGE_ENTRIES 派生:含平台管理 7 页且带 admin 标记', () => {
-  const admin = PAGE_ENTRIES.filter(p => p.admin)
-  assert.equal(admin.length, 7)
-  assert.ok(admin.some(p => p.path === '/admin/llm-config'))
-})
-
-test('admin 页面:默认不命中,showAdmin:true 才命中', () => {
-  assert.ok(!matchPages('llm').some(p => p.path === '/admin/llm-config'))
-  assert.ok(matchPages('llm', {}, { showAdmin: true }).some(p => p.path === '/admin/llm-config'))
-})
-
-test('searchAll 透传 showAdmin', () => {
-  const { pages } = searchAll('apikeys', [], { showAdmin: true })
-  assert.ok(pages.some(p => p.path === '/admin/apikeys'))
 })

@@ -549,7 +549,6 @@
     "security": "Security",
     "policy": "Policy",
     "clusterResources": "Cluster Resources",
-    "crossNamespace": "Cross-Namespace",
     "multiCluster": "Multi-Cluster",
     "platformAdmin": "Platform Admin",
     "searchPlaceholder": "Search resources and pages…",
@@ -570,14 +569,7 @@
       "deploy": "create,rollout",
       "audit-logs": "events,history",
       "settings": "preferences",
-      "workbench": "ai,assistant",
-      "admin/users": "user management,platform users",
-      "admin/groups": "groups and grants,user groups",
-      "admin/clusters": "cluster management,platform clusters",
-      "admin/apikeys": "API keys,key management",
-      "admin/ai-behavior": "AI behavior,behavior config",
-      "admin/llm-config": "LLM config,model config",
-      "admin/audit-trail": "audit,audit trail"
+      "workbench": "ai,assistant"
     },
     "alerts": "Alerts",
     "alertUnread": "{n} unread",

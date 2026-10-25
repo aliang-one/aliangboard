@@ -93,7 +93,7 @@ const k8sHttp = createHttp({
   },
   // K8s 层 401 分两种（分层鉴权，勿与平台登出混淆）：
   // - 请求时就没带 K8s token = 未连接集群（预期状态，典型：首装 admin 进集群管理页，
-  //   AppLayout/侧栏等常驻壳层仍发 k8s 请求）→ 不清凭据不跳转，错误交调用方按需提示。
+  //   AppLayout/TopNavBar 仍发 k8s 请求）→ 不清凭据不跳转，错误交调用方按需提示。
   //   曾误走 clearSession + 跳 /login → 守卫见平台 token 有效又弹回 /select-cluster → 死循环。
   // - 带了 token 被拒 = K8s 会话过期/失效 → 清 K8s session；平台登录仍在 → 跳集群选择页重连。
   onUnauthorized: (path) => {

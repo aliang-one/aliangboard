@@ -259,16 +259,3 @@ test('证书行点击 → ClusterCerts 页;伪事件图标 key', async () => {
   expect(pushMock).toHaveBeenCalledWith({ name: 'ClusterCerts' })
   w.unmount()
 })
-
-// ---- tile 形态(2026-10-23 顶栏退役 Task 7):ns 态停靠坞网格瓦片 ----
-// tile=true 图标包进 dock-ig__sq(消费方外层 div 承载 dock-ig);默认形态不变(集群态底部行)。
-test('tile 形态:图标包 dock-ig__sq;默认形态不变', () => {
-  setActivePinia(createPinia())
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const w = mount(AlertBell, { props: { tile: true }, global: { plugins: [i18n, [VueQueryPlugin, { queryClient: qc }]] } })
-  expect(w.find('[data-test="alert-bell"] .dock-ig__sq').exists()).toBe(true)
-  const qc2 = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const w2 = mount(AlertBell, { global: { plugins: [i18n, [VueQueryPlugin, { queryClient: qc2 }]] } })
-  expect(w2.find('[data-test="alert-bell"] .dock-ig__sq').exists()).toBe(false)
-  w.unmount(); w2.unmount()
-})

@@ -1,11 +1,10 @@
 // 集群切换迁侧栏(2026-09-04 顶栏去重设计):集群头部成为全断点唯一的集群切换锚点。
 // 桌面/rail:点头部 → Teleport 锚定面板;手机抽屉:点头部发 shell 通道 → bottom sheet
-// (通道消费方自顶栏迁来,store 契约 requestClusterSelect/clusterSelectTick 不变)。
+// (通道消费方自 TopNavBar 迁来,store 契约 requestClusterSelect/clusterSelectTick 不变)。
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { reactive, nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@/i18n'
 
 const { _routeObj, pushMock, _store } = vi.hoisted(() => ({
@@ -62,8 +61,7 @@ beforeEach(() => {
 afterEach(() => { matchMediaSpy?.mockRestore(); document.body.innerHTML = ''; storeMock.switchCluster.mockClear(); pushMock.mockClear() })
 
 function mountNav() {
-  // Task 7 起侧栏装 WorkbenchNavItem(useQuery)——mount 须带 VueQueryPlugin
-  return mount(SideNavBar, { global: { plugins: [i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
+  return mount(SideNavBar, { global: { plugins: [i18n] } })
 }
 const panelEl = () => document.querySelector('[data-testid="cluster-dropdown-panel"]')
 

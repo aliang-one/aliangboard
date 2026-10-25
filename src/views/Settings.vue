@@ -18,14 +18,6 @@ const { t } = useI18n()
 // 直调 setLocale 会绕过 store,导致 /profile 偏好卡不高亮 + fetchMe 回灌回滚用户选择。
 const preferences = usePreferencesStore()
 
-// 主题三态(2026-10-23 spec §4.5:顶栏头像菜单快捷切换退役,归设置页;键复用 userCenter.*)
-const themeOptions = [
-  { v: 'light', key: 'userCenter.themeLight' },
-  { v: 'dark', key: 'userCenter.themeDark' },
-  { v: 'auto', key: 'userCenter.themeAuto' },
-]
-const activeTheme = computed(() => preferences.theme || 'auto')
-
 const store = useClusterStore()
 const auth = useAuthStore()
 const activeTab = ref('general')
@@ -309,15 +301,6 @@ const { catalog, resetAll } = useTableColumns()
               <div class="flex items-center gap-xs">
                 <button @click="preferences.setLanguage('zh')" :class="i18n.global.locale.value === 'zh' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors max-sm:min-h-[40px]">{{ t('settings.zhName') }}</button>
                 <button @click="preferences.setLanguage('en')" :class="i18n.global.locale.value === 'en' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'" class="text-xs px-sm py-xs rounded-md transition-colors max-sm:min-h-[40px]">EN</button>
-              </div>
-            </div>
-            <div class="flex justify-between items-center py-sm border-b border-outline-variant/50">
-              <span class="text-body-sm text-on-surface-variant">{{ t('userCenter.theme') }}</span>
-              <div class="flex items-center gap-xs">
-                <button v-for="o in themeOptions" :key="o.v" :data-testid="`settings-theme-${o.v}`"
-                  @click="preferences.setTheme(o.v)"
-                  :class="activeTheme === o.v ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'"
-                  class="text-xs px-sm py-xs rounded-md transition-colors max-sm:min-h-[40px]">{{ t(o.key) }}</button>
               </div>
             </div>
             <div class="flex justify-between py-sm border-b border-outline-variant/50">

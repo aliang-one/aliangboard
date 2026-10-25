@@ -4,7 +4,6 @@ import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@/i18n'
 
 // mount 前置:照抄 SideNavBar.rail.test.js 既有做法(store/router/i18n stub)
@@ -39,19 +38,17 @@ import SideNavBar from '@/components/layout/SideNavBar.vue'
 import { useShellStore } from '@/stores/shell'
 
 let matchMediaSpy
-// 捕获各 query 的 change 监听器:测试可经事件路径翻转 useBreakpoint(与真实浏览器一致)。
-// Task 7 起侧栏内多个组件(SideNavBar/SideNavSearch/WorkbenchNavItem)各自订阅同一批
-// query——单槽 map 会被后挂载子组件覆盖掉 SideNavBar 自己的监听(fireChange 翻不动
-// drawer-mode 判定),改 Set 多播:一次 change 翻转全部消费者。
+// 捕获各 query 的 change 监听器:测试可经事件路径翻转 useBreakpoint(与真实浏览器一致)
 const mqListeners = new Map()
 function fireChange(query, matches) {
-  for (const cb of mqListeners.get(query) ?? []) cb({ matches })
+  const cb = mqListeners.get(query)
+  if (cb) cb({ matches })
 }
 function mockViewport(belowSm, belowLg) {
   matchMediaSpy = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
     matches: q === '(max-width: 639.98px)' ? belowSm : q === '(max-width: 1023.98px)' ? belowLg : false,
-    addEventListener: (_ev, cb) => { if (!mqListeners.has(q)) mqListeners.set(q, new Set()); mqListeners.get(q).add(cb) },
-    removeEventListener: (_ev, cb) => { mqListeners.get(q)?.delete(cb) },
+    addEventListener: (_ev, cb) => { mqListeners.set(q, cb) },
+    removeEventListener: () => { mqListeners.delete(q) },
   }))
 }
 
@@ -71,12 +68,7 @@ afterEach(() => {
 })
 
 function mountNav() {
-  // Task 7 起侧栏装 WorkbenchNavItem(useQuery)——mount 须带 VueQueryPlugin
-  return mount(SideNavBar, {
-    global: {
-      plugins: [i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
-    },
-  })
+  return mount(SideNavBar, { global: { plugins: [i18n] } })
 }
 
 test('手机档:root 挂 drawer-mode 不挂 rail;drawerOpen 驱动 drawer-open', async () => {

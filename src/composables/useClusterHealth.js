@@ -3,7 +3,7 @@
 // worker 有 NotReady → Degraded；否则 Healthy。无依赖，便于 scripts/test.mjs 直接 import。
 //
 // reasons 存 i18n key（非翻译串）——保持模块纯净（不引 @/i18n，scripts/test.mjs 可直 import）；
-// 消费方（AppLayout 横幅/footer 状态段、SideNavBar 集群头部）渲染时 $t(r) 翻译。ready/total 数值由 controlPlane/workers 字段携带，
+// 消费方（AppLayout/TopNavBar）渲染时 $t(r) 翻译。ready/total 数值由 controlPlane/workers 字段携带，
 // 渲染处的消息（layout.controlPlaneAbnormal 等）已含 {ready}/{total}，故 reason 串只存类别。
 export function computeClusterHealth({ nodeList = [], apiReachable = true } = {}) {
   const cp = nodeList.filter(n => n.isControlPlane)

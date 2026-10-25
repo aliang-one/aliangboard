@@ -3,8 +3,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia' // shell store(手机抽屉)依赖 pinia 实例
-import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
-import { i18n } from '@/i18n'
 
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
@@ -32,14 +30,7 @@ beforeEach(() => {
 
 describe('SideNavBar 集群头品牌位', () => {
   it('集群态 cluster-brand 展示 aliang-logo 品牌 img', () => {
-    // Task 7 起侧栏装真实子组件(SideNavSearch/WorkbenchNavItem/UserMenu/AlertBell):
-    // useI18n 须 i18n 插件、useQuery 须 VueQueryPlugin
-    const w = mount(SideNavBar, {
-      global: {
-        plugins: [createPinia(), i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
-        mocks: { $t: (k) => k },
-      },
-    })
+    const w = mount(SideNavBar, { global: { plugins: [createPinia()], mocks: { $t: (k) => k } } })
     const brand = w.find('[data-test="cluster-brand"]')
     expect(brand.exists()).toBe(true)
     expect(brand.find('img[alt="AliangBoard"]').exists()).toBe(true)

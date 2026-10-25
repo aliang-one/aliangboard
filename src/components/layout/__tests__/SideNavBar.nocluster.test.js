@@ -5,17 +5,11 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@/i18n'
 
 const { pushMock, _session } = vi.hoisted(() => ({ pushMock: vi.fn(), _session: { v: '' } }))
 
-// Task 7 起侧栏装 WorkbenchNavItem/UserMenu:分别消费 getPlatformToken(enabled 门)与
-// authApi.getAvatar(挂载即拉)——部分桩须保留真实模块其余导出,只覆 getSession
-vi.mock('@/api/client', async (importOriginal) => {
-  const orig = await importOriginal()
-  return { ...orig, getSession: () => _session.v, authApi: { ...orig.authApi, getAvatar: vi.fn(async () => null) } }
-})
+vi.mock('@/api/client', () => ({ getSession: () => _session.v }))
 vi.mock('@/stores/cluster', () => ({
   useClusterStore: () => ({
     cluster: { name: '', version: '' },
@@ -42,10 +36,7 @@ import SideNavBar from '@/components/layout/SideNavBar.vue'
 beforeEach(() => { setActivePinia(createPinia()); pushMock.mockClear() })
 afterEach(() => { document.body.innerHTML = '' })
 
-// Task 7 起侧栏装 WorkbenchNavItem(useQuery)——mount 须带 VueQueryPlugin
-function mountNav() {
-  return mount(SideNavBar, { global: { plugins: [i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] } })
-}
+function mountNav() { return mount(SideNavBar, { global: { plugins: [i18n] } }) }
 
 test('无 session:集群域控件整节隐藏(ns 带/集群管理节/底部活动设置)', () => {
   _session.v = ''
