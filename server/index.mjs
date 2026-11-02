@@ -110,14 +110,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const dbPath = process.env.ALIANG_DB || join(__dirname, '..', 'data', 'aliangboard.db')
 mkdirSync(join(__dirname, '..', 'data'), { recursive: true })
 // 单进程不变式(2026-08-28 架构治理):开库前抢独占锁。SQLite 单连接 + 内存会话/限流 Map + 审计链哈希
-// 都假设唯一写入者;双进程同库 = 静默脑裂。持锁者活着 → 拒启(exit 1);死 pid → 接管。语义见
+// 都假设唯一写入者;双进程同库 = 静默脑裂。持锁者活着 → 拒启(exit 1);判定已死 → 接管。语义见
 // server/single-process-lock.mjs(+单测)。水平扩展须先做状态外移 ADR,见 CLAUDE.md「架构约束」。
 const _singleProcessLock = acquireSingleProcessLock(`${dbPath}.lock`)
 if (!_singleProcessLock.ok) {
   console.error(`[startup] 拒绝启动:${_singleProcessLock.error}`)
   process.exit(1)
 }
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { _singleProcessLock.release() } catch { /* noop */ } process.exit(0) })
+// v2 锁心跳(2026-11-02 dev CrashLoop 954 次事故):容器 pid namespace 每 pod 独立,pid 活性跨
+// 容器世代不可比(残留 "pid 1" 锁查到的是自己)。跨世代接管以「锁文件 mtime 停更 >30s」判定持有者
+// 已死,故持锁期间每 10s touch 一次。unref:不阻止进程自然退出;release 后 touch 幂等空转。
+const _lockHeartbeat = setInterval(() => _singleProcessLock.touch?.(), 10_000)
+_lockHeartbeat.unref?.()
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { clearInterval(_lockHeartbeat); _singleProcessLock.release() } catch { /* noop */ } process.exit(0) })
 const db = new DatabaseSync(dbPath)
 // 2026-09-08 性能批:WAL + synchronous=NORMAL(delete 模式每写 ~20ms 同步阻塞事件循环,见 db-pragma.mjs 注释)
 enableFastJournal(db)
