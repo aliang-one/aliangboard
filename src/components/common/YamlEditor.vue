@@ -24,17 +24,18 @@ const editBase = ref(props.modelValue)
 const hasChanges = ref(false)
 const isEditing = ref(false)
 
-// 外部 modelValue 变化 → 同步 + 回到查看模式。
+// 外部 modelValue 变化 → 原地同步基线。
 // 回声守卫:双向(v-model / :model-value+@update)消费方里,组件自己 emit 的值会经父组件
 // 原样回流 —— 那不是外部变化,绝不能打断进行中的编辑(否则键入第一字即被踢出编辑态)。
 // 草稿保护:编辑中有未保存改动时,外部(如 live refetch)变化不覆盖用户草稿,交给 save/discard 收束。
+// 编辑会话保持(issue#22):编辑中未打字时外部变化(如 CrdDetail 展开行懒拉取实时 YAML 落地)
+// 只原地换内容+换基线,不再踢出编辑态 —— 进入编辑态是显式用户意图,后台数据移动无权撤销它。
 watch(() => props.modelValue, (val) => {
   if (val === editableContent.value) return // 自身 emit 的回声:忽略
   if (isEditing.value && hasChanges.value) return
   editableContent.value = val
   editBase.value = val
   hasChanges.value = false
-  isEditing.value = false
 })
 
 // editableContent 变化（编辑时）→ 更新 hasChanges + emit
@@ -55,6 +56,8 @@ function startEdit() {
 }
 
 function handleSave() {
+  // 工具栏恒可见(issue#22):禁用态挡常规误触,此处挡程序化触发 —— 未改动不 emit
+  if (!hasChanges.value) return
   emit('save', editableContent.value)
   editBase.value = editableContent.value
   hasChanges.value = false
@@ -73,15 +76,19 @@ function handleDiscard() {
 
 <template>
   <div data-testid="yaml-editor-root" class="flex flex-col rounded-lg overflow-hidden border border-outline-variant" :class="heightClass">
-    <!-- Toolbar -->
-    <div class="flex items-center justify-between px-md py-sm bg-surface-container-low border-b border-outline-variant">
-      <div class="flex items-center gap-sm">
+    <!-- Toolbar(保存/放弃常驻顶部:编辑态恒可见,不再依赖底部按需 Action Bar —— issue#22) -->
+    <div data-testid="yaml-editor-toolbar" class="flex flex-wrap items-center justify-between gap-x-sm gap-y-xs px-md py-sm bg-surface-container-low border-b border-outline-variant">
+      <div class="flex items-center gap-sm min-w-0">
         <span class="material-symbols-outlined text-primary text-lg">description</span>
         <span class="text-label-caps text-on-surface-variant">YAML</span>
         <span v-if="readonly" class="px-2 py-0.5 bg-surface-container rounded text-label-caps text-on-surface-variant">{{ $t('component.yaml.readOnly') }}</span>
         <span v-if="isEditing" class="px-2 py-0.5 bg-tertiary-container/10 text-tertiary-container text-label-caps rounded">{{ $t('common.editing') }}</span>
       </div>
       <div class="flex items-center gap-sm">
+        <template v-if="isEditing">
+          <button @click="handleDiscard" class="px-sm py-xs border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high transition-colors relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">{{ $t('common.discard') }}</button>
+          <button @click="handleSave" :disabled="!hasChanges" class="px-sm py-xs bg-primary text-on-primary rounded-lg text-body-sm font-semibold hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']">{{ $t('common.applyChanges') }}</button>
+        </template>
         <button v-if="!readonly && !isEditing" @click="startEdit" class="flex items-center gap-xs px-sm py-xs text-body-sm text-primary font-medium hover:bg-primary-container/10 rounded-lg transition-colors">
           <span class="material-symbols-outlined text-base">edit</span> {{ $t('common.edit') }}
         </button>
@@ -115,12 +122,6 @@ function handleDiscard() {
       <textarea v-else v-model="editableContent"
         :class="['w-full bg-code-surface text-on-code-surface p-md font-mono text-code-sm outline-none border-0 resize-y', heightClass ? 'flex-1 min-h-0' : '']"
         :style="heightClass ? undefined : { minHeight: height, maxHeight: height }"></textarea>
-    </div>
-
-    <!-- Action Bar（编辑且有改动时）-->
-    <div v-if="isEditing && hasChanges" class="flex justify-end gap-sm px-md py-sm bg-surface-container-low border-t border-outline-variant">
-      <button @click="handleDiscard" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high transition-colors">{{ $t('common.discard') }}</button>
-      <button @click="handleSave" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90 active:scale-95 transition-all">{{ $t('common.applyChanges') }}</button>
     </div>
   </div>
 </template>
