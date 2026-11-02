@@ -65,6 +65,21 @@ test('validation:零 path 的 host 触发 host 级 path 必填错误(③④创�
   expect(v.at(-1)[0].some(e => e.field === 'path' && e.loc === 'host[0]' && e.msg === i18n.global.t('ns.ingressDetail.valPathRequired'))).toBe(true)
 })
 
+test('withTls 打开 → 每 host 行渲染 TLS 勾选;勾选行渲染 secret 下拉(issue#21 编辑弹窗依赖)', async () => {
+  const w = mountEditor({ withTls: true, secrets: ['cert-a', 'cert-b'], modelValue: [
+    { host: 'a.com', tls: true, tlsSecret: 'cert-a', paths: [{ path: '/', pathType: 'Prefix', serviceName: 'web', servicePort: '80' }] },
+    { host: 'b.com', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: 'web', servicePort: '80' }] },
+  ] })
+  const boxes = w.findAll('input[type=checkbox]').filter(b => !b.attributes('disabled'))
+  expect(boxes.length).toBe(2)   // 两行各一个 TLS 勾选(defaultBackend 未开)
+  // 勾选行(a.com)渲染 secret 选择(PortSelect,modelValue='cert-a');未勾选行(b.com)不渲染
+  expect(w.findAllComponents(PortSelect).filter(p => p.props('modelValue') === 'cert-a').length).toBe(1)
+  // 勾选 b.com 行 → 其 secret 选择即时出现(编辑弹窗交互路径)
+  await boxes[1].setValue(true)
+  await nextTick()
+  expect(w.findAllComponents(PortSelect).filter(p => p.props('modelValue') === '').length).toBe(1)
+})
+
 test('withTls/withDefaultBackend 关闭时不渲染对应区块', () => {
   const w = mountEditor()
   expect(w.findAll('input[type=checkbox]').length).toBe(0)   // TLS 行与 defaultBackend 卡片都未开 → 无 checkbox

@@ -399,6 +399,8 @@ export const mapIngress = item => {
     tlsSecret: spec.tls?.[0]?.secretName || '',
     // host 级端口判定(IngressClass 详情暴露摘要:host ∈ tlsHosts → 443,否则 80)
     tlsHosts: (spec.tls || []).flatMap(t => t.hosts || []),
+    // 完整 tls 条目(issue#21):tlsSecret 单条视图有损(多条目折叠),编辑弹窗回填/保真需要原条目
+    tlsEntries: spec.tls || [],
     age: ageOf(item.metadata?.creationTimestamp),
     labels: item.metadata?.labels || {},
     annotations: item.metadata?.annotations || {},

@@ -13,7 +13,7 @@ import Modal from '@/components/common/Modal.vue'
 import AnnotationKeySelect from '@/components/common/AnnotationKeySelect.vue'
 import IngressRulesEditor from '@/components/common/IngressRulesEditor.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
-import { flatToHosts, hostsToFlat } from '@/composables/useIngressRules'
+import { flatToHosts, hostsToFlat, hydrateHostTls, tlsFromHosts } from '@/composables/useIngressRules'
 
 const { t } = useI18n()
 
@@ -102,7 +102,8 @@ const rulesErrors = ref([])
 const svcOptions = computed(() => nsServices.value.map(s => ({ name: s.name, ports: (s.portList || []).map(p => p.port) })))
 
 function openRulesEditor() {
-  editHosts.value = flatToHosts(allRules.value)
+  // issue#21:逐 host TLS 与创建同构 —— 从 spec.tls 条目回填每行的 tls/tlsSecret(一 entry 可覆盖多 host)
+  editHosts.value = hydrateHostTls(flatToHosts(allRules.value), ing.value?.tlsEntries)
   if (!editHosts.value.length) editHosts.value = [{ host: '', tls: false, tlsSecret: '', paths: [{ path: '/', pathType: 'Prefix', serviceName: '', servicePort: '80' }] }]
   const db = ing.value?.defaultBackend
   editDb.value = db && db.serviceName
@@ -114,8 +115,11 @@ function onClearAll() { editHosts.value = []; editDb.value = { enabled: false, s
 async function saveRules() {
   if (rulesErrors.value.length) return
   const flat = hostsToFlat(editHosts.value)
+  // issue#21:tls 与 rules 同 patch 提交 —— 行勾选态重建逐 host 条目;孤儿条目(host 不在任何行)
+  // 原样保留(rules 编辑不越权删除);全空 → [] → merge-patch null 删除字段
+  const tls = tlsFromHosts(editHosts.value, ing.value?.tlsEntries)
   try {
-    await store.updateIngressRules(route.params.name, route.params.namespace, flat, editDb.value)
+    await store.updateIngressRules(route.params.name, route.params.namespace, flat, editDb.value, tls)
     notify('success', t('ns.ingressDetail.rulesSaved'))
     showRulesModal.value = false
   } catch (e) { notify('error', e.message || t('ns.ingressDetail.saveRulesFailed')) }
@@ -128,14 +132,6 @@ function openClassEditor() { editClassName.value = ing.value?.className || ''; s
 function saveClassName() {
   store.updateIngress(route.params.name, route.params.namespace, { className: editClassName.value })
   showClassModal.value = false
-}
-const showTlsModal = ref(false)
-const editTls = ref(false)
-const editTlsSecret = ref('')
-function openTlsEditor() { editTls.value = ing.value?.tls || false; editTlsSecret.value = ing.value?.tlsSecret || ''; showTlsModal.value = true }
-function saveTls() {
-  store.updateIngress(route.params.name, route.params.namespace, { tls: editTls.value, tlsSecret: editTlsSecret.value })
-  showTlsModal.value = false
 }
 
 const allAnnotations = computed(() => {
@@ -323,7 +319,6 @@ function saveEditLabel() {
                 <span class="flex items-center gap-0.5 text-body-sm" :class="ing.tls ? 'text-primary font-medium' : 'text-on-surface-variant'">
                   <span class="material-symbols-outlined text-sm">{{ ing.tls ? 'lock' : 'lock_open' }}</span>{{ ing.tls ? $t('ns.ingressDetail.tlsEnabled') : $t('ns.ingressDetail.tlsDisabled') }}
                 </span>
-                <button @click="openTlsEditor" class="p-0.5 text-on-surface-variant hover:text-primary rounded shrink-0 relative max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']" :title="$t('ns.ingressDetail.editTlsTitle')"><span class="material-symbols-outlined text-base">edit</span></button>
               </div>
             </div>
             <div v-if="ing.tlsSecret" class="px-md py-2 flex items-center justify-between gap-sm">
@@ -460,9 +455,9 @@ function saveEditLabel() {
       </ul>
     </div>
 
-    <!-- host 分组卡片 + defaultBackend + 增删移复制（共享组件，校验内置） -->
+    <!-- host 分组卡片 + per-host TLS(issue#21) + defaultBackend + 增删移复制（共享组件，校验内置） -->
     <IngressRulesEditor v-model="editHosts" v-model:default-backend="editDb" :services="svcOptions"
-      :with-default-backend="true" :with-clear-all="true" @validation="v => rulesErrors = v" @clear-all="showClearConfirm = true" />
+      :secrets="tlsSecretNames" :with-tls="true" :with-default-backend="true" :with-clear-all="true" @validation="v => rulesErrors = v" @clear-all="showClearConfirm = true" />
 
     <template #actions>
       <button @click="showRulesModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('ns.ingressDetail.cancel') }}</button>
@@ -502,20 +497,7 @@ function saveEditLabel() {
     </template>
   </Modal>
 
-  <!-- TLS 编辑 -->
-  <Modal v-model="showTlsModal" :title="$t('ns.ingressDetail.editTlsTitle')" width="max-w-md">
-    <label class="flex items-center gap-sm mb-md cursor-pointer">
-      <input v-model="editTls" type="checkbox" class="h-4 w-4 accent-primary" />
-      <span class="text-body-md text-on-surface">{{ $t('ns.ingressDetail.enableTlsSpec') }}</span>
-    </label>
-    <div v-if="editTls">
-      <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('ns.ingressDetail.tlsSecretNameLabel') }}</label>
-      <PortSelect v-model="editTlsSecret" :options="tlsSecretNames" :placeholder="$t('ns.ingressDetail.tlsSecretPlaceholder')" :empty-hint="$t('ns.ingressDetail.noTlsSecretsHint')" input-class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md font-mono focus:ring-2 focus:ring-primary" />
-      <p class="text-xs text-on-surface-variant mt-xs">{{ $t('ns.ingressDetail.tlsHint') }}</p>
-    </div>
-    <template #actions>
-      <button @click="showTlsModal = false" class="px-md py-sm border border-outline-variant rounded-lg text-body-md hover:bg-surface-container-high">{{ $t('ns.ingressDetail.cancel') }}</button>
-      <button @click="saveTls" class="px-md py-sm bg-primary text-on-primary rounded-lg text-body-md font-semibold hover:opacity-90">{{ $t('ns.ingressDetail.saveLabel') }}</button>
-    </template>
-  </Modal>
+  <!-- TLS 编辑(issue#21 起收编进「编辑路由规则」弹窗的逐 host TLS:本页旧的「编辑 TLS」全局弹窗
+       走 generateYAML 有损 SSA(单条折叠/多 TLS 条目剪除,见 crud.js updateIngressRules 注释),
+       与逐 host 模型双写入器冲突,已移除。TLS 展示行保留只读。 -->
 </template>

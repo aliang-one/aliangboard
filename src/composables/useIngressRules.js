@@ -2,11 +2,13 @@ import { yamlScalar } from './useYaml.js'
 
 // 构造 Ingress 路由规则的 PATCH body（networking.k8s.io/v1，merge-patch 语义）。
 // 入参：flatRules [{host,path,pathType,serviceName,servicePort}] + defaultBackend {enabled,serviceName,servicePort} | null
+//      + tls（可选，issue#21）：undefined=不碰 spec.tls（向后兼容②智能追加路径）；数组=整体替换；
+//        []→null（merge-patch 删除字段，与 defaultBackend 同约定）。
 // 出参：{ spec: { rules, defaultBackend } }；defaultBackend===null 表示删除该字段。
 // 端口按类型分流：纯数字串 → port.number；否则(命名端口如 'http')→ port.name；无数字兜底(不把命名端口改写成 80)。
 // 无依赖纯函数，便于 scripts/test.mjs 直接 import；stores/cluster.js 的 updateIngressRules 复用本函数。
 const k8sPortOf = port => (/^\d+$/.test(String(port)) ? { number: Number(port) } : { name: String(port) })
-export function buildIngressRulesPatch(flatRules = [], defaultBackend = null) {
+export function buildIngressRulesPatch(flatRules = [], defaultBackend = null, tls) {
   const byHost = new Map()
   for (const r of flatRules) {
     const host = r.host || ''
@@ -22,7 +24,9 @@ export function buildIngressRulesPatch(flatRules = [], defaultBackend = null) {
   if (defaultBackend && defaultBackend.enabled && defaultBackend.serviceName) {
     db = { service: { name: defaultBackend.serviceName, port: k8sPortOf(defaultBackend.servicePort) } }
   }
-  return { spec: { rules, defaultBackend: db } }
+  const spec = { rules, defaultBackend: db }
+  if (tls !== undefined) spec.tls = tls.length ? tls : null
+  return { spec }
 }
 
 // === hosts 编辑模型 ↔ 扁平规则 ↔ K8s spec(四入口共享)===
@@ -76,6 +80,33 @@ export function hostsToK8sSpec(hosts, { defaultTlsSecret = '' } = {}) {
     if (h.tls && h.host) tls.push({ hosts: [h.host], secretName: h.tlsSecret || defaultTlsSecret })
   }
   return { rules, tls }
+}
+
+// === ④ 编辑弹窗逐 host TLS(issue#21:与创建同构,编辑时也能配 TLS)===
+// spec.tls 条目 → host 行回填:行 host ∈ 条目 hosts → tls=true + 该条目 secretName。
+// 一个条目可覆盖多 host(常见:{hosts:[全部 host], secretName:X}),各自回填同一 secret。
+export function hydrateHostTls(hosts, tlsEntries) {
+  const byHost = new Map()
+  for (const t of tlsEntries || []) for (const h of (t.hosts || [])) byHost.set(h, t.secretName || '')
+  return (hosts || []).map(h => (byHost.has(h.host) ? { ...h, tls: true, tlsSecret: byHost.get(h.host) } : h))
+}
+
+// host 行勾选态 → spec.tls 片段。
+// 判属规则(issue#21 对抗审查 HIGH 修正):「行里有但未勾选」= 用户显式移除该 host 的 TLS
+// (条目相应 host 移除,缩编为空则删除条目)——否则取消勾选+保存会被孤儿保真吞掉,删除成静默
+// no-op(保存成功 toast + 重开勾选自动回弹)。孤儿 = host 完全不在任何行的条目,原样保留
+// (rules 编辑不越权删除它够不着的 TLS);无 hosts 的全局形态条目({secretName} 单键,API 合法)
+// 同样原样保留。部分覆盖条目缩编为剩余 hosts(防同 host 双条目歧义)。
+export function tlsFromHosts(hosts, existingTls = []) {
+  const rows = (hosts || []).filter(h => h.tls && h.host).map(h => ({ hosts: [h.host], secretName: h.tlsSecret || '' }))
+  const rowHosts = new Set((hosts || []).map(h => h.host).filter(Boolean))
+  const tls = [...rows]
+  for (const t of existingTls || []) {
+    if (!(t.hosts || []).length) { tls.push(t); continue } // 全局形态(无 hosts):不在逐 host 模型射界,保留
+    const rest = (t.hosts || []).filter(h => !rowHosts.has(h))
+    if (rest.length) tls.push({ ...t, hosts: rest })
+  }
+  return tls
 }
 
 // hosts 编辑模型 → 校验错误数组(四入口共享;语义对齐 DeployApp 向导 stepBlockReason 的 backend 门禁)。
