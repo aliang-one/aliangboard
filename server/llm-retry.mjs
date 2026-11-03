@@ -66,6 +66,17 @@ export function makeChatWithRetry({ chat, retryDelays, retryBudgetMs, sleepFn, w
     return 'network'
   }
   const sleep = sleepFn || (ms => new Promise(r => setTimeout(r, ms)))
+  // 梯耗尽错误信息增强(issue#20 诊断批):裸「LLM HTTP 503: …」一行文案让用户既不知道重试
+  // 发生过、也不知道该不该再试。在【原错误对象】上追加上下文(mutate 而非 new Error——保住
+  // name/status/retryAfterMs 等下游契约);只缀 transient/rate(client/timeout/cancel 原文案
+  // 已明确,缀了反而稀释)。只记元数据(次数/等待/定性),不猜测上游内部细节。
+  const enrichExhausted = (e, retries, spent) => {
+    const kind = errKind(e)
+    if (kind !== 'transient' && kind !== 'rate') return e
+    const why = kind === 'rate' ? '上游持续限流' : '上游持续不可用'
+    e.message = `${e.message}（已自动重试 ${retries} 次、累计等待 ${Math.round(spent / 1000)}s 仍失败：${why}；建议稍后再试，或检查 LLM 服务账号池状态）`
+    return e
+  }
   // 分片可中断等待:每片前查 shouldAbort;末片后再查一次(覆盖「最后一小片睡完才取消」)。
   async function sleepInterruptible(ms) {
     let left = ms
@@ -91,6 +102,7 @@ export function makeChatWithRetry({ chat, retryDelays, retryBudgetMs, sleepFn, w
       if (kind === 'transient' || kind === 'network' || kind === 'rate') {
         let last = e
         let spent = 0
+        let retries = 0
         let freebieUsed = false
         for (const d of RETRY_DELAYS) {
           // Retry-After 是服务端下限;jitter 只扰梯值,实际等待 = max(jitter(梯), 下限)
@@ -98,6 +110,7 @@ export function makeChatWithRetry({ chat, retryDelays, retryBudgetMs, sleepFn, w
           const account = Math.max(d, floor)
           if (spent + account > RETRY_BUDGET) break
           spent += account
+          retries++
           await sleepInterruptible(Math.max(Math.round(d * (0.5 + Math.random())), floor))
           try { return await chat(messages, tools, wrapped) } catch (e2) {
             if (sawDelta) throw e2
@@ -116,7 +129,7 @@ export function makeChatWithRetry({ chat, retryDelays, retryBudgetMs, sleepFn, w
             last = e2
           }
         }
-        throw last
+        throw enrichExhausted(last, retries, spent)
       }
       return await chat(messages, tools, wrapped)
     }

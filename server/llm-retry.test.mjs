@@ -56,3 +56,37 @@ test('已吐 delta(sawDelta)后失败 → 立即抛出不再重试', async () =>
   )
   assert.equal(calls, 2, '重试轮吐过 delta:不再发起下一次重试')
 })
+
+// ---- 梯耗尽错误信息增强(issue#20 诊断批:「错误信息也很少」——耗尽文案只有一行裸 503,无重试次数/原因/建议)----
+test('梯耗尽:503 文案带重试次数/原因/建议,原错误身份(status)保留', async () => {
+  let calls = 0
+  const chat = async () => { calls++; const e = new Error('LLM HTTP 503: Service temporarily unavailable'); e.status = 503; throw e }
+  const chatRetry = makeChatWithRetry({ chat, retryDelays: [0, 0], sleepFn: async () => {} })
+  await assert.rejects(() => chatRetry([{ role: 'user', content: 'hi' }]), e => {
+    assert.match(e.message, /Service temporarily unavailable/, '原文案保留(下游/既有断言兼容)')
+    assert.match(e.message, /已自动重试 2 次/)
+    assert.match(e.message, /上游持续不可用/)
+    assert.match(e.message, /稍后再试/)
+    assert.equal(e.status, 503, 'status 契约不变')
+    assert.equal(e.name, 'Error')
+    return true
+  })
+  assert.equal(calls, 3, '初始 + 2 次重试')
+})
+
+test('梯耗尽:429 文案标注 上游持续限流', async () => {
+  const chat = async () => { const e = new Error('LLM HTTP 429: rate limited'); e.status = 429; throw e }
+  const chatRetry = makeChatWithRetry({ chat, retryDelays: [0], sleepFn: async () => {} })
+  await assert.rejects(() => chatRetry([{ role: 'user', content: 'hi' }]), /上游持续限流/)
+})
+
+test('client 类 4xx:单次立即重试路径,耗尽文案不加缀(原文案已明确)', async () => {
+  let calls = 0
+  const chat = async () => { calls++; const e = new Error('LLM HTTP 400: bad request'); e.status = 400; throw e }
+  const chatRetry = makeChatWithRetry({ chat, retryDelays: [0, 0], sleepFn: async () => {} })
+  await assert.rejects(() => chatRetry([{ role: 'user', content: 'hi' }]), e => {
+    assert.equal(e.message, 'LLM HTTP 400: bad request')
+    assert.equal(calls, 2, '单次立即重试')
+    return true
+  })
+})
