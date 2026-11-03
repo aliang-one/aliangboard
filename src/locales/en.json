@@ -2683,6 +2683,9 @@
     "imageTag": {
       "repoReadonly": "Image repo (read-only)",
       "registryAuth": "Registry Auth (optional for private repos)",
+      "credentialSelect": "Select an existing pull secret",
+      "manualAuth": "Enter username & password manually",
+      "usingSecret": "Will query tags using credentials from {name}",
       "usernamePh": "username",
       "passwordPh": "password",
       "tagLabel": "Tag",

@@ -33,6 +33,58 @@ function basicAuth(username, password) {
   return 'Basic ' + Buffer.from(`${username || ''}:${password || ''}`).toString('base64')
 }
 
+// docker hub 各别名(镜像引用里为空/docker.io;config auths key 常见 index.docker.io/数据端点)互认
+const DOCKER_HUB_ALIASES = new Set(['', 'docker.io', 'index.docker.io', 'registry-1.docker.io'])
+
+// auths key 归一:剥 scheme(https:// http://)/ 尾部 /v1/ / 尾斜杠,小写——
+// docker CLI 存凭证的 key 形态杂('https://index.docker.io/v1/'、'reg.io'、'reg.io:5000' 均见)
+function stripAuthKey(k) {
+  return String(k || '').trim().replace(/^https?:\/\//i, '').replace(/\/v1\/?$/i, '').replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * 从 docker-registry Secret(kubernetes.io/dockerconfigjson)解析指定镜像 registry 的凭证。
+ * (issue#20 bug2:「修改版本」弹窗凭证可选已有 —— 服务端解析,凭证不出网关。)
+ * 返回 { ok:true, username, password, matchedKey } | { ok:false, reason: 'bad-secret'|'no-match'|'no-creds' }。
+ * 判属:精确/归一 host 匹配 → docker hub 别名互认。无匹配一律 no-match:绝不把凭证发给非该
+ * 凭证所属 registry 的主机(kubelet 同语义;对抗审查 MED——单条目兜底会把 A 仓库凭证投给
+ * 镜像任指的 B 主机含其 token realm/明文回退线路)。同 registry 必命中:docker login 的
+ * auths key 恒等于镜像 registry host,stripAuthKey + hub 别名已覆盖 scheme//v1//尾斜杠/大小写。
+ * entry 支持 {auth: base64(user:pass)} 与 {username,password} 两形态。
+ */
+export function resolveRegistryAuthFromSecret(secret, image) {
+  let cfg
+  try {
+    const raw = secret?.data?.['.dockerconfigjson']
+    if (!raw) return { ok: false, reason: 'bad-secret' }
+    cfg = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'))
+  } catch { return { ok: false, reason: 'bad-secret' } }
+  const auths = cfg?.auths && typeof cfg.auths === 'object' ? cfg.auths : null
+  if (!auths) return { ok: false, reason: 'bad-secret' }
+  const ref = normalizeImageRef(image)
+  const isHub = DOCKER_HUB_ALIASES.has(String(ref.registry || '').trim().toLowerCase())
+  const endpointHost = stripAuthKey(normalizeEndpoint(ref.registry, ref.repo).host)
+  const wanted = new Set([endpointHost, stripAuthKey(ref.registry)])
+  if (isHub) for (const a of DOCKER_HUB_ALIASES) wanted.add(a)
+  const entries = Object.entries(auths).map(([k, v]) => ({ key: stripAuthKey(k), rawKey: k, v: v || {} }))
+  const hit = entries.find(e => wanted.has(e.key))
+  if (!hit) return { ok: false, reason: 'no-match' }
+  let username = String(hit.v.username || '')
+  let password = String(hit.v.password || '')
+  if ((!username || !password) && hit.v.auth) {
+    try {
+      const dec = Buffer.from(hit.v.auth, 'base64').toString('utf8')
+      const i = dec.indexOf(':')
+      if (i > -1) {
+        username = username || dec.slice(0, i)
+        password = password || dec.slice(i + 1)
+      }
+    } catch { /* auth 字段坏 → 落回已取字段 */ }
+  }
+  if (!username && !password) return { ok: false, reason: 'no-creds' }
+  return { ok: true, username, password, matchedKey: hit.rawKey }
+}
+
 // 解析 WWW-Authenticate: Bearer realm="..." service="..." scope="..."
 function parseBearerChallenge(header) {
   const h = String(header || '')

@@ -621,12 +621,21 @@ const tagLoading = ref(false)
 const tagError = ref('')
 const availableTags = ref([])
 const registryAuth = ref({ username: '', password: '' })
+const registryAuthSecret = ref('') // '' = 手动填写;否则为 ns 内 docker-registry Secret 名(服务端解析凭证)
+// ns 内 dockerconfigjson 类型 Secret(解析 registry 账密的前提;其他类型服务端无法解码)
+const registrySecretOptions = computed(() => (_secQ2.data.value || [])
+  .filter(s => s.namespace === route.params.namespace && s.type === 'kubernetes.io/dockerconfigjson')
+  .map(s => s.name).sort())
 async function fetchTags() {
   const f = imageTagForm.value
   if (!f.repo) return
   tagLoading.value = true; tagError.value = ''
   try {
-    const r = await registryApi.tags({ image: `${f.repo}:${f.oldTag || 'latest'}`, username: registryAuth.value.username, password: registryAuth.value.password })
+    // issue#20 bug2:凭证可选已有 —— 选中 docker-registry Secret 时服务端解析账密(凭证不出网关)
+    const payload = { image: `${f.repo}:${f.oldTag || 'latest'}` }
+    if (registryAuthSecret.value) payload.secretRef = { namespace: route.params.namespace, name: registryAuthSecret.value }
+    else { payload.username = registryAuth.value.username; payload.password = registryAuth.value.password }
+    const r = await registryApi.tags(payload)
     availableTags.value = r.tags || []
     if (!availableTags.value.length) tagError.value = t('workload.notify.noTags')
   } catch (e) {
@@ -641,6 +650,7 @@ function openImageTagEditor() {
   availableTags.value = []
   tagError.value = ''
   registryAuth.value = { username: '', password: '' }
+  registryAuthSecret.value = ''
   showImageTagModal.value = true
 }
 async function saveImageTag() {
@@ -2068,6 +2078,10 @@ function podStatusBorder(s) {
             </div>
           </div>
           <p v-if="isJob" class="col-span-2 text-xs text-on-surface-variant/70">{{ $t('workload.edit.jobImmutableHint') }}</p>
+          <!-- issue#20 bug1:拉取凭证从「调度」区(裸文本、埋没)迁到基本配置,改为选择已有凭证(与创建向导同构)。
+               非 rollout 类型(Job/CronJob)保存不写 imagePullSecrets(K8s Job template 不可变;CronJob 走 jobTemplate
+               专用链路)——可写即假保存(对抗审查 MED),故禁用但保留回填值可见。 -->
+          <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label><select v-model="editForm.imagePullSecrets" :disabled="!isRolloutType" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm disabled:opacity-60 disabled:cursor-not-allowed"><option value="">{{ $t('common.none') }}</option><option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option></select></div>
           <div v-if="isScalable"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.replicas') }}</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
           <div v-if="isCronJob" class="grid grid-cols-[1fr_auto] gap-sm items-end">
             <div>
@@ -2249,7 +2263,6 @@ function podStatusBorder(s) {
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-xs">
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">ServiceAccount</label><input v-model="editForm.serviceAccountName" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="default" /></div>
             <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.priorityClass') }}</label><input v-model="editForm.priorityClassName" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" :placeholder="$t('workload.edit.priorityClassPlaceholder')" /></div>
-            <div><label class="text-xs font-medium text-on-surface-variant block mb-xs">ImagePullSecret</label><input v-model="editForm.imagePullSecrets" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-sm py-sm text-xs font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="regcred" /></div>
           </div>
           <div class="flex items-center justify-between"><span class="text-xs font-semibold text-on-surface-variant">{{ $t('workload.edit.nodeSelector') }}</span><button @click="editForm.nodeSelectors.push({ key: '', value: '' })" class="flex items-center gap-0.5 text-xs font-medium text-primary hover:bg-primary-container/10 rounded px-xs py-0.5 transition-colors"><span class="material-symbols-outlined text-sm">add</span>{{ $t('workload.edit.add') }}</button></div>
           <div v-for="(n, i) in editForm.nodeSelectors" :key="'ns'+i" class="flex items-center gap-xs">
@@ -2438,9 +2451,18 @@ function podStatusBorder(s) {
       </div>
       <details class="rounded-lg border border-outline-variant/60">
         <summary class="cursor-pointer px-md py-sm text-xs text-on-surface-variant flex items-center gap-xs"><span class="material-symbols-outlined text-sm">lock</span>{{ $t('workload.imageTag.registryAuth') }}</summary>
-        <div class="grid grid-cols-2 gap-sm px-md pb-md">
-          <input v-model="registryAuth.username" :placeholder="$t('workload.imageTag.usernamePh')" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono" />
-          <input v-model="registryAuth.password" type="password" :placeholder="$t('workload.imageTag.passwordPh')" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono" />
+        <!-- issue#20 bug2:凭证可从已有 docker-registry Secret 选择(服务端解析账密,不出网关);默认手动填写 -->
+        <div class="px-md pb-md grid gap-sm">
+          <label class="text-xs text-on-surface-variant block">{{ $t('workload.imageTag.credentialSelect') }}</label>
+          <select v-model="registryAuthSecret" class="w-full bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono">
+            <option value="">{{ $t('workload.imageTag.manualAuth') }}</option>
+            <option v-for="s in registrySecretOptions" :key="s" :value="s">{{ s }}</option>
+          </select>
+          <div v-if="!registryAuthSecret" class="grid grid-cols-2 gap-sm">
+            <input v-model="registryAuth.username" :placeholder="$t('workload.imageTag.usernamePh')" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono" />
+            <input v-model="registryAuth.password" type="password" :placeholder="$t('workload.imageTag.passwordPh')" class="bg-surface-container-low border border-outline-variant rounded px-sm py-sm text-body-sm font-mono" />
+          </div>
+          <p v-else class="text-xs text-on-surface-variant">{{ $t('workload.imageTag.usingSecret', { name: registryAuthSecret }) }}</p>
         </div>
       </details>
       <div>
