@@ -2683,6 +2683,9 @@
     "imageTag": {
       "repoReadonly": "镜像仓库（不可改）",
       "registryAuth": "Registry 认证（私有仓库可选）",
+      "credentialSelect": "选择已有拉取凭证",
+      "manualAuth": "手动填写账密",
+      "usingSecret": "将使用 {name} 中的凭证查询 tag 列表",
       "usernamePh": "用户名",
       "passwordPh": "密码",
       "tagLabel": "版本 Tag",

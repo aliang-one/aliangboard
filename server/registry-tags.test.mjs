@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeImageRef, normalizeEndpoint, fetchRegistryTags, compareTagsDesc } from './registry-tags.mjs'
+import { normalizeImageRef, normalizeEndpoint, fetchRegistryTags, compareTagsDesc, resolveRegistryAuthFromSecret } from './registry-tags.mjs'
 
 // —— ref 解析 ——
 test('normalizeImageRef: 官方镜像无 registry', () => {
@@ -173,4 +173,68 @@ test('fetchRegistryTags: 换票 realm 非法 URL → 落回原 401 needsAuth 而
   const fetchImpl = async () => stubRes(401, { headers: { 'www-authenticate': 'Bearer realm="not-a-url"' } })
   const r = await fetchRegistryTags({ image: 'reg.io/org/app:1', fetchImpl })
   assert.equal(r.needsAuth, true)
+})
+
+
+// === resolveRegistryAuthFromSecret(issue#20 bug2:修改版本弹窗凭证可选已有)===
+// docker-registry Secret(.dockerconfigjson)→ 指定镜像 registry host 的 {username,password}。
+// 服务端解析(凭证不出网关);前端只传 secretRef {namespace,name}。
+const b64 = s => Buffer.from(s).toString('base64')
+const makeSecret = auths => ({ data: { '.dockerconfigjson': b64(JSON.stringify({ auths })) } })
+
+test('resolver: 精确 host 匹配,entry.auth(base64 user:pass)解码', () => {
+  const s = makeSecret({ 'registry.cn-hangzhou.aliyuncs.com': { auth: b64('aliyun-user:p@ss') } })
+  const r = resolveRegistryAuthFromSecret(s, 'registry.cn-hangzhou.aliyuncs.com/ns/app:v1')
+  assert.deepEqual(r, { ok: true, username: 'aliyun-user', password: 'p@ss', matchedKey: 'registry.cn-hangzhou.aliyuncs.com' })
+})
+
+test('resolver: key 带 scheme 与 /v1/ 尾巴 → 归一后匹配', () => {
+  const s = makeSecret({ 'https://reg.example.com/v1/': { auth: b64('u:p') } })
+  const r = resolveRegistryAuthFromSecret(s, 'reg.example.com/ns/app:v1')
+  assert.equal(r.ok, true)
+  assert.equal(r.username, 'u')
+})
+
+test('resolver: docker hub 别名互认(image 无 registry → 数据端点 host;key=index.docker.io 变体)', () => {
+  const s = makeSecret({ 'https://index.docker.io/v1/': { auth: b64('hubu:hubp') } })
+  const r = resolveRegistryAuthFromSecret(s, 'nginx:1.25')
+  assert.equal(r.ok, true)
+  assert.equal(r.username, 'hubu')
+  assert.equal(r.password, 'hubp')
+})
+
+test('resolver: entry 直接 username/password(无 auth 字段)可用', () => {
+  const s = makeSecret({ 'reg.io': { username: 'direct-u', password: 'direct-p' } })
+  const r = resolveRegistryAuthFromSecret(s, 'reg.io/ns/app:v1')
+  assert.deepEqual({ ok: r.ok, username: r.username, password: r.password }, { ok: true, username: 'direct-u', password: 'direct-p' })
+})
+
+test('resolver: 无匹配且多条目 → no-match(不瞎选)', () => {
+  const s = makeSecret({ 'a.io': { auth: b64('a:a') }, 'b.io': { auth: b64('b:b') } })
+  const r = resolveRegistryAuthFromSecret(s, 'c.io/ns/app:v1')
+  assert.equal(r.ok, false)
+  assert.equal(r.reason, 'no-match')
+})
+
+test('resolver: 无匹配且单条目 → no-match(对抗审查 MED:绝不把凭证发给异 registry 主机,kubelet 同语义)', () => {
+  // 单条目兜底会把 aliyun 凭证发给 quay.io 等任意镜像所指主机(含其 token realm、明文回退线路)——
+  // 凭证出口 fail-safe 优于 fail-open;用户走手动填写降级
+  const s = makeSecret({ 'my-reg.local:5000': { auth: b64('u:p') } })
+  const r = resolveRegistryAuthFromSecret(s, 'registry.cn-shenzhen.aliyuncs.com/ns/app:v1')
+  assert.equal(r.ok, false)
+  assert.equal(r.reason, 'no-match')
+})
+
+test('resolver: 缺 .dockerconfigjson / 坏 base64 / 坏 JSON → bad-secret', () => {
+  assert.equal(resolveRegistryAuthFromSecret({ data: {} }, 'reg.io/a/b').reason, 'bad-secret')
+  assert.equal(resolveRegistryAuthFromSecret({ data: { '.dockerconfigjson': '!!!not-base64!!!' } }, 'reg.io/a/b').reason, 'bad-secret')
+  assert.equal(resolveRegistryAuthFromSecret({ data: { '.dockerconfigjson': b64('{broken') } }, 'reg.io/a/b').reason, 'bad-secret')
+  assert.equal(resolveRegistryAuthFromSecret(null, 'reg.io/a/b').reason, 'bad-secret')
+})
+
+test('resolver: 命中条目但无任何账密字段 → no-creds', () => {
+  const s = makeSecret({ 'reg.io': {} })
+  const r = resolveRegistryAuthFromSecret(s, 'reg.io/ns/app:v1')
+  assert.equal(r.ok, false)
+  assert.equal(r.reason, 'no-creds')
 })

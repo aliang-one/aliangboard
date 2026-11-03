@@ -37,6 +37,7 @@ const ALLOWLIST = [
   { file: 'server/static.mjs', name: 'COMPRESSIBLE', kind: 'const', reason: '常量表' },
   { file: 'server/ssh/readonly-classifier.mjs', name: 'READONLY', kind: 'const', reason: '常量表' },
   { file: 'server/ssh/readonly-classifier.mjs', name: 'ARG_DENY', kind: 'const', reason: '常量表' },
+  { file: 'server/registry-tags.mjs', name: 'DOCKER_HUB_ALIASES', kind: 'const', reason: '常量表:docker hub 别名集合(不可变查找表,issue#20)' },
 ]
 // Task 14 已清空(Wave 2 登记完成,规则③执法中;保留空数组形状,重命名/撤登记者立红)
 const NOT_YET_REGISTERED = []

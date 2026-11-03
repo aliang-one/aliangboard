@@ -75,6 +75,8 @@ export const TABLE = {
   'api.registryRepoNotFound': { zh: '仓库 {repo} 不存在', en: 'Repository {repo} not found' },
   'api.registryReturned': { zh: 'Registry 返回 {status}：{body}', en: 'Registry returned {status}: {body}' },
   'api.registryUnreachable': { zh: '无法访问 Registry：{msg}', en: 'Cannot reach Registry: {msg}' },
+  'api.registrySecretUnreadable': { zh: '读取拉取凭证 Secret 失败：{msg}', en: 'Failed to read the pull-secret: {msg}' },
+  'api.registrySecretNoAuth': { zh: '所选 Secret 中没有可用于该镜像仓库的凭证（{reason}）', en: 'No usable credential for this registry in the selected Secret ({reason})' },
   'api.missingNsKindName': { zh: '缺少 namespace / kind / name', en: 'Missing namespace / kind / name' },
   'api.resolveOwnerFailed': { zh: '解析归属链失败', en: 'Failed to resolve ownership chain' },
   'api.k8sHttpError': { zh: 'Kubernetes API 返回 HTTP {status}', en: 'Kubernetes API returned HTTP {status}' },

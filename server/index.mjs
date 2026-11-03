@@ -27,7 +27,7 @@ import { resolveApiKey, createApiKeyTools, safePodPath, podPathDenied } from './
 import { createMcpServer } from './mcp.mjs'
 import { runBoundedCollect, toExecArgv, k8sStatusToExitCode } from './exec-bounds.mjs'
 import { pctOf } from './k8s-quantity.mjs'
-import { fetchRegistryTags } from './registry-tags.mjs'
+import { fetchRegistryTags, resolveRegistryAuthFromSecret } from './registry-tags.mjs'
 import { rekeyWindowRecords, purgeOrphanWindowRecords, isKnownSessionToken, tombstoneSession, tombstoneExpiredSessions, purgeRotatedSessions, sessionTokenOwner } from './window-records.mjs'
 import { checkRate, checkLoginRate } from './rate-limit.mjs'
 import { maybeGzip } from './http-compress.mjs'
@@ -2548,8 +2548,34 @@ const sshRoutes = createSshRoutes({ db, sendJson, readBody, requirePlatform, req
       // W2 Phase B:集群级出口(ns 无关)→ namespace=null 门:allowlist 集群非 admin 拒
       // (canAccessCluster 语义;open/legacy 照常放行,admin 短路)。
       if (!k8sGate.gateK8sSession(session, { namespace: null, level: levelForRequest(req.method), path: url.pathname, method: req.method })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
+      let username = input.username, password = input.password
+      // issue#20 bug2:凭证可选已有 —— secretRef {namespace,name} 时服务端读 docker-registry
+      // Secret 解析账密(凭证不出网关)。⚠ secretRef 的 ns 必须单独过 view 门:没有它,
+      // 有集群级 tags 权限的会话可借本端点读任意 ns 的拉取凭证 = 跨 ns 越权。
+      if (input.secretRef?.name) {
+        const refNs = String(input.secretRef.namespace || '')
+        const refName = String(input.secretRef.name || '')
+        if (!refNs || !refName) return sendJson(res, 400, { message: msg(req, 'api.missingNsKindName') })
+        if (!k8sGate.gateK8sSession(session, { namespace: refNs, level: 'view', path: url.pathname, method: 'GET' })) return sendJson(res, 403, { message: msg(req, 'api.nsForbidden') })
+        let secretBody
+        try {
+          secretBody = (await requestKubernetes(session, `/api/v1/namespaces/${encodeURIComponent(refNs)}/secrets/${encodeURIComponent(refName)}`)).body
+        } catch (e) {
+          return sendJson(res, e?.status === 404 ? 404 : 502, { message: msg(req, 'api.registrySecretUnreadable', { msg: e?.message || e }) })
+        }
+        const resolved = resolveRegistryAuthFromSecret(secretBody, String(input.image || ''))
+        if (!resolved.ok) return sendJson(res, 400, { message: msg(req, 'api.registrySecretNoAuth', { reason: resolved.reason }) })
+        // issue#20 审计补口(对抗审查 low):凭证即将投递出网关(→ image 派生的 registry host)。
+        // 门只审拒绝、成功路径原本零留痕,泄露事故无法回溯「哪个 Secret 的凭证去了哪个 host」。
+        // 只记元数据,绝不记账密本体;401/失败时凭证也已投递,故审计在 dispatch 前一次写足。
+        try {
+          writeAudit(db, { owner: session.userId || 'k8s-session', verb: 'read', tool: 'registry_tags', result: 'ok', source: 'session', namespace: refNs, requestSummary: `secret=${refNs}/${refName} matched=${resolved.matchedKey} image=${String(input.image || '')}` })
+        } catch { /* 审计写失败不改变主流程 */ }
+        username = resolved.username
+        password = resolved.password
+      }
       const agent = new UndiciAgent({ connect: { rejectUnauthorized: false } })
-      const r = await fetchRegistryTags({ image: String(input.image || ''), username: input.username, password: input.password, fetchImpl: (t, o) => kubeFetch(t, { ...o, dispatcher: agent }) })
+      const r = await fetchRegistryTags({ image: String(input.image || ''), username, password, fetchImpl: (t, o) => kubeFetch(t, { ...o, dispatcher: agent }) })
       if (r.unparsable) return sendJson(res, 400, { message: msg(req, 'api.registryUnparsable') })
       if (r.needsAuth) return sendJson(res, 401, { message: msg(req, 'api.registryNeedsAuth'), needsAuth: true })
       if (r.notFound) return sendJson(res, 404, { message: msg(req, 'api.registryRepoNotFound', { repo: r.repo }) })
