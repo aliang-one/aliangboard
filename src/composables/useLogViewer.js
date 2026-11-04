@@ -8,6 +8,11 @@ import { parseLogLine, buildLogQuery, pushCapped } from '@/logic/podLogs'
 import { writePopupTokenHandoff } from '@/logic/popupToken'
 
 export const MAX_LOG_BUFFER = 5000
+// 页面可见性暂停(2026-11-04,issue#20 诊断批):HTTP/1.1 每域 6 连接上限 × 长驻 follow 流 ——
+// 后台日志标签占住连接池,新加载(乃至新标签的文档请求)排队数分钟(生产浏览器实测:3 个
+// follow 标签后第 4 个导航 60s 超时)。页面隐藏超宽限期 → 暂停 follow 释放连接;恢复可见 →
+// 自动重启(重新拉 tail 突发)。宽限期避免「切走又切回」的无谓打断。
+export const LOG_FOLLOW_VISIBILITY_PAUSE_MS = 60_000
 export const LOG_LINE_OPTIONS = [100, 500, 1000, 5000]
 export const LOG_SINCE_OPTIONS = [
   { value: '', seconds: 0 },
@@ -26,6 +31,8 @@ export function useLogViewer({ namespace, podName, container }) {
   const streamError = ref('')    // 流中断/拉取失败（横幅）
   const totalAppended = ref(0)   // 单调累计追加行数（缓冲打满后 length 恒定，自动滚动改监听此值）
   let stream = null
+  let visibilityTimer = null
+  let pausedByVisibility = false
 
   function logPath(follow) {
     const q = buildLogQuery({
@@ -54,6 +61,7 @@ export function useLogViewer({ namespace, podName, container }) {
   function startFollow() {
     if (!podName.value) return
     stopFollow()
+    pausedByVisibility = false
     lines.value = []
     streamError.value = ''
     stream = k8sStream(logPath(true), {
@@ -73,6 +81,22 @@ export function useLogViewer({ namespace, podName, container }) {
     else { stopFollow(); loadRemoteLogs() }
   }
 
+  // 可见性暂停：hidden 起 60s 宽限计时，届时仍隐藏且在 follow → 暂停;visible → 清计时,被暂停则重启。
+  function onVisibilityChange() {
+    if (typeof document === 'undefined') return
+    if (document.visibilityState === 'hidden') {
+      if (followLog.value && !logPrevious.value && stream && !visibilityTimer) {
+        visibilityTimer = setTimeout(() => {
+          visibilityTimer = null
+          if (document.visibilityState === 'hidden' && stream) { pausedByVisibility = true; stopFollow() }
+        }, LOG_FOLLOW_VISIBILITY_PAUSE_MS)
+      }
+    } else {
+      if (visibilityTimer) { clearTimeout(visibilityTimer); visibilityTimer = null }
+      if (pausedByVisibility) { pausedByVisibility = false; if (followLog.value && !logPrevious.value && podName.value) startFollow() }
+    }
+  }
+
   watch(followLog, v => (v ? startFollow() : stopFollow()))
   watch(container, restart)
   watch([logLines, logSince], restart)
@@ -80,8 +104,15 @@ export function useLogViewer({ namespace, podName, container }) {
 
   // 仅在组件 setup 内注册生命周期（测试可绕过宿主直接调用函数）
   if (getCurrentInstance()) {
-    onMounted(() => (followLog.value && !logPrevious.value ? startFollow() : loadRemoteLogs()))
-    onUnmounted(stopFollow)
+    onMounted(() => {
+      followLog.value && !logPrevious.value ? startFollow() : loadRemoteLogs()
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    })
+    onUnmounted(() => {
+      stopFollow()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (visibilityTimer) { clearTimeout(visibilityTimer); visibilityTimer = null }
+    })
   }
   return { lines, followLog, logLines, logSince, logPrevious, streamError, totalAppended, startFollow, stopFollow, loadRemoteLogs, restart }
 }
