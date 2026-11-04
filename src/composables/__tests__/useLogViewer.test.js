@@ -1,5 +1,5 @@
 // src/composables/__tests__/useLogViewer.test.js
-import { test, expect, vi } from 'vitest'
+import { test, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, ref, nextTick } from 'vue'
 import { createPinia } from 'pinia'
@@ -39,8 +39,12 @@ function mountViewer(props = {}) {
     template: '<div />',
   })
   const wrapper = mount(Host, { global: { plugins: [createPinia(), i18n] } })
+  mountedWrappers.push(wrapper)
   return { wrapper, state }
 }
+// 可见性事件挂在共享 document 上:不卸载的旧宿主会残留监听器串扰后续用例,统一清理
+const mountedWrappers = []
+afterEach(() => { while (mountedWrappers.length) mountedWrappers.pop().unmount() })
 
 test('挂载即启动 follow 流，路径带 follow=true 与 container', () => {
   const { state } = mountViewer()
@@ -97,4 +101,54 @@ test('openLogTab: token 走交接槽不上 URL，target 为具名 log-ns-pod-con
   expect(target).toBe('log-default-pod-1-main')
   vi.unstubAllGlobals()
   localStorage.removeItem('aliangboard.termTokenHandoff')
+})
+
+// ---- 页面可见性暂停(issue#20 诊断批):HTTP/1.1 每域 6 连接上限 × 长驻 follow 流 =
+// 后台日志标签占住连接池,新加载排队数分钟(生产浏览器实测:4 标签第 4 个导航 60s 超时)。
+// 隐藏超宽限期 → 暂停 follow(释放连接);恢复可见 → 自动重启。短暂切走(<宽限)不打断。
+const setVisibility = state => {
+  Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
+test('页面隐藏超宽限期 → follow 暂停(abort);恢复可见 → 自动重启', async () => {
+  vi.useFakeTimers()
+  k8sStreamMock.mockClear(); streamAbort.mockClear()
+  const { state } = mountViewer()
+  expect(k8sStreamMock).toHaveBeenCalledTimes(1)
+  setVisibility('hidden')
+  vi.advanceTimersByTime(61000)
+  expect(streamAbort).toHaveBeenCalledTimes(1)
+  setVisibility('visible')
+  await vi.advanceTimersByTimeAsync(0)
+  expect(k8sStreamMock).toHaveBeenCalledTimes(2)
+  vi.useRealTimers()
+})
+
+test('短暂隐藏(<宽限)恢复 → 不打断现有流', async () => {
+  vi.useFakeTimers()
+  k8sStreamMock.mockClear(); streamAbort.mockClear()
+  const { state } = mountViewer()
+  setVisibility('hidden')
+  vi.advanceTimersByTime(1000)
+  setVisibility('visible')
+  vi.advanceTimersByTime(61000)
+  expect(streamAbort).not.toHaveBeenCalled()
+  expect(k8sStreamMock).toHaveBeenCalledTimes(1)
+  vi.useRealTimers()
+})
+
+test('previous 模式(follow 关)隐藏不产生暂停/重启动作', async () => {
+  vi.useFakeTimers()
+  k8sStreamMock.mockClear(); streamAbort.mockClear()
+  const { state } = mountViewer()
+  state.logPrevious.value = true
+  await nextTick()
+  const calls = k8sStreamMock.mock.calls.length
+  setVisibility('hidden')
+  vi.advanceTimersByTime(61000)
+  setVisibility('visible')
+  vi.advanceTimersByTime(0)
+  expect(k8sStreamMock.mock.calls.length).toBe(calls)
+  vi.useRealTimers()
 })
