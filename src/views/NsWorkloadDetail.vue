@@ -2078,17 +2078,19 @@ function podStatusBorder(s) {
             </div>
           </div>
           <p v-if="isJob" class="col-span-2 text-xs text-on-surface-variant/70">{{ $t('workload.edit.jobImmutableHint') }}</p>
-          <!-- issue#20 bug1:拉取凭证从「调度」区(裸文本、埋没)迁到基本配置,改为选择已有凭证(与创建向导同构)。
-               非 rollout 类型(Job/CronJob)保存不写 imagePullSecrets(K8s Job template 不可变;CronJob 走 jobTemplate
-               专用链路)——可写即假保存(对抗审查 MED),故禁用但保留回填值可见。 -->
-          <div class="col-span-2"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label><select v-model="editForm.imagePullSecrets" :disabled="!isRolloutType" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm disabled:opacity-60 disabled:cursor-not-allowed"><option value="">{{ $t('common.none') }}</option><option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option></select></div>
-          <div v-if="isScalable"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.replicas') }}</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
-          <div v-if="isCronJob" class="grid grid-cols-[1fr_auto] gap-sm items-end">
-            <div>
-              <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.schedule') }}</label>
-              <input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="*/5 * * * *" />
+          <!-- 副本数 + 拉取凭证 同一行(美化 2026-11-04):Deployment/StatefulSet=[副本数|凭证];
+               CronJob=[schedule+挂起|凭证(禁用)];Job/其余=凭证独占整行(禁用,假保存防线不变)。
+               拉取凭证从「调度」区迁来(issue#20),改为选择已有凭证(与创建向导同构)。 -->
+          <div data-testid="edit-basic-secondary-row" class="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-sm">
+            <div v-if="isScalable"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.replicas') }}</label><input v-model.number="editForm.replicas" type="number" min="1" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" /></div>
+            <div v-if="isCronJob" class="grid grid-cols-[1fr_auto] gap-sm items-end">
+              <div>
+                <label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('workload.edit.schedule') }}</label>
+                <input v-model="editForm.schedule" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors" placeholder="*/5 * * * *" />
+              </div>
+              <label class="flex items-center gap-xs pb-sm text-xs font-medium text-on-surface-variant cursor-pointer select-none"><input type="checkbox" v-model="editForm.suspend" class="accent-primary w-4 h-4" />{{ $t('workload.edit.suspend') }}</label>
             </div>
-            <label class="flex items-center gap-xs pb-sm text-xs font-medium text-on-surface-variant cursor-pointer select-none"><input type="checkbox" v-model="editForm.suspend" class="accent-primary w-4 h-4" />{{ $t('workload.edit.suspend') }}</label>
+            <div :class="(isScalable || isCronJob) ? '' : 'sm:col-span-2'"><label class="text-xs font-medium text-on-surface-variant block mb-xs">{{ $t('deploy.imagePullSecrets') }}</label><select v-model="editForm.imagePullSecrets" :disabled="!isRolloutType" class="w-full bg-surface-container-low border border-outline-variant rounded-md px-md py-sm text-body-sm disabled:opacity-60 disabled:cursor-not-allowed"><option value="">{{ $t('common.none') }}</option><option v-for="s in availableSecrets" :key="s" :value="s">{{ s }}</option></select></div>
           </div>
           <div class="col-span-2"><p class="text-xs text-on-surface-variant/60">{{ $t('workload.edit.imagePreview') }}<span class="font-mono text-primary">{{ editForm.imageRepo }}:{{ editForm.imageTag || '?' }}</span></p></div>
         </div>

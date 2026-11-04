@@ -258,3 +258,19 @@ test('编辑壳:多 envFrom 与 fieldRef 回填并完整保存(D1/D2 根治)', a
   w.unmount()
   document.body.innerHTML = ''
 })
+
+// ---- 基本配置美化(2026-11-04):副本数与拉取凭证同一行 ----
+test('编辑弹窗:副本数与拉取凭证同处一行容器(data-testid 锁),且不在「调度」区', async () => {
+  const w = mountDetailB()
+  await flushPromises()
+  await w.vm.openEdit()   // 填全量表单骨架
+  await w.setData({ showEditModal: true })
+  await flushPromises()
+  // Modal teleport 到 body:走 document 查询(既有同款)
+  const row = document.body.querySelector('[data-testid="edit-basic-secondary-row"]')
+  expect(row).toBeTruthy()
+  expect(row.querySelector('input[type=number]')).toBeTruthy()   // 副本数
+  expect(row.querySelectorAll('select').length).toBe(1)          // 拉取凭证恰一份(调度区不再含)
+  w.unmount()
+  document.body.innerHTML = ''
+})
