@@ -136,6 +136,10 @@ npm run dev      # terminal 2: frontend dev server (Vite proxies /api → 127.0.
 
 Production build: `npm run build` (output in `dist/`, served same-origin by the gateway's `server/static.mjs`).
 
+## ☁️ One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/AliangBoard/)
+
 ## 🤖 AI Workbench & MCP
 
 AliangBoard turns an LLM into a cluster operator via two paths.
