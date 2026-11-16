@@ -402,7 +402,11 @@ const CK_TIME_MS = 500
       const pollSteer = () => {
         const rows = db.prepare("SELECT id,content,seq FROM workbench_messages WHERE conversationId=? AND seq>? AND role='user' AND steered=1 ORDER BY seq ASC").all(convId, steerWatermark)
         if (!rows.length) return []
+        const prevWatermark = steerWatermark
         steerWatermark = rows[rows.length - 1].seq
+        // 消费标记落库(2026-11-16 审计):徽标「AI 已读取」不再只靠 steer_consumed 实时广播——
+        // 刷新/降级轮询/他端断流客户端从消息行重建时即可见真实消费态。
+        db.prepare('UPDATE workbench_messages SET steerRead=1 WHERE conversationId=? AND steered=1 AND seq>? AND seq<=?').run(convId, prevWatermark, steerWatermark)
         busEmit(convId, { type: 'steer_consumed', seqs: rows.map(r => r.seq), messageIds: rows.map(r => r.id) })
         return rows.map(r => ({ role: 'user', content: r.content }))
       }
@@ -556,7 +560,10 @@ const CK_TIME_MS = 500
       const pollSteer = () => {
         const rows = db.prepare("SELECT id,content,seq FROM workbench_messages WHERE conversationId=? AND seq>? AND role='user' AND steered=1 ORDER BY seq ASC").all(convId, steerWatermark)
         if (!rows.length) return []
+        const prevWatermark = steerWatermark
         steerWatermark = rows[rows.length - 1].seq
+        // 消费标记落库,同 runConversation 闭包(2026-11-16 审计)。
+        db.prepare('UPDATE workbench_messages SET steerRead=1 WHERE conversationId=? AND steered=1 AND seq>? AND seq<=?').run(convId, prevWatermark, steerWatermark)
         busEmit(convId, { type: 'steer_consumed', seqs: rows.map(r => r.seq), messageIds: rows.map(r => r.id) })
         return rows.map(r => ({ role: 'user', content: r.content }))
       }

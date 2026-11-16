@@ -83,6 +83,9 @@ export function createConversationsSchema(db) {
   try { db.exec('ALTER TABLE workbench_messages ADD COLUMN reasoning TEXT') } catch { /* 列已存在 */ }
   // steer(2026-10-13 spec D4):运行中注入的 user 行标记——pollSteer 增量查询过滤 + 前端徽标。
   try { db.exec('ALTER TABLE workbench_messages ADD COLUMN steered INTEGER') } catch { /* 列已存在 */ }
+  // steer 消费标记(2026-11-16 审计):pollSteer 吸收时落库——前端徽标「AI 已读取」此前只靠
+  // steer_consumed 实时广播,刷新回退、降级轮询客户端永不翻转。
+  try { db.exec('ALTER TABLE workbench_messages ADD COLUMN steerRead INTEGER') } catch { /* 列已存在 */ }
   // steer(final review C1):暂停时锚定的 watermark——resume 读它而非现算 maxSeq,否则
   // paused 期间落库的 steer 行 seq ≤ 现 maxSeq,续跑首轮永不吸收(spec D5 头条场景)。
   try { db.exec('ALTER TABLE workbench_conversations ADD COLUMN steerWatermark INTEGER') } catch { /* 列已存在 */ }
@@ -331,13 +334,17 @@ export function listMessages(db, conversationId) {
 
 // 重新生成(P1):删掉最后一条 user 消息之后的全部消息(即待重跑的 assistant 回复),
 // 该 user 消息保留——runConversation 以 buildHistory(=剩余消息)重跑即重答此轮。
+// 「末条 user」恒取非 steered 行(=被重答的问题;steer 行本身也是 role='user',混入会把
+// 锚点错指到补发行)。steered 行保留(2026-11-16 审计):补发是用户自己的话,被上一版
+// 答案吸收过≠可丢弃——删掉会让重答不参考补发内容、且用户原文不可恢复消失;保留后
+// 按 seq 序进重跑上下文,新答案自然覆盖补发诉求。
 // 返回 { removed, lastUserSeq };无 user 消息返回 { removed: 0, lastUserSeq: 0 }。调用方
 // (regenerate 路由)按 lastUserSeq 判 400 而非 removed——removed=0 但 user 仍在
 // (失败/取消轮零 assistant 产出)须放行重跑,见 contracts-02(2026-09-07 审计)。
 export function truncateAfterLastUser(db, conversationId) {
-  const lastUser = db.prepare("SELECT seq FROM workbench_messages WHERE conversationId=? AND role='user' ORDER BY seq DESC LIMIT 1").get(conversationId)
+  const lastUser = db.prepare("SELECT seq FROM workbench_messages WHERE conversationId=? AND role='user' AND (steered IS NULL OR steered=0) ORDER BY seq DESC LIMIT 1").get(conversationId)
   if (!lastUser) return { removed: 0, lastUserSeq: 0 }
-  const removed = db.prepare('DELETE FROM workbench_messages WHERE conversationId=? AND seq>?').run(conversationId, lastUser.seq).changes
+  const removed = db.prepare('DELETE FROM workbench_messages WHERE conversationId=? AND seq>? AND (steered IS NULL OR steered=0)').run(conversationId, lastUser.seq).changes
   return { removed, lastUserSeq: lastUser.seq }
 }
 

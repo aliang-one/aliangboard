@@ -575,6 +575,7 @@ export function createWorkbenchConvRoutes(deps) {
       const conv = getConversation(db, id)
       const project = resolveConvProject(req, res, ps, conv)
       if (!project) return true
+      try {
       const input = await readBody(req)
       const cleanMessage = typeof input?.message === 'string' ? input.message.trim() : ''
       if (!cleanMessage) { sendJson(res, 400, { message: msg(req, 'wbc.messageRequired') }); return true }
@@ -623,6 +624,12 @@ export function createWorkbenchConvRoutes(deps) {
       auditConv(ps, 'steer', id, project.id)
       sendJson(res, 200, { messageId: userRow.id, references: fetchedResources, context: contextInfo(getConversation(db, id)) })
       return true
+      } catch (e) {
+        // 兜底(2026-11-16 审计:本分支原是全文件唯一无 try/catch 的 POST——readBody 413/400、
+        // buildRefsContext 网络错误都裸 500):状态码透传(e.status),其余 500 统一文案。
+        sendJson(res, e?.status || 500, { message: e?.status ? e.message : msg(req, 'wbc.steerFailed') })
+        return true
+      }
     }
 
     // POST /api/workbench/conversations/:id/regenerate — 重新生成最后一条回复(P1 消息操作)。

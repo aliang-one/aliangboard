@@ -1437,6 +1437,9 @@ test('runConversation: pollSteer 闭包按 watermark 吸收 steered 行 + steer_
   assert.deepEqual(pollSteer(), [{ role: 'user', content: '补充X' }])
   assert.deepEqual(pollSteer(), [])                       // watermark 已推进
   assert.ok(s.events.some(e => e.type === 'steer_consumed'))
+  // 消费标记落库(2026-11-16 审计):刷新/降级轮询客户端从消息行重建徽标时可见真实消费态
+  const readRow = s.db.prepare('SELECT steerRead FROM workbench_messages WHERE content=?').get('补充X')
+  assert.equal(readRow.steerRead, 1, '吸收时必须 UPDATE steerRead=1')
 })
 
 test('C1 回归:paused 期间 steer → approve 续跑首轮吸收(真序列,spec D5)', async () => {

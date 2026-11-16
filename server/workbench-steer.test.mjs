@@ -8,7 +8,7 @@ import { createWorkbenchSchema, createProject, appendMessage, listMessages } fro
 import { createWorkbenchConvRoutes } from './routes/workbench-conversations.mjs'
 import { subscribe, unsubscribe } from './conv-bus.mjs'
 
-function setup({ status = 'running', body = { message: '补充X' } } = {}) {
+function setup({ status = 'running', body = { message: '补充X' }, readBody: readBodyOverride } = {}) {
   const db = new DatabaseSync(':memory:')
   createWorkbenchSchema(db)
   const p = createProject(db, { name: 'p1', clusterId: 'c1', ownerId: 'u-me' })
@@ -25,7 +25,7 @@ function setup({ status = 'running', body = { message: '补充X' } } = {}) {
   const routes = createWorkbenchConvRoutes({
     db,
     sendJson: (_r, status, body) => sent.push({ status, body }),
-    readBody: async () => body,
+    readBody: readBodyOverride || (async () => body),
     requirePlatform: () => ({ userId: 'u-me', username: 'me', role: 'user' }),
     requireAdmin: () => null,
     writeAudit: (_db, e) => audits.push(e),
@@ -116,4 +116,24 @@ test('旧库幂等:createWorkbenchSchema 二次调用不抛(steered 列 try-ALTE
   createWorkbenchSchema(db)   // 幂等
   appendMessage(db, { conversationId: 'c', role: 'user', content: 'x', steered: 1 })
   assert.ok(true)
+})
+
+test('readBody 413 透传(2026-11-16 审计:兜底 catch 状态码不再裸 500)', async () => {
+  const boom = Object.assign(new Error('payload too large'), { status: 413 })
+  const s = setup({ readBody: async () => { throw boom } })
+  try {
+    await s.call()
+    assert.equal(s.sent[0].status, 413)
+    assert.equal(s.sent[0].body.message, 'payload too large')
+    assert.equal(listMessages(s.db, 'conv-1').filter(r => r.steered === 1).length, 0, '零副作用')
+  } finally { s.cleanup() }
+})
+
+test('未知异常兜底 500 + 统一文案(不泄内部错误)', async () => {
+  const s = setup({ readBody: async () => { throw new Error('内部堆栈详情') } })
+  try {
+    await s.call()
+    assert.equal(s.sent[0].status, 500)
+    assert.equal(s.sent[0].body.message, '补发失败,请重试')
+  } finally { s.cleanup() }
 })

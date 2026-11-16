@@ -241,6 +241,22 @@ test('truncateAfterLastUser:多轮只截末轮回复,前几轮完整保留;无 u
   assert.equal(truncateAfterLastUser(db, conv2.id).removed, 0)
 })
 
+// 2026-11-16 审计:regenerate 保留 steered 补发行——用户原话不可恢复丢失 + 重答不参考补发
+test('truncateAfterLastUser:steered 补发行保留,重跑上下文含它', () => {
+  const db = freshDb()
+  createConversation(db, { projectId: p1Id(db), system: 'sys', userMessage: 'q' })
+  const conv = getConversation(db, listConvId(db))
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: 'q' })                        // seq1
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a-part', trace: '[]' }) // seq2
+  appendMessage(db, { conversationId: conv.id, role: 'user', content: '运行中补充', steered: 1 })     // seq3
+  appendMessage(db, { conversationId: conv.id, role: 'assistant', content: 'a-bad', trace: '[]' })  // seq4
+  const { removed, lastUserSeq } = truncateAfterLastUser(db, conv.id)
+  assert.equal(removed, 2, '删旧答案两段(a-part/a-bad),补发行保留')
+  assert.equal(lastUserSeq, 1, '锚点=被重答的问题行(非 steered),不指到补发行自己')
+  const msgs = listMessages(db, conv.id)
+  assert.deepEqual(msgs.map(m => m.content), ['q', '运行中补充'], '补发行随 buildHistory 进重跑上下文')
+})
+
 // dev29 风险修复:水位钳制——seq 复用 × summarizedUpTo 互踩
 // 场景:水位已盖住末轮 user(regenerate 前),不钳制的话重答丢原问题全文、只靠 recap。
 test('regenWatermark:水位盖住末轮 user 时钳到 lastUserSeq-1,buildHistory 保留原问题全文', () => {

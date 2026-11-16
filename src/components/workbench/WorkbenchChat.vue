@@ -674,7 +674,7 @@ async function pollOnce(id) {
         const terminalFailed = conv.status === 'failed' || conv.status === 'cancelled'
         for (const m of msgs) {
           if (m.role === 'user') {
-            turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs), messageId: m.id, steered: m.steered ? 1 : 0, steerRead: false })
+            turns.value.push({ _id: ++turnSeq, role: 'user', content: m.content, refs: parseRefs(m.refs), messageId: m.id, steered: m.steered ? 1 : 0, steerRead: !!m.steerRead })
           } else {
             // R1(2026-08-19):assistant 消息带消息级 reasoning(服务端已持久化),刷新后 thinking 可回看。
             // 存量尾巴自愈(2026-09-06):轮未完成落库的消息(失败/取消/硬断)已流出文本只在
@@ -1273,9 +1273,14 @@ async function sendNew(msg) {
 // ── steer(spec D7,2026-10-13):运行中/待审批实时补充——落库即上屏,run 循环下一轮
 // 吸收(spec D2/D3,生效边界=下一 LLM 轮)。409 steerFinished(终态竞态:run 在回车瞬间
 // 结束)自动降级普通 append 一次;其余失败 input/refs 不动(字不丢),亮横幅。
+// 在途防重(2026-11-16 审计):steer 非乐观上屏(等 POST 响应才清输入),POST 在飞时
+// 再按 Enter/双击会重复落库重复注入(普通路径 sendNew 同步清输入天然免疫,此路不对称)。
+let steerInFlight = false
 async function sendSteer(msg) {
   const id = props.activeConversationId || conversationId.value
   if (!id) { errorBanner.value = t('workbench.chat.agentFailed'); return } // 新建对话在途窗口无 steer 目标(sending 分支本不该无 id),保守拦截
+  if (steerInFlight) return
+  steerInFlight = true
   const refsSnapshot = refs.value.length ? [...refs.value] : []
   try {
     const resp = await workbenchApi.conversations.steer(id, {
@@ -1284,7 +1289,9 @@ async function sendSteer(msg) {
     })
     if (unmounted) return
     refs.value = []
-    resetInput()
+    // 仅当输入框仍是刚发出的内容才清(2026-11-16 审计):在途防重窗口里用户可能已打下
+    // 下一条——无脑 resetInput 会把新草稿一并清掉(字丢)。
+    if (input.value === msg) resetInput()
     insertSteerTurn({ messageId: resp?.messageId || null, content: msg, refs: refsSnapshot })
     if (Array.isArray(resp?.references) && resp.references.length) {
       const ut = turns.value.find(x => x.messageId === resp?.messageId)
@@ -1300,6 +1307,8 @@ async function sendSteer(msg) {
       return
     }
     errorBanner.value = e.message || t('workbench.chat.agentFailed')
+  } finally {
+    steerInFlight = false
   }
 }
 

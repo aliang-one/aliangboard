@@ -15,6 +15,7 @@ export const TABLE = {
   // steer(2026-10-13):运行中补充端点——终态 409 引导改走普通发送;洪水轻限
   'wbc.steerFinished': { zh: '对话已结束,请直接发送新消息', en: 'Conversation has finished; send a new message instead' },
   'wbc.steerTooMany': { zh: '运行中补充条数已达上限(50),请等本轮结束后再发', en: 'Too many in-run supplements (limit 50); wait for this run to finish' },
+  'wbc.steerFailed': { zh: '补发失败,请重试', en: 'Steer failed; please retry' },
   'wbc.messageRequired': { zh: '消息内容不能为空', en: 'Message content is required' },
   'wbc.messageTooLarge': { zh: '单条消息过长(上限约 {limitKB}KB)。大段日志/配置请用 @-引用资源 附带,或分段发送。', en: 'Message too large (limit ~{limitKB}KB). Attach large logs/configs via @-resource references, or send in parts.' },
   'wbc.resumeFailed': { zh: '续接失败', en: 'Failed to continue conversation' },

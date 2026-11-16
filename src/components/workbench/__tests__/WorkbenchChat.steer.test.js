@@ -213,3 +213,40 @@ test('METER-2 P0 回归:终态迟到 GET 不击穿新轮 running/convStatus', as
   expect(w.vm.errorBanner).toBe('')
   w.unmount()
 })
+
+// 在途防重(2026-11-16 审计):steer 非乐观上屏(POST 成功才清输入),POST 在飞时
+// 再按 Enter/双击会重复落库重复注入——guard 生效后第二次发送被忽略,字不丢可再发。
+test('在途防重:POST 未返回期间再按 Enter 不重复 POST', async () => {
+  const w = await mountRunning()
+  let resolvePost
+  api.conversations.steer.mockImplementation(() => new Promise(r => { resolvePost = r }))
+  await w.find('textarea').setValue('第一条')
+  await w.find('textarea').trigger('keydown', { key: 'Enter', keyCode: 13 })
+  expect(api.conversations.steer).toHaveBeenCalledTimes(1)
+  // POST 在飞:改输入再按回车(双击/按住 Enter 场景)
+  await w.find('textarea').setValue('第二条')
+  await w.find('textarea').trigger('keydown', { key: 'Enter', keyCode: 13 })
+  await flushPromises()
+  expect(api.conversations.steer).toHaveBeenCalledTimes(1)
+  resolvePost({ messageId: 'sm-1' })
+  await flushPromises()
+  expect(w.text()).toContain('第一条')          // 第一条已上屏
+  expect(w.find('textarea').element.value).toBe('第二条') // 第二条字不丢,松手后可再发
+  w.unmount()
+})
+
+// 重建读消费态(2026-11-16 审计):steerRead 已落库的消息行,刷新后徽标仍为「AI 已读取」
+test('重建:steerRead=1 的行徽标为已读取,steerRead 空的行为已注入', async () => {
+  const conv = runningConv()
+  conv.status = 'done'
+  conv.messages = [
+    { id: 'm1', role: 'user', content: '第一问', refs: null },
+    { id: 'm2', role: 'assistant', content: '', trace: '[]' },
+    { id: 'm3', role: 'user', content: '已读的补充', steered: 1, steerRead: 1 },
+    { id: 'm4', role: 'user', content: '未读的补充', steered: 1 },
+  ]
+  const w = await mountConv(conv)
+  expect(w.text()).toContain('AI 已读取该补充')
+  expect(w.text()).toContain('已注入运行中的对话')
+  w.unmount()
+})
