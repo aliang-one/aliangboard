@@ -12,6 +12,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import StepUpDialog from '@/components/common/StepUpDialog.vue'
 import Modal from '@/components/common/Modal.vue'
+import { enterEscKeydown } from '@/utils/imeKey'
 import KubectlCard from '@/components/userCenter/KubectlCard.vue'
 import { uaSummary } from '@/utils/uaSummary'
 import { firstFailedRule, failedRuleMessageKey, DEFAULT_PASSWORD_POLICY } from '@/utils/passwordRules'
@@ -240,6 +241,10 @@ async function onStepUpDone() {
   pendingStepUpAction.value = null
   if (replay) await replay()
 }
+
+// MFA 码输入 Enter 提交走工厂(带 IME 防线):组合期回车不提交
+const onEnrollCodeKeydown = enterEscKeydown({ onEnter: confirmEnroll })
+const onDisableCodeKeydown = enterEscKeydown({ onEnter: confirmDisable })
 </script>
 
 <template>
@@ -343,7 +348,7 @@ async function onStepUpDone() {
         <p data-testid="mfa-otpauth" class="font-mono text-body-xs text-on-surface-variant break-all">{{ enrollUri }}</p>
       </div>
       <input v-model="enrollCode" data-testid="mfa-code-input" type="text" inputmode="numeric" autocomplete="one-time-code"
-        :placeholder="$t('userCenter.mfa.codePlaceholder')" @keydown.enter="confirmEnroll"
+        :placeholder="$t('userCenter.mfa.codePlaceholder')" @keydown="onEnrollCodeKeydown"
         :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-md tracking-widest outline-none transition-all', enrollError ? 'border-error' : 'border-outline-variant']" />
       <p v-if="enrollError" data-testid="mfa-enroll-error" class="text-body-sm text-error">{{ enrollError }}</p>
       <div class="flex justify-end gap-sm">
@@ -390,7 +395,7 @@ async function onStepUpDone() {
     <div class="flex flex-col gap-md">
       <p class="text-body-sm text-on-surface-variant">{{ $t('userCenter.mfa.disableHint') }}</p>
       <input v-model="disableCode" data-testid="mfa-disable-input" type="text" inputmode="numeric" autocomplete="one-time-code"
-        :placeholder="$t('userCenter.mfa.codePlaceholder')" @keydown.enter="confirmDisable"
+        :placeholder="$t('userCenter.mfa.codePlaceholder')" @keydown="onDisableCodeKeydown"
         :class="['w-full bg-surface-container-low border rounded-lg px-md py-sm text-body-md tracking-widest outline-none transition-all', disableError ? 'border-error' : 'border-outline-variant']" />
       <p v-if="disableError" data-testid="mfa-disable-error" class="text-body-sm text-error">{{ disableError }}</p>
       <div class="flex justify-end gap-sm">

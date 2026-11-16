@@ -10,6 +10,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { usePreferencesStore } from '@/stores/preferences'
 import { useAvatar } from '@/composables/useAvatar'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { isImeKeyEvent } from '@/utils/imeKey'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -57,7 +58,7 @@ function doLogout() {
   router.push('/login')
 }
 function onDocClick(e) { if (open.value && rootEl.value && !rootEl.value.contains(e.target)) closeMenu() }
-function onKey(e) { if (e.key === 'Escape') closeMenu() }
+function onKey(e) { if (e.key === 'Escape' && !isImeKeyEvent(e)) closeMenu() }   // IME 防线:组合期 Esc=取消候选词,不关菜单
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKey)

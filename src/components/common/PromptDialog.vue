@@ -8,6 +8,7 @@
 import { ref, watch } from 'vue'
 import Modal from './Modal.vue'
 import { useI18n } from 'vue-i18n'
+import { enterEscKeydown } from '@/utils/imeKey'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -39,6 +40,8 @@ const trimmed = () => value.value.trim()
 const gated = () => !!props.requireText && value.value !== props.requireText
 function onCancel() { emit('update:modelValue', false); emit('cancel') }
 function onConfirm() { if (gated() || props.loading || !trimmed()) return; emit('confirm', trimmed()) }
+// 输入框 Enter=确认/Esc=取消走工厂(带 IME 防线):拼音选词回车/取消候选不触发确认关窗
+const onInputKeydown = enterEscKeydown({ onEnter: onConfirm, onEscape: onCancel })
 </script>
 
 <template>
@@ -56,8 +59,7 @@ function onConfirm() { if (gated() || props.loading || !trimmed()) return; emit(
       :class="danger ? 'focus:ring-error' : 'focus:ring-primary'"
       :placeholder="placeholder"
       :disabled="loading"
-      @keydown.enter.prevent="onConfirm"
-      @keydown.esc.prevent="onCancel"
+      @keydown="onInputKeydown"
     >
     <p v-if="requireText" class="mt-xs text-body-xs text-error">
       {{ t('component.promptDialog.typeToConfirm', { text: requireText }) }}

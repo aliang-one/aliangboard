@@ -39,6 +39,7 @@ import TagInput from '@/components/common/TagInput.vue'
 import ResourceInput from '@/components/common/ResourceInput.vue'
 import PortSelect from '@/components/common/PortSelect.vue'
 import { splitCommandTokens, splitArgLines, joinCommandTokens, joinArgLines } from '@/utils/containerTokens'
+import { enterEscKeydown } from '@/utils/imeKey'
 import { useTerminalStore } from '@/stores/terminals'
 import { useFileBrowserStore } from '@/stores/fileBrowsers'
 import { openLogTab } from '@/composables/useLogViewer'
@@ -679,6 +680,7 @@ async function saveImageTag() {
     refreshSoon()
   } catch (e) { notify('error', e.message || t('workload.notify.updateFailed')) }
 }
+const onImageTagKeydown = enterEscKeydown({ onEnter: saveImageTag })   // IME 防线:组合期回车不提交
 
 // === Deployment 关联事件（最新 5 条） ===
 const deployEvents = computed(() => workloadEvents.value.slice(0, 5))
@@ -2474,7 +2476,7 @@ function podStatusBorder(s) {
             <span class="material-symbols-outlined text-sm" :class="tagLoading ? 'animate-spin' : ''">{{ tagLoading ? 'progress_activity' : 'cloud_download' }}</span>{{ tagLoading ? $t('workload.imageTag.fetching') : $t('workload.imageTag.fetchTags') }}
           </button>
         </div>
-        <input v-model="imageTagForm.newTag" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="v3.5.1" @keydown.enter="saveImageTag" />
+        <input v-model="imageTagForm.newTag" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm font-mono focus:ring-2 focus:ring-primary" placeholder="v3.5.1" @keydown="onImageTagKeydown" />
         <div v-if="availableTags.length" class="flex flex-wrap gap-1 mt-sm max-h-32 overflow-y-auto p-xs bg-surface-container-low/40 rounded-lg">
           <button v-for="t in availableTags" :key="t" @click="pickTag(t)" class="px-1.5 py-0.5 rounded text-xs font-mono border transition-colors" :class="imageTagForm.newTag === t ? 'bg-primary text-on-primary border-primary font-semibold' : 'bg-surface-container-lowest text-on-surface border-outline-variant hover:border-primary'">{{ t }}</button>
         </div>

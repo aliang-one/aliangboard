@@ -71,11 +71,11 @@ describe("chrome='window'(浮窗)", () => {
     const input = w.find('input[data-test="term-title-input"]')
     expect(input.exists()).toBe(true)
     await input.setValue('renamed')
-    await input.trigger('keydown.enter')
+    await input.trigger('keydown', { key: 'Enter' })
     expect(w.emitted('rename')).toEqual([['renamed']])
     // Esc 分支:改名框出现后取消,不再 emit
     await w.find('[data-test="term-title"]').trigger('dblclick')
-    await w.find('input[data-test="term-title-input"]').trigger('keydown.esc')
+    await w.find('input[data-test="term-title-input"]').trigger('keydown', { key: 'Escape' })
     expect(w.emitted('rename')).toHaveLength(1)
   })
   test('maximized 透传:绿点字形切换 fullscreen/fullscreen_exit', async () => {
@@ -111,11 +111,11 @@ describe("chrome='page' 居中会话名+改名", () => {
     const input = w.find('input[data-test="term-title-input"]')
     expect(input.exists()).toBe(true)
     await input.setValue('新名')
-    await input.trigger('keydown.enter')
+    await input.trigger('keydown', { key: 'Enter' })
     expect(w.emitted('rename')).toEqual([['新名']])
     // Esc 分支:进编辑后取消,不 emit
     await w.find('[data-test="term-title"]').trigger('dblclick')
-    await w.find('input[data-test="term-title-input"]').trigger('keydown.esc')
+    await w.find('input[data-test="term-title-input"]').trigger('keydown', { key: 'Escape' })
     expect(w.emitted('rename')).toHaveLength(1)
   })
   test('✏️ 钮点击同样进入编辑(hover 显隐配方,max-sm 常显)', async () => {
@@ -155,5 +155,20 @@ describe("chrome='page' 居中会话名+改名", () => {
     await w.find('[data-test="term-title"]').trigger('dblclick')
     expect(w.find('input[data-test="term-title-input"]').exists()).toBe(false)
     expect(w.emitted('rename')).toBeUndefined()
+  })
+  // 中文输入法组合期(2026-11-16 事故):拼音选词回车属 IME,不得提前确认改名。
+  // Chrome 形态=isComposing+keyCode 229;Safari 乱序形态=仅 keyCode 229。
+  test('IME 组合期回车不 emit rename(选词 Enter ≠ 确认)', async () => {
+    const w = mountTerm({ chrome: 'page', title: '我的终端' })
+    await w.find('[data-test="term-title"]').trigger('dblclick')
+    const input = w.find('input[data-test="term-title-input"]')
+    await input.setValue('新名')
+    await input.trigger('keydown', { key: 'Enter', isComposing: true, keyCode: 229 })
+    expect(w.emitted('rename')).toBeUndefined()
+    await input.trigger('keydown', { key: 'Enter', isComposing: false, keyCode: 229 })
+    expect(w.emitted('rename')).toBeUndefined()
+    // 组合结束后正常回车仍确认
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('rename')).toEqual([['新名']])
   })
 })

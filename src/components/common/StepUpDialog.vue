@@ -7,6 +7,7 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { authApi } from '@/api/client'
 import Modal from '@/components/common/Modal.vue'
+import { enterEscKeydown } from '@/utils/imeKey'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -22,6 +23,8 @@ const loading = ref(false)
 watch(() => props.visible, (v) => { if (v) { code.value = ''; error.value = ''; loading.value = false } })
 
 function close() { emit('close') }
+
+const onCodeKeydown = enterEscKeydown({ onEnter: submit })   // IME 防线:组合期回车不提交
 
 async function submit() {
   const c = code.value.trim()
@@ -46,7 +49,7 @@ async function submit() {
     <div class="flex flex-col gap-md">
       <p class="text-body-sm text-on-surface-variant">{{ $t('userCenter.mfa.stepUpHint') }}</p>
       <input v-model="code" data-testid="stepup-input" type="text" inputmode="numeric" autocomplete="one-time-code"
-        :placeholder="$t('userCenter.mfa.codePlaceholder')" @keydown.enter="submit"
+        :placeholder="$t('userCenter.mfa.codePlaceholder')" @keydown="onCodeKeydown"
         class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md tracking-widest focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" />
       <p v-if="error" data-testid="stepup-error" class="text-body-sm text-error bg-error-container/10 rounded-lg px-md py-sm">{{ error }}</p>
       <div class="flex justify-end gap-sm">

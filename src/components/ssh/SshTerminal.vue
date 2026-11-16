@@ -13,6 +13,7 @@ import { codeTheme } from '@/styles/code-theme'
 import { useIsPhone } from '@/composables/useBreakpoint'
 import { useTerminalFont } from '@/composables/useTerminalFont'
 import { attachTerminalClipboardKeys } from '@/composables/useTerminalClipboard'
+import { enterEscKeydown } from '@/utils/imeKey'
 import TerminalKeyBar from '@/components/common/TerminalKeyBar.vue'
 
 const { t } = useI18n()
@@ -55,6 +56,8 @@ function saveTitleRename() {
   titleEditing.value = false
   if (v && v !== props.title) emit('rename', v)
 }
+// 改名框 Enter 确认/Esc 取消走工厂(带 IME 防线):拼音选词回车不提前提交(2026-11-16 事故)
+const onTitleRenameKeydown = enterEscKeydown({ onEnter: saveTitleRename, onEscape: () => { titleEditing.value = false } })
 // 外部改名生效(他页同步)时退出编辑态,避免输入框悬留旧草稿
 watch(() => props.title, () => { titleEditing.value = false })
 
@@ -240,7 +243,7 @@ defineExpose({ refit, replayed, lastCwd, connectIfIdle, connect, status })
            三段式 grid(1fr/2fr/max-content,右段恒不压缩);改名 emit rename 由宿主落 store + 网关 label 端点 -->
       <div v-if="isPageChrome" class="flex items-center justify-center gap-xs min-w-0 group">
         <input v-if="titleEditing" v-model="titleInput" data-test="ssh-title-input" data-no-drag
-               @blur="saveTitleRename" @keydown.enter="saveTitleRename" @keydown.esc="titleEditing = false"
+               @blur="saveTitleRename" @keydown="onTitleRenameKeydown"
                class="flex-1 min-w-0 w-0 bg-surface-container-lowest border border-primary rounded px-sm py-0.5 text-body-sm font-mono focus:outline-none" />
         <template v-else-if="title">
           <span data-test="ssh-title" @dblclick="startTitleRename"

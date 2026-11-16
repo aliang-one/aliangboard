@@ -73,4 +73,14 @@ describe('useEscClose', () => {
     esc()
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  // 中文输入法组合期(2026-11-16 事故):组合期 Esc 是「取消候选词」,不是「关闭弹窗」——
+  // 不守卫会把整个弹窗关掉、输入全丢。
+  it('ignores Escape during IME composition', () => {
+    const onClose = vi.fn()
+    mountWithEsc(() => useEscClose(ref(true), onClose))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, keyCode: 229 }))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: false, keyCode: 229 }))
+    expect(onClose).not.toHaveBeenCalled()
+  })
 })

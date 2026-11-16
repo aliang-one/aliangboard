@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { useDropdownPanel } from '@/composables/useDropdownPanel'
+import { isImeKeyEvent } from '@/utils/imeKey'
 
 // 环境变量来源选择器（ConfigMap / Secret）：资源名 + key 均为「可选可输」的自定义 combobox。
 // 用自定义下拉面板（而非原生 <datalist>）：原生 datalist 弹层由浏览器渲染，暗色模式下是纯黑、无法用应用主题染色。
@@ -81,6 +82,7 @@ function clearDataKey() { if (props.withKey) dataKey.value = '' }
 function onNameFocus() { openName.value = true; activeName.value = -1 }
 function onNameBlur() { openName.value = false }
 function onNameKeydown(e) {
+  if (isImeKeyEvent(e)) return   // IME 防线:组合期 Enter/Esc/箭头属拼音输入,不导航下拉
   const opts = filterName.value
   if (e.key === 'Escape') { openName.value = false; return }
   if (!openName.value || !opts.length) return
@@ -91,6 +93,7 @@ function onNameKeydown(e) {
 function onKeyFocus() { openKey.value = true; activeKey.value = -1 }
 function onKeyBlur() { openKey.value = false }
 function onKeyKeydown(e) {
+  if (isImeKeyEvent(e)) return   // 同上
   const opts = filterKey.value
   if (e.key === 'Escape') { openKey.value = false; return }
   if (!openKey.value || !opts.length) return

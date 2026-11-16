@@ -6,6 +6,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminApi } from '@/api/client'
 import { useClusterNamespaces } from '@/composables/useClusterNamespaces'
+import { enterEscKeydown } from '@/utils/imeKey'
 
 const props = defineProps({
   boundNs: { type: String, default: '' },
@@ -46,6 +47,7 @@ function add() {                   // 手输路径(校验逻辑与旧版一致)
   if (extra.value.includes(v)) { errMsg.value = t('nsAllowlist.dup'); input.value = ''; return }
   commit([...extra.value, v]); input.value = ''; errMsg.value = ''
 }
+const onManualInputKeydown = enterEscKeydown({ onEnter: add })   // IME 防线:组合期回车不加 chip
 function remove(ns) { commit(extra.value.filter(x => x !== ns)) }
 </script>
 <template>
@@ -64,7 +66,7 @@ function remove(ns) { commit(extra.value.filter(x => x !== ns)) }
         <option value="" disabled selected>{{ loading ? t('nsAllowlist.loading') : t('nsAllowlist.selectPlaceholder') }}</option>
         <option v-for="ns in candidates" :key="ns" :value="ns">{{ ns }}</option>
       </select>
-      <input v-else v-model="input" data-testid="ns-manual-input" @keydown.enter.prevent="add" :placeholder="t('nsAllowlist.addPlaceholder')"
+      <input v-else v-model="input" data-testid="ns-manual-input" @keydown="onManualInputKeydown" :placeholder="t('nsAllowlist.addPlaceholder')"
         class="flex-1 bg-transparent border-b border-outline-variant text-body-xs font-mono px-1 py-0.5 outline-none focus:border-primary min-w-[12rem] max-sm:min-w-0 max-sm:min-h-[40px]" />
       <button type="button" data-testid="ns-mode-toggle" class="text-body-xs text-primary underline underline-offset-2 shrink-0 max-sm:min-h-[40px]"
         @click="mode = mode === 'select' ? 'manual' : 'select'">

@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useClusterStore } from '@/stores/cluster'
 import { useResourceList } from '@/composables/useK8sQuery'
 import { syncTagHistory, getTagSuggestions } from '@/composables/useTagHistory'
+import { isImeKeyEvent } from '@/utils/imeKey'
 import { useDropdownPanel } from '@/composables/useDropdownPanel'
 
 const { t } = useI18n()
@@ -57,6 +58,7 @@ function remove(tag) {
   refresh()
 }
 function onKeydown(e) {
+  if (isImeKeyEvent(e)) return   // IME 防线:组合期 Enter/逗号/退格属拼音输入,不当作提交标签
   if (e.key === 'Enter' || e.key === ',') {
     e.preventDefault()
     commit(input.value)

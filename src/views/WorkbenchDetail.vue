@@ -13,6 +13,7 @@ import WorkbenchChat from '@/components/workbench/WorkbenchChat.vue'
 import WbStage from '@/components/workbench/WbStage.vue'
 import { useIsPhone } from '@/composables/useBreakpoint'
 import { useEscClose } from '@/composables/useEscClose'
+import { enterEscKeydown } from '@/utils/imeKey'
 import { Z } from '@/styles/zScale'
 
 const route = useRoute()
@@ -140,6 +141,8 @@ async function confirmRename(convId) {
     notify('success', t('workbench.detail.convRenamed'))
   } catch (e) { notify('error', e.message || t('workbench.detail.renameFailed')) }
 }
+// 改名框 Enter/Esc 走工厂(带 IME 防线):会话名常含中文,拼音选词回车不提前提交
+const onConvRenameKeydown = enterEscKeydown({ onEnter: () => confirmRename(renamingId.value), onEscape: () => { renamingId.value = null } })
 
 const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'
 
@@ -282,6 +285,8 @@ function addFile() {
   currentPath.value = p; currentContent.value = ''; savedContent.value = null
   notify('success', t('workbench.detail.newFileCreated', { path: p }))
 }
+const onNewFileKeydown = enterEscKeydown({ onEnter: addFile })     // IME 防线:组合期回车不建文件
+const onCommitMsgKeydown = enterEscKeydown({ onEnter: doCommit })  // IME 防线:组合期回车不提交
 
 // 删除项目文件(后端删工作树文件;删除在下次 commit 进 git 历史)
 async function deleteProjectFile(path) {
@@ -436,7 +441,7 @@ const treeRows = computed(() => {
                 <span v-if="c.steps" class="text-body-xs text-on-surface-variant/50 ml-auto">{{ c.steps }}↻</span>
               </div>
               <p v-if="renamingId === c.id" class="text-body-xs">
-                <input :ref="el => { if (el) renameInput = el }" v-model="renameText" @keydown.enter="confirmRename(c.id)" @keydown.esc="renamingId = null" @click.stop class="w-full bg-surface-container-lowest border border-primary/40 rounded px-xs py-0.5 text-body-xs outline-none" :placeholder="t('workbench.detail.convTitlePlaceholder')" />
+                <input :ref="el => { if (el) renameInput = el }" v-model="renameText" @keydown="onConvRenameKeydown" @click.stop class="w-full bg-surface-container-lowest border border-primary/40 rounded px-xs py-0.5 text-body-xs outline-none" :placeholder="t('workbench.detail.convTitlePlaceholder')" />
               </p>
               <p v-else class="text-body-xs truncate">{{ c.title || c.userMessage || t('workbench.detail.emptyConv') }}</p>
             </div>
@@ -521,7 +526,7 @@ const treeRows = computed(() => {
           <p v-if="!files.length" class="text-body-xs text-on-surface-variant px-sm py-sm">{{ t('workbench.detail.noFiles') }}</p>
         </div>
         <div class="p-sm border-t border-outline-variant flex gap-xs">
-          <input v-model="newFile" @keydown.enter="addFile" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" :placeholder="t('workbench.detail.newFilePlaceholder')" />
+          <input v-model="newFile" @keydown="onNewFileKeydown" class="flex-1 bg-surface-container-low border border-outline-variant rounded px-sm py-xs text-body-xs font-mono" :placeholder="t('workbench.detail.newFilePlaceholder')" />
           <button @click="addFile" class="p-xs rounded bg-surface-container hover:bg-surface-container-high"><span class="material-symbols-outlined text-sm">add</span></button>
         </div>
       </div>
@@ -541,7 +546,7 @@ const treeRows = computed(() => {
         <YamlEditor v-else :model-value="currentContent" :readonly="false" height="50vh"
           @update:model-value="v => currentContent = v" @save="save" @discard="discard" />
         <div class="flex items-center gap-xs">
-          <input v-model="commitMsg" @keydown.enter="doCommit" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="t('workbench.detail.commitPlaceholder')" />
+          <input v-model="commitMsg" @keydown="onCommitMsgKeydown" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-sm" :placeholder="t('workbench.detail.commitPlaceholder')" />
           <button @click="doCommit" class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container"><span class="material-symbols-outlined text-sm">commit</span>{{ t('workbench.detail.commit') }}</button>
         </div>
         <details class="bg-surface-container-low border border-outline-variant rounded-lg">

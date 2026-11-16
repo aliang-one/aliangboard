@@ -10,6 +10,7 @@ import { authApi, purgeSession } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
 import { safeRedirectPath } from '@/utils/safeRedirect'
+import { enterEscKeydown } from '@/utils/imeKey'
 import LocaleToggle from '@/components/common/LocaleToggle.vue'
 
 const router = useRouter()
@@ -126,6 +127,10 @@ function backToPassword() {
   errorMessage.value = ''
 }
 
+// 登录三输入 Enter 提交走工厂(带 IME 防线):组合期回车不提交
+const onLoginKeydown = enterEscKeydown({ onEnter: handleLogin })
+const onMfaLoginKeydown = enterEscKeydown({ onEnter: handleMfaLogin })
+
 // === W4 OIDC:SSO 回跳续接 ===
 // 服务端 302 码白名单(与 server/routes/auth.mjs 一一对应;表外码走通用文案,不渲染裸键路径)。
 const OIDC_ERROR_CODES = ['disabled', 'state', 'denied', 'token', 'verify', 'usernameTaken', 'jit', 'ratelimited']
@@ -190,7 +195,7 @@ function ssoLogin() {
             <p class="text-body-xs text-on-surface-variant mt-xs font-medium">{{ form.username.trim() }}</p>
           </div>
           <input v-model="mfaCode" data-testid="mfa-step-input" type="text" inputmode="numeric" autocomplete="one-time-code"
-            :placeholder="$t('login.mfaStepPlaceholder')" @keydown.enter="handleMfaLogin"
+            :placeholder="$t('login.mfaStepPlaceholder')" @keydown="onMfaLoginKeydown"
             class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md tracking-widest text-center focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" />
           <p v-if="errorMessage" class="text-body-sm text-error bg-error-container/10 rounded-lg px-md py-sm flex items-center gap-sm">
             <span class="material-symbols-outlined text-base">error</span>{{ errorMessage }}
@@ -212,13 +217,13 @@ function ssoLogin() {
             <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('login.username') }}</label>
             <input v-model="form.username" type="text" autocomplete="username"
               class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
-              placeholder="admin" @keydown.enter="handleLogin" />
+              placeholder="admin" @keydown="onLoginKeydown" />
           </div>
           <div>
             <label class="text-label-caps text-on-surface-variant block mb-xs">{{ $t('login.password') }}</label>
             <input v-model="form.password" type="password" autocomplete="current-password"
               class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-md py-sm text-body-md focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
-              placeholder="••••••••" @keydown.enter="handleLogin" />
+              placeholder="••••••••" @keydown="onLoginKeydown" />
           </div>
           <p v-if="errorMessage" class="text-body-sm text-error bg-error-container/10 rounded-lg px-md py-sm flex items-center gap-sm">
             <span class="material-symbols-outlined text-base">error</span>{{ errorMessage }}

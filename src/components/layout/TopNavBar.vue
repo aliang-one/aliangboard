@@ -14,6 +14,7 @@ import { useShellStore } from '@/stores/shell'
 import { Z } from '@/styles/zScale'
 import { searchAll, collectResourceItems } from '@/logic/globalSearch'
 import { routeForResource } from '@/logic/resourceNavigation'
+import { isImeKeyEvent } from '@/utils/imeKey'
 import { useI18n } from 'vue-i18n'
 
 const router = useRouter()
@@ -173,6 +174,7 @@ function goResult(it) {
   if (route) router.push(route)
 }
 function onSearchKeydown(e) {
+  if (isImeKeyEvent(e)) return   // IME 防线:组合期回车=确认候选词、Esc=取消组合,不跳结果/不清空
   if (e.key === 'Enter' && searchResults.value.length) { e.preventDefault(); goResult(searchResults.value[0]) }
   else if (e.key === 'Escape') { searchQuery.value = ''; if (searchModalOpen.value) closeSearchModal() }
 }

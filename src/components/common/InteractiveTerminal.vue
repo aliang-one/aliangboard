@@ -14,6 +14,7 @@ import { codeTheme } from '@/styles/code-theme'
 import { useIsPhone } from '@/composables/useBreakpoint'
 import { useTerminalFont } from '@/composables/useTerminalFont'
 import { attachTerminalClipboardKeys } from '@/composables/useTerminalClipboard'
+import { enterEscKeydown } from '@/utils/imeKey'
 import TerminalKeyBar from './TerminalKeyBar.vue'
 
 const { t } = useI18n()
@@ -54,6 +55,8 @@ function saveRename() {
   editing.value = false
   if (v && v !== props.title) emit('rename', v)
 }
+// 改名框 Enter 确认/Esc 取消走工厂(带 IME 防线):拼音选词回车不提前提交(2026-11-16 事故)
+const onRenameKeydown = enterEscKeydown({ onEnter: saveRename, onEscape: () => { editing.value = false } })
 // 外部改名生效(同窗口他处改)时退出编辑态,避免输入框悬留旧草稿
 watch(() => props.title, () => { editing.value = false })
 
@@ -187,6 +190,7 @@ function connectManual() {
   customShell.value = manualCmd.value.trim() || SHELLS[shellIdx.value]
   connect({ manual: true })
 }
+const onManualCmdKeydown = enterEscKeydown({ onEnter: connectManual })
 
 onMounted(() => { if (props.autoConnect) connect() })
 onUnmounted(teardown)
@@ -232,7 +236,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
         </div>
         <!-- 名称/信息:浮窗=显示名(双击改名,pod:容器·shell 进 tooltip);其余=pod:容器·shell 原样 -->
         <input v-if="editing && !isPageChrome" v-model="nameInput" data-test="term-title-input" data-no-drag
-               @blur="saveRename" @keydown.enter="saveRename" @keydown.esc="editing = false"
+               @blur="saveRename" @keydown="onRenameKeydown"
                class="flex-1 min-w-0 w-0 bg-surface-container-lowest border border-primary rounded px-sm py-0.5 text-body-sm font-mono focus:outline-none" />
         <span v-else-if="isWindowChrome && title" data-test="term-title" @dblclick="startRename"
               class="min-w-0 flex-1 text-code-sm text-on-surface truncate font-mono"
@@ -248,7 +252,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
            改名 emit 复用浮窗链路,持久化由宿主(弹窗页)落 store -->
       <div v-if="isPageChrome" class="flex items-center justify-center gap-xs min-w-0 group">
         <input v-if="editing" v-model="nameInput" data-test="term-title-input" data-no-drag
-               @blur="saveRename" @keydown.enter="saveRename" @keydown.esc="editing = false"
+               @blur="saveRename" @keydown="onRenameKeydown"
                class="flex-1 min-w-0 w-0 bg-surface-container-lowest border border-primary rounded px-sm py-0.5 text-body-sm font-mono focus:outline-none" />
         <template v-else-if="title">
           <span data-test="term-title" @dblclick="startRename"
@@ -311,7 +315,7 @@ watch(() => props.attach, () => { if (stream || status.value === 'open') connect
           <select v-model.number="shellIdx" class="bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-1 text-body-xs font-mono focus:ring-2 focus:ring-primary">
             <option v-for="(s, i) in SHELLS" :key="s" :value="i">{{ s }}</option>
           </select>
-          <input v-model="manualCmd" :placeholder="t('terminal.manualCmdPlaceholder')" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-1 text-body-xs font-mono focus:ring-2 focus:ring-primary" @keydown.enter="connectManual" />
+          <input v-model="manualCmd" :placeholder="t('terminal.manualCmdPlaceholder')" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-sm py-1 text-body-xs font-mono focus:ring-2 focus:ring-primary" @keydown="onManualCmdKeydown" />
           <button @click="connectManual" class="px-sm py-1 bg-primary text-on-primary rounded-lg text-body-xs font-semibold hover:opacity-90 shrink-0">{{ t('terminal.connectWithCmd') }}</button>
         </div>
       </div>

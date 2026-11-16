@@ -37,11 +37,11 @@ test("chrome='page' + title:中段渲染会话名;双击进编辑,回车 emit re
   const input = w.find('input[data-test="ssh-title-input"]')
   expect(input.exists()).toBe(true)
   await input.setValue('跳板机')
-  await input.trigger('keydown.enter')
+  await input.trigger('keydown', { key: 'Enter' })
   expect(w.emitted('rename')).toEqual([['跳板机']])
   // Esc 分支:取消不 emit
   await w.find('[data-test="ssh-title"]').trigger('dblclick')
-  await w.find('input[data-test="ssh-title-input"]').trigger('keydown.esc')
+  await w.find('input[data-test="ssh-title-input"]').trigger('keydown', { key: 'Escape' })
   expect(w.emitted('rename')).toHaveLength(1)
 })
 
@@ -80,4 +80,21 @@ test('editable=false(无本地记录):✏️ 不渲染,双击不进编辑', asyn
   await w.find('[data-test="ssh-title"]').trigger('dblclick')
   expect(w.find('input[data-test="ssh-title-input"]').exists()).toBe(false)
   expect(w.emitted('rename')).toBeUndefined()
+})
+
+// 中文输入法组合期(2026-11-16 事故):拼音选词回车属 IME,不得提前确认改名。
+// Chrome 形态=isComposing+keyCode 229;Safari 乱序形态=仅 keyCode 229。
+test('IME 组合期回车不 emit rename(选词 Enter ≠ 确认)', async () => {
+  const w = mountTerm({ chrome: 'page', title: '生产机' })
+  await flushPromises()
+  await w.find('[data-test="ssh-title"]').trigger('dblclick')
+  const input = w.find('input[data-test="ssh-title-input"]')
+  await input.setValue('跳板机')
+  await input.trigger('keydown', { key: 'Enter', isComposing: true, keyCode: 229 })
+  expect(w.emitted('rename')).toBeUndefined()
+  await input.trigger('keydown', { key: 'Enter', isComposing: false, keyCode: 229 })
+  expect(w.emitted('rename')).toBeUndefined()
+  // 组合结束后正常回车仍确认
+  await input.trigger('keydown', { key: 'Enter' })
+  expect(w.emitted('rename')).toEqual([['跳板机']])
 })

@@ -14,6 +14,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, keepPreviousData } from '@tanstack/vue-query'
 import { workbenchApi, getPlatformToken } from '@/api/client'
 import { useIsPhone } from '@/composables/useBreakpoint'
+import { isImeKeyEvent } from '@/utils/imeKey'
 import { Z } from '@/styles/zScale'
 
 const route = useRoute()
@@ -86,7 +87,7 @@ function go(path) { closeNow(); router.push(path) }
 function onDocClick(e) {
   if (panelOpen.value && !e.target.closest?.('[data-test="wb-pill"], [data-test="wb-panel"]')) closeNow()
 }
-function onKey(e) { if (e.key === 'Escape') closeNow() }
+function onKey(e) { if (e.key === 'Escape' && !isImeKeyEvent(e)) closeNow() }   // IME 防线:组合期 Esc=取消候选词,不关浮层
 onMounted(() => { document.addEventListener('click', onDocClick); document.addEventListener('keydown', onKey) })
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
