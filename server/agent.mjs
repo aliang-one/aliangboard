@@ -300,7 +300,22 @@ export function createAgent({ chat, toolDefs = [], execTool, needsApproval = () 
       const toolCalls = assistant.tool_calls || []
       // 终答(正常完成,不携带步数上限旗标);cutByLength(2026-09-06):finish_reason=length
       // = provider 输出上限掐断,前端亮标,不再静默截断。
-      if (!toolCalls.length) return { content: assistant.content, steps, denied, truncated: false, cutByLength: assistant.finishReason === 'length' }
+      if (!toolCalls.length) {
+        // 出口前吸收(2026-11-16 活体事故:纯问答轮/终答流式期间的补发根本没被受理)——
+        // 循环顶部 pollSteer 只覆盖「每轮 chat 前」,最后一轮 chat 之后无工具调用即走此处
+        // return,这期间落库的 steered 行本轮永远无人消费(徽标恒不翻,AI 不理会,直到
+        // 用户下次手动发消息才随 buildHistory 进上下文)。出口 poll 到未消费补充 → 推入并
+        // 继续本轮:下一轮 chat 自然应答(工具照常可用);终止条件=无新补充且无工具调用。
+        // 步数上限/取消/预算裁剪在循环顶照常生效,不会因继续而绕过任何检查点。
+        if (pollSteer) {
+          const steered = await pollSteer()
+          if (steered?.length) {
+            messages.push(...steered)
+            continue
+          }
+        }
+        return { content: assistant.content, steps, denied, truncated: false, cutByLength: assistant.finishReason === 'length' }
+      }
       queue = [...toolCalls]
       resumeToolCallId = null // 新 turn,旧 resume 标记失效
     }
